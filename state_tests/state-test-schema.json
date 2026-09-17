@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Element X semantic state-test schema",
+  "type": "object",
+  "required": ["version", "task", "source", "platform_bindings", "state_dimensions", "cases"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "task": {
+      "type": "object",
+      "required": ["id", "title", "base", "final"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "base": { "type": "string" },
+        "final": { "type": "string" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["spec", "release_notes", "android_evidence"],
+      "properties": {
+        "spec": { "type": "string" },
+        "release_notes": { "type": "array", "items": { "type": "string" } },
+        "android_evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "platform_bindings": {
+      "type": "object",
+      "required": ["android", "arkts"],
+      "properties": {
+        "android": { "$ref": "#/$defs/platformBinding" },
+        "arkts": { "$ref": "#/$defs/platformBinding" }
+      }
+    },
+    "state_dimensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "values"],
+        "properties": {
+          "name": { "type": "string" },
+          "values": { "type": "array", "items": { "type": ["string", "number", "boolean"] } }
+        }
+      }
+    },
+    "quality_gates": {
+      "type": "object",
+      "required": ["minimum_cases", "required_functional_areas", "discrimination_rules"],
+      "properties": {
+        "minimum_cases": { "type": "integer", "minimum": 1 },
+        "required_functional_areas": { "type": "array", "items": { "type": "string" } },
+        "discrimination_rules": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "given_state", "expect_ui"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "functional_area": { "type": "string" },
+          "fixture_kind": { "type": "string" },
+          "base_failure_signal": { "type": "string" },
+          "runtime_oracle": {
+            "type": "object",
+            "properties": {
+              "state_vector": { "type": "boolean" },
+              "ui_tree_tokens": { "type": "boolean" },
+              "transition_steps": { "type": ["string", "integer"] },
+              "cross_platform_parity": { "type": "boolean" }
+            }
+          },
+          "mutation_guards": { "type": "array", "items": { "type": "string" } },
+          "given_state": { "type": "object" },
+          "expect_ui": { "$ref": "#/$defs/uiExpectation" },
+          "transitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["event", "to_state"],
+              "properties": {
+                "event": { "type": "string" },
+                "to_state": { "type": "object" },
+                "expect_ui": { "$ref": "#/$defs/uiExpectation" }
+              }
+            }
+          },
+          "parity_assertions": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "platformBinding": {
+      "type": "object",
+      "required": ["state_holders", "render_targets"],
+      "properties": {
+        "state_holders": { "type": "array", "items": { "type": "string" } },
+        "render_targets": { "type": "array", "items": { "type": "string" } },
+        "event_entrypoints": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "uiExpectation": {
+      "type": "object",
+      "properties": {
+        "visible": { "type": "array", "items": { "type": "string" } },
+        "hidden": { "type": "array", "items": { "type": "string" } },
+        "enabled": { "type": "array", "items": { "type": "string" } },
+        "disabled": { "type": "array", "items": { "type": "string" } },
+        "properties": { "type": "object" }
+      }
+    }
+  }
+}

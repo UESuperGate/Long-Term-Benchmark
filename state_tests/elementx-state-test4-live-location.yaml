@@ -1,0 +1,927 @@
+version: 1
+task:
+  id: 04_live_location
+  title: 实时位置分享
+  base: v26.04.0
+  final: v26.05.1
+source:
+  spec: C:/Users/xiexi/qingyu/specs/elementx-spec4-live-location.md
+  release_notes:
+    - Feature: share live location
+    - Prevent user from starting Live Location Sharing in thread
+    - Remove LiveLocationSharing feature flag
+  android_evidence:
+    - ShareLocationState.canShareLiveLocation
+    - ShareLocationState.dialogState
+    - ShareLocationPresenter.pendingLiveLocationShare
+    - ActiveLiveLocationShareManager.isCurrentlySharing(roomId)
+    - ShowLocationState.isLive / locationShares / focusedLocation
+    - LiveLocationSharingBanner
+platform_bindings:
+  android:
+    state_holders:
+      - ShareLocationState.canShareLiveLocation
+      - ShareLocationState.dialogState
+      - ShareLocationState.startLiveLocationAction
+      - ShareLocationState.userLocationState
+      - ActiveLiveLocationShareManager.isCurrentlySharing(roomId)
+      - LiveLocationStore expiry map
+      - ShowLocationState.isLive
+      - ShowLocationState.locationShares
+      - LocationShareItem.canStopSharing
+    render_targets:
+      - ShareLocationView
+      - LiveLocationSharingBanner
+      - TimelineItemLocationView
+      - ShowLocationView
+    event_entrypoints:
+      - ShareLocationEvent.InitiateLiveLocationShare
+      - ShareLocationEvent.StartLiveLocationShare(duration)
+      - ActiveLiveLocationShareManager.startShare(roomId, duration)
+      - ActiveLiveLocationShareManager.stopShare(roomId)
+      - location tick / timeout tick
+  arkts:
+    state_holders:
+      - TimelineEvent.kind == LiveLocation
+      - TimelineEvent.liveLocation.active
+      - TimelineEvent.liveLocation.lastLocation
+      - SyncRuntimeState.sharingLiveLocation
+      - Index live-location banner state
+      - FixtureMatrixClientAdapter live location session
+    render_targets:
+      - Share location panel
+      - Live location timeline row
+      - Live map view
+      - Active sharing banner
+    event_entrypoints:
+      - startLiveLocation(roomId, duration)
+      - stopLiveLocation(roomId)
+      - updateLiveLocation(roomId, lat, lon)
+      - expireLiveLocation(roomId)
+state_dimensions:
+  - name: context
+    values: [room, thread]
+  - name: permission
+    values: [unknown, denied, granted]
+  - name: dialog
+    values: [none, constraints, disclaimer, duration_picker]
+  - name: share_action
+    values: [idle, loading, success, failure]
+  - name: live_session
+    values: [inactive, starting, active, stopped, expired]
+  - name: map
+    values: [closed, opened_loading, opened_with_location, opened_no_location]
+  - name: active_share
+    values: [none, own_active, remote_active, multiple_active]
+  - name: timeline_item
+    values: [none, live_active, live_ended, static_location]
+  - name: last_location
+    values: [none, fresh, stale]
+  - name: notification
+    values: [none, live_location_started]
+  - name: surface
+    values: [composer, room_timeline, map, banner, notification]
+quality_gates:
+  minimum_cases: 30
+  required_functional_areas: [composer_gate, permission_flow, active_manager, timeline_item, map_view, banner, stop_timeout, notification, failure_recovery]
+  discrimination_rules:
+    - every case is a final-positive live-location requirement; base mirrors must fail because the full active-share loop is absent
+    - a final pass requires state propagation between manager, timeline, map and banner
+    - static location behavior is only a regression constraint when live and static items coexist
+    - feature_available alone is never sufficient evidence
+cases:
+  - id: ll_state_001_room_entry_enabled
+    title: 普通房间允许进入实时位置分享
+    functional_area: composer_gate
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_composer_gate_binding
+    given_state:
+      context: room
+      permission: granted
+      dialog: none
+      live_session: inactive
+      share_action: idle
+    expect_ui:
+      visible: [share_location_entry, live_location_entry]
+      enabled: [live_location_entry]
+      hidden: [thread_live_location_blocked_message]
+    transitions:
+      - event: initiate_live_location_share
+        to_state:
+          dialog: duration_picker
+        expect_ui:
+          visible: [live_location_duration_picker]
+
+  - id: ll_state_002_thread_entry_disabled
+    title: thread 内禁止启动实时位置分享
+    functional_area: composer_gate
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_composer_gate_binding
+    given_state:
+      context: thread
+      permission: granted
+      dialog: none
+      live_session: inactive
+    expect_ui:
+      visible: [share_location_entry, thread_live_location_blocked_message]
+      disabled: [live_location_entry]
+      hidden: [live_location_duration_picker]
+
+  - id: ll_state_003_permission_denied
+    title: 定位权限拒绝时不启动 active share
+    functional_area: permission_flow
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_permission_flow_binding
+    given_state:
+      context: room
+      permission: denied
+      dialog: constraints
+      live_session: inactive
+    expect_ui:
+      visible: [location_permission_prompt_or_constraints]
+      hidden: [live_location_duration_picker, live_location_banner]
+    transitions:
+      - event: deny_permission
+        to_state:
+          permission: denied
+          live_session: inactive
+        expect_ui:
+          visible: [location_permission_error]
+          hidden: [live_location_banner]
+
+  - id: ll_state_004_disclaimer_then_duration
+    title: 首次使用展示免责声明再进入时长选择
+    functional_area: composer_gate
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_composer_gate_binding
+    given_state:
+      context: room
+      permission: granted
+      dialog: disclaimer
+      live_session: inactive
+    expect_ui:
+      visible: [live_location_disclaimer]
+      enabled: [accept_live_location_disclaimer]
+    transitions:
+      - event: accept_disclaimer
+        to_state:
+          dialog: duration_picker
+        expect_ui:
+          visible: [live_location_duration_picker]
+
+  - id: ll_state_005_start_share_success
+    title: 选择时长后启动分享并出现 timeline/bannner
+    functional_area: timeline_item
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_item_binding
+    given_state:
+      context: room
+      permission: granted
+      dialog: duration_picker
+      live_session: inactive
+      share_action: idle
+    transitions:
+      - event: start_live_location_share(duration=1h)
+        to_state:
+          live_session: starting
+          share_action: loading
+        expect_ui:
+          visible: [start_live_location_loading]
+      - event: sdk_start_live_location_success
+        to_state:
+          live_session: active
+          share_action: success
+          dialog: none
+        expect_ui:
+          visible: [live_location_timeline_item, live_location_banner, stop_live_location_button]
+          hidden: [start_live_location_loading]
+
+  - id: ll_state_006_start_share_failure
+    title: 启动失败时不留下 active share
+    functional_area: failure_recovery
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_failure_recovery_binding
+    given_state:
+      context: room
+      permission: granted
+      dialog: duration_picker
+      live_session: starting
+      share_action: loading
+    transitions:
+      - event: sdk_start_live_location_failure
+        to_state:
+          live_session: inactive
+          share_action: failure
+        expect_ui:
+          visible: [live_location_error]
+          hidden: [live_location_banner, stop_live_location_button]
+
+  - id: ll_state_007_map_updates_location
+    title: 活跃分享地图跟随 lastLocation 更新
+    functional_area: map_view
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_map_view_binding
+    given_state:
+      live_session: active
+      map: opened_with_location
+      location:
+        lat: 48.8566
+        lon: 2.3522
+    expect_ui:
+      visible: [live_map, live_location_marker]
+      properties:
+        live_location_marker: "48.8566,2.3522"
+    transitions:
+      - event: live_location_update(lat=51.5074, lon=-0.1278)
+        to_state:
+          location:
+            lat: 51.5074
+            lon: -0.1278
+        expect_ui:
+          properties:
+            live_location_marker: "51.5074,-0.1278"
+
+  - id: ll_state_008_stop_share
+    title: 停止分享后 banner 消失且 timeline 转为已结束
+    functional_area: stop_timeout
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_stop_timeout_binding
+    given_state:
+      live_session: active
+      share_action: idle
+      map: opened_with_location
+    expect_ui:
+      visible: [live_location_banner, stop_live_location_button]
+    transitions:
+      - event: stop_live_location_share
+        to_state:
+          share_action: loading
+        expect_ui:
+          visible: [stop_live_location_loading]
+      - event: sdk_stop_live_location_success
+        to_state:
+          live_session: stopped
+          share_action: success
+        expect_ui:
+          visible: [live_location_ended_label]
+          hidden: [live_location_banner, stop_live_location_button]
+
+  - id: ll_state_009_timeout_expiry
+    title: 超时 tick 自动收敛为 expired
+    functional_area: stop_timeout
+    fixture_kind: timer_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_stop_timeout_binding
+    given_state:
+      live_session: active
+      expires_at_ms: 1000
+      now_ms: 999
+    expect_ui:
+      visible: [live_location_banner]
+    transitions:
+      - event: time_tick(now_ms=1001)
+        to_state:
+          live_session: expired
+        expect_ui:
+          visible: [live_location_ended_label]
+          hidden: [live_location_banner]
+
+  - id: ll_state_010_capability_disabled
+    title: 不可分享实时位置时入口禁用但静态位置仍可用
+    functional_area: composer_gate
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_composer_gate_binding
+    given_state:
+      context: room
+      permission: granted
+      can_share_live_location: false
+      live_session: inactive
+    expect_ui:
+      visible: [share_static_location_entry]
+      disabled: [live_location_entry]
+      hidden: [live_location_duration_picker]
+
+  - id: ll_state_011_permission_unknown_requests_permission
+    title: 权限未知时发起分享先进入权限请求态
+    functional_area: permission_flow
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_permission_flow_binding
+    given_state:
+      context: room
+      permission: unknown
+      dialog: none
+      live_session: inactive
+    transitions:
+      - event: initiate_live_location_share
+        to_state:
+          dialog: constraints
+        expect_ui:
+          visible: [location_permission_prompt_or_constraints, live_location_entry_blocked]
+          hidden: [live_location_duration_picker, live_location_banner]
+
+  - id: ll_state_012_accepted_disclaimer_skips_dialog
+    title: 已接受免责声明后直接进入时长选择
+    functional_area: composer_gate
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_composer_gate_binding
+    given_state:
+      context: room
+      permission: granted
+      disclaimer_accepted: true
+      dialog: none
+      live_session: inactive
+    transitions:
+      - event: initiate_live_location_share
+        to_state:
+          dialog: duration_picker
+        expect_ui:
+          visible: [live_location_duration_picker, start_live_location_button]
+          hidden: [live_location_disclaimer, location_permission_prompt_or_constraints]
+
+  - id: ll_state_013_constraints_dialog_blocks_start
+    title: 定位约束未满足时不能直接启动分享
+    functional_area: composer_gate
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_composer_gate_binding
+    given_state:
+      context: room
+      permission: granted
+      dialog: constraints
+      constraints_satisfied: false
+      live_session: inactive
+    expect_ui:
+      visible: [location_constraints_dialog]
+      hidden: [start_live_location_button, live_location_banner]
+
+  - id: ll_state_014_start_replaces_existing_share
+    title: 同房间重复启动分享会收敛为一个 active session
+    functional_area: timeline_item
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_item_binding
+    given_state:
+      context: room
+      permission: granted
+      live_session: active
+      active_session_count_for_room: 1
+    transitions:
+      - event: start_live_location_share(duration=2h)
+        to_state:
+          live_session: starting
+          active_session_count_for_room: 1
+        expect_ui:
+          visible: [start_live_location_loading]
+      - event: sdk_start_live_location_success
+        to_state:
+          live_session: active
+          active_session_count_for_room: 1
+        expect_ui:
+          visible: [live_location_banner]
+          properties:
+            active_session_count_for_room: 1
+
+  - id: ll_state_015_multi_room_banner_list
+    title: 多房间分享时 banner 能表示多个 active shares
+    functional_area: banner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_banner_binding
+    given_state:
+      live_session: active
+      active_rooms: [room_a, room_b]
+    expect_ui:
+      visible: [live_location_banner, active_room_chip_room_a, active_room_chip_room_b]
+      properties:
+        active_live_location_room_count: 2
+
+  - id: ll_state_016_stop_one_room_keeps_other_banner
+    title: 停止一个房间分享不影响其它房间 active 状态
+    functional_area: banner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_banner_binding
+    given_state:
+      live_session: active
+      active_rooms: [room_a, room_b]
+      current_room: room_a
+    transitions:
+      - event: stop_live_location_share(room_a)
+        to_state:
+          active_rooms: [room_b]
+          current_room_session: stopped
+        expect_ui:
+          visible: [live_location_banner, active_room_chip_room_b]
+          hidden: [active_room_chip_room_a]
+          properties:
+            active_live_location_room_count: 1
+
+  - id: ll_state_017_stop_failure_keeps_active
+    title: 停止失败时保留 active share 并展示错误
+    functional_area: stop_timeout
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_stop_timeout_binding
+    given_state:
+      live_session: active
+      share_action: loading
+    transitions:
+      - event: sdk_stop_live_location_failure
+        to_state:
+          live_session: active
+          share_action: failure
+        expect_ui:
+          visible: [live_location_banner, stop_live_location_button, live_location_error]
+
+  - id: ll_state_018_map_no_last_location
+    title: 活跃分享暂无 lastLocation 时地图展示等待态
+    functional_area: map_view
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_map_view_binding
+    given_state:
+      live_session: active
+      map: opened_no_location
+      location: null
+    expect_ui:
+      visible: [live_map, live_location_no_location_yet]
+      hidden: [live_location_marker]
+    transitions:
+      - event: live_location_update(lat=35.6895, lon=139.6917)
+        to_state:
+          map: opened_with_location
+          location:
+            lat: 35.6895
+            lon: 139.6917
+        expect_ui:
+          visible: [live_location_marker]
+          hidden: [live_location_no_location_yet]
+
+  - id: ll_state_019_remote_live_share_cannot_stop
+    title: 他人的实时位置分享不可由当前用户停止
+    functional_area: stop_timeout
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_stop_timeout_binding
+    given_state:
+      live_session: active
+      map: opened_with_location
+      is_own_user: false
+    expect_ui:
+      visible: [live_location_timeline_item, live_location_marker]
+      hidden: [stop_live_location_button]
+
+  - id: ll_state_020_own_live_share_can_stop
+    title: 自己的实时位置分享展示停止入口
+    functional_area: stop_timeout
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_stop_timeout_binding
+    given_state:
+      live_session: active
+      map: opened_with_location
+      is_own_user: true
+    expect_ui:
+      visible: [live_location_timeline_item, stop_live_location_button]
+      enabled: [stop_live_location_button]
+
+  - id: ll_state_021_final_live_and_static_location_coexist
+    title: final 语义中实时位置与静态位置消息共存
+    functional_area: timeline_item
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_item_binding
+    given_state:
+      release_semantics: final
+      event_content: static_and_live_location
+      live_session: active
+      map: opened_with_location
+    expect_ui:
+      visible: [static_location_timeline_item, static_map_preview, live_location_timeline_item, live_location_banner]
+      enabled: [open_live_map]
+      hidden: [unsupported_live_location_placeholder]
+    parity_assertions:
+      - Base mirrors must fail this case because static location can render, but active live-location timeline and banner semantics are absent.
+
+  - id: ll_state_022_live_location_push_notification
+    title: 实时位置开始通知渲染为 live location start
+    functional_area: notification
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_notification_binding
+    given_state:
+      notification_event: live_location_start
+      live_session: active
+    expect_ui:
+      visible: [notification_live_location_start, notification_room_name]
+      hidden: [notification_generic_unsupported_event, notification_static_location_label]
+
+  - id: ll_state_023_manager_unrecoverable_error_clears_all
+    title: active manager 不可恢复错误会清理本地 active 状态
+    functional_area: active_manager
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_manager_binding
+    given_state:
+      live_session: active
+      active_rooms: [room_a, room_b]
+    transitions:
+      - event: live_location_manager_unrecoverable_error
+        to_state:
+          live_session: inactive
+          active_rooms: []
+        expect_ui:
+          hidden: [live_location_banner, stop_live_location_button]
+          visible: [live_location_error]
+
+  - id: ll_state_024_final_live_location_actionable_timeline_item
+    title: final 语义中实时位置 fixture 必须展示 timeline item 和控制入口
+    functional_area: timeline_item
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_item_binding
+    given_state:
+      release_semantics: final
+      event_content: live_location
+      live_session: active
+      is_own_user: true
+    expect_ui:
+      visible: [live_location_timeline_item, live_location_banner, live_location_last_update]
+      enabled: [open_live_map, stop_live_location_button]
+      hidden: [unsupported_event_placeholder]
+    parity_assertions:
+      - Base mirrors must fail this case because live-location events are not rendered as first-class timeline items.
+
+  - id: ll_state_025_final_positive_live_location_timeline
+    title: final 语义中实时位置 timeline、map、banner 都可达
+    functional_area: timeline_item
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_item_binding
+    given_state:
+      release_semantics: final
+      event_content: live_location
+      live_session: active
+      map: closed
+      is_own_user: true
+    expect_ui:
+      visible: [live_location_timeline_item, live_location_banner]
+      enabled: [open_live_map, stop_live_location_button]
+      hidden: [unsupported_event_placeholder]
+
+  - id: ll_state_026_timeout_stop_failure_reports_error
+    title: 超时自动停止失败时不误报仍在分享成功
+    functional_area: stop_timeout
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_stop_timeout_binding
+    given_state:
+      live_session: active
+      expires_at_ms: 1000
+      now_ms: 1001
+      timeout_stop_result: failure
+    transitions:
+      - event: timeout_stop_live_location_failure
+        to_state:
+          live_session: active
+          share_action: failure
+        expect_ui:
+          visible: [live_location_error, live_location_banner]
+          hidden: [live_location_ended_label]
+
+  - id: ll_state_027_permission_revoked_mid_share_stops_manager
+    title: 分享中途定位权限被撤回会停止 manager 并提示用户
+    functional_area: failure_recovery
+    fixture_kind: runtime_permission_change
+    base_failure_signal: base lacks active share permission revocation handling
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_active_share_left_running_without_permission
+      - rejects_missing_failure_recovery_binding
+    given_state:
+      room_context: room
+      permission: granted
+      active_share: own_active
+      map: open
+      timeline_item: live_active
+    expect_ui:
+      visible: [live_location_banner, live_location_map, stop_live_location_button]
+    transitions:
+      - event: permission_revoked_while_sharing
+        to_state:
+          permission: denied
+          active_share: none
+          timeline_item: live_ended
+        expect_ui:
+          visible: [live_location_permission_error, live_location_ended_label]
+          hidden: [live_location_banner, stop_live_location_button]
+    parity_assertions:
+      - Permission revocation cleans local active state and updates timeline/map surfaces.
+
+  - id: ll_state_028_background_resume_uses_latest_location
+    title: 后台恢复后 timeline 和地图使用最新 lastLocation
+    functional_area: active_manager
+    fixture_kind: lifecycle_resume_with_manager_snapshot
+    base_failure_signal: base lacks active manager state resumption
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_stale_location_after_resume
+      - rejects_missing_active_manager_binding
+    given_state:
+      room_context: room
+      permission: granted
+      active_share: own_active
+      map: closed
+      last_location:
+        lat: 48.8566
+        lon: 2.3522
+        age: fresh
+    expect_ui:
+      visible: [live_location_banner, live_location_timeline_card]
+      properties:
+        live_location_timeline_coordinates: "48.8566,2.3522"
+    transitions:
+      - event: app_resumed_with_last_location(lat=52.52, lon=13.405)
+        to_state:
+          last_location:
+            lat: 52.52
+            lon: 13.405
+            age: fresh
+        expect_ui:
+          visible: [live_location_banner, live_location_timeline_card]
+          properties:
+            live_location_timeline_coordinates: "52.52,13.405"
+    parity_assertions:
+      - Resumed UI uses manager snapshot instead of stale timeline fixture data.
+
+  - id: ll_state_029_notification_tap_routes_to_live_location_room
+    title: 实时位置通知点击返回对应房间和地图入口
+    functional_area: notification
+    fixture_kind: notification_intent_routing
+    base_failure_signal: base lacks live-location notification semantics
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_notification_binding
+      - rejects_notification_opens_generic_home_only
+    given_state:
+      active_share: remote_active
+      notification: live_location_started
+      room_id: room_b
+      map: closed
+    expect_ui:
+      visible: [live_location_notification_label]
+    transitions:
+      - event: tap_live_location_notification(room_b)
+        to_state:
+          surface: room_timeline
+          room_id: room_b
+        expect_ui:
+          visible: [room_timeline, live_location_timeline_card, open_live_location_map]
+    parity_assertions:
+      - Notification routing carries the room id and lands on the live-location event context.
+
+  - id: ll_state_030_location_staleness_changes_map_affordance
+    title: 位置过期后地图显示 stale 状态且不误报实时
+    functional_area: map_view
+    fixture_kind: timer_tick_with_location_age
+    base_failure_signal: base lacks live-location freshness state
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_map_view_binding
+      - rejects_always_fresh_live_location_label
+    given_state:
+      active_share: remote_active
+      map: open
+      timeline_item: live_active
+      last_location:
+        lat: 37.7749
+        lon: -122.4194
+        age: fresh
+    expect_ui:
+      visible: [live_location_map, live_location_fresh_indicator]
+      hidden: [live_location_stale_indicator]
+    transitions:
+      - event: time_tick(location_age=stale)
+        to_state:
+          last_location:
+            lat: 37.7749
+            lon: -122.4194
+            age: stale
+        expect_ui:
+          visible: [live_location_map, live_location_stale_indicator]
+          hidden: [live_location_fresh_indicator]
+    parity_assertions:
+      - Location freshness is rendered from state and not hardcoded as always live.

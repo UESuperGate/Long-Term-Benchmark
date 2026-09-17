@@ -1,0 +1,1151 @@
+version: 1
+task:
+  id: 05_link_new_device
+  title: 新设备登录与二维码超时保护
+  base: v26.05.0
+  final: v26.08.2
+source:
+  spec: C:/Users/xiexi/qingyu/specs/elementx-spec5-link-new-device.md
+  release_notes:
+    - Protect link new device
+    - QR code login iteration
+    - Add timeout
+    - Disable QrCode rotation
+    - Move timeout management to LinkNewDeviceFlowNode
+  android_evidence:
+    - LinkNewDeviceRootState.isSupported
+    - LinkNewDeviceRootState.qrCodeData
+    - ScanQrCodeState.scanAction
+    - ShowQrCodeState.data
+    - LinkNewMobileHandler / LinkNewDesktopHandler split steps
+platform_bindings:
+  android:
+    state_holders:
+      - LinkNewDeviceRootState.isSupported
+      - LinkNewDeviceRootState.qrCodeData
+      - ScanQrCodeState.scanAction
+      - ShowQrCodeState.data
+      - AsyncData.Loading/Success/Failure
+      - AsyncAction.Uninitialized/Loading/Success/Failure
+      - owner verification result from flow node
+      - timeout state in LinkNewDeviceFlowNode
+    render_targets:
+      - LinkNewDeviceRootView
+      - ScanQrCodeView
+      - ShowQrCodeView
+      - DesktopNoticeView
+      - ErrorView
+      - CompleteVerificationView
+    event_entrypoints:
+      - LinkNewDeviceRootEvent
+      - ScanQrCodeEvent.QrCodeScanned
+      - ScanQrCodeEvent.TryAgain
+      - owner_verification_success/failure/cancel
+      - timer_tick
+      - sdk_link_step
+  arkts:
+    state_holders:
+      - HomeserverCapabilitiesState.canLinkNewDevice
+      - ClientAuthState.QrLogin
+      - LinkNewDeviceHandlerState.mode
+      - LinkNewDeviceHandlerState.qrCodeData
+      - LinkNewDeviceHandlerState.ownerVerified
+      - LinkNewDeviceHandlerState.expiresAtMs
+      - Index.@State.authState
+    render_targets:
+      - Security settings link-device entry
+      - Owner verification gate
+      - QR scan screen
+      - Desktop notice screen
+      - Timeout notice
+      - Success/done screen
+      - Error screen
+    event_entrypoints:
+      - canLinkNewDevice()
+      - createLinkMobileHandler()
+      - createLinkDesktopHandler()
+      - verifyOwner()
+      - scanQrCode(payload)
+      - linkDeviceTimerTick(nowMs)
+      - retryLinkNewDevice()
+state_dimensions:
+  - name: support
+    values: [unknown, supported, unsupported, failure]
+  - name: owner_verification
+    values: [not_requested, required, loading, passed, failed, cancelled]
+  - name: flow_mode
+    values: [none, mobile_scan, desktop_notice, show_qr, digits, complete, error]
+  - name: qr_data
+    values: [none, loading, available, expired, failure]
+  - name: scan_action
+    values: [idle, loading, success, failure]
+  - name: timeout
+    values: [not_started, running, expired]
+  - name: attempt_id
+    values: [none, old_attempt, new_attempt]
+  - name: auth_error
+    values: [none, biometric_failure, biometric_lockout]
+  - name: digits_match
+    values: [pending, match, mismatch]
+  - name: handler_state
+    values: [none, active, cleaned]
+quality_gates:
+  minimum_cases: 34
+  required_functional_areas: [capability, owner_gate, mobile_scan, desktop_qr, digits, timeout_retry, sdk_error_mapping, cleanup, stale_event_protection]
+  discrimination_rules:
+    - every case is a final-positive security requirement; base mirrors must fail on owner gate, timeout, split steps or cleanup
+    - a final pass requires proving QR is both protected before verification and available after successful verification
+    - stale timer/SDK events must be tied to attempt identity
+    - feature_available alone is never sufficient evidence
+cases:
+  - id: lnd_state_001_support_loading
+    title: 入口检查支持能力时展示加载状态
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      support: unknown
+      owner_verification: not_requested
+      flow_mode: none
+      qr_data: none
+      timeout: not_started
+    expect_ui:
+      visible: [link_new_device_entry_loading]
+      hidden: [qr_code_view, owner_verification_gate, timeout_notice]
+    transitions:
+      - event: can_link_new_device_success(true)
+        to_state:
+          support: supported
+          owner_verification: required
+        expect_ui:
+          visible: [owner_verification_gate]
+
+  - id: lnd_state_002_unsupported
+    title: homeserver 或 SDK 不支持时隐藏或禁用连接入口
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      support: unsupported
+      owner_verification: not_requested
+      flow_mode: none
+    expect_ui:
+      visible: [link_new_device_unsupported_message]
+      disabled: [link_new_device_entry]
+      hidden: [owner_verification_gate, qr_code_view]
+
+  - id: lnd_state_003_owner_verification_required
+    title: 未完成设备所有者验证前不得展示二维码
+    functional_area: owner_gate
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_owner_gate_binding
+    given_state:
+      support: supported
+      owner_verification: required
+      flow_mode: none
+      qr_data: none
+    expect_ui:
+      visible: [owner_verification_gate]
+      hidden: [qr_code_view, scan_qr_code_view, desktop_notice_view]
+      enabled: [start_owner_verification]
+    transitions:
+      - event: start_owner_verification
+        to_state:
+          owner_verification: loading
+        expect_ui:
+          visible: [owner_verification_loading]
+      - event: owner_verification_success
+        to_state:
+          owner_verification: passed
+          flow_mode: mobile_scan
+          timeout: running
+        expect_ui:
+          visible: [scan_qr_code_view, scan_warning]
+          hidden: [owner_verification_gate]
+
+  - id: lnd_state_004_owner_verification_failure_retry
+    title: 生物识别第二次及后续失败仍允许重试或取消
+    functional_area: owner_gate
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_owner_gate_binding
+    given_state:
+      support: supported
+      owner_verification: loading
+      flow_mode: none
+      biometric_attempt: 2
+    transitions:
+      - event: owner_verification_failure
+        to_state:
+          owner_verification: failed
+        expect_ui:
+          visible: [owner_verification_error, retry_owner_verification, cancel_owner_verification]
+          hidden: [qr_code_view]
+      - event: retry_owner_verification
+        to_state:
+          owner_verification: loading
+        expect_ui:
+          visible: [owner_verification_loading]
+
+  - id: lnd_state_005_mobile_scan_success
+    title: 扫码成功后进入 SDK split step 后续流程
+    functional_area: mobile_scan
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_mobile_scan_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: mobile_scan
+      scan_action: idle
+      timeout: running
+    expect_ui:
+      visible: [scan_qr_code_view, scan_warning]
+    transitions:
+      - event: qr_code_scanned(valid_payload)
+        to_state:
+          scan_action: loading
+        expect_ui:
+          visible: [scan_qr_loading]
+      - event: sdk_step_show_digits
+        to_state:
+          scan_action: success
+          flow_mode: digits
+        expect_ui:
+          visible: [digits_verification_view]
+
+  - id: lnd_state_006_mobile_scan_invalid_retry
+    title: 无效二维码展示错误并支持 TryAgain
+    functional_area: mobile_scan
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_mobile_scan_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: mobile_scan
+      scan_action: loading
+    transitions:
+      - event: sdk_invalid_qr_code
+        to_state:
+          scan_action: failure
+          flow_mode: mobile_scan
+        expect_ui:
+          visible: [scan_qr_error, try_again_button]
+      - event: try_again
+        to_state:
+          scan_action: idle
+        expect_ui:
+          visible: [scan_qr_code_view]
+          hidden: [scan_qr_error]
+
+  - id: lnd_state_007_desktop_notice_uses_same_timeout
+    title: 桌面 notice 与扫码页共享 flow-level timeout
+    functional_area: desktop_qr
+    fixture_kind: timer_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_desktop_qr_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: desktop_notice
+      timeout: running
+      now_ms: 119000
+      expires_at_ms: 120000
+    expect_ui:
+      visible: [desktop_notice_view]
+      hidden: [timeout_notice]
+    transitions:
+      - event: timer_tick(now_ms=120001)
+        to_state:
+          timeout: expired
+          flow_mode: error
+          qr_data: expired
+        expect_ui:
+          visible: [timeout_notice, retry_link_new_device]
+          hidden: [desktop_notice_view, qr_code_view]
+
+  - id: lnd_state_008_show_qr_timeout_no_unbounded_rotation
+    title: 展示二维码超时后进入 timeout 而不是无限轮换
+    functional_area: desktop_qr
+    fixture_kind: timer_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_desktop_qr_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: show_qr
+      qr_data: available
+      timeout: running
+      qr_generation_count: 1
+    expect_ui:
+      visible: [qr_code_view]
+      hidden: [timeout_notice]
+    transitions:
+      - event: qr_expired_or_timer_elapsed
+        to_state:
+          timeout: expired
+          qr_data: expired
+          flow_mode: error
+        expect_ui:
+          visible: [timeout_notice, retry_link_new_device]
+          hidden: [qr_code_view]
+          properties:
+            qr_generation_count_max: 1
+
+  - id: lnd_state_009_retry_creates_new_attempt
+    title: timeout 后重试会创建新的连接尝试并清理旧状态
+    functional_area: timeout_retry
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeout_retry_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: error
+      qr_data: expired
+      timeout: expired
+    transitions:
+      - event: retry_link_new_device
+        to_state:
+          flow_mode: mobile_scan
+          qr_data: none
+          scan_action: idle
+          timeout: running
+        expect_ui:
+          visible: [scan_qr_code_view]
+          hidden: [timeout_notice, stale_qr_code]
+
+  - id: lnd_state_010_complete_and_cleanup
+    title: 完成连接后进入成功页并清理临时状态
+    functional_area: cleanup
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_cleanup_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: digits
+      timeout: running
+    transitions:
+      - event: sdk_step_done
+        to_state:
+          flow_mode: complete
+          timeout: not_started
+          qr_data: none
+        expect_ui:
+          visible: [link_new_device_success]
+          hidden: [qr_code_view, timeout_notice, owner_verification_gate]
+
+  - id: lnd_state_011_support_failure_error_recoverable
+    title: 能力检查失败展示可恢复错误并允许关闭
+    functional_area: capability
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      support: failure
+      owner_verification: not_requested
+      flow_mode: none
+    expect_ui:
+      visible: [link_new_device_support_error, close_error_button]
+      hidden: [owner_verification_gate, qr_code_view]
+    transitions:
+      - event: close_error
+        to_state:
+          flow_mode: none
+        expect_ui:
+          hidden: [link_new_device_support_error]
+
+  - id: lnd_state_012_owner_cancel_cleans_flow
+    title: 用户取消设备所有者验证后清理连接流程
+    functional_area: owner_gate
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_owner_gate_binding
+    given_state:
+      support: supported
+      owner_verification: loading
+      flow_mode: none
+      timeout: not_started
+    transitions:
+      - event: owner_verification_cancel
+        to_state:
+          owner_verification: cancelled
+          flow_mode: none
+          timeout: not_started
+        expect_ui:
+          hidden: [owner_verification_gate, qr_code_view, timeout_notice]
+          visible: [security_settings_view]
+
+  - id: lnd_state_013_mobile_scan_warning_persists
+    title: 扫码页在 idle/loading/failure 中都保留安全警告
+    functional_area: mobile_scan
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_mobile_scan_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: mobile_scan
+      scan_action: idle
+    expect_ui:
+      visible: [scan_qr_code_view, scan_warning]
+    transitions:
+      - event: qr_code_scanned(valid_payload)
+        to_state:
+          scan_action: loading
+        expect_ui:
+          visible: [scan_warning, scan_qr_loading]
+      - event: sdk_invalid_qr_code
+        to_state:
+          scan_action: failure
+        expect_ui:
+          visible: [scan_warning, scan_qr_error]
+
+  - id: lnd_state_014_desktop_qr_loading_success
+    title: 桌面连接二维码从 loading 到 available
+    functional_area: desktop_qr
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_desktop_qr_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: show_qr
+      qr_data: loading
+      timeout: running
+    expect_ui:
+      visible: [qr_code_loading]
+      hidden: [qr_code_view, timeout_notice]
+    transitions:
+      - event: sdk_qr_code_ready
+        to_state:
+          qr_data: available
+        expect_ui:
+          visible: [qr_code_view]
+          hidden: [qr_code_loading]
+
+  - id: lnd_state_015_qr_data_failure
+    title: 生成二维码失败进入错误态并允许重试
+    functional_area: desktop_qr
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_desktop_qr_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: show_qr
+      qr_data: loading
+      timeout: running
+    transitions:
+      - event: sdk_qr_code_failure
+        to_state:
+          qr_data: failure
+          flow_mode: error
+        expect_ui:
+          visible: [link_new_device_error, retry_link_new_device]
+          hidden: [qr_code_view]
+
+  - id: lnd_state_016_timer_before_deadline_no_timeout
+    title: 超时前的 timer tick 不改变可用界面
+    functional_area: timeout_retry
+    fixture_kind: timer_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeout_retry_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: mobile_scan
+      timeout: running
+      now_ms: 119000
+      expires_at_ms: 120000
+    transitions:
+      - event: timer_tick(now_ms=119500)
+        to_state:
+          timeout: running
+          flow_mode: mobile_scan
+        expect_ui:
+          visible: [scan_qr_code_view, scan_security_warning]
+          hidden: [timeout_notice, qr_timeout_error]
+          enabled: [scan_qr_code_view]
+
+  - id: lnd_state_017_stale_timer_ignored_after_retry
+    title: 重试后旧连接尝试的 timer tick 被忽略
+    functional_area: stale_event_protection
+    fixture_kind: timer_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_stale_event_protection_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: mobile_scan
+      timeout: running
+      attempt_id: new_attempt
+    transitions:
+      - event: timer_tick(attempt_id=old_attempt, now_ms=999999)
+        to_state:
+          timeout: running
+          attempt_id: new_attempt
+        expect_ui:
+          visible: [scan_qr_code_view]
+          hidden: [timeout_notice, stale_qr_code]
+
+  - id: lnd_state_018_sdk_already_signed_in_error
+    title: already signed in 错误映射为明确错误态
+    functional_area: sdk_error_mapping
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_sdk_error_mapping_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: mobile_scan
+      scan_action: loading
+    transitions:
+      - event: sdk_error_already_signed_in
+        to_state:
+          flow_mode: error
+          scan_action: failure
+        expect_ui:
+          visible: [already_signed_in_error, retry_link_new_device]
+          hidden: [digits_verification_view, link_new_device_success]
+
+  - id: lnd_state_019_sdk_other_device_signed_out_error
+    title: 另一个设备已退出错误映射为错误态并清理等待状态
+    functional_area: sdk_error_mapping
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_sdk_error_mapping_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: digits
+      timeout: running
+    transitions:
+      - event: sdk_error_other_device_signed_out
+        to_state:
+          flow_mode: error
+          timeout: not_started
+        expect_ui:
+          visible: [other_device_signed_out_error, retry_link_new_device]
+          hidden: [digits_verification_view]
+
+  - id: lnd_state_020_sdk_continuation_failure
+    title: continuation 失败展示错误且不进入成功页
+    functional_area: sdk_error_mapping
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_sdk_error_mapping_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: digits
+      timeout: running
+    transitions:
+      - event: sdk_continuation_failure
+        to_state:
+          flow_mode: error
+        expect_ui:
+          visible: [continuation_failure_error, retry_link_new_device]
+          hidden: [link_new_device_success]
+
+  - id: lnd_state_021_sdk_cancellation_failure
+    title: 取消连接失败不残留 QR 或等待界面
+    functional_area: sdk_error_mapping
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_sdk_error_mapping_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: show_qr
+      qr_data: available
+      timeout: running
+    transitions:
+      - event: cancel_flow_then_sdk_cancellation_failure
+        to_state:
+          flow_mode: error
+          qr_data: none
+          timeout: not_started
+        expect_ui:
+          visible: [cancellation_failure_error]
+          hidden: [qr_code_view, timeout_notice]
+
+  - id: lnd_state_022_digits_waiting_confirmation
+    title: digits 展示后等待确认状态保持可取消
+    functional_area: digits
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_digits_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: digits
+      timeout: running
+      confirmation_state: waiting
+    expect_ui:
+      visible: [digits_verification_view, waiting_for_other_device]
+      enabled: [cancel_link_new_device]
+      hidden: [link_new_device_success]
+
+  - id: lnd_state_023_digits_mismatch_error
+    title: 验证码不匹配时展示错误并允许重试
+    functional_area: digits
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_digits_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: digits
+      timeout: running
+    transitions:
+      - event: sdk_digits_mismatch
+        to_state:
+          flow_mode: error
+        expect_ui:
+          visible: [digits_mismatch_error, retry_link_new_device]
+          hidden: [link_new_device_success]
+
+  - id: lnd_state_024_desktop_notice_cancel
+    title: 桌面 notice 取消后清理 timeout 和临时数据
+    functional_area: desktop_qr
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_desktop_qr_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: desktop_notice
+      timeout: running
+    transitions:
+      - event: cancel_link_new_device
+        to_state:
+          flow_mode: none
+          timeout: not_started
+          qr_data: none
+        expect_ui:
+          visible: [security_settings_view]
+          hidden: [desktop_notice_view, timeout_notice]
+
+  - id: lnd_state_025_complete_from_scan_without_digits
+    title: SDK 直接完成时进入成功页
+    functional_area: mobile_scan
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_mobile_scan_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: mobile_scan
+      scan_action: loading
+      timeout: running
+    transitions:
+      - event: sdk_step_done
+        to_state:
+          flow_mode: complete
+          scan_action: success
+          timeout: not_started
+        expect_ui:
+          visible: [link_new_device_success]
+          hidden: [scan_qr_code_view, timeout_notice]
+
+  - id: lnd_state_026_back_from_success_to_sessions
+    title: 成功页返回会刷新会话列表并隐藏临时连接 UI
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: complete
+      timeout: not_started
+    transitions:
+      - event: done
+        to_state:
+          flow_mode: none
+          sessions_refresh_requested: true
+        expect_ui:
+          visible: [security_settings_view, session_list]
+          hidden: [link_new_device_success, qr_code_view]
+
+  - id: lnd_state_027_final_qr_timeout_notice_and_retry
+    title: final 语义中 QR 登录必须展示 timeout notice 并允许重试
+    functional_area: desktop_qr
+    fixture_kind: timer_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_desktop_qr_binding
+    given_state:
+      release_semantics: final
+      support: supported
+      owner_verification: passed
+      flow_mode: show_qr
+      qr_data: expired
+      timeout: expired
+    expect_ui:
+      visible: [timeout_notice, retry_link_new_device]
+      enabled: [retry_link_new_device]
+      hidden: [qr_code_view, qr_login_placeholder_or_static_qr, owner_verification_gate]
+    transitions:
+      - event: retry_link_new_device
+        to_state:
+          flow_mode: mobile_scan
+          qr_data: loading
+          timeout: running
+        expect_ui:
+          visible: [qr_code_loading]
+          hidden: [timeout_notice]
+    parity_assertions:
+      - Base mirrors must fail this case because the static QR placeholder has no final timeout or retry behavior.
+
+  - id: lnd_state_028_final_positive_owner_gate_timeout
+    title: final 语义必须同时具备 owner gate 和 timeout
+    functional_area: owner_gate
+    fixture_kind: timer_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_owner_gate_binding
+    given_state:
+      release_semantics: final
+      support: supported
+      owner_verification: required
+      flow_mode: none
+      timeout: not_started
+    expect_ui:
+      visible: [owner_verification_gate]
+      hidden: [qr_code_view]
+    transitions:
+      - event: owner_verification_success
+        to_state:
+          owner_verification: passed
+          flow_mode: mobile_scan
+          timeout: running
+        expect_ui:
+          visible: [scan_qr_code_view]
+
+  - id: lnd_state_029_final_supported_capability_creates_qr_after_owner_gate
+    title: final 语义中支持能力确认后通过 owner gate 才创建二维码
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      release_semantics: final
+      support: supported
+      owner_verification: required
+      flow_mode: none
+      qr_data: none
+    expect_ui:
+      visible: [owner_verification_gate]
+      hidden: [qr_code_view, qr_code_loading]
+    transitions:
+      - event: owner_verification_success
+        to_state:
+          owner_verification: passed
+          flow_mode: show_qr
+          qr_data: loading
+          timeout: running
+        expect_ui:
+          visible: [qr_code_loading]
+          hidden: [qr_login_placeholder_or_static_qr]
+    parity_assertions:
+      - Base mirrors must fail this case because they expose a static QR placeholder without final owner-gated QR creation.
+
+  - id: lnd_state_030_retry_after_error_requires_owner_policy
+    title: 错误后重试遵循设备所有者验证策略
+    functional_area: owner_gate
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_owner_gate_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: error
+      qr_data: failure
+      timeout: not_started
+      owner_verification_reuse_allowed: false
+    transitions:
+      - event: retry_link_new_device
+        to_state:
+          owner_verification: required
+          flow_mode: none
+          qr_data: none
+        expect_ui:
+          visible: [owner_verification_gate]
+          hidden: [qr_code_view, timeout_notice]
+
+  - id: lnd_state_031_biometric_lockout_falls_back_to_device_pin
+    title: 生物识别锁定后可切换系统凭据或应用 PIN 继续验证
+    functional_area: owner_gate
+    fixture_kind: owner_verification_error_recovery
+    base_failure_signal: base lacks protected owner verification fallback flow
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_biometric_failure_skips_owner_gate
+      - rejects_missing_owner_gate_binding
+    given_state:
+      support: supported
+      owner_verification: failed
+      flow_mode: none
+      auth_error: biometric_lockout
+      qr_data: none
+    expect_ui:
+      visible: [owner_verification_gate, owner_verification_error, use_device_credential_action]
+      hidden: [qr_code_view, digits_view]
+      enabled: [use_device_credential_action, cancel_owner_verification]
+    transitions:
+      - event: device_credential_success
+        to_state:
+          owner_verification: passed
+          flow_mode: mobile_scan
+        expect_ui:
+          visible: [scan_qr_code_view, scan_security_warning]
+          hidden: [owner_verification_gate]
+    parity_assertions:
+      - Lockout recovery still enforces owner gate before any QR surface.
+
+  - id: lnd_state_032_stale_sdk_done_ignored_after_timeout_retry
+    title: 超时重试后旧 attempt 的 SDK 完成事件被忽略
+    functional_area: stale_event_protection
+    fixture_kind: attempt_scoped_sdk_callback
+    base_failure_signal: base lacks flow-level attempt identity
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_stale_done_completes_new_attempt
+      - rejects_missing_stale_event_protection_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: show_qr
+      qr_data: available
+      timeout: expired
+      attempt_id: old_attempt
+    expect_ui:
+      visible: [timeout_notice, retry_link_new_device]
+      hidden: [success_view]
+    transitions:
+      - event: retry_link_new_device
+        to_state:
+          flow_mode: show_qr
+          qr_data: loading
+          timeout: running
+          attempt_id: new_attempt
+        expect_ui:
+          visible: [qr_code_loading]
+          hidden: [timeout_notice, success_view]
+      - event: sdk_step_done(attempt_id=old_attempt)
+        to_state:
+          flow_mode: show_qr
+          qr_data: loading
+          timeout: running
+          attempt_id: new_attempt
+        expect_ui:
+          visible: [qr_code_loading]
+          hidden: [success_view, timeout_notice]
+    parity_assertions:
+      - SDK callbacks are ignored when their attempt id no longer matches the active flow.
+
+  - id: lnd_state_033_desktop_digits_mismatch_keeps_timeout_and_allows_retry
+    title: 桌面验证码不匹配保留安全超时并允许重试
+    functional_area: digits
+    fixture_kind: sdk_error_mapping_with_timer
+    base_failure_signal: base lacks split-step digits and timeout composition
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_digits_error_without_recoverable_retry
+      - rejects_missing_digits_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: digits
+      qr_data: available
+      timeout: running
+      digits_match: pending
+    expect_ui:
+      visible: [digits_view, cancel_link_new_device]
+      hidden: [success_view]
+    transitions:
+      - event: sdk_digits_mismatch
+        to_state:
+          flow_mode: error
+          timeout: running
+          digits_match: mismatch
+        expect_ui:
+          visible: [digits_mismatch_error, try_again]
+          hidden: [success_view, qr_code_view]
+      - event: try_again
+        to_state:
+          flow_mode: desktop_notice
+          qr_data: loading
+          timeout: running
+        expect_ui:
+          visible: [desktop_notice_view, qr_code_loading]
+          hidden: [digits_mismatch_error]
+    parity_assertions:
+      - Digits errors map to recoverable UI without dropping the active timeout policy.
+
+  - id: lnd_state_034_cancel_during_qr_generation_cleans_handler
+    title: 二维码生成中取消会清理 handler、timer 和临时 QR 数据
+    functional_area: cleanup
+    fixture_kind: cancellation_during_async_qr_loading
+    base_failure_signal: base lacks final cancellation cleanup in QR flow
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_cancel_leaves_active_qr_handler
+      - rejects_missing_cleanup_binding
+    given_state:
+      support: supported
+      owner_verification: passed
+      flow_mode: show_qr
+      qr_data: loading
+      timeout: running
+      handler_state: active
+    expect_ui:
+      visible: [qr_code_loading, cancel_link_new_device]
+      hidden: [success_view]
+    transitions:
+      - event: cancel_link_new_device
+        to_state:
+          flow_mode: none
+          qr_data: none
+          timeout: not_started
+          handler_state: cleaned
+        expect_ui:
+          visible: [security_settings_entry]
+          hidden: [qr_code_loading, qr_code_view, timeout_notice, success_view]
+    parity_assertions:
+      - Cancellation before QR success cleans the same resources as cancellation after QR success.

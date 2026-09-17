@@ -1,0 +1,1252 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-16T18:09:56",
+  "evaluatorOwned": true,
+  "mustNotBeGeneratedByDevelopmentAgent": true,
+  "sourceYaml": "C:\\Users\\xiexi\\qingyu\\state_tests\\elementx-state-test1-user-status.yaml",
+  "task": {
+    "id": "01_user_status",
+    "title": "用户状态设置与展示",
+    "base": "v26.07.0",
+    "final": "v26.08.4"
+  },
+  "caseCount": 26,
+  "cases": [
+    {
+      "caseId": "us_state_001_unsupported_hides_entry",
+      "caseTitle": "homeserver 不支持用户状态时设置入口不出现",
+      "line": 84,
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "privacy_settings_entry",
+          "profile_settings_entry",
+          "security_settings_entry"
+        ],
+        "hidden": [
+          "user_status_badge",
+          "user_status_editor",
+          "user_status_settings_entry"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_001_unsupported_hides_entry",
+        "caseMarker": "strict_state_case:us_state_001_unsupported_hides_entry",
+        "requiredPositiveSignals": [
+          "privacy_settings_entry",
+          "profile_settings_entry",
+          "security_settings_entry"
+        ],
+        "forbiddenSignals": [
+          "user_status_badge",
+          "user_status_editor",
+          "user_status_settings_entry"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_002_empty_supported_entry",
+      "caseTitle": "支持用户状态但尚未设置时展示空状态入口",
+      "line": 110,
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "user_status_empty_value",
+          "user_status_settings_entry"
+        ],
+        "hidden": [
+          "user_status_emoji_badge",
+          "user_status_timeline_text"
+        ],
+        "enabled": [
+          "open_user_status_editor"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "open_user_status_editor",
+          "visible": [
+            "custom_status_button",
+            "predefined_status_list",
+            "user_status_editor"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_002_empty_supported_entry:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_002_empty_supported_entry",
+        "caseMarker": "strict_state_case:us_state_002_empty_supported_entry",
+        "requiredPositiveSignals": [
+          "open_user_status_editor",
+          "user_status_empty_value",
+          "user_status_settings_entry"
+        ],
+        "forbiddenSignals": [
+          "user_status_emoji_badge",
+          "user_status_timeline_text"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_003_custom_input_and_emoji_sheet",
+      "caseTitle": "自定义状态输入和 emoji 选择器状态绑定正确",
+      "line": 140,
+      "functionalArea": "editor",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 2,
+      "selectors": {
+        "visible": [
+          "custom_status_text_field",
+          "emoji_picker_button",
+          "save_status_button"
+        ],
+        "hidden": [],
+        "enabled": [
+          "custom_status_text_field",
+          "emoji_picker_button"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "open_emoji_sheet",
+          "visible": [
+            "custom_status_text_field",
+            "emoji_picker_button"
+          ],
+          "hidden": [
+            "emoji_picker_grid"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_003_custom_input_and_emoji_sheet:1"
+        },
+        {
+          "ordinal": 2,
+          "event": "emoji_sheet_loaded",
+          "visible": [
+            "emoji_picker_grid"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_003_custom_input_and_emoji_sheet:2"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_003_custom_input_and_emoji_sheet",
+        "caseMarker": "strict_state_case:us_state_003_custom_input_and_emoji_sheet",
+        "requiredPositiveSignals": [
+          "custom_status_text_field",
+          "emoji_picker_button",
+          "save_status_button"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_004_save_success_propagates_surfaces",
+      "caseTitle": "保存用户状态成功后同步到设置、主页、DM 和资料页",
+      "line": 175,
+      "functionalArea": "persistence",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 2,
+      "selectors": {
+        "visible": [
+          "save_status_button"
+        ],
+        "hidden": [],
+        "enabled": [
+          "save_status_button"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "save_status",
+          "visible": [
+            "user_status_settings_entry"
+          ],
+          "hidden": [
+            "custom_status_text_field",
+            "predefined_status_list",
+            "save_status_button",
+            "user_status_editor"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_004_save_success_propagates_surfaces:1"
+        },
+        {
+          "ordinal": 2,
+          "event": "sdk_set_user_status_success",
+          "visible": [
+            "dm_user_status_badge",
+            "home_status_badge",
+            "user_profile_status",
+            "user_status_settings_value"
+          ],
+          "hidden": [
+            "user_status_saving_indicator"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_004_save_success_propagates_surfaces:2"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_004_save_success_propagates_surfaces",
+        "caseMarker": "strict_state_case:us_state_004_save_success_propagates_surfaces",
+        "requiredPositiveSignals": [
+          "save_status_button"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_005_save_failure_keeps_previous_status",
+      "caseTitle": "保存失败时保留旧状态并展示错误",
+      "line": 218,
+      "functionalArea": "persistence",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "user_status_saving_indicator"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "sdk_set_user_status_failure",
+          "visible": [
+            "user_status_error",
+            "user_status_settings_value"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "user_status_settings_value": "☕"
+          },
+          "traceMarker": "strict_state_transition:us_state_005_save_failure_keeps_previous_status:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_005_save_failure_keeps_previous_status",
+        "caseMarker": "strict_state_case:us_state_005_save_failure_keeps_previous_status",
+        "requiredPositiveSignals": [
+          "user_status_saving_indicator"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_006_clear_status",
+      "caseTitle": "清除状态后所有状态展示收敛为空",
+      "line": 251,
+      "functionalArea": "persistence",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 2,
+      "selectors": {
+        "visible": [
+          "clear_status_button",
+          "user_status_emoji_badge"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "clear_status",
+          "visible": [
+            "user_status_saving_indicator"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_006_clear_status:1"
+        },
+        {
+          "ordinal": 2,
+          "event": "sdk_clear_user_status_success",
+          "visible": [
+            "user_status_empty_value"
+          ],
+          "hidden": [
+            "dm_user_status_badge",
+            "user_profile_status",
+            "user_status_emoji_badge"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_006_clear_status:2"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_006_clear_status",
+        "caseMarker": "strict_state_case:us_state_006_clear_status",
+        "requiredPositiveSignals": [
+          "clear_status_button",
+          "user_status_emoji_badge"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_007_timeline_sender_emoji_only",
+      "caseTitle": "时间线发送者只展示 emoji 不展示状态文本",
+      "line": 285,
+      "functionalArea": "timeline",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "timeline_sender_name",
+          "timeline_sender_status_emoji"
+        ],
+        "hidden": [
+          "timeline_sender_status_text"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "timeline_sender_status_emoji": "💡"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_007_timeline_sender_emoji_only",
+        "caseMarker": "strict_state_case:us_state_007_timeline_sender_emoji_only",
+        "requiredPositiveSignals": [
+          "timeline_sender_name",
+          "timeline_sender_status_emoji",
+          "💡"
+        ],
+        "forbiddenSignals": [
+          "timeline_sender_status_text"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_008_in_call_status",
+      "caseTitle": "通话状态作为 DisplayedStatus.InCall 渲染且可恢复",
+      "line": 313,
+      "functionalArea": "active_call",
+      "fixtureKind": "sdk_callback_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "in_call_status_badge"
+        ],
+        "hidden": [
+          "custom_user_status_text_in_timeline"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "call_ended",
+          "visible": [
+            "user_status_empty_value"
+          ],
+          "hidden": [
+            "in_call_status_badge"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_008_in_call_status:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_008_in_call_status",
+        "caseMarker": "strict_state_case:us_state_008_in_call_status",
+        "requiredPositiveSignals": [
+          "in_call_status_badge"
+        ],
+        "forbiddenSignals": [
+          "custom_user_status_text_in_timeline"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_009_capability_failure_safe_fallback",
+      "caseTitle": "用户状态能力检查失败时设置页安全降级",
+      "line": 342,
+      "functionalArea": "cross_surface",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "privacy_settings_entry",
+          "profile_settings_entry",
+          "security_settings_entry"
+        ],
+        "hidden": [
+          "user_status_editor",
+          "user_status_error_blocking_dialog",
+          "user_status_settings_entry"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_009_capability_failure_safe_fallback",
+        "caseMarker": "strict_state_case:us_state_009_capability_failure_safe_fallback",
+        "requiredPositiveSignals": [
+          "privacy_settings_entry",
+          "profile_settings_entry",
+          "security_settings_entry"
+        ],
+        "forbiddenSignals": [
+          "user_status_editor",
+          "user_status_error_blocking_dialog",
+          "user_status_settings_entry"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_010_predefined_status_selection",
+      "caseTitle": "选择预设状态后进入保存状态并关闭选择器",
+      "line": 367,
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "predefined_status_away",
+          "predefined_status_focus_time",
+          "predefined_status_list"
+        ],
+        "hidden": [],
+        "enabled": [
+          "predefined_status_away"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "select_predefined_status(away)",
+          "visible": [
+            "user_status_saving_indicator"
+          ],
+          "hidden": [
+            "predefined_status_list"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_010_predefined_status_selection:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_010_predefined_status_selection",
+        "caseMarker": "strict_state_case:us_state_010_predefined_status_selection",
+        "requiredPositiveSignals": [
+          "predefined_status_away",
+          "predefined_status_focus_time",
+          "predefined_status_list"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_011_dismiss_picker_keeps_status",
+      "caseTitle": "关闭状态选择器不修改当前状态",
+      "line": 401,
+      "functionalArea": "editor",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "predefined_status_list"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "dismiss_status_picker",
+          "visible": [
+            "user_status_settings_value"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "user_status_settings_value": "☕"
+          },
+          "traceMarker": "strict_state_transition:us_state_011_dismiss_picker_keeps_status:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_011_dismiss_picker_keeps_status",
+        "caseMarker": "strict_state_case:us_state_011_dismiss_picker_keeps_status",
+        "requiredPositiveSignals": [
+          "predefined_status_list"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_012_custom_input_dirty_state",
+      "caseTitle": "自定义输入只在可提交时启用保存",
+      "line": 435,
+      "functionalArea": "editor",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "cancel_status_button",
+          "custom_status_text_field"
+        ],
+        "hidden": [
+          "save_status_button"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "edit_custom_status(emoji=💬, text=In a meeting)",
+          "visible": [],
+          "hidden": [],
+          "enabled": [
+            "save_status_button"
+          ],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_012_custom_input_dirty_state:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_012_custom_input_dirty_state",
+        "caseMarker": "strict_state_case:us_state_012_custom_input_dirty_state",
+        "requiredPositiveSignals": [
+          "cancel_status_button",
+          "custom_status_text_field"
+        ],
+        "forbiddenSignals": [
+          "save_status_button"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_013_custom_input_cancel_clears_draft_only",
+      "caseTitle": "取消自定义编辑只清理草稿不清除已保存状态",
+      "line": 468,
+      "functionalArea": "editor",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "cancel_custom_input",
+          "visible": [
+            "user_status_settings_value"
+          ],
+          "hidden": [
+            "custom_status_text_field",
+            "user_status_editor"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "user_status_settings_value": "💡"
+          },
+          "traceMarker": "strict_state_transition:us_state_013_custom_input_cancel_clears_draft_only:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_013_custom_input_cancel_clears_draft_only",
+        "caseMarker": "strict_state_case:us_state_013_custom_input_cancel_clears_draft_only",
+        "requiredPositiveSignals": [],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_014_update_loading_disables_mutating_actions",
+      "caseTitle": "保存请求发出后立即关闭编辑器避免并发状态写入",
+      "line": 504,
+      "functionalArea": "action_menu",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "user_status_settings_entry",
+          "user_status_settings_value"
+        ],
+        "hidden": [
+          "custom_status_text_field",
+          "predefined_status_list",
+          "save_status_button",
+          "user_status_editor"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_014_update_loading_disables_mutating_actions",
+        "caseMarker": "strict_state_case:us_state_014_update_loading_disables_mutating_actions",
+        "requiredPositiveSignals": [
+          "user_status_settings_entry",
+          "user_status_settings_value"
+        ],
+        "forbiddenSignals": [
+          "custom_status_text_field",
+          "predefined_status_list",
+          "save_status_button",
+          "user_status_editor"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_015_home_top_bar_own_status",
+      "caseTitle": "自己的状态传播到主页顶部账号区域",
+      "line": 528,
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "home_status_badge",
+          "home_top_bar_avatar"
+        ],
+        "hidden": [
+          "home_status_text"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "home_status_badge": "🚙"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_015_home_top_bar_own_status",
+        "caseMarker": "strict_state_case:us_state_015_home_top_bar_own_status",
+        "requiredPositiveSignals": [
+          "home_status_badge",
+          "home_top_bar_avatar",
+          "🚙"
+        ],
+        "forbiddenSignals": [
+          "home_status_text"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_016_dm_room_row_remote_status",
+      "caseTitle": "DM 房间行展示对方成员状态",
+      "line": 554,
+      "functionalArea": "propagation",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "dm_user_status_badge",
+          "room_summary_row"
+        ],
+        "hidden": [
+          "group_room_status_badge"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "dm_user_status_badge": "☕"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_016_dm_room_row_remote_status",
+        "caseMarker": "strict_state_case:us_state_016_dm_room_row_remote_status",
+        "requiredPositiveSignals": [
+          "dm_user_status_badge",
+          "room_summary_row",
+          "☕"
+        ],
+        "forbiddenSignals": [
+          "group_room_status_badge"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_017_group_room_no_synthetic_status",
+      "caseTitle": "群聊房间不合成 DM 用户状态",
+      "line": 580,
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "room_summary_row"
+        ],
+        "hidden": [
+          "dm_user_status_badge",
+          "group_room_status_badge"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_017_group_room_no_synthetic_status",
+        "caseMarker": "strict_state_case:us_state_017_group_room_no_synthetic_status",
+        "requiredPositiveSignals": [
+          "room_summary_row"
+        ],
+        "forbiddenSignals": [
+          "dm_user_status_badge",
+          "group_room_status_badge"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_018_profile_status_refresh",
+      "caseTitle": "用户资料页状态随资料刷新更新",
+      "line": 602,
+      "functionalArea": "profile",
+      "fixtureKind": "sdk_callback_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "user_profile_header",
+          "user_profile_status"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "user_profile_status": "🌴"
+        }
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "profile_status_refreshed(emoji=💬, text=In a meeting)",
+          "visible": [],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "user_profile_status": "💬"
+          },
+          "traceMarker": "strict_state_transition:us_state_018_profile_status_refresh:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_018_profile_status_refresh",
+        "caseMarker": "strict_state_case:us_state_018_profile_status_refresh",
+        "requiredPositiveSignals": [
+          "user_profile_header",
+          "user_profile_status",
+          "🌴"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_019_displayed_status_takes_precedence",
+      "caseTitle": "displayedStatus 与 rawStatus 不一致时使用展示态",
+      "line": 635,
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "in_call_status_badge",
+          "user_profile_header"
+        ],
+        "hidden": [
+          "raw_user_status_badge",
+          "raw_user_status_text"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "in_call_status_badge": "in_call"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_019_displayed_status_takes_precedence",
+        "caseMarker": "strict_state_case:us_state_019_displayed_status_takes_precedence",
+        "requiredPositiveSignals": [
+          "in_call",
+          "in_call_status_badge",
+          "user_profile_header"
+        ],
+        "forbiddenSignals": [
+          "raw_user_status_badge",
+          "raw_user_status_text"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_020_remote_status_removed",
+      "caseTitle": "远端用户清除状态后 DM 和资料页同时隐藏",
+      "line": 664,
+      "functionalArea": "propagation",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "dm_user_status_badge"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "remote_user_status_removed",
+          "visible": [],
+          "hidden": [
+            "dm_user_status_badge",
+            "user_profile_status"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:us_state_020_remote_status_removed:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_020_remote_status_removed",
+        "caseMarker": "strict_state_case:us_state_020_remote_status_removed",
+        "requiredPositiveSignals": [
+          "dm_user_status_badge"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_021_final_status_entry_and_badge",
+      "caseTitle": "final 版本语义中用户状态入口和自身状态 badge 必须同时可见",
+      "line": 693,
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "home_status_badge",
+          "profile_settings_entry",
+          "user_status_settings_entry",
+          "user_status_settings_value"
+        ],
+        "hidden": [
+          "unsupported_feature_placeholder",
+          "user_status_timeline_text"
+        ],
+        "enabled": [
+          "open_user_status_editor"
+        ],
+        "disabled": [],
+        "properties": {
+          "user_status_settings_value": "💡",
+          "home_status_badge": "💡"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_021_final_status_entry_and_badge",
+        "caseMarker": "strict_state_case:us_state_021_final_status_entry_and_badge",
+        "requiredPositiveSignals": [
+          "home_status_badge",
+          "open_user_status_editor",
+          "profile_settings_entry",
+          "user_status_settings_entry",
+          "user_status_settings_value",
+          "💡"
+        ],
+        "forbiddenSignals": [
+          "unsupported_feature_placeholder",
+          "user_status_timeline_text"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_022_final_positive_user_status_entry",
+      "caseTitle": "final 版本语义中支持能力打开时必须出现入口",
+      "line": 724,
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "user_status_settings_entry"
+        ],
+        "hidden": [
+          "unsupported_feature_placeholder"
+        ],
+        "enabled": [
+          "open_user_status_editor"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_022_final_positive_user_status_entry",
+        "caseMarker": "strict_state_case:us_state_022_final_positive_user_status_entry",
+        "requiredPositiveSignals": [
+          "open_user_status_editor",
+          "user_status_settings_entry"
+        ],
+        "forbiddenSignals": [
+          "unsupported_feature_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_023_remote_status_refresh_does_not_override_own_status",
+      "caseTitle": "远端 DM 状态刷新不覆盖自己的用户状态",
+      "line": 746,
+      "functionalArea": "propagation",
+      "fixtureKind": "sdk_callback_cross_surface",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "dm_user_status_badge",
+          "home_status_badge"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "home_status_badge": "☕",
+          "dm_user_status_badge": "🌙"
+        }
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "remote_status_refreshed(emoji=🧭, text=Travelling)",
+          "visible": [
+            "dm_user_status_badge",
+            "home_status_badge"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "home_status_badge": "☕",
+            "dm_user_status_badge": "🧭"
+          },
+          "traceMarker": "strict_state_transition:us_state_023_remote_status_refresh_does_not_override_own_status:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_023_remote_status_refresh_does_not_override_own_status",
+        "caseMarker": "strict_state_case:us_state_023_remote_status_refresh_does_not_override_own_status",
+        "requiredPositiveSignals": [
+          "dm_user_status_badge",
+          "home_status_badge",
+          "☕",
+          "🌙"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_024_status_text_never_leaks_to_timeline",
+      "caseTitle": "时间线状态更新后仍只显示 emoji 不泄露文本",
+      "line": 789,
+      "functionalArea": "timeline",
+      "fixtureKind": "declarative_render_plus_sdk_callback",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "timeline_sender_name",
+          "timeline_sender_status_emoji"
+        ],
+        "hidden": [
+          "timeline_sender_status_text",
+          "user_status_full_text_in_message_body"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "timeline_sender_status_emoji": "🛠"
+        }
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "sender_status_refreshed(emoji=✅, text=Back online)",
+          "visible": [
+            "timeline_sender_status_emoji"
+          ],
+          "hidden": [
+            "timeline_sender_status_text",
+            "user_status_full_text_in_message_body"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "timeline_sender_status_emoji": "✅"
+          },
+          "traceMarker": "strict_state_transition:us_state_024_status_text_never_leaks_to_timeline:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_024_status_text_never_leaks_to_timeline",
+        "caseMarker": "strict_state_case:us_state_024_status_text_never_leaks_to_timeline",
+        "requiredPositiveSignals": [
+          "timeline_sender_name",
+          "timeline_sender_status_emoji",
+          "🛠"
+        ],
+        "forbiddenSignals": [
+          "timeline_sender_status_text",
+          "user_status_full_text_in_message_body"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_025_save_retry_after_failure_uses_latest_draft",
+      "caseTitle": "保存失败后的重试使用最新草稿而不是失败时的旧 payload",
+      "line": 829,
+      "functionalArea": "failure_recovery",
+      "fixtureKind": "sdk_failure_then_user_edit",
+      "transitionCount": 2,
+      "selectors": {
+        "visible": [
+          "custom_status_text_field",
+          "save_status_button",
+          "user_status_error"
+        ],
+        "hidden": [],
+        "enabled": [
+          "custom_status_text_field",
+          "save_status_button"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "edit_custom_status(emoji=🚀, text=Shipping)",
+          "visible": [
+            "save_status_button"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "custom_status_text_field": "Shipping"
+          },
+          "traceMarker": "strict_state_transition:us_state_025_save_retry_after_failure_uses_latest_draft:1"
+        },
+        {
+          "ordinal": 2,
+          "event": "sdk_set_user_status_success",
+          "visible": [
+            "user_status_settings_value"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "user_status_settings_value": "🚀"
+          },
+          "traceMarker": "strict_state_transition:us_state_025_save_retry_after_failure_uses_latest_draft:2"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_025_save_retry_after_failure_uses_latest_draft",
+        "caseMarker": "strict_state_case:us_state_025_save_retry_after_failure_uses_latest_draft",
+        "requiredPositiveSignals": [
+          "custom_status_text_field",
+          "save_status_button",
+          "user_status_error"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "us_state_026_call_status_restore_manual_status",
+      "caseTitle": "通话临时状态结束后恢复进入通话前的手动状态",
+      "line": 880,
+      "functionalArea": "persistence",
+      "fixtureKind": "call_state_side_effect",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "home_status_badge",
+          "in_call_status_badge"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "home_status_badge": "📞"
+        }
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "call_ended_restore_previous_status",
+          "visible": [
+            "home_status_badge"
+          ],
+          "hidden": [
+            "in_call_status_badge"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "home_status_badge": "📚"
+          },
+          "traceMarker": "strict_state_transition:us_state_026_call_status_restore_manual_status:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:us_state_026_call_status_restore_manual_status",
+        "caseMarker": "strict_state_case:us_state_026_call_status_restore_manual_status",
+        "requiredPositiveSignals": [
+          "home_status_badge",
+          "in_call_status_badge",
+          "📞"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    }
+  ]
+}

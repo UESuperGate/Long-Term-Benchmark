@@ -1,0 +1,859 @@
+version: 1
+task:
+  id: 02_gallery_messages
+  title: 图库消息渲染与操作
+  base: v26.06.1
+  final: v26.08.1
+source:
+  spec: C:/Users/xiexi/qingyu/specs/elementx-spec2-gallery-messages.md
+  release_notes:
+    - Support gallery messages
+    - Add item count text as the placeholder for in reply to box for galleries
+    - Add content scanner support to media gallery and viewer
+  android_evidence:
+    - TimelineItemGalleryContent(items, caption, showCaption)
+    - GalleryItem.Type.Image/Video/Audio/File
+    - ActionListPresenter handles TimelineItemGalleryContent
+    - MediaViewerDataSource and GalleryMediaGalleryDataSource
+platform_bindings:
+  android:
+    state_holders:
+      - TimelineItemGalleryContent.items
+      - TimelineItemGalleryContent.caption
+      - GalleryItem.type / mimeType / thumbnailSource
+      - ContentValidationState.getMediaStateFlow(url)
+      - MediaViewerState selected event/gallery item
+      - ActionListState for selected TimelineItemGalleryContent
+    render_targets:
+      - TimelineItemGalleryView
+      - TimelineItemEventContentView
+      - ActionListView
+      - InReplyToView
+      - MediaViewerView
+      - MediaGalleryView
+    event_entrypoints:
+      - gallery_item_click(index)
+      - long_press_timeline_item
+      - reply_to_event
+      - share_or_forward_event
+      - content_validation_update(url, value)
+  arkts:
+    state_holders:
+      - TimelineEvent.kind == Gallery
+      - TimelineEvent.mediaItems
+      - TimelineEvent.caption
+      - Index.@State.mediaViewerEventId
+      - Index.@State.mediaViewerItemIndex
+      - Index.@State.mediaViewerActionStatus
+      - Index.@State.pendingShareAttachmentRows
+      - ContentScannerContract scan result fixture
+    render_targets:
+      - Gallery timeline row
+      - GalleryMediaTile
+      - Media viewer surface
+      - Action sheet
+      - Reply preview
+      - Share target picker
+    event_entrypoints:
+      - openGalleryItem(eventId, index)
+      - updateMediaValidation(eventId, mediaUrl, state)
+      - openActionSheet(eventId)
+      - replyToEvent(eventId)
+      - shareGallery(eventId)
+state_dimensions:
+  - name: gallery_support
+    values: [unsupported, supported]
+  - name: item_count
+    values: [0, 1, 2, 4]
+  - name: item_mix
+    values: [visual_only, mixed_media, file_only]
+  - name: caption
+    values: [none, plain, formatted]
+  - name: validation
+    values: [unknown, loading, valid, invalid, unrecoverable_error]
+  - name: viewer
+    values: [closed, opened_selected_item, opened_error_item]
+  - name: item_order
+    values: [stable, reordered_bug]
+  - name: event_replacement
+    values: [none, edited, redacted]
+  - name: validation_by_item
+    values: [all_valid, mixed_valid_invalid, partial_error]
+  - name: share_payload_count
+    values: [0, 1, 2, 4]
+quality_gates:
+  minimum_cases: 28
+  required_functional_areas: [timeline_rendering, media_viewer, content_scanning, reply_preview, action_menu, share_forward, pinned_event]
+  discrimination_rules:
+    - every case is a final-positive gallery requirement; base mirrors must fail because gallery remains unsupported or incomplete
+    - a final pass requires preserving attachment count, order, per-item type, caption and safety state
+    - single-media behavior is only a regression constraint when tied to gallery coexistence
+    - feature_available alone is never sufficient evidence
+cases:
+  - id: gm_state_001_supported_gallery_row
+    title: 多附件 gallery 在时间线中作为支持类型渲染
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      caption: plain
+      validation: valid
+      viewer: closed
+    expect_ui:
+      visible: [gallery_container, gallery_item_0, gallery_item_1, gallery_item_2, gallery_item_3, gallery_caption]
+      hidden: [unsupported_event_placeholder]
+      enabled: [gallery_item_0, gallery_item_1, gallery_item_2, gallery_item_3]
+    parity_assertions:
+      - Android TimelineItemGalleryContent and ArkTS TimelineEventKind.Gallery expose the same item count.
+
+  - id: gm_state_002_final_gallery_replaces_unsupported
+    title: final 语义中 gallery fixture 必须替代 unsupported 占位
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      release_semantics: final
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      viewer: closed
+    expect_ui:
+      visible: [gallery_container, gallery_item_0, gallery_item_1, gallery_item_2, gallery_item_3]
+      hidden: [unsupported_event_placeholder, media_viewer]
+    parity_assertions:
+      - Base mirrors must fail this case because gallery fixture rendering remains an unsupported event there.
+
+  - id: gm_state_003_open_selected_media
+    title: 点击 gallery 第 N 项时 viewer 定位到同一项
+    functional_area: timeline_rendering
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      validation: valid
+      viewer: closed
+    expect_ui:
+      visible: [gallery_container]
+    transitions:
+      - event: gallery_item_click(index=2)
+        to_state:
+          viewer: opened_selected_item
+          selected_index: 2
+        expect_ui:
+          visible: [media_viewer, media_viewer_item_2]
+          properties:
+            selected_media_index: 2
+
+  - id: gm_state_004_validation_loading_blocks_content
+    title: 扫描中状态阻止原始媒体直接展示
+    functional_area: content_scanning
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_content_scanning_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      validation: loading
+      viewer: closed
+    expect_ui:
+      visible: [gallery_container, content_scanning_placeholder]
+      hidden: [raw_media_content, unsafe_content_warning]
+    transitions:
+      - event: content_validation_update(valid)
+        to_state:
+          validation: valid
+        expect_ui:
+          visible: [raw_media_content]
+          hidden: [content_scanning_placeholder]
+
+  - id: gm_state_005_validation_invalid_per_item
+    title: 单个 gallery 附件风险不隐藏整条 gallery
+    functional_area: content_scanning
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_content_scanning_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      validation_by_item:
+        item_0: valid
+        item_1: invalid
+        item_2: valid
+        item_3: valid
+    expect_ui:
+      visible: [gallery_container, gallery_item_0, gallery_item_1_invalid_fallback, gallery_item_2, gallery_item_3]
+      hidden: [unsupported_event_placeholder]
+    parity_assertions:
+      - Per-media validation states must not collapse the event-level renderer to unsupported.
+
+  - id: gm_state_006_reply_preview_item_count
+    title: 回复 gallery 时预览展示 gallery 语义和附件数量
+    functional_area: reply_preview
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_reply_preview_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      caption: none
+    expect_ui:
+      visible: [reply_preview_gallery_label, reply_preview_item_count]
+      properties:
+        reply_preview_item_count: 4
+      hidden: [reply_preview_unsupported]
+
+  - id: gm_state_007_action_list_gallery_actions
+    title: 长按 gallery 展示媒体兼容操作
+    functional_area: action_menu
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_action_menu_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      validation: valid
+    transitions:
+      - event: long_press_gallery_event
+        to_state:
+          action_sheet: visible
+        expect_ui:
+          visible: [action_reply, action_forward, action_share, action_view_details]
+          hidden: [action_copy_text_only]
+
+  - id: gm_state_008_share_preserves_all_items
+    title: 分享或转发 gallery 时不丢失非首个附件
+    functional_area: share_forward
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_share_forward_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      validation: valid
+    transitions:
+      - event: share_gallery_event
+        to_state:
+          pending_share_count: 4
+        expect_ui:
+          visible: [share_target_picker, gallery_share_bundle]
+          hidden: [single_media_share_only]
+          properties:
+            pending_share_attachment_count: 4
+
+  - id: gm_state_009_empty_gallery_fallback
+    title: 空 gallery 数据展示安全 fallback 而不是崩溃
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 0
+      item_mix: visual_only
+      validation: valid
+      viewer: closed
+    expect_ui:
+      visible: [gallery_empty_placeholder]
+      hidden: [gallery_item_0, unsupported_event_placeholder]
+    parity_assertions:
+      - Empty gallery data must be handled as malformed content, not as a renderer crash.
+
+  - id: gm_state_010_single_item_gallery_keeps_gallery_semantics
+    title: 单附件 gallery 保留 gallery 消息语义
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 1
+      item_mix: visual_only
+      caption: plain
+      validation: valid
+    expect_ui:
+      visible: [gallery_container, gallery_item_0, gallery_caption]
+      hidden: [single_media_message_row, unsupported_event_placeholder]
+
+  - id: gm_state_011_file_only_gallery_uses_attachment_list
+    title: 纯文件 gallery 使用附件列表语义展示
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: file_only
+      validation: valid
+    expect_ui:
+      visible: [gallery_container, gallery_attachment_list, gallery_file_item_0, gallery_file_item_1]
+      hidden: [gallery_visual_grid, unsupported_event_placeholder]
+
+  - id: gm_state_012_audio_file_mixed_gallery
+    title: 非视觉附件与视觉附件混合时都可见
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: image_video_audio_file
+      validation: valid
+    expect_ui:
+      visible: [gallery_item_image, gallery_item_video, gallery_item_audio, gallery_item_file]
+      hidden: [unsupported_event_placeholder]
+
+  - id: gm_state_013_formatted_caption
+    title: 格式化 caption 与 gallery 内容一起展示
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      caption: formatted
+      validation: valid
+    expect_ui:
+      visible: [gallery_container, gallery_formatted_caption]
+      properties:
+        caption_formatting_preserved: true
+
+  - id: gm_state_014_edited_gallery_caption
+    title: 编辑过的 gallery caption 展示编辑状态
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      caption: plain
+      is_edited: true
+    expect_ui:
+      visible: [gallery_container, gallery_caption, edited_indicator]
+      hidden: [unsupported_event_placeholder]
+      properties:
+        gallery_item_count: 2
+
+  - id: gm_state_015_thumbnail_failure_per_item
+    title: 单个缩略图失败只影响对应附件
+    functional_area: content_scanning
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_content_scanning_binding
+    given_state:
+      gallery_support: supported
+      item_count: 3
+      item_mix: visual_only
+      validation: valid
+      thumbnail_state_by_item:
+        item_0: success
+        item_1: failure
+        item_2: success
+    expect_ui:
+      visible: [gallery_item_0, gallery_item_1_thumbnail_error, gallery_item_2]
+      hidden: [gallery_empty_placeholder, unsupported_event_placeholder]
+
+  - id: gm_state_016_unrecoverable_item_error
+    title: 单个附件不可恢复错误展示 item fallback
+    functional_area: content_scanning
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_content_scanning_binding
+    given_state:
+      gallery_support: supported
+      item_count: 3
+      item_mix: mixed_media
+      validation_by_item:
+        item_0: valid
+        item_1: unrecoverable_error
+        item_2: valid
+    expect_ui:
+      visible: [gallery_container, gallery_item_1_not_found, gallery_item_0, gallery_item_2]
+      hidden: [unsupported_event_placeholder]
+
+  - id: gm_state_017_viewer_previous_next_bounds
+    title: 媒体查看器在 gallery 边界正确禁用前后切换
+    functional_area: media_viewer
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_media_viewer_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      validation: valid
+      viewer: opened_selected_item
+      selected_index: 0
+    expect_ui:
+      visible: [media_viewer, media_viewer_item_0]
+      disabled: [viewer_previous]
+      enabled: [viewer_next]
+    transitions:
+      - event: viewer_next
+        to_state:
+          selected_index: 1
+        expect_ui:
+          visible: [media_viewer_item_1]
+          enabled: [viewer_previous]
+          disabled: [viewer_next]
+
+  - id: gm_state_018_viewer_invalid_selected_item
+    title: 打开风险附件时 viewer 展示阻断态
+    functional_area: media_viewer
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_media_viewer_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      validation_by_item:
+        item_0: valid
+        item_1: invalid
+      viewer: closed
+    transitions:
+      - event: gallery_item_click(index=1)
+        to_state:
+          viewer: blocked
+          selected_index: 1
+        expect_ui:
+          visible: [media_viewer_blocked_content, unsafe_content_warning]
+          hidden: [media_viewer_raw_content]
+
+  - id: gm_state_019_pinned_event_gallery
+    title: 从 pinned event 打开 gallery 仍保留多附件结构
+    functional_area: pinned_event
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_pinned_event_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      source_surface: pinned_events
+    expect_ui:
+      visible: [pinned_gallery_row, gallery_container]
+      properties:
+        pinned_gallery_item_count: 4
+      hidden: [pinned_unsupported_placeholder]
+
+  - id: gm_state_020_reply_preview_invalid_gallery
+    title: 风险 gallery 的回复预览不暴露原始媒体
+    functional_area: content_scanning
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_content_scanning_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      validation: invalid
+    expect_ui:
+      visible: [reply_preview_gallery_label, reply_preview_invalid_content]
+      hidden: [reply_preview_thumbnail, raw_media_content]
+
+  - id: gm_state_021_action_list_invalid_gallery
+    title: 风险 gallery 的操作菜单隐藏会暴露媒体的操作
+    functional_area: content_scanning
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_content_scanning_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      validation: invalid
+    transitions:
+      - event: long_press_gallery_event
+        to_state:
+          action_sheet: visible
+        expect_ui:
+          visible: [action_view_details]
+          hidden: [action_save_media, action_share_raw_media]
+
+  - id: gm_state_022_final_gallery_coexists_with_single_media
+    title: final 语义中 gallery 支持与普通单媒体消息共存
+    functional_area: timeline_rendering
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+    given_state:
+      release_semantics: final
+      gallery_support: supported
+      event_content: single_image_and_gallery
+      item_count: 4
+      validation: valid
+    expect_ui:
+      visible: [single_media_message_row, image_thumbnail, gallery_container, gallery_item_count]
+      hidden: [unsupported_event_placeholder]
+    parity_assertions:
+      - Base mirrors must fail this case because they can render the single image but not the final gallery row.
+
+  - id: gm_state_023_final_gallery_tap_opens_viewer
+    title: final 语义中点击 gallery item 必须进入可操作 viewer
+    functional_area: media_viewer
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_media_viewer_binding
+    given_state:
+      release_semantics: final
+      gallery_support: supported
+      item_count: 4
+      viewer: closed
+      validation: valid
+    transitions:
+      - event: tap_gallery_fixture
+        to_state:
+          viewer: open
+          selected_index: 0
+        expect_ui:
+          visible: [gallery_container, media_viewer, media_viewer_counter, action_save_media, action_share_media]
+          hidden: [unsupported_event_placeholder]
+    parity_assertions:
+      - Base mirrors must fail this case because the gallery event is not rendered as an interactive media viewer.
+
+  - id: gm_state_024_final_positive_gallery_actions
+    title: final 语义中 gallery 支持 timeline、viewer、reply 和 share
+    functional_area: action_menu
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_action_menu_binding
+    given_state:
+      release_semantics: final
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      validation: valid
+    expect_ui:
+      visible: [gallery_container]
+      enabled: [gallery_item_0, action_reply, action_forward, action_share]
+      hidden: [unsupported_event_placeholder]
+
+  - id: gm_state_025_gallery_order_preserved_after_validation_updates
+    title: 扫描状态异步更新后 gallery 附件顺序保持不变
+    functional_area: content_scanning
+    fixture_kind: per_item_sdk_callback
+    base_failure_signal: base lacks per-item gallery validation state
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_validation_reorders_gallery_items
+      - rejects_missing_content_scanning_binding
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      validation: loading
+      viewer: closed
+      item_order: [image_a, video_b, file_c, image_d]
+    expect_ui:
+      visible: [gallery_container, gallery_item_0, gallery_item_1, gallery_item_2, gallery_item_3]
+      properties:
+        gallery_item_0: image_a
+        gallery_item_1: video_b
+        gallery_item_2: file_c
+        gallery_item_3: image_d
+    transitions:
+      - event: content_validation_update(item_2=valid)
+        to_state:
+          validation: valid
+        expect_ui:
+          visible: [gallery_item_0, gallery_item_1, gallery_item_2, gallery_item_3]
+          properties:
+            gallery_item_0: image_a
+            gallery_item_1: video_b
+            gallery_item_2: file_c
+            gallery_item_3: image_d
+    parity_assertions:
+      - Validation completion must not sort, drop, or regroup gallery items.
+
+  - id: gm_state_026_viewer_reuses_timeline_caption_and_edited_state
+    title: viewer 中保留 timeline gallery caption 与 edited 状态
+    functional_area: media_viewer
+    fixture_kind: navigation_state_projection
+    base_failure_signal: base lacks gallery-aware viewer data source
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_viewer_drops_gallery_caption
+      - rejects_missing_media_viewer_binding
+    given_state:
+      gallery_support: supported
+      item_count: 2
+      item_mix: visual_only
+      caption: formatted
+      edited: true
+      validation: valid
+      viewer: closed
+    expect_ui:
+      visible: [gallery_container, gallery_caption, edited_indicator]
+    transitions:
+      - event: gallery_item_click(index=0)
+        to_state:
+          viewer: opened_selected_item
+        expect_ui:
+          visible: [media_viewer, media_viewer_caption, media_viewer_edited_indicator]
+          properties:
+            media_viewer_caption: formatted_caption
+    parity_assertions:
+      - Viewer data source inherits the same caption model as the timeline row.
+
+  - id: gm_state_027_redacted_gallery_hides_media_but_keeps_event_shell
+    title: gallery 被撤回后隐藏媒体内容但保留事件壳层
+    functional_area: timeline_rendering
+    fixture_kind: event_replacement_state
+    base_failure_signal: base lacks gallery event replacement handling
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_rendering_binding
+      - rejects_redacted_gallery_still_opens_media
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      event_replacement: redacted
+      viewer: closed
+    expect_ui:
+      visible: [redacted_event_placeholder]
+      hidden: [gallery_item_0, gallery_item_1, gallery_item_2, gallery_item_3, media_viewer]
+      disabled: [gallery_container]
+    parity_assertions:
+      - Redaction applies to the gallery event, not to an arbitrary first item only.
+
+  - id: gm_state_028_share_skips_blocked_items_but_reports_omissions
+    title: 分享 gallery 时跳过被阻断附件并提示部分附件不可分享
+    functional_area: share_forward
+    fixture_kind: action_sheet_with_per_item_validation
+    base_failure_signal: base lacks gallery-aware share payload assembly
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_share_forward_binding
+      - rejects_sharing_all_items_without_validation
+    given_state:
+      gallery_support: supported
+      item_count: 4
+      item_mix: mixed_media
+      validation_by_item:
+        item_0: valid
+        item_1: invalid
+        item_2: valid
+        item_3: unrecoverable_error
+      viewer: closed
+    expect_ui:
+      visible: [gallery_container]
+    transitions:
+      - event: share_gallery_event
+        to_state:
+          share_payload_count: 2
+          blocked_share_count: 2
+        expect_ui:
+          visible: [share_sheet, gallery_share_partial_warning]
+          hidden: [unsafe_media_in_share_sheet]
+          properties:
+            share_payload_count: 2
+    parity_assertions:
+      - Share payload preserves safe attachments and explains omitted unsafe attachments.

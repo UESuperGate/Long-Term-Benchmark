@@ -1,0 +1,916 @@
+version: 1
+task:
+  id: 01_user_status
+  title: 用户状态设置与展示
+  base: v26.07.0
+  final: v26.08.4
+source:
+  spec: C:/Users/xiexi/qingyu/specs/elementx-spec1-user-status.md
+  release_notes:
+    - Enable user status feature and hide status text in the timeline
+    - Remove UserStatus feature flag
+    - Add MatrixClient.isUserStatusSupported
+  android_evidence:
+    - features/preferences/impl/.../userstatus/UserStatusState.kt
+    - features/preferences/impl/.../root/PreferencesRootState.kt:userStatusState
+    - features/home/impl/.../RoomListRoomSummary.kt:dmUserStatus
+    - features/messages/impl/.../MessagesState.kt
+platform_bindings:
+  android:
+    state_holders:
+      - PreferencesRootState.userStatusState
+      - UserStatusState.displayedStatus
+      - UserStatusState.rawStatus
+      - UserStatusState.pickerState
+      - UserStatusState.updateStatusAction
+      - RoomListRoomSummary.dmUserStatus
+      - MessagesState.currentUser / sender DisplayedStatus fixtures
+    render_targets:
+      - PreferencesRootView
+      - UserStatusView
+      - RoomSummaryRow
+      - MessagesViewTopBar
+      - TimelineItemEventRow sender display
+    event_entrypoints:
+      - UserStatusEvent.SelectPredefined
+      - UserStatusEvent.EnterCustomStatus
+      - UserStatusEvent.Save
+      - UserStatusEvent.Clear
+      - UserStatusEvent.DismissPicker
+  arkts:
+    state_holders:
+      - Index.@State.userStatusDraft
+      - Index.@State.isUpdatingProfile
+      - Index.@State.profileError
+      - Index.@State.pendingUserProfileStatus
+      - ClientSnapshot.currentUser.status
+      - RoomSummary.dmUserStatus
+      - TimelineEvent.senderStatus
+      - HomeserverCapabilitiesState.canSetUserStatus
+    render_targets:
+      - Settings/Profile section
+      - User status editor surface
+      - Room list row
+      - Timeline sender header
+      - User profile sheet
+    event_entrypoints:
+      - setUserStatus(status)
+      - clearUserStatus()
+      - isUserStatusSupported()
+state_dimensions:
+  - name: support
+    values: [unsupported, supported]
+  - name: own_status
+    values: [none, user_set, in_call]
+  - name: picker
+    values: [hidden, predefined, custom_input, emoji_sheet_loading, emoji_sheet_shown]
+  - name: update_action
+    values: [idle, loading, success, failure]
+  - name: surface
+    values: [settings, home_top_bar, dm_room_row, timeline_sender, user_profile]
+  - name: remote_status
+    values: [none, user_set, refreshed, removed]
+  - name: status_payload_source
+    values: [none, draft, persisted, transient_call]
+quality_gates:
+  minimum_cases: 26
+  required_functional_areas: [capability, editor, persistence, propagation, timeline, profile, failure_recovery]
+  discrimination_rules:
+    - every case is a final-positive requirement; base mirrors must fail because the semantic state or transition is absent
+    - a final pass requires UI tokens from expect_ui plus transition/property checks when present
+    - feature_available alone is never sufficient evidence
+    - at least one mutation guard must reject a feature-flag-only implementation
+cases:
+  - id: us_state_001_unsupported_hides_entry
+    title: homeserver 不支持用户状态时设置入口不出现
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      support: unsupported
+      own_status: none
+      picker: hidden
+      update_action: idle
+      surface: settings
+    expect_ui:
+      hidden: [user_status_settings_entry, user_status_editor, user_status_badge]
+      visible: [profile_settings_entry, privacy_settings_entry, security_settings_entry]
+    parity_assertions:
+      - Android userStatusState is null or capability-gated.
+      - ArkTS canSetUserStatus=false hides the same semantic entry.
+
+  - id: us_state_002_empty_supported_entry
+    title: 支持用户状态但尚未设置时展示空状态入口
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      support: supported
+      own_status: none
+      picker: hidden
+      update_action: idle
+      surface: settings
+    expect_ui:
+      visible: [user_status_settings_entry, user_status_empty_value]
+      hidden: [user_status_emoji_badge, user_status_timeline_text]
+      enabled: [open_user_status_editor]
+    transitions:
+      - event: open_user_status_editor
+        to_state:
+          picker: predefined
+        expect_ui:
+          visible: [user_status_editor, predefined_status_list, custom_status_button]
+
+  - id: us_state_003_custom_input_and_emoji_sheet
+    title: 自定义状态输入和 emoji 选择器状态绑定正确
+    functional_area: editor
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_editor_binding
+    given_state:
+      support: supported
+      own_status: none
+      picker: custom_input
+      update_action: idle
+      surface: settings
+    expect_ui:
+      visible: [custom_status_text_field, emoji_picker_button, save_status_button]
+      enabled: [custom_status_text_field, emoji_picker_button]
+    transitions:
+      - event: open_emoji_sheet
+        to_state:
+          picker: emoji_sheet_loading
+        expect_ui:
+          visible: [custom_status_text_field, emoji_picker_button]
+          hidden: [emoji_picker_grid]
+      - event: emoji_sheet_loaded
+        to_state:
+          picker: emoji_sheet_shown
+        expect_ui:
+          visible: [emoji_picker_grid]
+
+  - id: us_state_004_save_success_propagates_surfaces
+    title: 保存用户状态成功后同步到设置、主页、DM 和资料页
+    functional_area: persistence
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_persistence_binding
+    given_state:
+      support: supported
+      own_status: none
+      picker: custom_input
+      update_action: idle
+      status_payload:
+        emoji: "🌴"
+        text: Away
+    expect_ui:
+      visible: [save_status_button]
+      enabled: [save_status_button]
+    transitions:
+      - event: save_status
+        to_state:
+          picker: hidden
+          update_action: loading
+        expect_ui:
+          visible: [user_status_settings_entry]
+          hidden: [user_status_editor, predefined_status_list, custom_status_text_field, save_status_button]
+      - event: sdk_set_user_status_success
+        to_state:
+          own_status: user_set
+          picker: hidden
+          update_action: success
+        expect_ui:
+          visible: [user_status_settings_value, home_status_badge, dm_user_status_badge, user_profile_status]
+          hidden: [user_status_saving_indicator]
+    parity_assertions:
+      - The same status payload appears on all supported surfaces.
+
+  - id: us_state_005_save_failure_keeps_previous_status
+    title: 保存失败时保留旧状态并展示错误
+    functional_area: persistence
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_persistence_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      previous_payload:
+        emoji: "☕"
+        text: Be right back
+      picker: custom_input
+      update_action: loading
+    expect_ui:
+      visible: [user_status_saving_indicator]
+    transitions:
+      - event: sdk_set_user_status_failure
+        to_state:
+          own_status: user_set
+          update_action: failure
+        expect_ui:
+          visible: [user_status_error, user_status_settings_value]
+          properties:
+            user_status_settings_value: "☕"
+
+  - id: us_state_006_clear_status
+    title: 清除状态后所有状态展示收敛为空
+    functional_area: persistence
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_persistence_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      picker: hidden
+      update_action: idle
+    expect_ui:
+      visible: [clear_status_button, user_status_emoji_badge]
+    transitions:
+      - event: clear_status
+        to_state:
+          update_action: loading
+        expect_ui:
+          visible: [user_status_saving_indicator]
+      - event: sdk_clear_user_status_success
+        to_state:
+          own_status: none
+          update_action: success
+        expect_ui:
+          visible: [user_status_empty_value]
+          hidden: [user_status_emoji_badge, dm_user_status_badge, user_profile_status]
+
+  - id: us_state_007_timeline_sender_emoji_only
+    title: 时间线发送者只展示 emoji 不展示状态文本
+    functional_area: timeline
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      surface: timeline_sender
+      sender_status:
+        emoji: "💡"
+        text: Focus time
+    expect_ui:
+      visible: [timeline_sender_name, timeline_sender_status_emoji]
+      hidden: [timeline_sender_status_text]
+      properties:
+        timeline_sender_status_emoji: "💡"
+    parity_assertions:
+      - Status text must not be part of the visible timeline sender node.
+
+  - id: us_state_008_in_call_status
+    title: 通话状态作为 DisplayedStatus.InCall 渲染且可恢复
+    functional_area: active_call
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      support: supported
+      own_status: in_call
+      picker: hidden
+      update_action: idle
+    expect_ui:
+      visible: [in_call_status_badge]
+      hidden: [custom_user_status_text_in_timeline]
+    transitions:
+      - event: call_ended
+        to_state:
+          own_status: none
+        expect_ui:
+          hidden: [in_call_status_badge]
+          visible: [user_status_empty_value]
+
+  - id: us_state_009_capability_failure_safe_fallback
+    title: 用户状态能力检查失败时设置页安全降级
+    functional_area: cross_surface
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_cross_surface_binding
+    given_state:
+      support: capability_error
+      own_status: none
+      picker: hidden
+      update_action: idle
+      surface: settings
+    expect_ui:
+      visible: [profile_settings_entry, privacy_settings_entry, security_settings_entry]
+      hidden: [user_status_settings_entry, user_status_editor, user_status_error_blocking_dialog]
+    parity_assertions:
+      - Capability lookup failure must not crash or block unrelated settings.
+
+  - id: us_state_010_predefined_status_selection
+    title: 选择预设状态后进入保存状态并关闭选择器
+    functional_area: cross_surface
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_cross_surface_binding
+    given_state:
+      support: supported
+      own_status: none
+      picker: predefined
+      update_action: idle
+    expect_ui:
+      visible: [predefined_status_list, predefined_status_away, predefined_status_focus_time]
+      enabled: [predefined_status_away]
+    transitions:
+      - event: select_predefined_status(away)
+        to_state:
+          own_status: user_set
+          picker: hidden
+          update_action: loading
+          status_payload:
+            emoji: "🌴"
+            text: Away
+        expect_ui:
+          visible: [user_status_saving_indicator]
+          hidden: [predefined_status_list]
+
+  - id: us_state_011_dismiss_picker_keeps_status
+    title: 关闭状态选择器不修改当前状态
+    functional_area: editor
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_editor_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      picker: predefined
+      update_action: idle
+      status_payload:
+        emoji: "☕"
+        text: Be right back
+    expect_ui:
+      visible: [predefined_status_list]
+    transitions:
+      - event: dismiss_status_picker
+        to_state:
+          own_status: user_set
+          picker: hidden
+          update_action: idle
+        expect_ui:
+          visible: [user_status_settings_value]
+          properties:
+            user_status_settings_value: "☕"
+
+  - id: us_state_012_custom_input_dirty_state
+    title: 自定义输入只在可提交时启用保存
+    functional_area: editor
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_editor_binding
+    given_state:
+      support: supported
+      own_status: none
+      picker: custom_input
+      update_action: idle
+      custom_input:
+        emoji: ""
+        text: ""
+    expect_ui:
+      visible: [custom_status_text_field, cancel_status_button]
+      hidden: [save_status_button]
+    transitions:
+      - event: edit_custom_status(emoji=💬, text=In a meeting)
+        to_state:
+          custom_input:
+            emoji: "💬"
+            text: In a meeting
+        expect_ui:
+          enabled: [save_status_button]
+
+  - id: us_state_013_custom_input_cancel_clears_draft_only
+    title: 取消自定义编辑只清理草稿不清除已保存状态
+    functional_area: editor
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_editor_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      picker: custom_input
+      update_action: idle
+      previous_payload:
+        emoji: "💡"
+        text: Focus time
+      custom_input:
+        emoji: "🚙"
+        text: On the road
+    transitions:
+      - event: cancel_custom_input
+        to_state:
+          own_status: user_set
+          picker: hidden
+          custom_input: null
+        expect_ui:
+          visible: [user_status_settings_value]
+          hidden: [user_status_editor, custom_status_text_field]
+          properties:
+            user_status_settings_value: "💡"
+
+  - id: us_state_014_update_loading_disables_mutating_actions
+    title: 保存请求发出后立即关闭编辑器避免并发状态写入
+    functional_area: action_menu
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_action_menu_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      picker: hidden
+      update_action: loading
+    expect_ui:
+      visible: [user_status_settings_entry, user_status_settings_value]
+      hidden: [user_status_editor, save_status_button, custom_status_text_field, predefined_status_list]
+    parity_assertions:
+      - Android final hides the picker while the SDK mutation is pending, so duplicate editor actions are not visible.
+
+  - id: us_state_015_home_top_bar_own_status
+    title: 自己的状态传播到主页顶部账号区域
+    functional_area: cross_surface
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_cross_surface_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      surface: home_top_bar
+      status_payload:
+        emoji: "🚙"
+        text: On the road
+    expect_ui:
+      visible: [home_top_bar_avatar, home_status_badge]
+      properties:
+        home_status_badge: "🚙"
+      hidden: [home_status_text]
+
+  - id: us_state_016_dm_room_row_remote_status
+    title: DM 房间行展示对方成员状态
+    functional_area: propagation
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_propagation_binding
+    given_state:
+      support: supported
+      surface: dm_room_row
+      room_kind: direct_message
+      dm_user_status:
+        emoji: "☕"
+        text: Be right back
+    expect_ui:
+      visible: [room_summary_row, dm_user_status_badge]
+      properties:
+        dm_user_status_badge: "☕"
+      hidden: [group_room_status_badge]
+
+  - id: us_state_017_group_room_no_synthetic_status
+    title: 群聊房间不合成 DM 用户状态
+    functional_area: cross_surface
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_cross_surface_binding
+    given_state:
+      support: supported
+      surface: dm_room_row
+      room_kind: group
+      dm_user_status: null
+    expect_ui:
+      visible: [room_summary_row]
+      hidden: [dm_user_status_badge, group_room_status_badge]
+
+  - id: us_state_018_profile_status_refresh
+    title: 用户资料页状态随资料刷新更新
+    functional_area: profile
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_profile_binding
+    given_state:
+      support: supported
+      surface: user_profile
+      profile_user_status:
+        emoji: "🌴"
+        text: Away
+    expect_ui:
+      visible: [user_profile_header, user_profile_status]
+      properties:
+        user_profile_status: "🌴"
+    transitions:
+      - event: profile_status_refreshed(emoji=💬, text=In a meeting)
+        to_state:
+          profile_user_status:
+            emoji: "💬"
+            text: In a meeting
+        expect_ui:
+          properties:
+            user_profile_status: "💬"
+
+  - id: us_state_019_displayed_status_takes_precedence
+    title: displayedStatus 与 rawStatus 不一致时使用展示态
+    functional_area: cross_surface
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_cross_surface_binding
+    given_state:
+      support: supported
+      surface: user_profile
+      raw_status:
+        emoji: "🌴"
+        text: Away
+      displayed_status:
+        kind: in_call
+    expect_ui:
+      visible: [in_call_status_badge, user_profile_header]
+      hidden: [raw_user_status_badge, raw_user_status_text]
+      properties:
+        in_call_status_badge: in_call
+    parity_assertions:
+      - UI should bind to displayed status, not stale raw status.
+
+  - id: us_state_020_remote_status_removed
+    title: 远端用户清除状态后 DM 和资料页同时隐藏
+    functional_area: propagation
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_propagation_binding
+    given_state:
+      support: supported
+      surface: dm_room_row
+      dm_user_status:
+        emoji: "💡"
+        text: Focus time
+    expect_ui:
+      visible: [dm_user_status_badge]
+    transitions:
+      - event: remote_user_status_removed
+        to_state:
+          dm_user_status: null
+          profile_user_status: null
+        expect_ui:
+          hidden: [dm_user_status_badge, user_profile_status]
+
+  - id: us_state_021_final_status_entry_and_badge
+    title: final 版本语义中用户状态入口和自身状态 badge 必须同时可见
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      release_semantics: final
+      support: supported
+      own_status: user_set
+      surface: settings
+      status_payload:
+        emoji: "💡"
+        text: Focus time
+    expect_ui:
+      visible: [profile_settings_entry, user_status_settings_entry, user_status_settings_value, home_status_badge]
+      enabled: [open_user_status_editor]
+      hidden: [unsupported_feature_placeholder, user_status_timeline_text]
+      properties:
+        user_status_settings_value: "💡"
+        home_status_badge: "💡"
+    parity_assertions:
+      - Base mirrors must fail this case because the final user-status entry and propagation do not exist there.
+
+  - id: us_state_022_final_positive_user_status_entry
+    title: final 版本语义中支持能力打开时必须出现入口
+    functional_area: capability
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_capability_binding
+    given_state:
+      release_semantics: final
+      support: supported
+      surface: settings
+    expect_ui:
+      visible: [user_status_settings_entry]
+      enabled: [open_user_status_editor]
+      hidden: [unsupported_feature_placeholder]
+
+  - id: us_state_023_remote_status_refresh_does_not_override_own_status
+    title: 远端 DM 状态刷新不覆盖自己的用户状态
+    functional_area: propagation
+    fixture_kind: sdk_callback_cross_surface
+    base_failure_signal: base lacks independent own and remote displayed status streams
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_single_global_status_bucket
+      - rejects_missing_propagation_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      surface: dm_room_row
+      previous_payload:
+        emoji: "☕"
+        text: Be right back
+      remote_status:
+        emoji: "🌙"
+        text: Quiet hours
+    expect_ui:
+      visible: [home_status_badge, dm_user_status_badge]
+      properties:
+        home_status_badge: "☕"
+        dm_user_status_badge: "🌙"
+    transitions:
+      - event: remote_status_refreshed(emoji=🧭, text=Travelling)
+        to_state:
+          remote_status:
+            emoji: "🧭"
+            text: Travelling
+        expect_ui:
+          visible: [home_status_badge, dm_user_status_badge]
+          properties:
+            home_status_badge: "☕"
+            dm_user_status_badge: "🧭"
+    parity_assertions:
+      - Own status and DM member status are separate state holders on both platforms.
+
+  - id: us_state_024_status_text_never_leaks_to_timeline
+    title: 时间线状态更新后仍只显示 emoji 不泄露文本
+    functional_area: timeline
+    fixture_kind: declarative_render_plus_sdk_callback
+    base_failure_signal: base lacks final timeline displayed-status rendering
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_binding
+      - rejects_text_rendered_in_timeline
+    given_state:
+      support: supported
+      own_status: user_set
+      surface: timeline_sender
+      sender_status:
+        emoji: "🛠"
+        text: Fixing an incident
+    expect_ui:
+      visible: [timeline_sender_name, timeline_sender_status_emoji]
+      hidden: [timeline_sender_status_text, user_status_full_text_in_message_body]
+      properties:
+        timeline_sender_status_emoji: "🛠"
+    transitions:
+      - event: sender_status_refreshed(emoji=✅, text=Back online)
+        to_state:
+          sender_status:
+            emoji: "✅"
+            text: Back online
+        expect_ui:
+          visible: [timeline_sender_status_emoji]
+          hidden: [timeline_sender_status_text, user_status_full_text_in_message_body]
+          properties:
+            timeline_sender_status_emoji: "✅"
+    parity_assertions:
+      - Status text may appear in editor/profile contexts but not in timeline sender rows.
+
+  - id: us_state_025_save_retry_after_failure_uses_latest_draft
+    title: 保存失败后的重试使用最新草稿而不是失败时的旧 payload
+    functional_area: failure_recovery
+    fixture_kind: sdk_failure_then_user_edit
+    base_failure_signal: base lacks final save/retry state machine
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_stale_retry_payload
+      - rejects_missing_failure_recovery_binding
+    given_state:
+      support: supported
+      own_status: user_set
+      picker: custom_input
+      update_action: failure
+      previous_payload:
+        emoji: "☕"
+        text: Be right back
+      status_payload:
+        emoji: "🧪"
+        text: Testing
+    expect_ui:
+      visible: [user_status_error, custom_status_text_field, save_status_button]
+      enabled: [custom_status_text_field, save_status_button]
+    transitions:
+      - event: edit_custom_status(emoji=🚀, text=Shipping)
+        to_state:
+          status_payload:
+            emoji: "🚀"
+            text: Shipping
+          update_action: idle
+        expect_ui:
+          visible: [save_status_button]
+          properties:
+            custom_status_text_field: Shipping
+      - event: sdk_set_user_status_success
+        to_state:
+          own_status: user_set
+          picker: hidden
+          update_action: success
+        expect_ui:
+          visible: [user_status_settings_value]
+          properties:
+            user_status_settings_value: "🚀"
+    parity_assertions:
+      - Retry submits the post-edit draft, not the failed request payload.
+
+  - id: us_state_026_call_status_restore_manual_status
+    title: 通话临时状态结束后恢复进入通话前的手动状态
+    functional_area: persistence
+    fixture_kind: call_state_side_effect
+    base_failure_signal: base lacks final in-call displayed status lifecycle
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_call_status_permanently_overwrites_manual_status
+      - rejects_missing_persistence_binding
+    given_state:
+      support: supported
+      own_status: in_call
+      previous_payload:
+        emoji: "📚"
+        text: Reading
+      surface: home_top_bar
+    expect_ui:
+      visible: [home_status_badge, in_call_status_badge]
+      properties:
+        home_status_badge: "📞"
+    transitions:
+      - event: call_ended_restore_previous_status
+        to_state:
+          own_status: user_set
+          update_action: success
+        expect_ui:
+          visible: [home_status_badge]
+          hidden: [in_call_status_badge]
+          properties:
+            home_status_badge: "📚"
+    parity_assertions:
+      - Automatic in-call status is transient and does not erase the user's persisted status.

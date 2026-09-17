@@ -1,0 +1,945 @@
+version: 1
+task:
+  id: 03_timeline_protection_rich_events
+  title: 时间线安全扫描与富事件渲染升级
+  base: v26.07.1
+  final: v26.08.0
+source:
+  spec: C:/Users/xiexi/qingyu/specs/elementx-spec3-active-call-timeline.md
+  release_notes:
+    - Content scanner: scan timeline events for unsafe content
+    - Add content scanner support to media gallery and viewer
+    - feat(call): Active call timeline rendering
+  android_evidence:
+    - TimelineProtectionState.protectionState
+    - ContentValidationState / ContentValidationValue
+    - TimelineItemEventContent.isMedia
+    - TimelineItemRtcNotificationContent.state
+    - ActiveCallTimelineItemView
+platform_bindings:
+  android:
+    state_holders:
+      - MessagesState.timelineProtectionState
+      - TimelineProtectionState.protectionState
+      - ContentValidationState.overallStateFlow
+      - ContentValidationValue.Valid/Invalid/Loading/Unknown/UnrecoverableError
+      - TimelineItemEventContent.isMedia
+      - TimelineItemRtcNotificationContent.state
+      - RtcNotificationState.Active/Declined/Started
+    render_targets:
+      - TimelineView
+      - TimelineItemEventRow
+      - TimelineItemImageView
+      - TimelineItemVideoView
+      - TimelineItemGalleryView
+      - MessageShieldView
+      - ActiveCallTimelineItemView
+      - MediaViewerView
+    event_entrypoints:
+      - TimelineProtectionEvent
+      - contentValidationState.update(url, value)
+      - AsyncImageStateHandler update
+      - active_call_join_click
+  arkts:
+    state_holders:
+      - TimelineEvent.kind
+      - TimelineEvent.mediaItems
+      - TimelineEvent.validationState
+      - TimelineEvent.callState
+      - ContentScannerContract scan result
+      - Index.@State.mediaViewerEventId
+      - Index.@State.mediaViewerItemIndex
+      - Index.@State.mediaViewerActionStatus
+    render_targets:
+      - Timeline row
+      - Media tile
+      - Scan fallback row
+      - Gallery row
+      - Active call row
+      - Media viewer
+    event_entrypoints:
+      - updateContentScan(eventId, mediaUrl, value)
+      - asyncImageStateChanged(mediaUrl, value)
+      - openMediaViewer(eventId, index)
+      - joinActiveCall(eventId)
+state_dimensions:
+  - name: protection
+    values: [render_all, render_only_selected]
+  - name: validation
+    values: [unknown, loading, valid, invalid, unrecoverable_error]
+  - name: event_content
+    values: [text, image, video, file, voice, sticker, gallery, active_call, rtc_declined]
+  - name: viewer
+    values: [closed, opened, blocked]
+  - name: call_state
+    values: [none, active_joinable, active_joined, declined, started_tombstoned]
+  - name: validation_cache
+    values: [empty, cached_valid, cached_invalid]
+  - name: action_sheet
+    values: [closed, opened]
+  - name: event_identity
+    values: [single_event, mixed_text_and_media, cached_media, active_call]
+quality_gates:
+  minimum_cases: 32
+  required_functional_areas: [timeline_scanner, media_viewer, validation_cache, gallery_aggregation, active_call, action_menu, accessibility_navigation]
+  discrimination_rules:
+    - every case is a final-positive requirement for scanner, rich call rendering, or their coexistence
+    - a final pass requires proving unsafe content is blocked without disabling safe media or text events
+    - validation state must be keyed by event/media/call identity, not a global flag
+    - feature_available alone is never sufficient evidence
+cases:
+  - id: tp_state_001_media_unknown_requests_validation
+    title: 未知媒体内容进入扫描准备态
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      validation: unknown
+      event_content: image
+      viewer: closed
+    expect_ui:
+      visible: [media_row_placeholder, content_validation_pending]
+      hidden: [unsafe_content_warning, unsupported_event_placeholder]
+    transitions:
+      - event: scanner_started
+        to_state:
+          validation: loading
+        expect_ui:
+          visible: [content_scanning_placeholder]
+
+  - id: tp_state_002_valid_media_renders_original_content
+    title: 扫描通过后媒体内容恢复原始渲染
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      validation: loading
+      event_content: video
+      viewer: closed
+    expect_ui:
+      visible: [content_scanning_placeholder]
+    transitions:
+      - event: content_validation_update(valid)
+        to_state:
+          validation: valid
+        expect_ui:
+          visible: [video_thumbnail, video_play_affordance]
+          hidden: [content_scanning_placeholder, unsafe_content_warning]
+
+  - id: tp_state_003_invalid_media_uses_safety_fallback
+    title: 风险媒体展示安全 fallback 且不能打开原内容
+    functional_area: timeline_scanner
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      validation: invalid
+      event_content: image
+      viewer: closed
+    expect_ui:
+      visible: [unsafe_content_warning, blocked_media_placeholder]
+      hidden: [raw_media_content]
+      disabled: [open_media_viewer]
+    transitions:
+      - event: tap_blocked_media
+        to_state:
+          viewer: blocked
+        expect_ui:
+          visible: [unsafe_content_warning]
+          hidden: [media_viewer_raw_content]
+
+  - id: tp_state_004_unrecoverable_error_not_found
+    title: 不可恢复错误展示 not found/错误态
+    functional_area: timeline_scanner
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      validation: unrecoverable_error
+      event_content: file
+      viewer: closed
+    expect_ui:
+      visible: [media_not_found_placeholder]
+      hidden: [raw_media_content, content_scanning_placeholder]
+
+  - id: tp_state_005_gallery_mixed_validation_aggregates
+    title: gallery 的媒体扫描状态按附件聚合
+    functional_area: gallery_aggregation
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_gallery_aggregation_binding
+    given_state:
+      protection: render_all
+      event_content: gallery
+      validation_by_item:
+        item_0: valid
+        item_1: loading
+        item_2: valid
+    expect_ui:
+      visible: [gallery_container, gallery_item_0, gallery_item_1_scanning, gallery_item_2]
+      hidden: [unsupported_event_placeholder]
+    transitions:
+      - event: content_validation_update(item_1=invalid)
+        to_state:
+          validation_by_item:
+            item_0: valid
+            item_1: invalid
+            item_2: valid
+        expect_ui:
+          visible: [gallery_item_1_invalid_fallback]
+
+  - id: tp_state_006_viewer_keeps_timeline_validation
+    title: 从时间线打开媒体查看器时复用同一验证状态
+    functional_area: media_viewer
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_media_viewer_binding
+    given_state:
+      protection: render_all
+      validation: valid
+      event_content: image
+      viewer: closed
+    transitions:
+      - event: open_media_viewer
+        to_state:
+          viewer: opened
+        expect_ui:
+          visible: [media_viewer, media_viewer_image]
+          hidden: [media_viewer_invalid_state]
+    parity_assertions:
+      - Opening viewer must not reset a Valid state to Unknown or Loading.
+
+  - id: tp_state_007_active_call_joinable_card
+    title: 活跃通话事件渲染可加入卡片
+    functional_area: active_call
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      protection: render_all
+      validation: valid
+      event_content: active_call
+      call_state: active_joinable
+    expect_ui:
+      visible: [active_call_card, active_call_title, active_call_participants, join_call_button]
+      hidden: [unsupported_event_placeholder, rtc_started_plain_notice]
+      enabled: [join_call_button]
+    transitions:
+      - event: join_active_call
+        to_state:
+          call_state: active_joined
+        expect_ui:
+          visible: [active_call_card, in_call_indicator]
+
+  - id: tp_state_008_declined_call_no_join_action
+    title: 已拒绝或 tombstoned 通话不展示加入入口
+    functional_area: active_call
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      protection: render_all
+      event_content: rtc_declined
+      call_state: declined
+    expect_ui:
+      visible: [rtc_declined_notice]
+      hidden: [join_call_button, active_call_card]
+
+  - id: tp_state_009_render_only_selected_hides_unselected_media
+    title: RenderOnly 保护模式只渲染允许事件
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_only_selected
+      allowed_event_ids: [evt_allowed]
+      current_event_id: evt_blocked
+      validation: valid
+      event_content: image
+    expect_ui:
+      visible: [message_shield]
+      hidden: [raw_media_content]
+    transitions:
+      - event: allow_event(evt_blocked)
+        to_state:
+          allowed_event_ids: [evt_allowed, evt_blocked]
+        expect_ui:
+          visible: [raw_media_content]
+          hidden: [message_shield]
+
+  - id: tp_state_010_accessibility_group_state
+    title: 分组展开/折叠状态在新增保护层下仍可读
+    functional_area: accessibility_navigation
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_accessibility_navigation_binding
+    given_state:
+      protection: render_all
+      validation: valid
+      event_content: text
+      group_header: collapsed
+    expect_ui:
+      visible: [timeline_group_header, group_expand_toggle]
+      hidden: [message_shield_on_group_header]
+      properties:
+        accessibility_state: collapsed
+    transitions:
+      - event: expand_group
+        to_state:
+          group_header: expanded
+        expect_ui:
+          visible: [timeline_group_header, group_collapse_toggle]
+          properties:
+            accessibility_state: expanded
+
+  - id: tp_state_011_final_text_event_coexists_with_media_scanner
+    title: final 语义中纯文本事件与媒体扫描保护层共存
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      release_semantics: final
+      protection: render_all
+      validation: loading
+      event_content: text_and_image
+      viewer: closed
+    expect_ui:
+      visible: [text_message_body, content_scanning_placeholder]
+      hidden: [unsafe_content_warning, message_shield]
+    parity_assertions:
+      - Base mirrors must fail this case because the final scanner placeholder is not present while text remains readable.
+
+  - id: tp_state_012_own_media_bypasses_render_only_shield
+    title: 自己发送的媒体在 RenderOnly 下不被隐藏
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_only_selected
+      allowed_event_ids: []
+      current_event_id: evt_mine
+      is_mine: true
+      validation: valid
+      event_content: image
+    expect_ui:
+      visible: [raw_media_content, own_sender_marker]
+      hidden: [message_shield, content_scanning_placeholder]
+
+  - id: tp_state_013_valid_state_not_downgraded_to_loading
+    title: 已验证通过的媒体不会被后续 loading 状态回退
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      validation: valid
+      event_content: image
+    expect_ui:
+      visible: [raw_media_content, image_thumbnail]
+      hidden: [content_scanning_placeholder, unsafe_content_warning]
+    transitions:
+      - event: async_image_state_loading_after_valid
+        to_state:
+          validation: valid
+        expect_ui:
+          visible: [raw_media_content, image_thumbnail]
+          hidden: [content_scanning_placeholder, unsafe_content_warning]
+
+  - id: tp_state_014_overall_invalid_takes_priority
+    title: 多媒体聚合状态中 invalid 优先阻断
+    functional_area: timeline_scanner
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      event_content: gallery
+      validation_by_item:
+        item_0: valid
+        item_1: loading
+        item_2: invalid
+    expect_ui:
+      visible: [gallery_container, unsafe_content_warning, gallery_item_2_invalid_fallback]
+      hidden: [raw_media_content_for_item_2]
+    parity_assertions:
+      - Overall event state should be unsafe when any media item is invalid.
+
+  - id: tp_state_015_loading_state_blocks_reply_thumbnail
+    title: 回复中的媒体扫描中时不展示缩略图
+    functional_area: timeline_scanner
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      event_content: image
+      validation: loading
+      reply_preview: true
+    expect_ui:
+      visible: [reply_preview_scanning]
+      hidden: [reply_preview_thumbnail, reply_preview_invalid_content]
+
+  - id: tp_state_016_invalid_reply_preview
+    title: 回复目标为风险媒体时展示 invalid 回复占位
+    functional_area: timeline_scanner
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      event_content: image
+      validation: invalid
+      reply_preview: true
+    expect_ui:
+      visible: [reply_preview_invalid_content]
+      hidden: [reply_preview_thumbnail, raw_media_content]
+
+  - id: tp_state_017_voice_message_validation
+    title: 语音消息受扫描状态控制播放入口
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      event_content: voice
+      validation: loading
+    expect_ui:
+      visible: [voice_message_row, content_scanning_placeholder]
+      disabled: [voice_play_button]
+    transitions:
+      - event: content_validation_update(valid)
+        to_state:
+          validation: valid
+        expect_ui:
+          visible: [voice_waveform]
+          enabled: [voice_play_button]
+
+  - id: tp_state_018_sticker_validation
+    title: 贴纸消息风险态不显示原贴纸
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      event_content: sticker
+      validation: invalid
+    expect_ui:
+      visible: [blocked_media_placeholder, unsafe_content_warning]
+      hidden: [sticker_image, sticker_alt_text]
+
+  - id: tp_state_019_banned_mime_type_maps_to_invalid
+    title: banned mime type 映射为风险内容态
+    functional_area: timeline_scanner
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      event_content: file
+      mime_policy: banned
+      validation: unknown
+    transitions:
+      - event: scanner_banned_mime_type
+        to_state:
+          validation: invalid
+        expect_ui:
+          visible: [unsafe_content_warning, blocked_media_placeholder]
+          hidden: [download_file_button]
+
+  - id: tp_state_020_scanner_service_unavailable
+    title: 扫描服务不可用时按安全策略降级
+    functional_area: timeline_scanner
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      event_content: image
+      validation: unknown
+      scanner_service: unavailable
+    expect_ui:
+      visible: [content_validation_unavailable_fallback, timeline_row_shell]
+      hidden: [raw_media_content, media_viewer]
+    parity_assertions:
+      - Service outage must not crash timeline rendering.
+
+  - id: tp_state_021_media_viewer_non_event_media_valid
+    title: 非 timeline event 媒体在 viewer 中不继承错误的 event invalid 状态
+    functional_area: media_viewer
+    fixture_kind: declarative_state_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_media_viewer_binding
+    given_state:
+      event_content: image
+      media_origin: non_event
+      validation: valid
+      viewer: opened
+    expect_ui:
+      visible: [media_viewer_image]
+      hidden: [media_viewer_invalid_state, event_content_validation_error]
+
+  - id: tp_state_022_active_call_joined_no_duplicate_action
+    title: 已加入活跃通话时不展示重复加入行为
+    functional_area: active_call
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      event_content: active_call
+      call_state: active_joined
+    expect_ui:
+      visible: [active_call_card, in_call_indicator]
+      hidden: [join_call_button]
+
+  - id: tp_state_023_active_call_missing_participants
+    title: 活跃通话缺少参与者数据时展示安全默认态
+    functional_area: active_call
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      event_content: active_call
+      call_state: active_joinable
+      joined_members: []
+    expect_ui:
+      visible: [active_call_card, active_call_title, join_call_button]
+      hidden: [participant_avatar_error]
+
+  - id: tp_state_024_active_call_participant_update
+    title: 通话参与者更新后卡片人数同步变化
+    functional_area: active_call
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      event_content: active_call
+      call_state: active_joinable
+      participant_count: 1
+    expect_ui:
+      visible: [active_call_card]
+      properties:
+        active_call_participant_count: 1
+    transitions:
+      - event: active_call_members_updated(count=3)
+        to_state:
+          participant_count: 3
+        expect_ui:
+          visible: [active_call_card, active_call_participant_count_label]
+          properties:
+            active_call_participant_count: 3
+
+  - id: tp_state_025_navigation_ignores_invalid_media
+    title: 跳转未读不被风险媒体保护层阻断
+    functional_area: accessibility_navigation
+    fixture_kind: sdk_failure_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_accessibility_navigation_binding
+    given_state:
+      protection: render_all
+      event_content: image
+      validation: invalid
+      unread_marker_target: evt_after_invalid_media
+    expect_ui:
+      visible: [unsafe_content_warning, jump_to_unread_button]
+      enabled: [jump_to_unread_button]
+      hidden: [raw_media_content]
+    transitions:
+      - event: jump_to_unread
+        to_state:
+          focused_event_id: evt_after_invalid_media
+        expect_ui:
+          visible: [unread_marker_target_row, timeline_scroll_position_stable]
+
+  - id: tp_state_026_action_menu_for_blocked_media
+    title: 被阻断媒体仍可打开详情但不暴露下载/播放
+    functional_area: action_menu
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_action_menu_binding
+    given_state:
+      protection: render_all
+      event_content: video
+      validation: invalid
+    transitions:
+      - event: long_press_blocked_media
+        to_state:
+          action_sheet: visible
+        expect_ui:
+          visible: [action_view_details, action_report]
+          hidden: [action_download_media, action_play_media]
+
+  - id: tp_state_027_final_active_call_actionable_card
+    title: final 语义中 active call fixture 必须展示可加入通话卡片
+    functional_area: active_call
+    fixture_kind: event_transition_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      release_semantics: final
+      protection: render_all
+      validation: valid
+      event_content: active_call
+      call_state: active_joinable
+    expect_ui:
+      visible: [active_call_card, active_call_participant_count, join_call_button]
+      enabled: [join_call_button]
+      hidden: [unsupported_event_placeholder, blocked_media_notice]
+    transitions:
+      - event: join_call
+        to_state:
+          call_state: joining
+        expect_ui:
+          visible: [active_call_card, joining_call_indicator]
+          disabled: [join_call_button]
+    parity_assertions:
+      - Base mirrors must fail this case because the active-call timeline event is still an unsupported event.
+
+  - id: tp_state_028_final_positive_scanner_and_call
+    title: final 语义同时支持扫描保护和活跃通话渲染
+    functional_area: active_call
+    fixture_kind: sdk_callback_fixture
+    base_failure_signal: base target lacks the final semantic state, transition, or UI binding required by this case
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_active_call_binding
+    given_state:
+      release_semantics: final
+      protection: render_all
+      validation: valid
+      event_content: active_call
+      call_state: active_joinable
+    expect_ui:
+      visible: [active_call_card, join_call_button]
+      hidden: [unsupported_event_placeholder]
+    parity_assertions:
+      - The final timeline renderer must support both protection state and active call state.
+
+  - id: tp_state_029_validation_cache_survives_scroll_rebind
+    title: 已验证媒体滚动重绑后不回退到扫描中
+    functional_area: validation_cache
+    fixture_kind: timeline_rebind
+    base_failure_signal: base lacks final content validation cache
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_global_loading_reset_on_scroll
+      - rejects_missing_validation_cache_binding
+    given_state:
+      protection: render_all
+      validation: valid
+      event_content: image
+      viewer: closed
+      event_id: evt_media_cached
+    expect_ui:
+      visible: [image_thumbnail]
+      hidden: [content_scanning_placeholder, unsafe_content_warning]
+    transitions:
+      - event: timeline_row_rebound(event_id=evt_media_cached)
+        to_state:
+          validation: valid
+        expect_ui:
+          visible: [image_thumbnail]
+          hidden: [content_scanning_placeholder, unsafe_content_warning]
+    parity_assertions:
+      - Validation state is keyed by event/media identity and reused after row rebind.
+
+  - id: tp_state_030_mixed_timeline_scanner_does_not_block_text
+    title: 同屏风险媒体不会阻断普通文本事件
+    functional_area: timeline_scanner
+    fixture_kind: mixed_timeline_fixture
+    base_failure_signal: base lacks final mixed scanner rendering
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_hiding_entire_timeline_for_invalid_media
+      - rejects_missing_timeline_scanner_binding
+    given_state:
+      protection: render_all
+      validation: invalid
+      event_content: mixed_text_and_image
+      viewer: closed
+    expect_ui:
+      visible: [text_event_body, unsafe_content_warning, blocked_media_placeholder]
+      hidden: [raw_media_content]
+      enabled: [text_event_action_menu]
+    parity_assertions:
+      - Scanner protection is scoped to media events and keeps text interactions intact.
+
+  - id: tp_state_031_active_call_end_update_removes_join_action
+    title: 活跃通话结束事件到达后卡片移除加入入口
+    functional_area: active_call
+    fixture_kind: call_state_sdk_callback
+    base_failure_signal: base lacks active call rich timeline state updates
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_stale_join_button_after_call_end
+      - rejects_missing_active_call_binding
+    given_state:
+      protection: render_all
+      validation: valid
+      event_content: active_call
+      call_state: active_joinable
+      viewer: closed
+    expect_ui:
+      visible: [active_call_card, active_call_join_button]
+      enabled: [active_call_join_button]
+    transitions:
+      - event: active_call_state_update(ended)
+        to_state:
+          call_state: started_tombstoned
+        expect_ui:
+          visible: [active_call_card, active_call_ended_label]
+          hidden: [active_call_join_button]
+    parity_assertions:
+      - Active call state updates replace card affordances without replacing the timeline event.
+
+  - id: tp_state_032_blocked_media_details_action_without_download
+    title: 被阻断媒体可查看详情但不能下载或播放
+    functional_area: action_menu
+    fixture_kind: protected_action_sheet
+    base_failure_signal: base lacks protected media action filtering
+    runtime_oracle:
+      state_vector: true
+      ui_tree_tokens: true
+      transition_steps: auto
+      cross_platform_parity: true
+    mutation_guards:
+      - rejects_feature_flag_only_completion
+      - rejects_missing_action_menu_binding
+      - rejects_action_menu_exposes_blocked_media
+    given_state:
+      protection: render_all
+      validation: invalid
+      event_content: video
+      viewer: blocked
+    expect_ui:
+      visible: [unsafe_content_warning, blocked_media_placeholder]
+      hidden: [video_play_affordance]
+    transitions:
+      - event: long_press_blocked_media
+        to_state:
+          action_sheet: opened
+        expect_ui:
+          visible: [message_details_action, report_content_action]
+          hidden: [download_media_action, play_media_action, share_media_action]
+    parity_assertions:
+      - Protected media retains safe event actions while removing content-exposing actions.

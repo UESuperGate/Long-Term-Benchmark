@@ -1,0 +1,1223 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-16T18:09:56",
+  "evaluatorOwned": true,
+  "mustNotBeGeneratedByDevelopmentAgent": true,
+  "sourceYaml": "C:\\Users\\xiexi\\qingyu\\state_tests\\elementx-state-test2-gallery-messages.yaml",
+  "task": {
+    "id": "02_gallery_messages",
+    "title": "图库消息渲染与操作",
+    "base": "v26.06.1",
+    "final": "v26.08.1"
+  },
+  "caseCount": 28,
+  "cases": [
+    {
+      "caseId": "gm_state_001_supported_gallery_row",
+      "caseTitle": "多附件 gallery 在时间线中作为支持类型渲染",
+      "line": 93,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_caption",
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "hidden": [
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_001_supported_gallery_row",
+        "caseMarker": "strict_state_case:gm_state_001_supported_gallery_row",
+        "requiredPositiveSignals": [
+          "gallery_caption",
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "forbiddenSignals": [
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_002_final_gallery_replaces_unsupported",
+      "caseTitle": "final 语义中 gallery fixture 必须替代 unsupported 占位",
+      "line": 120,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "hidden": [
+          "media_viewer",
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_002_final_gallery_replaces_unsupported",
+        "caseMarker": "strict_state_case:gm_state_002_final_gallery_replaces_unsupported",
+        "requiredPositiveSignals": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "forbiddenSignals": [
+          "media_viewer",
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_003_open_selected_media",
+      "caseTitle": "点击 gallery 第 N 项时 viewer 定位到同一项",
+      "line": 145,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "gallery_container"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "gallery_item_click(index=2)",
+          "visible": [
+            "media_viewer",
+            "media_viewer_item_2"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "selected_media_index": "2"
+          },
+          "traceMarker": "strict_state_transition:gm_state_003_open_selected_media:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_003_open_selected_media",
+        "caseMarker": "strict_state_case:gm_state_003_open_selected_media",
+        "requiredPositiveSignals": [
+          "gallery_container"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_004_validation_loading_blocks_content",
+      "caseTitle": "扫描中状态阻止原始媒体直接展示",
+      "line": 176,
+      "functionalArea": "content_scanning",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "content_scanning_placeholder",
+          "gallery_container"
+        ],
+        "hidden": [
+          "raw_media_content",
+          "unsafe_content_warning"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "content_validation_update(valid)",
+          "visible": [
+            "raw_media_content"
+          ],
+          "hidden": [
+            "content_scanning_placeholder"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:gm_state_004_validation_loading_blocks_content:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_004_validation_loading_blocks_content",
+        "caseMarker": "strict_state_case:gm_state_004_validation_loading_blocks_content",
+        "requiredPositiveSignals": [
+          "content_scanning_placeholder",
+          "gallery_container"
+        ],
+        "forbiddenSignals": [
+          "raw_media_content",
+          "unsafe_content_warning"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_005_validation_invalid_per_item",
+      "caseTitle": "单个 gallery 附件风险不隐藏整条 gallery",
+      "line": 206,
+      "functionalArea": "content_scanning",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1_invalid_fallback",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "hidden": [
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_005_validation_invalid_per_item",
+        "caseMarker": "strict_state_case:gm_state_005_validation_invalid_per_item",
+        "requiredPositiveSignals": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1_invalid_fallback",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "forbiddenSignals": [
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_006_reply_preview_item_count",
+      "caseTitle": "回复 gallery 时预览展示 gallery 语义和附件数量",
+      "line": 234,
+      "functionalArea": "reply_preview",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "reply_preview_gallery_label",
+          "reply_preview_item_count"
+        ],
+        "hidden": [
+          "reply_preview_unsupported"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "reply_preview_item_count": "4"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_006_reply_preview_item_count",
+        "caseMarker": "strict_state_case:gm_state_006_reply_preview_item_count",
+        "requiredPositiveSignals": [
+          "4",
+          "reply_preview_gallery_label",
+          "reply_preview_item_count"
+        ],
+        "forbiddenSignals": [
+          "reply_preview_unsupported"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_007_action_list_gallery_actions",
+      "caseTitle": "长按 gallery 展示媒体兼容操作",
+      "line": 258,
+      "functionalArea": "action_menu",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "long_press_gallery_event",
+          "visible": [
+            "action_forward",
+            "action_reply",
+            "action_share",
+            "action_view_details"
+          ],
+          "hidden": [
+            "action_copy_text_only"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:gm_state_007_action_list_gallery_actions:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_007_action_list_gallery_actions",
+        "caseMarker": "strict_state_case:gm_state_007_action_list_gallery_actions",
+        "requiredPositiveSignals": [],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_008_share_preserves_all_items",
+      "caseTitle": "分享或转发 gallery 时不丢失非首个附件",
+      "line": 284,
+      "functionalArea": "share_forward",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "share_gallery_event",
+          "visible": [
+            "gallery_share_bundle",
+            "share_target_picker"
+          ],
+          "hidden": [
+            "single_media_share_only"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "pending_share_attachment_count": "4"
+          },
+          "traceMarker": "strict_state_transition:gm_state_008_share_preserves_all_items:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_008_share_preserves_all_items",
+        "caseMarker": "strict_state_case:gm_state_008_share_preserves_all_items",
+        "requiredPositiveSignals": [],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_009_empty_gallery_fallback",
+      "caseTitle": "空 gallery 数据展示安全 fallback 而不是崩溃",
+      "line": 312,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_empty_placeholder"
+        ],
+        "hidden": [
+          "gallery_item_0",
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_009_empty_gallery_fallback",
+        "caseMarker": "strict_state_case:gm_state_009_empty_gallery_fallback",
+        "requiredPositiveSignals": [
+          "gallery_empty_placeholder"
+        ],
+        "forbiddenSignals": [
+          "gallery_item_0",
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_010_single_item_gallery_keeps_gallery_semantics",
+      "caseTitle": "单附件 gallery 保留 gallery 消息语义",
+      "line": 337,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_caption",
+          "gallery_container",
+          "gallery_item_0"
+        ],
+        "hidden": [
+          "single_media_message_row",
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_010_single_item_gallery_keeps_gallery_semantics",
+        "caseMarker": "strict_state_case:gm_state_010_single_item_gallery_keeps_gallery_semantics",
+        "requiredPositiveSignals": [
+          "gallery_caption",
+          "gallery_container",
+          "gallery_item_0"
+        ],
+        "forbiddenSignals": [
+          "single_media_message_row",
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_011_file_only_gallery_uses_attachment_list",
+      "caseTitle": "纯文件 gallery 使用附件列表语义展示",
+      "line": 360,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_attachment_list",
+          "gallery_container",
+          "gallery_file_item_0",
+          "gallery_file_item_1"
+        ],
+        "hidden": [
+          "gallery_visual_grid",
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_011_file_only_gallery_uses_attachment_list",
+        "caseMarker": "strict_state_case:gm_state_011_file_only_gallery_uses_attachment_list",
+        "requiredPositiveSignals": [
+          "gallery_attachment_list",
+          "gallery_container",
+          "gallery_file_item_0",
+          "gallery_file_item_1"
+        ],
+        "forbiddenSignals": [
+          "gallery_visual_grid",
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_012_audio_file_mixed_gallery",
+      "caseTitle": "非视觉附件与视觉附件混合时都可见",
+      "line": 382,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_item_audio",
+          "gallery_item_file",
+          "gallery_item_image",
+          "gallery_item_video"
+        ],
+        "hidden": [
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_012_audio_file_mixed_gallery",
+        "caseMarker": "strict_state_case:gm_state_012_audio_file_mixed_gallery",
+        "requiredPositiveSignals": [
+          "gallery_item_audio",
+          "gallery_item_file",
+          "gallery_item_image",
+          "gallery_item_video"
+        ],
+        "forbiddenSignals": [
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_013_formatted_caption",
+      "caseTitle": "格式化 caption 与 gallery 内容一起展示",
+      "line": 404,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_container",
+          "gallery_formatted_caption"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "caption_formatting_preserved": "true"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_013_formatted_caption",
+        "caseMarker": "strict_state_case:gm_state_013_formatted_caption",
+        "requiredPositiveSignals": [
+          "caption_formatting_preserved",
+          "gallery_container",
+          "gallery_formatted_caption",
+          "true"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_014_edited_gallery_caption",
+      "caseTitle": "编辑过的 gallery caption 展示编辑状态",
+      "line": 428,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "edited_indicator",
+          "gallery_caption",
+          "gallery_container"
+        ],
+        "hidden": [
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "gallery_item_count": "2"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_014_edited_gallery_caption",
+        "caseMarker": "strict_state_case:gm_state_014_edited_gallery_caption",
+        "requiredPositiveSignals": [
+          "2",
+          "edited_indicator",
+          "gallery_caption",
+          "gallery_container",
+          "gallery_item_count"
+        ],
+        "forbiddenSignals": [
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_015_thumbnail_failure_per_item",
+      "caseTitle": "单个缩略图失败只影响对应附件",
+      "line": 453,
+      "functionalArea": "content_scanning",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_item_0",
+          "gallery_item_1_thumbnail_error",
+          "gallery_item_2"
+        ],
+        "hidden": [
+          "gallery_empty_placeholder",
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_015_thumbnail_failure_per_item",
+        "caseMarker": "strict_state_case:gm_state_015_thumbnail_failure_per_item",
+        "requiredPositiveSignals": [
+          "gallery_item_0",
+          "gallery_item_1_thumbnail_error",
+          "gallery_item_2"
+        ],
+        "forbiddenSignals": [
+          "gallery_empty_placeholder",
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_016_unrecoverable_item_error",
+      "caseTitle": "单个附件不可恢复错误展示 item fallback",
+      "line": 479,
+      "functionalArea": "content_scanning",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1_not_found",
+          "gallery_item_2"
+        ],
+        "hidden": [
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_016_unrecoverable_item_error",
+        "caseMarker": "strict_state_case:gm_state_016_unrecoverable_item_error",
+        "requiredPositiveSignals": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1_not_found",
+          "gallery_item_2"
+        ],
+        "forbiddenSignals": [
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_017_viewer_previous_next_bounds",
+      "caseTitle": "媒体查看器在 gallery 边界正确禁用前后切换",
+      "line": 504,
+      "functionalArea": "media_viewer",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "media_viewer",
+          "media_viewer_item_0"
+        ],
+        "hidden": [],
+        "enabled": [
+          "viewer_next"
+        ],
+        "disabled": [
+          "viewer_previous"
+        ],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "viewer_next",
+          "visible": [
+            "media_viewer_item_1"
+          ],
+          "hidden": [],
+          "enabled": [
+            "viewer_previous"
+          ],
+          "disabled": [
+            "viewer_next"
+          ],
+          "properties": {},
+          "traceMarker": "strict_state_transition:gm_state_017_viewer_previous_next_bounds:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_017_viewer_previous_next_bounds",
+        "caseMarker": "strict_state_case:gm_state_017_viewer_previous_next_bounds",
+        "requiredPositiveSignals": [
+          "media_viewer",
+          "media_viewer_item_0",
+          "viewer_next"
+        ],
+        "forbiddenSignals": [
+          "viewer_previous"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_018_viewer_invalid_selected_item",
+      "caseTitle": "打开风险附件时 viewer 展示阻断态",
+      "line": 537,
+      "functionalArea": "media_viewer",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "gallery_item_click(index=1)",
+          "visible": [
+            "media_viewer_blocked_content",
+            "unsafe_content_warning"
+          ],
+          "hidden": [
+            "media_viewer_raw_content"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:gm_state_018_viewer_invalid_selected_item:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_018_viewer_invalid_selected_item",
+        "caseMarker": "strict_state_case:gm_state_018_viewer_invalid_selected_item",
+        "requiredPositiveSignals": [],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_019_pinned_event_gallery",
+      "caseTitle": "从 pinned event 打开 gallery 仍保留多附件结构",
+      "line": 567,
+      "functionalArea": "pinned_event",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_container",
+          "pinned_gallery_row"
+        ],
+        "hidden": [
+          "pinned_unsupported_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "pinned_gallery_item_count": "4"
+        }
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_019_pinned_event_gallery",
+        "caseMarker": "strict_state_case:gm_state_019_pinned_event_gallery",
+        "requiredPositiveSignals": [
+          "4",
+          "gallery_container",
+          "pinned_gallery_item_count",
+          "pinned_gallery_row"
+        ],
+        "forbiddenSignals": [
+          "pinned_unsupported_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_020_reply_preview_invalid_gallery",
+      "caseTitle": "风险 gallery 的回复预览不暴露原始媒体",
+      "line": 591,
+      "functionalArea": "content_scanning",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "reply_preview_gallery_label",
+          "reply_preview_invalid_content"
+        ],
+        "hidden": [
+          "raw_media_content",
+          "reply_preview_thumbnail"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_020_reply_preview_invalid_gallery",
+        "caseMarker": "strict_state_case:gm_state_020_reply_preview_invalid_gallery",
+        "requiredPositiveSignals": [
+          "reply_preview_gallery_label",
+          "reply_preview_invalid_content"
+        ],
+        "forbiddenSignals": [
+          "raw_media_content",
+          "reply_preview_thumbnail"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_021_action_list_invalid_gallery",
+      "caseTitle": "风险 gallery 的操作菜单隐藏会暴露媒体的操作",
+      "line": 613,
+      "functionalArea": "content_scanning",
+      "fixtureKind": "sdk_failure_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "long_press_gallery_event",
+          "visible": [
+            "action_view_details"
+          ],
+          "hidden": [
+            "action_save_media",
+            "action_share_raw_media"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:gm_state_021_action_list_invalid_gallery:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_021_action_list_invalid_gallery",
+        "caseMarker": "strict_state_case:gm_state_021_action_list_invalid_gallery",
+        "requiredPositiveSignals": [],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_022_final_gallery_coexists_with_single_media",
+      "caseTitle": "final 语义中 gallery 支持与普通单媒体消息共存",
+      "line": 639,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "declarative_state_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_container",
+          "gallery_item_count",
+          "image_thumbnail",
+          "single_media_message_row"
+        ],
+        "hidden": [
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_022_final_gallery_coexists_with_single_media",
+        "caseMarker": "strict_state_case:gm_state_022_final_gallery_coexists_with_single_media",
+        "requiredPositiveSignals": [
+          "gallery_container",
+          "gallery_item_count",
+          "image_thumbnail",
+          "single_media_message_row"
+        ],
+        "forbiddenSignals": [
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_023_final_gallery_tap_opens_viewer",
+      "caseTitle": "final 语义中点击 gallery item 必须进入可操作 viewer",
+      "line": 664,
+      "functionalArea": "media_viewer",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "tap_gallery_fixture",
+          "visible": [
+            "action_save_media",
+            "action_share_media",
+            "gallery_container",
+            "media_viewer",
+            "media_viewer_counter"
+          ],
+          "hidden": [
+            "unsupported_event_placeholder"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {},
+          "traceMarker": "strict_state_transition:gm_state_023_final_gallery_tap_opens_viewer:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_023_final_gallery_tap_opens_viewer",
+        "caseMarker": "strict_state_case:gm_state_023_final_gallery_tap_opens_viewer",
+        "requiredPositiveSignals": [],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_024_final_positive_gallery_actions",
+      "caseTitle": "final 语义中 gallery 支持 timeline、viewer、reply 和 share",
+      "line": 694,
+      "functionalArea": "action_menu",
+      "fixtureKind": "event_transition_fixture",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "gallery_container"
+        ],
+        "hidden": [
+          "unsupported_event_placeholder"
+        ],
+        "enabled": [
+          "action_forward",
+          "action_reply",
+          "action_share",
+          "gallery_item_0"
+        ],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_024_final_positive_gallery_actions",
+        "caseMarker": "strict_state_case:gm_state_024_final_positive_gallery_actions",
+        "requiredPositiveSignals": [
+          "action_forward",
+          "action_reply",
+          "action_share",
+          "gallery_container",
+          "gallery_item_0"
+        ],
+        "forbiddenSignals": [
+          "unsupported_event_placeholder"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_025_gallery_order_preserved_after_validation_updates",
+      "caseTitle": "扫描状态异步更新后 gallery 附件顺序保持不变",
+      "line": 718,
+      "functionalArea": "content_scanning",
+      "fixtureKind": "per_item_sdk_callback",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {
+          "gallery_item_0": "image_a",
+          "gallery_item_1": "video_b",
+          "gallery_item_2": "file_c",
+          "gallery_item_3": "image_d"
+        }
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "content_validation_update(item_2=valid)",
+          "visible": [
+            "gallery_item_0",
+            "gallery_item_1",
+            "gallery_item_2",
+            "gallery_item_3"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "gallery_item_0": "image_a",
+            "gallery_item_1": "video_b",
+            "gallery_item_2": "file_c",
+            "gallery_item_3": "image_d"
+          },
+          "traceMarker": "strict_state_transition:gm_state_025_gallery_order_preserved_after_validation_updates:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_025_gallery_order_preserved_after_validation_updates",
+        "caseMarker": "strict_state_case:gm_state_025_gallery_order_preserved_after_validation_updates",
+        "requiredPositiveSignals": [
+          "file_c",
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3",
+          "image_a",
+          "image_d",
+          "video_b"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_026_viewer_reuses_timeline_caption_and_edited_state",
+      "caseTitle": "viewer 中保留 timeline gallery caption 与 edited 状态",
+      "line": 760,
+      "functionalArea": "media_viewer",
+      "fixtureKind": "navigation_state_projection",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "edited_indicator",
+          "gallery_caption",
+          "gallery_container"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "gallery_item_click(index=0)",
+          "visible": [
+            "media_viewer",
+            "media_viewer_caption",
+            "media_viewer_edited_indicator"
+          ],
+          "hidden": [],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "media_viewer_caption": "formatted_caption"
+          },
+          "traceMarker": "strict_state_transition:gm_state_026_viewer_reuses_timeline_caption_and_edited_state:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_026_viewer_reuses_timeline_caption_and_edited_state",
+        "caseMarker": "strict_state_case:gm_state_026_viewer_reuses_timeline_caption_and_edited_state",
+        "requiredPositiveSignals": [
+          "edited_indicator",
+          "gallery_caption",
+          "gallery_container"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_027_redacted_gallery_hides_media_but_keeps_event_shell",
+      "caseTitle": "gallery 被撤回后隐藏媒体内容但保留事件壳层",
+      "line": 795,
+      "functionalArea": "timeline_rendering",
+      "fixtureKind": "event_replacement_state",
+      "transitionCount": 0,
+      "selectors": {
+        "visible": [
+          "redacted_event_placeholder"
+        ],
+        "hidden": [
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3",
+          "media_viewer"
+        ],
+        "enabled": [],
+        "disabled": [
+          "gallery_container"
+        ],
+        "properties": {}
+      },
+      "transitionSelectors": [],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_027_redacted_gallery_hides_media_but_keeps_event_shell",
+        "caseMarker": "strict_state_case:gm_state_027_redacted_gallery_hides_media_but_keeps_event_shell",
+        "requiredPositiveSignals": [
+          "redacted_event_placeholder"
+        ],
+        "forbiddenSignals": [
+          "gallery_container",
+          "gallery_item_0",
+          "gallery_item_1",
+          "gallery_item_2",
+          "gallery_item_3",
+          "media_viewer"
+        ],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": false,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    },
+    {
+      "caseId": "gm_state_028_share_skips_blocked_items_but_reports_omissions",
+      "caseTitle": "分享 gallery 时跳过被阻断附件并提示部分附件不可分享",
+      "line": 822,
+      "functionalArea": "share_forward",
+      "fixtureKind": "action_sheet_with_per_item_validation",
+      "transitionCount": 1,
+      "selectors": {
+        "visible": [
+          "gallery_container"
+        ],
+        "hidden": [],
+        "enabled": [],
+        "disabled": [],
+        "properties": {}
+      },
+      "transitionSelectors": [
+        {
+          "ordinal": 1,
+          "event": "share_gallery_event",
+          "visible": [
+            "gallery_share_partial_warning",
+            "share_sheet"
+          ],
+          "hidden": [
+            "unsafe_media_in_share_sheet"
+          ],
+          "enabled": [],
+          "disabled": [],
+          "properties": {
+            "share_payload_count": "2"
+          },
+          "traceMarker": "strict_state_transition:gm_state_028_share_skips_blocked_items_but_reports_omissions:1"
+        }
+      ],
+      "scoring": {
+        "readyMarker": "state_test_ready:gm_state_028_share_skips_blocked_items_but_reports_omissions",
+        "caseMarker": "strict_state_case:gm_state_028_share_skips_blocked_items_but_reports_omissions",
+        "requiredPositiveSignals": [
+          "gallery_container"
+        ],
+        "forbiddenSignals": [],
+        "requiresPerCaseCapture": true,
+        "requiresTransitionTrace": true,
+        "featureAvailabilityIsSmokeOnly": true
+      }
+    }
+  ]
+}
