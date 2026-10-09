@@ -47,6 +47,43 @@ Prefer semantic tree assertions over pixel assertions:
 
 Screenshots can be used as a secondary guard, but the primary pass/fail signal is whether the same semantic state produces the same UI behavior on both platforms.
 
+## ArkTS runtime protocol
+
+The device runner uses a public, answer-free transport contract. This contract
+may be present in every base project because it only carries test inputs; it does
+not contain evaluator selectors or expected facts.
+
+1. The runner starts `EntryAbility` with `caseId` in both the Want parameters and
+   the `elementx://state-test` URI.
+2. `EntryAbility` stores the id in
+   `AppStorage['elementx_state_test_case_id']`. The page applies the matching
+   `given_state` fixture to the same state holders used by the real UI.
+3. The page publishes `state_test_ready:<caseId>` and a hidden
+   `state_probe_snapshot:<json>` node only after that fixture is active.
+4. The runner polls `uitest dumpLayout` until the ready marker and matching
+   snapshot are both present. A fixed sleep is not a readiness signal.
+5. For each declared transition, the runner re-delivers a Want containing
+   `stateEvent`. `EntryAbility` stores a nonce-qualified event in
+   `AppStorage['elementx_state_test_event']`; the page routes it through the same
+   presenter/event sink or mocked SDK callback used by the feature.
+6. After every event, the runner captures a new layout. The snapshot should name
+   the applied event in `lastEvent` (the nonce may be retained) and expose facts
+   derived from the current runtime state. It must not pre-emit future transition
+   facts.
+7. The evaluator combines independently observed ArkUI node ids, visibility,
+   enabled state, and text/property values with runtime state facts, then compares
+   that phase against the evaluator-owned binding manifest.
+
+`scripts/run_snapshot_state_matrix.py --transition-mode strict` enforces this
+phase protocol for generated candidates. `--transition-mode compatible` still
+executes and captures transitions, but may accept aggregate transition facts from
+older golden projects so existing benchmark assets can be calibrated while they
+are migrated.
+
+Before candidate scoring, run base and ground-truth-final calibration. Base rows
+must observe `fail`, final rows must observe `pass`, and transport failures must
+remain distinct from semantic failures.
+
 ## Benchmark polarity
 
 Every testcase in this suite is a final-version requirement assertion. The expected benchmark result is:

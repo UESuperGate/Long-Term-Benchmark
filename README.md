@@ -36,6 +36,43 @@ Local build environment:
 - Production dynamic state matrix: `powershell -ExecutionPolicy Bypass -File C:\Users\xiexi\qingyu\scripts\run-state-strict-matrix.ps1`
 - DevEco/DeepSeek production candidate run: `powershell -ExecutionPolicy Bypass -File C:\Users\xiexi\qingyu\scripts\run-deveco-deepseek-eval.ps1`
 
+macOS OpenCode + GLM-5.3 evaluation:
+
+```sh
+# Generate and build candidates. The long-horizon agent budget is one hour per task.
+python3 scripts/run_opencode_glm_eval_macos.py \
+  --run-id opencode_glm53_3600_$(date +%Y%m%d_%H%M%S) \
+  --agent-timeout 3600
+
+# Calibrate evaluator polarity against the trusted base/final mirrors.
+QINGYU_BENCH_ROOT="$PWD" \
+QINGYU_HDC="$HOME/Library/OpenHarmony/Sdk/23/toolchains/hdc" \
+python3 scripts/run_snapshot_state_matrix.py \
+  --matrix verification_reports/state_dynamic/state_dynamic_target_matrix.json \
+  --out verification_reports/workflow_calibration \
+  --platform arkts --target-role both --transition-mode compatible \
+  --ready-timeout 12 --transition-timeout 1
+
+# Generate a matrix for one candidate root, then score it with phase-strict transitions.
+QINGYU_BENCH_ROOT="$PWD" \
+QINGYU_ARKTS_AGENT_ROOT="$PWD/eval_runs/<run-id>/arkts_agent_results" \
+QINGYU_STATE_REPORT_DIR="$PWD/eval_runs/<run-id>/verification_reports/state_dynamic" \
+python3 scripts/state_target_matrix.py
+
+QINGYU_BENCH_ROOT="$PWD" \
+QINGYU_HDC="$HOME/Library/OpenHarmony/Sdk/23/toolchains/hdc" \
+python3 scripts/run_snapshot_state_matrix.py \
+  --matrix eval_runs/<run-id>/verification_reports/state_dynamic/state_dynamic_target_matrix.json \
+  --out eval_runs/<run-id>/verification_reports/snapshot_state_dynamic_strict \
+  --platform arkts --target-role agent_result --transition-mode strict
+```
+
+The GLM API key is read from the local OpenCode provider configuration and must
+not be committed to this repository. The complete state capture and transition
+contract is documented in `state_tests/README.md`.
+
+Latest archived run: [`experiment_results/opencode_glm53_3600_20261009`](experiment_results/opencode_glm53_3600_20261009/README.md)
+
 Production benchmark contract:
 - Specs live in `C:\Users\xiexi\qingyu\specs` and now describe production-grade long-horizon tasks.
 - State tests live in `C:\Users\xiexi\qingyu\state_tests` and cover 150 final-positive semantic cases across the five tasks.

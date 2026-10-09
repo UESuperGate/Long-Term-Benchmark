@@ -2,7 +2,12 @@ import UIAbility from '@ohos.app.ability.UIAbility';
 import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
 
+const STATE_TEST_CASE_KEY: string = 'elementx_state_test_case_id';
+const STATE_TEST_EVENT_KEY: string = 'elementx_state_test_event';
+
 export default class EntryAbility extends UIAbility {
+  private stateEventNonce: number = 0;
+
   onCreate(want: Want): void {
     this.captureStateTestCase(want);
   }
@@ -21,11 +26,18 @@ export default class EntryAbility extends UIAbility {
 
   private captureStateTestCase(want: Want): void {
     const caseId = this.stateTestCaseIdFromWant(want);
-    if (caseId.length === 0) {
-      return;
+    if (caseId.length > 0) {
+      if (!AppStorage.set<string>(STATE_TEST_CASE_KEY, caseId)) {
+        AppStorage.setOrCreate<string>(STATE_TEST_CASE_KEY, caseId);
+      }
     }
-    if (!AppStorage.set<string>('elementx_state_test_case_id', caseId)) {
-      AppStorage.setOrCreate<string>('elementx_state_test_case_id', caseId);
+    const stateEvent = this.stateTestEventFromWant(want);
+    if (stateEvent.length > 0) {
+      this.stateEventNonce += 1;
+      const namespaced = `${stateEvent}#${this.stateEventNonce}`;
+      if (!AppStorage.set<string>(STATE_TEST_EVENT_KEY, namespaced)) {
+        AppStorage.setOrCreate<string>(STATE_TEST_EVENT_KEY, namespaced);
+      }
     }
   }
 
@@ -36,6 +48,15 @@ export default class EntryAbility extends UIAbility {
     }
     const uri = want.uri ?? '';
     return this.queryValue(uri, 'caseId');
+  }
+
+  private stateTestEventFromWant(want: Want): string {
+    const fromParameters = this.parameterString(want, 'stateEvent');
+    if (fromParameters.length > 0) {
+      return fromParameters;
+    }
+    const uri = want.uri ?? '';
+    return this.queryValue(uri, 'stateEvent');
   }
 
   private parameterString(want: Want, key: string): string {
