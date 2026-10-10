@@ -1,0 +1,45 @@
+// Maven Central's canonical host is unreachable on some benchmark networks.
+// Prepend Google's byte-for-byte Maven Central mirror without replacing any
+// repositories declared by the upstream Element X build.
+def mirrorHosts = "maven.aliyun.com|maven-central.storage-download.googleapis.com"
+def nonProxyHosts = System.getProperty("http.nonProxyHosts", "")
+System.setProperty("http.nonProxyHosts", [nonProxyHosts, mirrorHosts].findAll { it }.join("|"))
+System.setProperty("https.nonProxyHosts", [nonProxyHosts, mirrorHosts].findAll { it }.join("|"))
+
+def publicMirror = "https://maven.aliyun.com/repository/public/"
+def centralMirror = "https://maven-central.storage-download.googleapis.com/maven2/"
+def googleMirror = "https://maven.aliyun.com/repository/google/"
+
+beforeSettings { settings ->
+    settings.pluginManagement.repositories {
+        maven { url = uri(googleMirror) }
+        maven {
+            url = uri(publicMirror)
+            content { excludeGroup("org.matrix.rustcomponents") }
+        }
+        maven { url = uri(centralMirror) }
+        gradlePluginPortal()
+        google()
+    }
+    settings.dependencyResolutionManagement.repositories {
+        maven { url = uri(googleMirror) }
+        maven {
+            url = uri(publicMirror)
+            content { excludeGroup("org.matrix.rustcomponents") }
+        }
+        maven { url = uri(centralMirror) }
+    }
+}
+
+allprojects { project ->
+    if (project.rootProject.name == "ElementX_plugins") {
+        repositories {
+            maven { url = uri(googleMirror) }
+            maven {
+                url = uri(publicMirror)
+                content { excludeGroup("org.matrix.rustcomponents") }
+            }
+            maven { url = uri(centralMirror) }
+        }
+    }
+}

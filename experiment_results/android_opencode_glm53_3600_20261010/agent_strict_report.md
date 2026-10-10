@@ -1,0 +1,170 @@
+# Snapshot State Matrix Run Report
+
+- Generated: 2026-10-10T18:00:46
+- Targets: 5
+- Case-target rows: 150
+- Platform filter: `android`
+- Target role filter: `agent_result`
+- Transition mode: `strict`
+- Status counts: `{"protocolFail": 150}`
+- Semantic status counts: `{"not_scored": 150}`
+
+## Notes
+
+- ArkTS cases poll for a case-specific ready marker instead of using a fixed sleep.
+- Android queries the debug provider once for initial state and once per stateEvent transition.
+- Every declared transition is delivered through the platform stateEvent transport and captured separately.
+- Scoring combines independently observed ArkUI node ids/states with runtime semantic facts.
+- Compatible mode may accept aggregate transition facts from legacy golden targets; strict mode does not.
+
+## Non-Matched Rows
+- `01_user_status:android:agent_result` `us_state_001_unsupported_hides_entry` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_002_empty_supported_entry` expected `pass` observed `fail` status `protocolFail` missing `7`
+- `01_user_status:android:agent_result` `us_state_003_custom_input_and_emoji_sheet` expected `pass` observed `fail` status `protocolFail` missing `10`
+- `01_user_status:android:agent_result` `us_state_004_save_success_propagates_surfaces` expected `pass` observed `fail` status `protocolFail` missing `9`
+- `01_user_status:android:agent_result` `us_state_005_save_failure_keeps_previous_status` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `01_user_status:android:agent_result` `us_state_006_clear_status` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `01_user_status:android:agent_result` `us_state_007_timeline_sender_emoji_only` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_008_in_call_status` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_009_capability_failure_safe_fallback` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_010_predefined_status_selection` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `01_user_status:android:agent_result` `us_state_011_dismiss_picker_keeps_status` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `01_user_status:android:agent_result` `us_state_012_custom_input_dirty_state` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `01_user_status:android:agent_result` `us_state_013_custom_input_cancel_clears_draft_only` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_014_update_loading_disables_mutating_actions` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `01_user_status:android:agent_result` `us_state_015_home_top_bar_own_status` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_016_dm_room_row_remote_status` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_017_group_room_no_synthetic_status` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `01_user_status:android:agent_result` `us_state_018_profile_status_refresh` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `01_user_status:android:agent_result` `us_state_019_displayed_status_takes_precedence` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `01_user_status:android:agent_result` `us_state_020_remote_status_removed` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `01_user_status:android:agent_result` `us_state_021_final_status_entry_and_badge` expected `pass` observed `fail` status `protocolFail` missing `7`
+- `01_user_status:android:agent_result` `us_state_022_final_positive_user_status_entry` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `01_user_status:android:agent_result` `us_state_023_remote_status_refresh_does_not_override_own_status` expected `pass` observed `fail` status `protocolFail` missing `9`
+- `01_user_status:android:agent_result` `us_state_024_status_text_never_leaks_to_timeline` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `01_user_status:android:agent_result` `us_state_025_save_retry_after_failure_uses_latest_draft` expected `pass` observed `fail` status `protocolFail` missing `11`
+- `01_user_status:android:agent_result` `us_state_026_call_status_restore_manual_status` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `02_gallery_messages:android:agent_result` `gm_state_001_supported_gallery_row` expected `pass` observed `fail` status `protocolFail` missing `10`
+- `02_gallery_messages:android:agent_result` `gm_state_002_final_gallery_replaces_unsupported` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `02_gallery_messages:android:agent_result` `gm_state_003_open_selected_media` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `02_gallery_messages:android:agent_result` `gm_state_004_validation_loading_blocks_content` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `02_gallery_messages:android:agent_result` `gm_state_005_validation_invalid_per_item` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `02_gallery_messages:android:agent_result` `gm_state_006_reply_preview_item_count` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `02_gallery_messages:android:agent_result` `gm_state_007_action_list_gallery_actions` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `02_gallery_messages:android:agent_result` `gm_state_008_share_preserves_all_items` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `02_gallery_messages:android:agent_result` `gm_state_009_empty_gallery_fallback` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `02_gallery_messages:android:agent_result` `gm_state_010_single_item_gallery_keeps_gallery_semantics` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `02_gallery_messages:android:agent_result` `gm_state_011_file_only_gallery_uses_attachment_list` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `02_gallery_messages:android:agent_result` `gm_state_012_audio_file_mixed_gallery` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `02_gallery_messages:android:agent_result` `gm_state_013_formatted_caption` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `02_gallery_messages:android:agent_result` `gm_state_014_edited_gallery_caption` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `02_gallery_messages:android:agent_result` `gm_state_015_thumbnail_failure_per_item` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `02_gallery_messages:android:agent_result` `gm_state_016_unrecoverable_item_error` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `02_gallery_messages:android:agent_result` `gm_state_017_viewer_previous_next_bounds` expected `pass` observed `fail` status `protocolFail` missing `8`
+- `02_gallery_messages:android:agent_result` `gm_state_018_viewer_invalid_selected_item` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `02_gallery_messages:android:agent_result` `gm_state_019_pinned_event_gallery` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `02_gallery_messages:android:agent_result` `gm_state_020_reply_preview_invalid_gallery` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `02_gallery_messages:android:agent_result` `gm_state_021_action_list_invalid_gallery` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `02_gallery_messages:android:agent_result` `gm_state_022_final_gallery_coexists_with_single_media` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `02_gallery_messages:android:agent_result` `gm_state_023_final_gallery_tap_opens_viewer` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `02_gallery_messages:android:agent_result` `gm_state_024_final_positive_gallery_actions` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `02_gallery_messages:android:agent_result` `gm_state_025_gallery_order_preserved_after_validation_updates` expected `pass` observed `fail` status `protocolFail` missing `18`
+- `02_gallery_messages:android:agent_result` `gm_state_026_viewer_reuses_timeline_caption_and_edited_state` expected `pass` observed `fail` status `protocolFail` missing `8`
+- `02_gallery_messages:android:agent_result` `gm_state_027_redacted_gallery_hides_media_but_keeps_event_shell` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `02_gallery_messages:android:agent_result` `gm_state_028_share_skips_blocked_items_but_reports_omissions` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_001_media_unknown_requests_validation` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_002_valid_media_renders_original_content` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_003_invalid_media_uses_safety_fallback` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_004_unrecoverable_error_not_found` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_005_gallery_mixed_validation_aggregates` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_006_viewer_keeps_timeline_validation` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_007_active_call_joinable_card` expected `pass` observed `fail` status `protocolFail` missing `8`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_008_declined_call_no_join_action` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_009_render_only_selected_hides_unselected_media` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_010_accessibility_group_state` expected `pass` observed `fail` status `protocolFail` missing `7`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_011_final_text_event_coexists_with_media_scanner` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_012_own_media_bypasses_render_only_shield` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_013_valid_state_not_downgraded_to_loading` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_014_overall_invalid_takes_priority` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_015_loading_state_blocks_reply_thumbnail` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_016_invalid_reply_preview` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_017_voice_message_validation` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_018_sticker_validation` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_019_banned_mime_type_maps_to_invalid` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_020_scanner_service_unavailable` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_021_media_viewer_non_event_media_valid` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_022_active_call_joined_no_duplicate_action` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_023_active_call_missing_participants` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_024_active_call_participant_update` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_025_navigation_ignores_invalid_media` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_026_action_menu_for_blocked_media` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_027_final_active_call_actionable_card` expected `pass` observed `fail` status `protocolFail` missing `8`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_028_final_positive_scanner_and_call` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_029_validation_cache_survives_scroll_rebind` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_030_mixed_timeline_scanner_does_not_block_text` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_031_active_call_end_update_removes_join_action` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `03_timeline_protection_rich_events:android:agent_result` `tp_state_032_blocked_media_details_action_without_download` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `04_live_location:android:agent_result` `ll_state_001_room_entry_enabled` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `04_live_location:android:agent_result` `ll_state_002_thread_entry_disabled` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `04_live_location:android:agent_result` `ll_state_003_permission_denied` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `04_live_location:android:agent_result` `ll_state_004_disclaimer_then_duration` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `04_live_location:android:agent_result` `ll_state_005_start_share_success` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `04_live_location:android:agent_result` `ll_state_006_start_share_failure` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `04_live_location:android:agent_result` `ll_state_007_map_updates_location` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `04_live_location:android:agent_result` `ll_state_008_stop_share` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `04_live_location:android:agent_result` `ll_state_009_timeout_expiry` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `04_live_location:android:agent_result` `ll_state_010_capability_disabled` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `04_live_location:android:agent_result` `ll_state_011_permission_unknown_requests_permission` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `04_live_location:android:agent_result` `ll_state_012_accepted_disclaimer_skips_dialog` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `04_live_location:android:agent_result` `ll_state_013_constraints_dialog_blocks_start` expected `pass` observed `fail` status `protocolFail` missing `1`
+- `04_live_location:android:agent_result` `ll_state_014_start_replaces_existing_share` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `04_live_location:android:agent_result` `ll_state_015_multi_room_banner_list` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `04_live_location:android:agent_result` `ll_state_016_stop_one_room_keeps_other_banner` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `04_live_location:android:agent_result` `ll_state_017_stop_failure_keeps_active` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `04_live_location:android:agent_result` `ll_state_018_map_no_last_location` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `04_live_location:android:agent_result` `ll_state_019_remote_live_share_cannot_stop` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `04_live_location:android:agent_result` `ll_state_020_own_live_share_can_stop` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `04_live_location:android:agent_result` `ll_state_021_final_live_and_static_location_coexist` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `04_live_location:android:agent_result` `ll_state_022_live_location_push_notification` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `04_live_location:android:agent_result` `ll_state_023_manager_unrecoverable_error_clears_all` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `04_live_location:android:agent_result` `ll_state_024_final_live_location_actionable_timeline_item` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `04_live_location:android:agent_result` `ll_state_025_final_positive_live_location_timeline` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `04_live_location:android:agent_result` `ll_state_026_timeout_stop_failure_reports_error` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `04_live_location:android:agent_result` `ll_state_027_permission_revoked_mid_share_stops_manager` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `04_live_location:android:agent_result` `ll_state_028_background_resume_uses_latest_location` expected `pass` observed `fail` status `protocolFail` missing `7`
+- `04_live_location:android:agent_result` `ll_state_029_notification_tap_routes_to_live_location_room` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `04_live_location:android:agent_result` `ll_state_030_location_staleness_changes_map_affordance` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `05_link_new_device:android:agent_result` `lnd_state_001_support_loading` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_002_unsupported` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_003_owner_verification_required` expected `pass` observed `fail` status `protocolFail` missing `7`
+- `05_link_new_device:android:agent_result` `lnd_state_004_owner_verification_failure_retry` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `05_link_new_device:android:agent_result` `lnd_state_005_mobile_scan_success` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `05_link_new_device:android:agent_result` `lnd_state_006_mobile_scan_invalid_retry` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `05_link_new_device:android:agent_result` `lnd_state_007_desktop_notice_uses_same_timeout` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `05_link_new_device:android:agent_result` `lnd_state_008_show_qr_timeout_no_unbounded_rotation` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `05_link_new_device:android:agent_result` `lnd_state_009_retry_creates_new_attempt` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_010_complete_and_cleanup` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_011_support_failure_error_recoverable` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_012_owner_cancel_cleans_flow` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_013_mobile_scan_warning_persists` expected `pass` observed `fail` status `protocolFail` missing `8`
+- `05_link_new_device:android:agent_result` `lnd_state_014_desktop_qr_loading_success` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_015_qr_data_failure` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_016_timer_before_deadline_no_timeout` expected `pass` observed `fail` status `protocolFail` missing `4`
+- `05_link_new_device:android:agent_result` `lnd_state_017_stale_timer_ignored_after_retry` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_018_sdk_already_signed_in_error` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_019_sdk_other_device_signed_out_error` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_020_sdk_continuation_failure` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_021_sdk_cancellation_failure` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_022_digits_waiting_confirmation` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_023_digits_mismatch_error` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_024_desktop_notice_cancel` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_025_complete_from_scan_without_digits` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_026_back_from_success_to_sessions` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_027_final_qr_timeout_notice_and_retry` expected `pass` observed `fail` status `protocolFail` missing `5`
+- `05_link_new_device:android:agent_result` `lnd_state_028_final_positive_owner_gate_timeout` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_029_final_supported_capability_creates_qr_after_owner_gate` expected `pass` observed `fail` status `protocolFail` missing `3`
+- `05_link_new_device:android:agent_result` `lnd_state_030_retry_after_error_requires_owner_policy` expected `pass` observed `fail` status `protocolFail` missing `2`
+- `05_link_new_device:android:agent_result` `lnd_state_031_biometric_lockout_falls_back_to_device_pin` expected `pass` observed `fail` status `protocolFail` missing `8`
+- `05_link_new_device:android:agent_result` `lnd_state_032_stale_sdk_done_ignored_after_timeout_retry` expected `pass` observed `fail` status `protocolFail` missing `6`
+- `05_link_new_device:android:agent_result` `lnd_state_033_desktop_digits_mismatch_keeps_timeout_and_allows_retry` expected `pass` observed `fail` status `protocolFail` missing `8`
+- `05_link_new_device:android:agent_result` `lnd_state_034_cancel_during_qr_generation_cleans_handler` expected `pass` observed `fail` status `protocolFail` missing `4`

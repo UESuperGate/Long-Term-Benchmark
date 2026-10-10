@@ -1,8 +1,16 @@
-# Element X ArkTS Base Candidates
+# Element X Multi-Platform Long-Term Benchmark
 
-This workspace contains five behavior-equivalent ArkTS/OpenHarmony base apps derived from Element X Android/iOS release points.
+This workspace contains five long-horizon Element X tasks for Android and
+ArkTS/OpenHarmony. Both platforms consume the same public requirement specs,
+state-test YAML files, case ids, state vectors, transition events, and semantic
+oracles. Platform-specific runners differ only in how they apply a transition
+and capture the resulting state.
 
-The bases are scoped for tri-mobile benchmark construction. They preserve the relevant user-visible base behavior for each task family, using a mock Matrix service and semantic UI ids instead of the full Element X Matrix Rust SDK stack.
+The ArkTS bases preserve the relevant user-visible base behavior with a mock
+Matrix service and semantic UI ids. The Android benchmark is built from the
+official [Element X Android](https://github.com/element-hq/element-x-android)
+release tags and keeps the upstream Kotlin/Compose and Matrix Rust SDK
+architecture.
 
 SDK policy:
 - compileSdkVersion: 23
@@ -35,6 +43,78 @@ Local build environment:
 - Production state-test target matrix: `python C:\Users\xiexi\qingyu\scripts\state_target_matrix.py`
 - Production dynamic state matrix: `powershell -ExecutionPolicy Bypass -File C:\Users\xiexi\qingyu\scripts\run-state-strict-matrix.ps1`
 - DevEco/DeepSeek production candidate run: `powershell -ExecutionPolicy Bypass -File C:\Users\xiexi\qingyu\scripts\run-deveco-deepseek-eval.ps1`
+
+## Android benchmark
+
+The Android base and final labels use the official Element X release tags that
+correspond to the same feature intervals represented by the ArkTS tasks.
+
+| Task | Base tag | Ground-truth final tag | Cases |
+| --- | --- | --- | ---: |
+| User status | `v26.07.0` | `v26.08.4` | 26 |
+| Gallery messages | `v26.06.1` | `v26.08.1` | 28 |
+| Timeline protection/rich events | `v26.07.1` | `v26.08.0` | 32 |
+| Live location | `v26.04.0` | `v26.05.1` | 30 |
+| Link new device | `v26.05.0` | `v26.08.2` | 34 |
+
+Local Android evaluation environment:
+
+- Java: 21.0.12.1
+- Android compile/target SDK: API 36 for older tags and API 37 for newer tags,
+  as declared by each upstream release
+- Android min SDK: API 24 for the FOSS/GPlay benchmark variants
+- Android Emulator: 37.2.12
+- AVD: `Medium_Phone_API_37.0`, Android 17/API 37, `arm64-v8a`
+- OpenCode: v2.0.20
+- Agent model: `bigmodel-glm/glm-5.3`
+- Per-task agent and build timeout: 3600 seconds
+
+Build the ten evaluator-instrumented base/final APKs and calibrate polarity:
+
+```sh
+python3 scripts/build_android_golden_macos.py \
+  --run-root eval_runs/<run-id> --timeout 3600 --clean
+
+QINGYU_BENCH_ROOT="$PWD" \
+QINGYU_ANDROID_GOLDEN_APK_ROOT="$PWD/eval_runs/<run-id>/android_golden_apks" \
+QINGYU_STATE_REPORT_DIR="$PWD/eval_runs/<run-id>/verification_reports/state_dynamic" \
+python3 scripts/state_target_matrix.py
+
+QINGYU_BENCH_ROOT="$PWD" \
+ANDROID_HOME="$HOME/Library/Android/sdk" \
+ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+python3 scripts/run_snapshot_state_matrix.py \
+  --matrix eval_runs/<run-id>/verification_reports/state_dynamic/state_dynamic_target_matrix.json \
+  --out eval_runs/<run-id>/verification_reports/android_golden_strict \
+  --platform android --target-role both --transition-mode strict
+```
+
+Run clean-room OpenCode candidates and score the agent APKs against the same
+150 transition-driven testcases:
+
+```sh
+python3 scripts/run_opencode_glm_android_eval_macos.py \
+  --run-id <run-id> \
+  --candidate-root "$PWD/../Long-Term-Benchmark-android-eval/<run-id>" \
+  --agent-timeout 3600 --build-timeout 3600 --parallel 1
+
+QINGYU_BENCH_ROOT="$PWD" \
+QINGYU_ANDROID_GOLDEN_APK_ROOT="$PWD/eval_runs/<run-id>/android_golden_apks" \
+QINGYU_ANDROID_AGENT_ROOT="$PWD/../Long-Term-Benchmark-android-eval/<run-id>" \
+QINGYU_STATE_REPORT_DIR="$PWD/eval_runs/<run-id>/verification_reports/state_dynamic" \
+python3 scripts/state_target_matrix.py
+
+QINGYU_BENCH_ROOT="$PWD" \
+python3 scripts/run_snapshot_state_matrix.py \
+  --matrix eval_runs/<run-id>/verification_reports/state_dynamic/state_dynamic_target_matrix.json \
+  --out eval_runs/<run-id>/verification_reports/android_agent_strict \
+  --platform android --target-role agent_result --transition-mode strict
+```
+
+The Android debug `ContentProvider` protocol and its relationship to the ArkTS
+Ability/ArkUI protocol are documented in `state_tests/README.md`. Generated
+agents receive the public specs and YAML only; evaluator bindings and official
+final sources remain hidden.
 
 macOS OpenCode + GLM-5.3 evaluation:
 
@@ -72,6 +152,8 @@ not be committed to this repository. The complete state capture and transition
 contract is documented in `state_tests/README.md`.
 
 Latest archived run: [`experiment_results/opencode_glm53_3600_20261009`](experiment_results/opencode_glm53_3600_20261009/README.md)
+
+Latest Android archive: [`experiment_results/android_opencode_glm53_3600_20261010`](experiment_results/android_opencode_glm53_3600_20261010/README.md). The base/final calibration is valid, but the agent score is explicitly invalid because the configured endpoint exhausted its subscription request quota.
 
 Production benchmark contract:
 - Specs live in `C:\Users\xiexi\qingyu\specs` and now describe production-grade long-horizon tasks.

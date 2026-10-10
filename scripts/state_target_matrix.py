@@ -27,6 +27,7 @@ ANDROID_WORKTREES = ROOT / "android_worktrees"
 ANDROID_BASE_ROOT = os.environ.get("QINGYU_ANDROID_BASE_ROOT")
 ANDROID_FINAL_ROOT = os.environ.get("QINGYU_ANDROID_FINAL_ROOT")
 ANDROID_AGENT_ROOT = os.environ.get("QINGYU_ANDROID_AGENT_ROOT")
+ANDROID_GOLDEN_APK_ROOT = os.environ.get("QINGYU_ANDROID_GOLDEN_APK_ROOT")
 ARKTS_BASE_ROOT = Path(os.environ.get("QINGYU_ARKTS_BASE_ROOT", str(ROOT)))
 ARKTS_FINAL_ROOT = Path(os.environ.get("QINGYU_ARKTS_FINAL_ROOT", str(ROOT / "final_dev_nodes")))
 ARKTS_AGENT_ROOT = os.environ.get("QINGYU_ARKTS_AGENT_ROOT")
@@ -86,8 +87,10 @@ def candidate_dir(root_value: str | None, task_id: str, manifest_dir: str, final
     return root / names[0]
 
 
-def android_apk_path(worktree: Path) -> Path:
-    apk_name = os.environ.get("QINGYU_ANDROID_APK_NAME", "app-gplay-universal-debug.apk")
+def android_apk_path(worktree: Path, task_id: str = "", role: str = "", is_groundtruth: bool = False) -> Path:
+    apk_name = os.environ.get("QINGYU_ANDROID_APK_NAME", "app-gplay-arm64-v8a-debug.apk")
+    if is_groundtruth and ANDROID_GOLDEN_APK_ROOT:
+        return Path(ANDROID_GOLDEN_APK_ROOT) / task_id / role / apk_name
     return worktree / "app" / "build" / "outputs" / "apk" / "gplay" / "debug" / apk_name
 
 
@@ -111,7 +114,7 @@ def android_target(task_id: str, role: str, expected: str, tag: str, worktree: P
         "isGroundTruth": is_groundtruth,
         "tag": tag,
         "worktree": str(worktree),
-        "apk": str(android_apk_path(worktree)),
+        "apk": str(android_apk_path(worktree, task_id, role, is_groundtruth)),
         "package": "io.element.android.x.debug",
         "launchAdapter": "android instrumentation/debug state adapter",
     }

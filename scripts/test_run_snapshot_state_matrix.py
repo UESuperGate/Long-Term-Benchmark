@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from run_snapshot_state_matrix import score_case, tree_selector_facts
+from run_snapshot_state_matrix import Runner, score_case, tree_selector_facts
 
 
 class StateMatrixScoringTest(unittest.TestCase):
@@ -126,6 +128,27 @@ class StateMatrixScoringTest(unittest.TestCase):
         result = score_case(capture, "pass", case, "strict")
         self.assertEqual(result["observedPolarity"], "pass")
         self.assertEqual(result["missingFacts"], [])
+
+    def test_android_phase_query_url_encodes_state_event(self) -> None:
+        runner = Runner({"targets": [], "caseTargets": []}, Path("unused"), android_serial="emulator-5556")
+        calls: list[list[str]] = []
+
+        def fake_adb(args: list[str], timeout: int = 60) -> tuple[int, str]:
+            calls.append(args)
+            return 0, 'Row: 0 snapshot={"caseId":"case-1","lastEvent":"open panel","semanticFacts":[]}'
+
+        runner.adb = fake_adb  # type: ignore[method-assign]
+        with tempfile.TemporaryDirectory() as directory:
+            phase = runner.capture_android_provider_phase(
+                {"package": "io.element.android.x.debug"},
+                "case-1",
+                "transition_1",
+                Path(directory),
+                "open panel",
+            )
+
+        self.assertTrue(phase["readyObserved"])
+        self.assertIn("stateEvent=open+panel", calls[0][-1])
 
 
 if __name__ == "__main__":

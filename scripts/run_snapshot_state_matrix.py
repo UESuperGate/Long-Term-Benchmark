@@ -17,6 +17,7 @@ import re
 import shlex
 import subprocess
 import time
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -24,7 +25,7 @@ from typing import Any, Iterable
 
 ROOT = Path(os.environ.get("QINGYU_BENCH_ROOT", r"C:\Users\xiexi\qingyu"))
 ANDROID_SDK = Path(os.environ.get("ANDROID_HOME", r"C:\Users\xiexi\AppData\Local\Android\Sdk"))
-ADB = ANDROID_SDK / "platform-tools" / "adb.exe"
+ADB = ANDROID_SDK / "platform-tools" / ("adb.exe" if os.name == "nt" else "adb")
 HDC = Path(os.environ.get("QINGYU_HDC", r"C:\Users\xiexi\AppData\Local\OpenHarmony\Sdk\23\toolchains\hdc.exe"))
 BINDINGS = ROOT / "state_tests" / "bindings"
 
@@ -390,31 +391,69 @@ class Runner:
     def hdc(self, args: list[str], timeout: int = 60) -> tuple[int, str]:
         return run([str(HDC)] + args, timeout=timeout)
 
-    def android_capture(self, target: dict[str, Any], case_id: str, target_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    def capture_android_provider_phase(
+        self,
+        target: dict[str, Any],
+        case_id: str,
+        phase: str,
+        phase_dir: Path,
+        event: str = "",
+    ) -> dict[str, Any]:
+        phase_dir.mkdir(parents=True, exist_ok=True)
+        query = {"caseId": case_id}
+        if event:
+            query["stateEvent"] = event
+        uri = f"content://{target['package']}.state-test-probe/probe?{urllib.parse.urlencode(query)}"
+        code, output = self.adb(["shell", "content", "query", "--uri", shlex.quote(uri)], timeout=30)
+        (phase_dir / "provider_query.txt").write_text(output, encoding="utf-8")
+        snapshot = extract_snapshot_from_text(output)
+        return {
+            "status": "queried" if snapshot else "snapshot_missing",
+            "snapshot": snapshot,
+            "layoutText": output,
+            "readyObserved": bool(snapshot and snapshot.get("caseId") == case_id),
+            "queryExit": code,
+            "phase": phase,
+        }
+
+    def android_capture(
+        self,
+        target: dict[str, Any],
+        case_id: str,
+        case: dict[str, Any],
+        target_dir: Path,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         apk = Path(target["apk"])
-        detail: dict[str, Any] = {"artifactExists": apk.exists(), "installed": False, "queryExit": None}
+        detail: dict[str, Any] = {"artifactExists": apk.exists(), "installed": False}
         if not apk.exists():
             return {"initial": {"status": "apk_missing"}, "transitions": []}, detail | {"status": "apk_missing"}
         if self.installed_android_target != target["targetId"]:
             self.adb(["uninstall", target["package"]], timeout=30)
-            code, text = self.adb(["install", "-r", str(apk)], timeout=180)
+            code, text = self.adb(["install", "-r", "-t", str(apk)], timeout=180)
             detail["installText"] = text
             if "Success" not in text:
                 return {"initial": {"status": "install_failed"}, "transitions": []}, detail | {"status": "install_failed"}
             self.installed_android_target = target["targetId"]
         detail["installed"] = True
-        uri = f"content://{target['package']}.state-test-probe/probe?caseId={case_id}"
-        code, text = self.adb(["shell", "content", "query", "--uri", uri], timeout=30)
-        (target_dir / "provider_query.txt").write_text(text, encoding="utf-8")
-        snapshot = extract_snapshot_from_text(text)
-        initial = {
-            "status": "queried" if snapshot else "snapshot_missing",
-            "snapshot": snapshot,
-            "layoutText": text,
-            "readyObserved": bool(snapshot and snapshot.get("caseId") == case_id),
-        }
-        detail["queryExit"] = code
-        return {"initial": initial, "transitions": []}, detail | {"status": initial["status"]}
+        initial = self.capture_android_provider_phase(target, case_id, "initial", target_dir / "initial")
+        phases: list[dict[str, Any]] = []
+        for index, transition in enumerate(case.get("transitionSelectors") or [], start=1):
+            ordinal = int(transition.get("ordinal") or index)
+            event = str(transition.get("event") or "")
+            phase = self.capture_android_provider_phase(
+                target,
+                case_id,
+                f"transition_{ordinal}",
+                target_dir / f"transition_{ordinal:02d}_{ps_safe(event)}",
+                event,
+            )
+            phase["eventLaunchExit"] = phase.get("queryExit")
+            phases.append(phase)
+        detail["queryExit"] = initial.get("queryExit")
+        detail["readyObserved"] = bool(initial.get("readyObserved"))
+        detail["transitionCount"] = len(case.get("transitionSelectors") or [])
+        detail["transitionCaptureCount"] = len(phases)
+        return {"initial": initial, "transitions": phases}, detail | {"status": initial["status"]}
 
     def capture_arkts_layout(self, target: dict[str, Any], case_id: str, phase: str, phase_dir: Path) -> dict[str, Any]:
         phase_dir.mkdir(parents=True, exist_ok=True)
@@ -563,11 +602,10 @@ class Runner:
             target_dir.mkdir(parents=True, exist_ok=True)
             print(f"[snapshot] {index}/{len(rows)} {target['targetId']} {case_id}", flush=True)
             if target["platform"] == "android":
-                capture, detail = self.android_capture(target, case_id, target_dir)
-                mode = "compatible"
+                capture, detail = self.android_capture(target, case_id, case, target_dir)
             else:
                 capture, detail = self.arkts_capture(target, case_id, case, target_dir)
-                mode = self.transition_mode
+            mode = self.transition_mode
             serializable_capture = json.loads(json.dumps(capture))
             for phase in [serializable_capture.get("initial") or {}, *(serializable_capture.get("transitions") or [])]:
                 phase.pop("layoutText", None)
@@ -630,7 +668,8 @@ def write_markdown(summary: dict[str, Any], path: Path) -> None:
         "## Notes",
         "",
         "- ArkTS cases poll for a case-specific ready marker instead of using a fixed sleep.",
-        "- Every declared transition is delivered through the stateEvent Want parameter and captured separately.",
+        "- Android queries the debug provider once for initial state and once per stateEvent transition.",
+        "- Every declared transition is delivered through the platform stateEvent transport and captured separately.",
         "- Scoring combines independently observed ArkUI node ids/states with runtime semantic facts.",
         "- Compatible mode may accept aggregate transition facts from legacy golden targets; strict mode does not.",
         "",
