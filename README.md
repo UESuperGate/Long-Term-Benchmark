@@ -153,7 +153,7 @@ contract is documented in `state_tests/README.md`.
 
 Latest archived run: [`experiment_results/opencode_glm53_3600_20261009`](experiment_results/opencode_glm53_3600_20261009/README.md)
 
-Latest Android archive: [`experiment_results/android_opencode_glm53_3600_20261010`](experiment_results/android_opencode_glm53_3600_20261010/README.md). The base/final calibration is valid, but the agent score is explicitly invalid because the configured endpoint exhausted its subscription request quota.
+Latest Android archive: [`experiment_results/android_opencode_glm53_3600_20261011`](experiment_results/android_opencode_glm53_3600_20261011/README.md). The base/final calibration is valid. After quota recovery, the agent retry produced four timeouts, one no-change normal exit, four buildable APKs, and 150 protocol failures; it remains explicitly invalid as a semantic model score.
 
 Production benchmark contract:
 - Specs live in `C:\Users\xiexi\qingyu\specs` and now describe production-grade long-horizon tasks.
