@@ -22,12 +22,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+from semantic_candidate_integrity import audit_candidate
+
 
 ROOT = Path(os.environ.get("QINGYU_BENCH_ROOT", r"C:\Users\xiexi\qingyu"))
 ANDROID_SDK = Path(os.environ.get("ANDROID_HOME", r"C:\Users\xiexi\AppData\Local\Android\Sdk"))
 ADB = ANDROID_SDK / "platform-tools" / ("adb.exe" if os.name == "nt" else "adb")
 HDC = Path(os.environ.get("QINGYU_HDC", r"C:\Users\xiexi\AppData\Local\OpenHarmony\Sdk\23\toolchains\hdc.exe"))
 BINDINGS = ROOT / "state_tests" / "bindings"
+TRACES = ROOT / "state_tests" / "traces"
 
 
 def decode_process_output(value: bytes | str | None) -> str:
@@ -151,6 +154,36 @@ def extract_snapshot_from_text(text: str) -> dict[str, Any] | None:
 
 def load_binding_cases() -> dict[str, dict[str, Any]]:
     cases: dict[str, dict[str, Any]] = {}
+    trace_paths = sorted(TRACES.glob("*.trace.json"))
+    if trace_paths:
+        for path in trace_paths:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            for source in data.get("cases", []):
+                phases = list(source.get("phases") or [])
+                if not phases:
+                    continue
+                initial = phases[0]
+                transitions = []
+                for phase in phases[1:]:
+                    selectors = dict(phase.get("selectors") or {})
+                    selectors["ordinal"] = int(phase.get("ordinal") or len(transitions) + 1)
+                    selectors["event"] = str(phase.get("event") or "")
+                    transitions.append(selectors)
+                case = {
+                    "caseId": source["caseId"],
+                    "caseTitle": source.get("caseTitle", ""),
+                    "functionalArea": source.get("functionalArea", ""),
+                    "fixtureKind": source.get("fixtureKind", ""),
+                    "selectors": initial.get("selectors") or {},
+                    "transitionSelectors": transitions,
+                    "expectedInitialFacts": initial.get("expectedFacts") or [],
+                    "expectedFacts": sorted(
+                        fact for phase in phases for fact in (phase.get("expectedFacts") or [])
+                    ),
+                    "traceDigest": source.get("traceDigest", ""),
+                }
+                cases[case["caseId"]] = case
+        return cases
     for path in sorted(BINDINGS.glob("*.binding.json")):
         if path.name == "state_binding_manifest_index.json":
             continue
@@ -262,13 +295,15 @@ def phase_observed_facts(
     selectors: dict[str, Any],
     ordinal: int | None = None,
     event: str = "",
+    allow_snapshot_facts: bool = True,
+    allow_prefixed_facts: bool = False,
 ) -> set[str]:
-    raw = snapshot_facts(snapshot)
+    raw = snapshot_facts(snapshot) if allow_snapshot_facts else set()
     tree = tree_selector_facts(layout_text, selectors)
     if ordinal is None:
         return raw | tree
     prefix = f"transition:{ordinal}:"
-    observed = {fact for fact in raw if fact.startswith(prefix)}
+    observed = {fact for fact in raw if allow_prefixed_facts and fact.startswith(prefix)}
     observed.update(prefix + fact for fact in tree)
     observed.update(
         prefix + fact
@@ -284,7 +319,53 @@ def phase_observed_facts(
     return observed
 
 
+def contradictory_semantic_facts(snapshot: dict[str, Any] | None) -> list[str]:
+    facts = snapshot_facts(snapshot)
+    states: dict[tuple[str, str], set[str]] = {}
+    for fact in facts:
+        match = re.match(r"(?:(transition:\d+:))?(visible|hidden|enabled|disabled):(.+)$", fact)
+        if not match:
+            continue
+        context = match.group(1) or "initial:"
+        state = match.group(2)
+        token = match.group(3)
+        states.setdefault((context, token), set()).add(state)
+    contradictions = []
+    for (context, token), values in states.items():
+        if {"visible", "hidden"} <= values:
+            contradictions.append(f"{context}{token}:visible+hidden")
+        if {"enabled", "disabled"} <= values:
+            contradictions.append(f"{context}{token}:enabled+disabled")
+    return sorted(contradictions)
+
+
 def score_case(capture: dict[str, Any], expected: str, case: dict[str, Any], transition_mode: str) -> dict[str, Any]:
+    integrity = capture.get("integrity") or {"valid": True}
+    if not integrity.get("valid", False):
+        return {
+            "observedPolarity": "fail",
+            "strictStatus": "candidateInvalid",
+            "semanticStatus": "not_scored",
+            "missingFacts": case.get("expectedFacts") or [],
+            "reason": integrity.get("status") or "candidate_integrity_failed",
+            "transitionMode": transition_mode,
+            "phaseResults": [],
+            "integrity": integrity,
+        }
+    evidence_policy = str(capture.get("evidencePolicy") or "trusted_calibration_snapshot")
+    if evidence_policy == "external_observer_required":
+        return {
+            "observedPolarity": "inconclusive",
+            "strictStatus": "instrumentationUnbound",
+            "semanticStatus": "not_scored",
+            "missingFacts": case.get("expectedFacts") or [],
+            "reason": "evaluator_owned_external_observer_required",
+            "transitionMode": transition_mode,
+            "phaseResults": [],
+            "integrity": integrity,
+        }
+    allow_snapshot_facts = evidence_policy in {"trusted_calibration_snapshot", "trusted_external_observer"}
+    allow_prefixed_facts = transition_mode == "compatible" and allow_snapshot_facts
     initial = capture.get("initial") or {}
     initial_snapshot = initial.get("snapshot")
     initial_expected = case.get("expectedInitialFacts") or []
@@ -292,6 +373,8 @@ def score_case(capture: dict[str, Any], expected: str, case: dict[str, Any], tra
         initial_snapshot,
         str(initial.get("layoutText") or ""),
         case.get("selectors") or {},
+        allow_snapshot_facts=allow_snapshot_facts,
+        allow_prefixed_facts=allow_prefixed_facts,
     )
     initial_missing = [fact for fact in initial_expected if fact not in initial_observed]
     phase_results: list[dict[str, Any]] = [{
@@ -303,7 +386,7 @@ def score_case(capture: dict[str, Any], expected: str, case: dict[str, Any], tra
         "captureStatus": initial.get("status"),
     }]
     all_missing = list(initial_missing)
-    aggregate = snapshot_facts(initial_snapshot)
+    aggregate = snapshot_facts(initial_snapshot) if allow_snapshot_facts else set()
     transitions = case.get("transitionSelectors") or []
     captured_transitions = capture.get("transitions") or []
     for index, transition in enumerate(transitions):
@@ -317,6 +400,8 @@ def score_case(capture: dict[str, Any], expected: str, case: dict[str, Any], tra
             transition,
             ordinal,
             event,
+            allow_snapshot_facts=allow_snapshot_facts,
+            allow_prefixed_facts=allow_prefixed_facts,
         )
         legacy_fallback = False
         if transition_mode == "compatible":
@@ -338,16 +423,21 @@ def score_case(capture: dict[str, Any], expected: str, case: dict[str, Any], tra
             "captureStatus": phase.get("status"),
             "legacyAggregateFallback": legacy_fallback,
         })
+    contradictions = contradictory_semantic_facts(initial_snapshot) if allow_snapshot_facts else []
+    for phase in captured_transitions:
+        if allow_snapshot_facts:
+            contradictions.extend(contradictory_semantic_facts(phase.get("snapshot")))
+    contradictions = sorted(set(contradictions))
     has_snapshot = isinstance(initial_snapshot, dict)
     ready = bool(initial.get("readyObserved"))
-    observed = "pass" if has_snapshot and ready and bool(initial_expected or transitions) and not all_missing else "fail"
+    observed = "pass" if has_snapshot and ready and bool(initial_expected or transitions) and not all_missing and not contradictions else "fail"
     if not has_snapshot or not ready:
         semantic_status = "not_scored"
         reason = "snapshot_or_ready_marker_missing"
         strict_status = "matched" if observed == expected else "protocolFail"
     else:
         semantic_status = "passed" if observed == "pass" else "failed"
-        reason = "phase_semantic_facts"
+        reason = "contradictory_semantic_facts" if contradictions else "phase_semantic_facts"
         strict_status = "matched" if observed == expected else "mismatch"
     return {
         "observedPolarity": observed,
@@ -357,6 +447,8 @@ def score_case(capture: dict[str, Any], expected: str, case: dict[str, Any], tra
         "reason": reason,
         "transitionMode": transition_mode,
         "phaseResults": phase_results,
+        "contradictoryFacts": contradictions,
+        "evidencePolicy": evidence_policy,
     }
 
 
@@ -390,6 +482,63 @@ class Runner:
 
     def hdc(self, args: list[str], timeout: int = 60) -> tuple[int, str]:
         return run([str(HDC)] + args, timeout=timeout)
+
+    def external_observer_capture(
+        self,
+        target: dict[str, Any],
+        case_id: str,
+        case: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        observation_root = Path(str(target.get("externalObservationDir") or "")).resolve()
+        candidate_root = Path(str(target.get("worktree") or target.get("projectDir") or "")).resolve()
+        try:
+            observation_root.relative_to(candidate_root)
+        except ValueError:
+            pass
+        else:
+            return {"initial": {"status": "external_observer_not_isolated"}, "transitions": []}, {
+                "status": "external_observer_not_isolated",
+                "observationRoot": str(observation_root),
+                "candidateRoot": str(candidate_root),
+            }
+        bundle = observation_root / case_id / "capture.json"
+        if not bundle.is_file():
+            return {"initial": {"status": "external_capture_missing"}, "transitions": []}, {
+                "status": "external_capture_missing",
+                "bundle": str(bundle),
+            }
+        try:
+            payload = json.loads(bundle.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError) as error:
+            return {"initial": {"status": "external_capture_invalid"}, "transitions": []}, {
+                "status": "external_capture_invalid",
+                "bundle": str(bundle),
+                "error": error.__class__.__name__,
+            }
+        expected_digest = str(case.get("traceDigest") or "")
+        valid = (
+            payload.get("observerOwner") == "evaluator"
+            and payload.get("caseId") == case_id
+            and payload.get("traceDigest") == expected_digest
+        )
+        if not valid:
+            return {"initial": {"status": "external_capture_invalid"}, "transitions": []}, {
+                "status": "external_capture_invalid",
+                "bundle": str(bundle),
+                "observerOwner": payload.get("observerOwner"),
+                "caseId": payload.get("caseId"),
+                "traceDigest": payload.get("traceDigest"),
+                "expectedTraceDigest": expected_digest,
+            }
+        capture = payload.get("capture") or {}
+        if not isinstance(capture, dict):
+            capture = {}
+        return capture, {
+            "status": "external_capture_loaded",
+            "bundle": str(bundle),
+            "observerOwner": "evaluator",
+            "traceDigest": expected_digest,
+        }
 
     def capture_android_provider_phase(
         self,
@@ -604,6 +753,13 @@ class Runner:
                     counts[row["targetId"]] = count + 1
             rows = limited
         target_map = {target["targetId"]: target for target in targets}
+        integrity_by_target: dict[str, dict[str, Any]] = {}
+        for target in targets:
+            if target.get("targetRole") != "agent_result":
+                integrity_by_target[target["targetId"]] = {"valid": True, "status": "evaluator_owned_target", "violations": []}
+                continue
+            source = Path(str(target.get("worktree") or target.get("projectDir") or ""))
+            integrity_by_target[target["targetId"]] = audit_candidate(source, str(target["platform"]))
         results = []
         for index, row in enumerate(rows, start=1):
             target = target_map[row["targetId"]]
@@ -612,10 +768,22 @@ class Runner:
             target_dir = self.out_dir / "snapshot_probe" / ps_safe(f"{target['targetId']}__{case_id}")
             target_dir.mkdir(parents=True, exist_ok=True)
             print(f"[snapshot] {index}/{len(rows)} {target['targetId']} {case_id}", flush=True)
-            if target["platform"] == "android":
+            integrity = integrity_by_target[target["targetId"]]
+            evidence_policy = str(target.get("semanticEvidencePolicy") or "trusted_calibration_snapshot")
+            if not integrity.get("valid", False):
+                capture = {"initial": {"status": "candidate_integrity_failed"}, "transitions": []}
+                detail = {"status": "candidate_integrity_failed", "integrity": integrity}
+            elif evidence_policy == "external_observer_required":
+                capture = {"initial": {"status": "instrumentation_unbound"}, "transitions": []}
+                detail = {"status": "instrumentation_unbound", "integrity": integrity}
+            elif evidence_policy == "trusted_external_observer":
+                capture, detail = self.external_observer_capture(target, case_id, case)
+            elif target["platform"] == "android":
                 capture, detail = self.android_capture(target, case_id, case, target_dir)
             else:
                 capture, detail = self.arkts_capture(target, case_id, case, target_dir)
+            capture["integrity"] = integrity
+            capture["evidencePolicy"] = evidence_policy
             mode = self.transition_mode
             serializable_capture = json.loads(json.dumps(capture))
             for phase in [serializable_capture.get("initial") or {}, *(serializable_capture.get("transitions") or [])]:
@@ -631,6 +799,7 @@ class Runner:
                 "platform": row["platform"],
                 "targetRole": row.get("targetRole"),
                 "caseId": case_id,
+                "traceDigest": case.get("traceDigest", ""),
                 "expectedPolarity": row["expected"],
                 "snapshot": capture.get("initial", {}).get("snapshot"),
                 "probe": detail,

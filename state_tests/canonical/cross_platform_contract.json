@@ -1,0 +1,994 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-12T19:50:40.108245+00:00",
+  "owner": "evaluator",
+  "description": "Platform-neutral semantic intersection with audited Android and ArkTS evidence bindings",
+  "cases": [
+    {
+      "caseId": "cross_01_user_status_empty_initial",
+      "taskId": "01_user_status",
+      "key": "empty_initial",
+      "given": "User status is supported and no status is set",
+      "event": "present",
+      "expected": "Displayed status is empty and the picker is hidden",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "initial state - no status set",
+          "officialCaseId": "official_01_user_status_8ae96ff3a68e",
+          "officialTraceDigest": "323c13358f4667b2eade62cb79fa6ae7df5c8faf086aebd2994de5d244454f91"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_002_empty_supported_entry",
+        "traceDigest": "ba300582d196049649361a499d5b7a3d448e36bc1c99800d046337fb0d547fbb",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "f6f851432c0b7dfc81975f95c48c2893e411705ab6388b1b2ffa8abab9270265"
+    },
+    {
+      "caseId": "cross_01_user_status_open_picker",
+      "taskId": "01_user_status",
+      "key": "open_picker",
+      "given": "The status picker is hidden",
+      "event": "OpenPicker",
+      "expected": "The picker transitions to the predefined status selection state",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "Open event transitions to ShowingPicker",
+          "officialCaseId": "official_01_user_status_af2448b8b7ce",
+          "officialTraceDigest": "2f65f2598d0dd9d6d2fe5054319cb972759b5c2cd12932c4419b6cb8ae99ab2d"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_002_empty_supported_entry",
+        "traceDigest": "ba300582d196049649361a499d5b7a3d448e36bc1c99800d046337fb0d547fbb",
+        "phaseOrdinals": [
+          1
+        ]
+      },
+      "traceDigest": "a5884633d9461e78803e32ac20d092b6fe29f049eef45d119cc74861fbf0611f"
+    },
+    {
+      "caseId": "cross_01_user_status_dismiss_picker",
+      "taskId": "01_user_status",
+      "key": "dismiss_picker",
+      "given": "The status picker is open with an existing status unchanged",
+      "event": "DismissPicker",
+      "expected": "The picker closes without changing the status",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "Dismiss event from ShowingPicker goes back to Hidden",
+          "officialCaseId": "official_01_user_status_ad4a0ca87756",
+          "officialTraceDigest": "c6c847196fb0fdff07f8698e6630cb3b1e68f20487de1199e6427066c39d6066"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_011_dismiss_picker_keeps_status",
+        "traceDigest": "7806d9415d34cadf53628eaf372ff3a04a187c2a4f716b94cb8d2419c4c13f09",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "046bcefb011fbdbb2c4f1c9465ffaee9fcfd020f6230052c742776d1aa6520f2"
+    },
+    {
+      "caseId": "cross_01_user_status_set_success",
+      "taskId": "01_user_status",
+      "key": "set_success",
+      "given": "A predefined status is selected and the SDK accepts it",
+      "event": "SetStatus",
+      "expected": "The picker closes and the new user-set status becomes displayed",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "Set event calls setUserStatus and transitions to Hidden with updated status",
+          "officialCaseId": "official_01_user_status_bc77708dead8",
+          "officialTraceDigest": "6963c0cfcc6719edc7fef2c676d71773f31fd6f8626d0483249d16a351e0d80d"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_010_predefined_status_selection",
+        "traceDigest": "99e5305fbbaad9e5fd1c7424aa78477a0a288ada1acd2b2a52907e878fa11aca",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "4491ffbb9c69334067f60412778018465fbf6f5e1c133b2631cb938fdfd072ba"
+    },
+    {
+      "caseId": "cross_01_user_status_set_failure",
+      "taskId": "01_user_status",
+      "key": "set_failure",
+      "given": "An existing status is visible and the SDK rejects an update",
+      "event": "SetStatus",
+      "expected": "The update reports failure and does not display the rejected value",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "Set event failure surfaces a Failure action",
+          "officialCaseId": "official_01_user_status_86a13fe541c1",
+          "officialTraceDigest": "a0da8662a55da477d899c053586f4d8f124867206a9b25c20cc7a06f55e51cf7"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_005_save_failure_keeps_previous_status",
+        "traceDigest": "3eefbeb7d6a70ad25640cb85639b7ee3ca0a54d01bb29b7273aff0f5d7f9c98e",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "818d17e08aa715996fc731868caf44092a99832c2bd066ab231eff64420452da"
+    },
+    {
+      "caseId": "cross_01_user_status_custom_input_defaults",
+      "taskId": "01_user_status",
+      "key": "custom_input_defaults",
+      "given": "No status exists",
+      "event": "OpenCustomInput",
+      "expected": "Custom input opens with default emoji and empty text",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "OpenCustomInput with no existing status uses defaults",
+          "officialCaseId": "official_01_user_status_9db5807730ab",
+          "officialTraceDigest": "9f7dcdaed02d483f4a223e60f5cc4254f76c4e739fb7aee8de352b00d08c26ef"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_003_custom_input_and_emoji_sheet",
+        "traceDigest": "1afda8163a98f7aa044777b774b30c669ffa1d35c809431dc5557bbcb9305162",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "d9c7d5a32cd5425fc4bc0cf23c3cae4612249bdc6a0858232a484424800e2a41"
+    },
+    {
+      "caseId": "cross_01_user_status_custom_input_prefill",
+      "taskId": "01_user_status",
+      "key": "custom_input_prefill",
+      "given": "A user-set status already exists",
+      "event": "OpenCustomInput",
+      "expected": "Custom input is prefilled from the existing status",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "OpenCustomInput with existing rawStatus pre-fills values",
+          "officialCaseId": "official_01_user_status_03b646aad813",
+          "officialTraceDigest": "c3dfaeff83b055d13160a2a78eee574b76596491b0d441b3ae87e51f3cec08b7"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_012_custom_input_dirty_state",
+        "traceDigest": "8b09de8324cd4c45e69ed0fbdd50576fcfe29eca62cfa92df24d62cc23fe609c",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "8ff413a787f084672923359c8ab011677d3b7cd6667600fcab935920c43dcf69"
+    },
+    {
+      "caseId": "cross_01_user_status_cancel_custom_input",
+      "taskId": "01_user_status",
+      "key": "cancel_custom_input",
+      "given": "A saved status exists and a custom draft is open",
+      "event": "CancelCustomInput",
+      "expected": "The draft closes without clearing the saved status",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "CancelCustomInput goes back to Hidden",
+          "officialCaseId": "official_01_user_status_c4977d471987",
+          "officialTraceDigest": "049099c088b58a4aaae76d64aa188f063dbef6d3c2c0bfd3d119dd6ee77ff102"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_013_custom_input_cancel_clears_draft_only",
+        "traceDigest": "fe7acd59ed86d7ca211a482489effe4868a316c464ed3957c18796de9564d051",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "95ac1395d78c179c6b14d66da30b316b13f74457c77cf423032bd78ba0d938e7"
+    },
+    {
+      "caseId": "cross_01_user_status_clear_status",
+      "taskId": "01_user_status",
+      "key": "clear_status",
+      "given": "A user-set status is displayed",
+      "event": "ClearStatus",
+      "expected": "The picker closes and displayed status becomes empty",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.preferences.impl.userstatus.UserStatusPresenterTest",
+          "methodName": "Clear event calls clearUserStatus and clears displayed status",
+          "officialCaseId": "official_01_user_status_ee24babb2714",
+          "officialTraceDigest": "77ce0d3ea7026d0cd4ba47dae026b397810a3ae77fae4553a8cbe6599e58c035"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "us_state_006_clear_status",
+        "traceDigest": "8c784126539ea25a5d7cff3558cdc1cbb16d20ecc1fa1e027839981cd2b78b55",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "c36a03c2710593e91a321bada4b297916a45b0d91c4852ce11356458100ccb56"
+    },
+    {
+      "caseId": "cross_02_gallery_messages_visual_gallery",
+      "taskId": "02_gallery_messages",
+      "key": "visual_gallery",
+      "given": "A gallery message contains image and video items",
+      "event": "map message content",
+      "expected": "The message remains one ordered gallery content item",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with image items returns TimelineItemGalleryContent",
+          "officialCaseId": "official_02_gallery_messages_3e3200ed680b",
+          "officialTraceDigest": "e6612412a72c4a55eb224e93ce472abbcbe103840b3cdcf82be6bc8b51d93615"
+        },
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with video items returns TimelineItemGalleryContent",
+          "officialCaseId": "official_02_gallery_messages_dd121965e893",
+          "officialTraceDigest": "6beb3d9b3444fdd56f049d609c6fb264ed8b6078c1d6db62be174544e7fa7af5"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "gm_state_001_supported_gallery_row",
+        "traceDigest": "fb4d92d2ba38d32be1a6f88ee61818edbfed79f8031944e997927d1b42c32188",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "e1b47ed75fba338dea395aa2775b21812fb17181aa076412aef17c75e60d6b75"
+    },
+    {
+      "caseId": "cross_02_gallery_messages_file_gallery",
+      "taskId": "02_gallery_messages",
+      "key": "file_gallery",
+      "given": "A gallery contains file attachments",
+      "event": "map message content",
+      "expected": "Files are preserved in an attachment-list representation",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with file items returns TimelineItemAttachmentsContent",
+          "officialCaseId": "official_02_gallery_messages_0dbce7a96978",
+          "officialTraceDigest": "486a06cd223cc1f51941d07c79582d34d47c0f384a49bdf45efafc3698f88651"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "gm_state_011_file_only_gallery_uses_attachment_list",
+        "traceDigest": "71db3aaca5dbe45c9952b66d778945398dae09718912a21996ce968e288ef12c",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "7860832b11145c078dbca7b958be12c1680af478598647921329b2aa21cbd909"
+    },
+    {
+      "caseId": "cross_02_gallery_messages_mixed_gallery",
+      "taskId": "02_gallery_messages",
+      "key": "mixed_gallery",
+      "given": "A gallery mixes visual and non-visual attachments",
+      "event": "map message content",
+      "expected": "All compatible attachments remain represented rather than dropping later items",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with audio items returns TimelineItemAttachmentsContent",
+          "officialCaseId": "official_02_gallery_messages_41c987373da9",
+          "officialTraceDigest": "cff8ef7a045b57068392546bad2271af0ab2c6e0fb046c793bad4c59acf64ee0"
+        },
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with mixed image and file items returns TimelineItemAttachmentsContent",
+          "officialCaseId": "official_02_gallery_messages_2e72bc801895",
+          "officialTraceDigest": "1a88b8bba2e54e3cb9ad8677d89c18c186a0428f3572d56aa3e78bb10991a8ab"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "gm_state_012_audio_file_mixed_gallery",
+        "traceDigest": "d7ac76408ae8248d0f2754e6725f1c6a51dc65865de44fca6ffda012a3e0e94c",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "28395b16769dbf84c832bc1996e67a380ff10b02e050d803e4e184a3d4e63c4f"
+    },
+    {
+      "caseId": "cross_02_gallery_messages_thumbnail_fallback",
+      "taskId": "02_gallery_messages",
+      "key": "thumbnail_fallback",
+      "given": "Gallery images do not have usable thumbnails",
+      "event": "map message content",
+      "expected": "The message uses a safe attachment fallback",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with image items without thumbnails returns TimelineItemAttachmentsContent",
+          "officialCaseId": "official_02_gallery_messages_dbb2e5d3adae",
+          "officialTraceDigest": "c3cc465d1fe4faa46386e25c63618246e392ea33e17a6b2744f2064d22fcf4e5"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "gm_state_015_thumbnail_failure_per_item",
+        "traceDigest": "bfd6a1dc53a02547801060656ac7ab1cc401cf283f9418f63ab69338bd4ab2ac",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "5b372ea909d6489ab9bd852fc790c9ce95b775e16248570d86cff465dc451581"
+    },
+    {
+      "caseId": "cross_02_gallery_messages_empty_gallery_fallback",
+      "taskId": "02_gallery_messages",
+      "key": "empty_gallery_fallback",
+      "given": "A gallery has no renderable attachment items",
+      "event": "map message content",
+      "expected": "A safe empty attachment representation is produced without crashing",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with only Other items returns TimelineItemAttachmentsContent with empty attachments",
+          "officialCaseId": "official_02_gallery_messages_f00828a765a9",
+          "officialTraceDigest": "1927291b98e61560ebfad086f1c72384f22158835269a76498f331cb7d2ef276"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "gm_state_009_empty_gallery_fallback",
+        "traceDigest": "63dc0d912fde260fd24bc78e88c3fa2daa5c191c9737f7502591c75a5e28d8c7",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "bfde174bcb41738e26b3d4a8eeef9475d71a2fb5b700a91c1b2462796369c995"
+    },
+    {
+      "caseId": "cross_02_gallery_messages_formatted_caption",
+      "taskId": "02_gallery_messages",
+      "key": "formatted_caption",
+      "given": "A gallery has a formatted caption",
+      "event": "map message content",
+      "expected": "The gallery content preserves the formatted caption",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.messages.impl.timeline.factories.event.TimelineItemContentMessageFactoryTest",
+          "methodName": "test create GalleryMessageType with formatted caption returns TimelineItemGalleryContent with formatted caption",
+          "officialCaseId": "official_02_gallery_messages_5ee47b451129",
+          "officialTraceDigest": "58b9c474fa6c34a0e52bfad161be1f621ee9ab86eaa094e8a6ed0ada55a5c5ca"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "gm_state_013_formatted_caption",
+        "traceDigest": "cbc971aec9779c462d47b88aeaa34645b9cfb867a187020f2e0429db45a30fba",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "a492d45b5df4ea4d35eeb4725a785151e917a701898e004460f098e9facac31d"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_unknown_requests_scan",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "unknown_requests_scan",
+      "given": "Media validation has no result",
+      "event": "request validation",
+      "expected": "The media is unknown until its source is scanned",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.contentscanner.impl.DefaultContentScannerServiceTest",
+          "methodName": "scan with no media sources returns unknown",
+          "officialCaseId": "official_03_timeline_protection_rich_events_2cb7d4cfa1ae",
+          "officialTraceDigest": "8cc6d0051f4e6b492d92bcafc4c6f8f6eeb7f181b23d99f92c3e250b2d775885"
+        },
+        {
+          "className": "io.element.android.features.messages.impl.timeline.protection.TimelineProtectionPresenterTest",
+          "methodName": "present - validate media scans the media source",
+          "officialCaseId": "official_03_timeline_protection_rich_events_6e30891d6aef",
+          "officialTraceDigest": "4e81cdcdafb09a9b0e6a0fc43b67c4fb3912777a3db731a92e3ba811a858d1b4"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_001_media_unknown_requests_validation",
+        "traceDigest": "73ec6ccc77e1eac407e97c6db2b6d4ead65dee0388aba1e1d204859be9af6524",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "0d4e91d9149e024b1c605c7534d8d94a753a7940738dcb01dcc3d8a4100bfabd"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_single_media_scan",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "single_media_scan",
+      "given": "One media source requires validation",
+      "event": "scan",
+      "expected": "The source receives the scanner result",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.contentscanner.impl.DefaultContentScannerServiceTest",
+          "methodName": "scan with single media source",
+          "officialCaseId": "official_03_timeline_protection_rich_events_a26bec6e143e",
+          "officialTraceDigest": "307356543251b3eb46e5dfd4f4f0e1be78155c2d017279a01a4187b73deddaf1"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_002_valid_media_renders_original_content",
+        "traceDigest": "37d413cc4c11febd1bdd8a0a8975725768492574e2120db6100c20367c8267be",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "89c3f9cd4a1106da6330053f3953aa4da1acd0d7a8092d043431fcfb37fe3fb6"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_gallery_scan_aggregation",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "gallery_scan_aggregation",
+      "given": "Several media sources require validation",
+      "event": "scan all sources",
+      "expected": "Validation state accounts for every source",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.contentscanner.impl.DefaultContentScannerServiceTest",
+          "methodName": "scan with several media sources",
+          "officialCaseId": "official_03_timeline_protection_rich_events_e920cb79b586",
+          "officialTraceDigest": "32b63d5acb1eb27616b426c78ff01e8e7b37459adeaf3a2a9128aac8f986a0ac"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_005_gallery_mixed_validation_aggregates",
+        "traceDigest": "43e4e768180ee8eda420ca4e946664e60dcedae2ba66117e0a12347461ddded5",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "60f1481322ea94ccd8b08aba753e2cb5c5717330ceb8ee8d84b865aa4ec0e26b"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_cached_validation_stable",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "cached_validation_stable",
+      "given": "A source already has a cached validation value",
+      "event": "request validation again",
+      "expected": "The source is not rescanned or downgraded",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.contentscanner.impl.DefaultContentScannerServiceTest",
+          "methodName": "scan won't be repeated for sources which already have a cached value",
+          "officialCaseId": "official_03_timeline_protection_rich_events_789572add38a",
+          "officialTraceDigest": "35fb5fe3be14667024a42bd22fa242c621e91ed827bed57717170ef905456deb"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_013_valid_state_not_downgraded_to_loading",
+        "traceDigest": "76f3cafd8e90d9b3852fa7f76847186644bb86281a80d7d54f75faf40d210ad1",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "36e5d693c2ec529c8c63d2357676521c275938cf6453bff0329643c9ed698f1d"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_scanner_recoverable_failure",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "scanner_recoverable_failure",
+      "given": "Scanning fails with a recoverable error",
+      "event": "scanner failure",
+      "expected": "Validation returns to an unknown retryable state",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.contentscanner.impl.DefaultContentScannerServiceTest",
+          "methodName": "if a scan fails with a recoverable error, the content validation value will be back to Unknown",
+          "officialCaseId": "official_03_timeline_protection_rich_events_b1a68c35aedf",
+          "officialTraceDigest": "ad76f2bb8946b3be43560fbd23a32987e1889e9e866f2212dddc628378b659fa"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_020_scanner_service_unavailable",
+        "traceDigest": "9f492a4b064e55c9ce2c73b903e9f0c0e78adbee61746b3a1f7dc41955a1360e",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "388c1dae4ec5b1fb8138fd1c5b0a52724336d4fc78d464f31b3da04aad838538"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_scanner_unrecoverable_failure",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "scanner_unrecoverable_failure",
+      "given": "Scanning fails with an unrecoverable error",
+      "event": "scanner failure",
+      "expected": "Validation becomes an unrecoverable safe fallback state",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.contentscanner.impl.DefaultContentScannerServiceTest",
+          "methodName": "if a scan fails with an unrecoverable error, the content validation value will be back to UnrecoverableError",
+          "officialCaseId": "official_03_timeline_protection_rich_events_370490663c56",
+          "officialTraceDigest": "43807def5b5c2c8cb37bea932ebb4a3d6eb4a968209bc79994345289777bb161"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_004_unrecoverable_error_not_found",
+        "traceDigest": "65e4a28e014f954fbf7a185c369d4d82cf7e6abd87d9caab355cf3216687691a",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "0acf31b686f4440f357af4836a04e3e2aa9a4a037d73f2888f598a65cc2c7603"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_render_only_private_room",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "render_only_private_room",
+      "given": "A media preview is in a non-public room",
+      "event": "present protection state",
+      "expected": "The preview remains protected rather than public",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.messages.impl.timeline.protection.TimelineProtectionPresenterTest",
+          "methodName": "present - media preview value private in non public room",
+          "officialCaseId": "official_03_timeline_protection_rich_events_340299a613f1",
+          "officialTraceDigest": "6be39395e07cb5f164793539b11b82303c1064c7b596ec6ff01419c9f201bb83"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_009_render_only_selected_hides_unselected_media",
+        "traceDigest": "8e78f2978dca480561c24c7a3d87ed0e9daf827829d0f5054334fde243760adb",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "4310f32c71329feeb402f530df0226aa4fcf47fcbecfd90b8e6bda7eee633c82"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_declined_call_not_joinable",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "declined_call_not_joinable",
+      "given": "A call has been declined",
+      "event": "format active call event",
+      "expected": "Declined information is rendered without an active join action",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.libraries.eventformatter.impl.RtcNotificationContentFormatterTest",
+          "methodName": "Should not display declined info in rooms",
+          "officialCaseId": "official_03_timeline_protection_rich_events_f276539f8139",
+          "officialTraceDigest": "a269a6b3c5d33c9a09bfbd3e6458e3f55e6c8a344836252285f786da1f4f8954"
+        },
+        {
+          "className": "io.element.android.libraries.eventformatter.impl.RtcNotificationContentFormatterTest",
+          "methodName": "Declined by me variant",
+          "officialCaseId": "official_03_timeline_protection_rich_events_20db77d2e01a",
+          "officialTraceDigest": "518916cf7743a4f5031ba528cd7c09c3f54eb73d185114fcc15499c93073f65d"
+        },
+        {
+          "className": "io.element.android.libraries.eventformatter.impl.RtcNotificationContentFormatterTest",
+          "methodName": "Declined by other variant",
+          "officialCaseId": "official_03_timeline_protection_rich_events_d342384f2cb2",
+          "officialTraceDigest": "1ba9b120255141029b893f925f1198a652be31760780891f040bfeb568353082"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_008_declined_call_no_join_action",
+        "traceDigest": "f3fe0c3b7ac6a8f25e1da48df41452b0fa3689d1115a3ac9342a18cb1cada957",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "7119ac476c35730bdbc86b18a9bce7a54fdb0d0686f91b837d2dfdff5f50b181"
+    },
+    {
+      "caseId": "cross_03_timeline_protection_rich_events_dm_call_started",
+      "taskId": "03_timeline_protection_rich_events",
+      "key": "dm_call_started",
+      "given": "An active call starts in a direct room",
+      "event": "format active call event",
+      "expected": "The event is represented as an active call state",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.libraries.eventformatter.impl.RtcNotificationContentFormatterTest",
+          "methodName": "Call started in DM",
+          "officialCaseId": "official_03_timeline_protection_rich_events_be7338b5b92e",
+          "officialTraceDigest": "940b4e6cef59e3860f1ee8865fd107fa2c9cbc3a53314b99fb7155b1e9084eeb"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "tp_state_007_active_call_joinable_card",
+        "traceDigest": "766f946703e47011213fbc694d3fb057daedfcb3fa7437d7707d2543dd17adf3",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "57f1d25dac7ae8d084fff549a6d43a9202de26ae409afc25151a7885fd7c6c2a"
+    },
+    {
+      "caseId": "cross_04_live_location_start_share",
+      "taskId": "04_live_location",
+      "key": "start_share",
+      "given": "No live share is active in the room",
+      "event": "start share and receive beacon echo",
+      "expected": "An active share is persisted and location coordination starts",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "starting the first share starts the coordinator service after the beacon echo and adds an active share",
+          "officialCaseId": "official_04_live_location_ce34264f79bf",
+          "officialTraceDigest": "63489d204c87e0968be5aec38ef5ff5ec6b7f3463127013e4ba0173c27fbbe65"
+        },
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "start share persists room expiry after beacon echo",
+          "officialCaseId": "official_04_live_location_a53742213fcc",
+          "officialTraceDigest": "0450e4dafb6352df9e7830990e340d3a4c9abe08036b4006de04dcf7b8ba0eca"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "ll_state_005_start_share_success",
+        "traceDigest": "2f6e199159d8b31ca136ed2f2d31f2fcbf4ff3124a0f52a4a4cd7bd52c397b90",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "c96d838c66f68cb4f886d670f79cd1da1a1be2302f8baf3b9d2d51b9ccdc6e6c"
+    },
+    {
+      "caseId": "cross_04_live_location_stop_share",
+      "taskId": "04_live_location",
+      "key": "stop_share",
+      "given": "A live share is active",
+      "event": "stop share",
+      "expected": "The active share and persisted expiry are removed and the last coordinator stops",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "stopping the last share stops the coordinator service",
+          "officialCaseId": "official_04_live_location_fec07e9b8b58",
+          "officialTraceDigest": "9226c038a8a8d3409c86f5695edbb115442f399671fba180fed9fd572b5db5be"
+        },
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "stop share removes persisted expiry",
+          "officialCaseId": "official_04_live_location_b487a0672f91",
+          "officialTraceDigest": "a7580eeb9eb3aaa73cd9563abf72288540c3399b33cc18c54e53a0236710ea21"
+        },
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "stop share closes loaded room and removes persisted expiry when room is not tracked",
+          "officialCaseId": "official_04_live_location_96724554d64c",
+          "officialTraceDigest": "ef4a0d1cd16909363e7477ca53b68a69b63df13c0a6b32d5fa8f190c9605e205"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "ll_state_008_stop_share",
+        "traceDigest": "3e5d450e8dfe4c0e24e24afd28b87bf4a7963598c5719e9da0d080d487c800ef",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "0b1c0b25dea17db422c3045ff0bfb2e6bad70cd0081af26cc3d4f36a734376b3"
+    },
+    {
+      "caseId": "cross_04_live_location_restore_share",
+      "taskId": "04_live_location",
+      "key": "restore_share",
+      "given": "An unexpired share was persisted before restart",
+      "event": "manager setup",
+      "expected": "The share is restored and location coordination resumes",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "setup restores unexpired stored share and registers coordinator",
+          "officialCaseId": "official_04_live_location_e79f6ffb0475",
+          "officialTraceDigest": "54714b99f75f731bc46bef8d0bd5d8c76fdc1d43ac9faac297d2102143aa1e08"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "ll_state_028_background_resume_uses_latest_location",
+        "traceDigest": "075561c40d55bbf63a789f5bcafa4c7047bddc16ac81c763742536588c2e5f42",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "1d73e7ecc766f4f911f49bc95a74c00e267a1c034ece3c5f6df77d01e4bc1f89"
+    },
+    {
+      "caseId": "cross_04_live_location_timeout_expiry",
+      "taskId": "04_live_location",
+      "key": "timeout_expiry",
+      "given": "An active or restored share reaches its expiry",
+      "event": "timeout elapses",
+      "expected": "The share is stopped and removed from active state",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "setup remotely stops expired stored share and removes it from store",
+          "officialCaseId": "official_04_live_location_addc50326902",
+          "officialTraceDigest": "b6cb5c17cb28955efaafe3848fc41438e2093c9a14176790333e8510e5801bc5"
+        },
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "share is automatically stopped when timeout elapses",
+          "officialCaseId": "official_04_live_location_bbd4e16aa75f",
+          "officialTraceDigest": "5f503beae76ec71095e074851daf3e7024032e5fc359a159a78c706bac26ecc0"
+        },
+        {
+          "className": "io.element.android.features.location.impl.live.DefaultActiveLiveLocationShareManagerTest",
+          "methodName": "restored share is automatically stopped when remaining timeout elapses",
+          "officialCaseId": "official_04_live_location_1c498505de15",
+          "officialTraceDigest": "eebd9e82389be3c6fc543d1f3de22c1d131e9d495f1fb4a9707243075b1479cd"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "ll_state_009_timeout_expiry",
+        "traceDigest": "effe7695abe6e8d78f795da430417fa607e5718c7bb5f28e586b3b022ecd1559",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "5b5383f8b872d74eadff786f8e0410cafc9b8f7bccd4fc3cc4b53fd73687735a"
+    },
+    {
+      "caseId": "cross_04_live_location_location_dispatch",
+      "taskId": "04_live_location",
+      "key": "location_dispatch",
+      "given": "A location receiver is registered",
+      "event": "receive first location",
+      "expected": "The first location is delivered immediately",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.location.impl.live.LiveLocationSharingCoordinatorTest",
+          "methodName": "dispatch delivers first location immediately",
+          "officialCaseId": "official_04_live_location_9f64274e492a",
+          "officialTraceDigest": "97f7b59f2867aee7697fa477d6b86e2624ada9315d579ee3ee7f0fa3466e43cc"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "ll_state_007_map_updates_location",
+        "traceDigest": "c51a164e0fe73c968118ef10589bd6e010527de16876aab512dfb8669d6003c8",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "ffa7f81718a56bc1ccf5140c867f1630d49fc6c3eb508dd9e015b12cb66487eb"
+    },
+    {
+      "caseId": "cross_04_live_location_disclaimer_acceptance",
+      "taskId": "04_live_location",
+      "key": "disclaimer_acceptance",
+      "given": "Disclaimer acceptance is stored for one session",
+      "event": "read another session then the original session",
+      "expected": "Acceptance is persisted and isolated by session",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.location.impl.store.LiveLocationStoreTest",
+          "methodName": "disclaimer acceptance is isolated per session",
+          "officialCaseId": "official_04_live_location_ee82e1117093",
+          "officialTraceDigest": "62f7d85282502dc7ed6182a405be80fdd7824a8c6aa12af13b2d4aa653298b42"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "ll_state_012_accepted_disclaimer_skips_dialog",
+        "traceDigest": "2ea8841f0cb425045684700f9762b9d820328185e0edbdbabfe399284581e0a3",
+        "phaseOrdinals": [
+          0
+        ]
+      },
+      "traceDigest": "0eb28e9edf2424e122f596bb018796563153b9131543a6a2d4caa6b9b163e29e"
+    },
+    {
+      "caseId": "cross_04_live_location_expiry_store",
+      "taskId": "04_live_location",
+      "key": "expiry_store",
+      "given": "Different rooms have live-share expiries",
+      "event": "replace and remove selected expiries",
+      "expected": "Per-room expiry data is updated without corrupting other rooms",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.location.impl.store.LiveLocationStoreTest",
+          "methodName": "can persist and read expiry per room",
+          "officialCaseId": "official_04_live_location_0c850f5fd73a",
+          "officialTraceDigest": "a86a5967bc34c529750fafc3030be271b78d0239ca238d6e0d95fdb0b2c12315"
+        },
+        {
+          "className": "io.element.android.features.location.impl.store.LiveLocationStoreTest",
+          "methodName": "removing one expiry leaves others untouched",
+          "officialCaseId": "official_04_live_location_6e97ac4bc35b",
+          "officialTraceDigest": "d00672d9b8de7789639a4dd2c2398f53f69e61170ff72b2cbfbf2da3387ba342"
+        },
+        {
+          "className": "io.element.android.features.location.impl.store.LiveLocationStoreTest",
+          "methodName": "setting expiry twice replaces the existing room value",
+          "officialCaseId": "official_04_live_location_2d8f9c85050b",
+          "officialTraceDigest": "c1a4951703f1d08f02edd383b52dbe0c42c531934e1cac2087765ce6c35fe4e6"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "ll_state_016_stop_one_room_keeps_other_banner",
+        "traceDigest": "d604c89a40dbeafe658eeff87649dc845934ae30d9f685a16ec101313e87153d",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "9701035f2029094ca3b99b547b46033b301bdbc258572b97ea9cbe6291aaac1d"
+    },
+    {
+      "caseId": "cross_05_link_new_device_qr_available",
+      "taskId": "05_link_new_device",
+      "key": "qr_available",
+      "given": "The link handler has QR data",
+      "event": "present QR state",
+      "expected": "QR data is available to render",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.linknewdevice.impl.screens.qrcode.ShowQrCodePresenterTest",
+          "methodName": "present - initial state",
+          "officialCaseId": "official_05_link_new_device_adeac61dd001",
+          "officialTraceDigest": "b54860995af0abb99315bb38c91530887d7826cbfcaaff8ed4b49a48ef238854"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "lnd_state_014_desktop_qr_loading_success",
+        "traceDigest": "2a2ae5276e83ff4c5c00671d5d94480edfd8fff155b80d5652ae2d5e3421173b",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "0589a1dc1d7358e718b27948276e8b95ca907d15d75a72212a1fe122946a25f9"
+    },
+    {
+      "caseId": "cross_05_link_new_device_qr_rotation",
+      "taskId": "05_link_new_device",
+      "key": "qr_rotation",
+      "given": "A QR code is visible and rotation is allowed",
+      "event": "QrRotating then QrReady",
+      "expected": "A replacement is requested and the new QR data becomes visible",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.linknewdevice.impl.screens.qrcode.ShowQrCodePresenterTest",
+          "methodName": "present - when handler emits QrRotating, the presenter requests to rotate the QrCode",
+          "officialCaseId": "official_05_link_new_device_b4876493a6f3",
+          "officialTraceDigest": "c6b5b8167d34d19c783d75a4d6f3c5c17616d61426e7a2482fb2659fec051943"
+        },
+        {
+          "className": "io.element.android.features.linknewdevice.impl.screens.qrcode.ShowQrCodePresenterTest",
+          "methodName": "present - when handler emits QrRotating, the presenter requests to rotate the QrCode and the code is rotated",
+          "officialCaseId": "official_05_link_new_device_d9d66980e977",
+          "officialTraceDigest": "04fb09cf201ce2e58fa8df35a886f536188877168184ceae6c9cdb03632df947"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "lnd_state_009_retry_creates_new_attempt",
+        "traceDigest": "1661de7820cbf7168e74fbea3b5aaa4f12881d4cd15321eb32a24a502988e6c9",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "2625347cfa70b361bc6c8797c67ddf71f0643a1847537fcd18082ab73a712fb5"
+    },
+    {
+      "caseId": "cross_05_link_new_device_qr_rotation_bound",
+      "taskId": "05_link_new_device",
+      "key": "qr_rotation_bound",
+      "given": "QR rotation is disabled after its bound",
+      "event": "QrRotating",
+      "expected": "No further QR state is emitted",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.linknewdevice.impl.screens.qrcode.ShowQrCodePresenterTest",
+          "methodName": "present - when handler emits QrRotating, the presenter does not emit anything when rotation is disabled",
+          "officialCaseId": "official_05_link_new_device_6bf8791cd831",
+          "officialTraceDigest": "0e758bf044b5302a38a32449abf157527d3bff613e16ea80c14b142b5779f99c"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "lnd_state_008_show_qr_timeout_no_unbounded_rotation",
+        "traceDigest": "945a210238f27f37bc6e251062a2b1d61ac0a7c5197362a6e5f7f727e5a6d113",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "702f658dc72c108d5ba171e0628144dbad4ddf671a247e47f77f3e33e23df4a5"
+    },
+    {
+      "caseId": "cross_05_link_new_device_owner_biometric",
+      "taskId": "05_link_new_device",
+      "key": "owner_biometric",
+      "given": "Owner verification is requested and device unlock is available",
+      "event": "request unlock",
+      "expected": "Biometric authentication is used before continuing",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.lockscreen.impl.device.DeviceUnlockPresenterTest",
+          "methodName": "present - when unlock requested and device unlock available, use biometric authenticator",
+          "officialCaseId": "official_05_link_new_device_ce412ea9b3eb",
+          "officialTraceDigest": "7c8d8afe7ef88617e9d95d4ca84a82fb56e0d757111e5a896475ed7270967e5a"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "lnd_state_003_owner_verification_required",
+        "traceDigest": "e66dd9fb3f48a31db47937d13025b243827f769c08beae296030a8cc75e43cff",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "51ab43da5763d1a83755549fab8786b38fea6fb1a15924ee4e3024bf7af0cdf9"
+    },
+    {
+      "caseId": "cross_05_link_new_device_owner_pin_fallback",
+      "taskId": "05_link_new_device",
+      "key": "owner_pin_fallback",
+      "given": "Device unlock is unavailable and an application PIN exists",
+      "event": "request unlock",
+      "expected": "The application PIN challenge is shown",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.lockscreen.impl.device.DeviceUnlockPresenterTest",
+          "methodName": "present - when unlock requested and device unlock unavailable and app pin is configured, show app pin",
+          "officialCaseId": "official_05_link_new_device_3d6a74eb2679",
+          "officialTraceDigest": "f5f432c444e234ca20de9f128dbe8d72feeb4a92854171c98c1886dfd5f47c20"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "lnd_state_031_biometric_lockout_falls_back_to_device_pin",
+        "traceDigest": "046f25e4bf2995d873637ba118e34b7459dc50b5abb205259d430bf65fbbe046",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "67762fa57822ef7c8885a6457b5536df8bc2477e66eef8c6f8332a19e9732a44"
+    },
+    {
+      "caseId": "cross_05_link_new_device_owner_cancel",
+      "taskId": "05_link_new_device",
+      "key": "owner_cancel",
+      "given": "An owner PIN challenge is active",
+      "event": "CancelPinCode",
+      "expected": "The unlock request is cancelled and protected flow state is cleared",
+      "androidEvidence": [
+        {
+          "className": "io.element.android.features.lockscreen.impl.device.DeviceUnlockPresenterTest",
+          "methodName": "present - CancelPinCode event cancels unlock request",
+          "officialCaseId": "official_05_link_new_device_12b937aad91f",
+          "officialTraceDigest": "711ac63158b53c9ad23638bc41a7a763299e43ddb83900b012843e6f12b5fed2"
+        }
+      ],
+      "arktsEvidence": {
+        "traceCaseId": "lnd_state_012_owner_cancel_cleans_flow",
+        "traceDigest": "7e9455c81f15d02b59a0eed73b4abf469b9a13a4c341f51e374808dc0951c9c1",
+        "phaseOrdinals": [
+          0,
+          1
+        ]
+      },
+      "traceDigest": "cb7180aeb365c0653093cd3641b810255a4fe12bd2fac67cb9104b42eef1ecd9"
+    }
+  ]
+}

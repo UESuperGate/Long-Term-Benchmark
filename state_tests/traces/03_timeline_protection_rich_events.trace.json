@@ -1,0 +1,1471 @@
+{
+  "version": 1,
+  "platformNeutral": true,
+  "evaluatorOwned": true,
+  "task": {
+    "id": "03_timeline_protection_rich_events",
+    "title": "时间线安全扫描与富事件渲染升级",
+    "base": "v26.07.1",
+    "final": "v26.08.0"
+  },
+  "cases": [
+    {
+      "caseId": "tp_state_001_media_unknown_requests_validation",
+      "caseTitle": "未知媒体内容进入扫描准备态",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "73ec6ccc77e1eac407e97c6db2b6d4ead65dee0388aba1e1d204859be9af6524",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: unknown\nevent_content: image\nviewer: closed",
+          "selectors": {
+            "visible": [
+              "content_validation_pending",
+              "media_row_placeholder"
+            ],
+            "hidden": [
+              "unsafe_content_warning",
+              "unsupported_event_placeholder"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:unsafe_content_warning",
+            "hidden:unsupported_event_placeholder",
+            "visible:content_validation_pending",
+            "visible:media_row_placeholder"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "scanner_started",
+          "stateConstraintYaml": "validation: loading",
+          "selectors": {
+            "visible": [
+              "content_scanning_placeholder"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:scanner_started",
+            "transition:1:visible:content_scanning_placeholder"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_002_valid_media_renders_original_content",
+      "caseTitle": "扫描通过后媒体内容恢复原始渲染",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "37d413cc4c11febd1bdd8a0a8975725768492574e2120db6100c20367c8267be",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: loading\nevent_content: video\nviewer: closed",
+          "selectors": {
+            "visible": [
+              "content_scanning_placeholder"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:content_scanning_placeholder"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "content_validation_update(valid)",
+          "stateConstraintYaml": "validation: valid",
+          "selectors": {
+            "visible": [
+              "video_play_affordance",
+              "video_thumbnail"
+            ],
+            "hidden": [
+              "content_scanning_placeholder",
+              "unsafe_content_warning"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:content_validation_update(valid)",
+            "transition:1:hidden:content_scanning_placeholder",
+            "transition:1:hidden:unsafe_content_warning",
+            "transition:1:visible:video_play_affordance",
+            "transition:1:visible:video_thumbnail"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_003_invalid_media_uses_safety_fallback",
+      "caseTitle": "风险媒体展示安全 fallback 且不能打开原内容",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "0280662ed98c4ee34d566f34c61c246c518a82ca3bedfdfef0d5dff80fcb94a2",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: invalid\nevent_content: image\nviewer: closed",
+          "selectors": {
+            "visible": [
+              "blocked_media_placeholder",
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "raw_media_content"
+            ],
+            "enabled": [],
+            "disabled": [
+              "open_media_viewer"
+            ],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "disabled:open_media_viewer",
+            "hidden:raw_media_content",
+            "visible:blocked_media_placeholder",
+            "visible:unsafe_content_warning"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "tap_blocked_media",
+          "stateConstraintYaml": "viewer: blocked",
+          "selectors": {
+            "visible": [
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "media_viewer_raw_content"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:media_viewer_raw_content",
+            "transition:1:tap_blocked_media",
+            "transition:1:visible:unsafe_content_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_004_unrecoverable_error_not_found",
+      "caseTitle": "不可恢复错误展示 not found/错误态",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "65e4a28e014f954fbf7a185c369d4d82cf7e6abd87d9caab355cf3216687691a",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: unrecoverable_error\nevent_content: file\nviewer: closed",
+          "selectors": {
+            "visible": [
+              "media_not_found_placeholder"
+            ],
+            "hidden": [
+              "content_scanning_placeholder",
+              "raw_media_content"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:content_scanning_placeholder",
+            "hidden:raw_media_content",
+            "visible:media_not_found_placeholder"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_005_gallery_mixed_validation_aggregates",
+      "caseTitle": "gallery 的媒体扫描状态按附件聚合",
+      "functionalArea": "gallery_aggregation",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "43e4e768180ee8eda420ca4e946664e60dcedae2ba66117e0a12347461ddded5",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: gallery\nvalidation_by_item:\n  item_0: valid\n  item_1: loading\n  item_2: valid",
+          "selectors": {
+            "visible": [
+              "gallery_container",
+              "gallery_item_0",
+              "gallery_item_1_scanning",
+              "gallery_item_2"
+            ],
+            "hidden": [
+              "unsupported_event_placeholder"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:unsupported_event_placeholder",
+            "visible:gallery_container",
+            "visible:gallery_item_0",
+            "visible:gallery_item_1_scanning",
+            "visible:gallery_item_2"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "content_validation_update(item_1=invalid)",
+          "stateConstraintYaml": "validation_by_item:\n  item_0: valid\n  item_1: invalid\n  item_2: valid",
+          "selectors": {
+            "visible": [
+              "gallery_item_1_invalid_fallback"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:content_validation_update(item_1=invalid)",
+            "transition:1:visible:gallery_item_1_invalid_fallback"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_006_viewer_keeps_timeline_validation",
+      "caseTitle": "从时间线打开媒体查看器时复用同一验证状态",
+      "functionalArea": "media_viewer",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "83f00b4fb645eb7500170edc3d4591234d13c2fa0881ff74c6ec4ab804d478d7",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: valid\nevent_content: image\nviewer: closed",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "open_media_viewer",
+          "stateConstraintYaml": "viewer: opened",
+          "selectors": {
+            "visible": [
+              "media_viewer",
+              "media_viewer_image"
+            ],
+            "hidden": [
+              "media_viewer_invalid_state"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:media_viewer_invalid_state",
+            "transition:1:open_media_viewer",
+            "transition:1:visible:media_viewer",
+            "transition:1:visible:media_viewer_image"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_007_active_call_joinable_card",
+      "caseTitle": "活跃通话事件渲染可加入卡片",
+      "functionalArea": "active_call",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "766f946703e47011213fbc694d3fb057daedfcb3fa7437d7707d2543dd17adf3",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: valid\nevent_content: active_call\ncall_state: active_joinable",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "active_call_participants",
+              "active_call_title",
+              "join_call_button"
+            ],
+            "hidden": [
+              "rtc_started_plain_notice",
+              "unsupported_event_placeholder"
+            ],
+            "enabled": [
+              "join_call_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:join_call_button",
+            "hidden:rtc_started_plain_notice",
+            "hidden:unsupported_event_placeholder",
+            "visible:active_call_card",
+            "visible:active_call_participants",
+            "visible:active_call_title",
+            "visible:join_call_button"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "join_active_call",
+          "stateConstraintYaml": "call_state: active_joined",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "in_call_indicator"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:join_active_call",
+            "transition:1:visible:active_call_card",
+            "transition:1:visible:in_call_indicator"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_008_declined_call_no_join_action",
+      "caseTitle": "已拒绝或 tombstoned 通话不展示加入入口",
+      "functionalArea": "active_call",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "f3fe0c3b7ac6a8f25e1da48df41452b0fa3689d1115a3ac9342a18cb1cada957",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: rtc_declined\ncall_state: declined",
+          "selectors": {
+            "visible": [
+              "rtc_declined_notice"
+            ],
+            "hidden": [
+              "active_call_card",
+              "join_call_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:active_call_card",
+            "hidden:join_call_button",
+            "visible:rtc_declined_notice"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_009_render_only_selected_hides_unselected_media",
+      "caseTitle": "RenderOnly 保护模式只渲染允许事件",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "8e78f2978dca480561c24c7a3d87ed0e9daf827829d0f5054334fde243760adb",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_only_selected\nallowed_event_ids: [evt_allowed]\ncurrent_event_id: evt_blocked\nvalidation: valid\nevent_content: image",
+          "selectors": {
+            "visible": [
+              "message_shield"
+            ],
+            "hidden": [
+              "raw_media_content"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:raw_media_content",
+            "visible:message_shield"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "allow_event(evt_blocked)",
+          "stateConstraintYaml": "allowed_event_ids: [evt_allowed, evt_blocked]",
+          "selectors": {
+            "visible": [
+              "raw_media_content"
+            ],
+            "hidden": [
+              "message_shield"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:allow_event(evt_blocked)",
+            "transition:1:hidden:message_shield",
+            "transition:1:visible:raw_media_content"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_010_accessibility_group_state",
+      "caseTitle": "分组展开/折叠状态在新增保护层下仍可读",
+      "functionalArea": "accessibility_navigation",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "9fb663ef2c208a512ff76301a0b293fabdc23b9b385b81d5589c652acf885834",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: valid\nevent_content: text\ngroup_header: collapsed",
+          "selectors": {
+            "visible": [
+              "group_expand_toggle",
+              "timeline_group_header"
+            ],
+            "hidden": [
+              "message_shield_on_group_header"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "accessibility_state": "collapsed"
+            }
+          },
+          "expectedFacts": [
+            "hidden:message_shield_on_group_header",
+            "property:accessibility_state=collapsed",
+            "visible:group_expand_toggle",
+            "visible:timeline_group_header"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "expand_group",
+          "stateConstraintYaml": "group_header: expanded",
+          "selectors": {
+            "visible": [
+              "group_collapse_toggle",
+              "timeline_group_header"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "accessibility_state": "expanded"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:expand_group",
+            "transition:1:property:accessibility_state=expanded",
+            "transition:1:visible:group_collapse_toggle",
+            "transition:1:visible:timeline_group_header"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_011_final_text_event_coexists_with_media_scanner",
+      "caseTitle": "final 语义中纯文本事件与媒体扫描保护层共存",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "9b82560cba983d78b4b03126b87ac5120a55f09292b255a8dee30a74649f49d5",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nprotection: render_all\nvalidation: loading\nevent_content: text_and_image\nviewer: closed",
+          "selectors": {
+            "visible": [
+              "content_scanning_placeholder",
+              "text_message_body"
+            ],
+            "hidden": [
+              "message_shield",
+              "unsafe_content_warning"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:message_shield",
+            "hidden:unsafe_content_warning",
+            "visible:content_scanning_placeholder",
+            "visible:text_message_body"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_012_own_media_bypasses_render_only_shield",
+      "caseTitle": "自己发送的媒体在 RenderOnly 下不被隐藏",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "a0f4ce1359883346030a2230820425ac9defe96586b76f14051a9d534f421326",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_only_selected\nallowed_event_ids: []\ncurrent_event_id: evt_mine\nis_mine: true\nvalidation: valid\nevent_content: image",
+          "selectors": {
+            "visible": [
+              "own_sender_marker",
+              "raw_media_content"
+            ],
+            "hidden": [
+              "content_scanning_placeholder",
+              "message_shield"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:content_scanning_placeholder",
+            "hidden:message_shield",
+            "visible:own_sender_marker",
+            "visible:raw_media_content"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_013_valid_state_not_downgraded_to_loading",
+      "caseTitle": "已验证通过的媒体不会被后续 loading 状态回退",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "76f3cafd8e90d9b3852fa7f76847186644bb86281a80d7d54f75faf40d210ad1",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: valid\nevent_content: image",
+          "selectors": {
+            "visible": [
+              "image_thumbnail",
+              "raw_media_content"
+            ],
+            "hidden": [
+              "content_scanning_placeholder",
+              "unsafe_content_warning"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:content_scanning_placeholder",
+            "hidden:unsafe_content_warning",
+            "visible:image_thumbnail",
+            "visible:raw_media_content"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "async_image_state_loading_after_valid",
+          "stateConstraintYaml": "validation: valid",
+          "selectors": {
+            "visible": [
+              "image_thumbnail",
+              "raw_media_content"
+            ],
+            "hidden": [
+              "content_scanning_placeholder",
+              "unsafe_content_warning"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:async_image_state_loading_after_valid",
+            "transition:1:hidden:content_scanning_placeholder",
+            "transition:1:hidden:unsafe_content_warning",
+            "transition:1:visible:image_thumbnail",
+            "transition:1:visible:raw_media_content"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_014_overall_invalid_takes_priority",
+      "caseTitle": "多媒体聚合状态中 invalid 优先阻断",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "c4956fac14a4ffa76aae821011e7c11dc66d99592f9cfd1f8a5e28b4ee5d03af",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: gallery\nvalidation_by_item:\n  item_0: valid\n  item_1: loading\n  item_2: invalid",
+          "selectors": {
+            "visible": [
+              "gallery_container",
+              "gallery_item_2_invalid_fallback",
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "raw_media_content_for_item_2"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:raw_media_content_for_item_2",
+            "visible:gallery_container",
+            "visible:gallery_item_2_invalid_fallback",
+            "visible:unsafe_content_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_015_loading_state_blocks_reply_thumbnail",
+      "caseTitle": "回复中的媒体扫描中时不展示缩略图",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "51eb5b079b19c3f5f35184e446de99bd36870a96ad6bdd2a1b92b0d0dd85d6a0",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: image\nvalidation: loading\nreply_preview: true",
+          "selectors": {
+            "visible": [
+              "reply_preview_scanning"
+            ],
+            "hidden": [
+              "reply_preview_invalid_content",
+              "reply_preview_thumbnail"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:reply_preview_invalid_content",
+            "hidden:reply_preview_thumbnail",
+            "visible:reply_preview_scanning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_016_invalid_reply_preview",
+      "caseTitle": "回复目标为风险媒体时展示 invalid 回复占位",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "53e26a55e9b4cf480087b8f28aeeb7de9ef414a1766d9671b474bae988dbd637",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: image\nvalidation: invalid\nreply_preview: true",
+          "selectors": {
+            "visible": [
+              "reply_preview_invalid_content"
+            ],
+            "hidden": [
+              "raw_media_content",
+              "reply_preview_thumbnail"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:raw_media_content",
+            "hidden:reply_preview_thumbnail",
+            "visible:reply_preview_invalid_content"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_017_voice_message_validation",
+      "caseTitle": "语音消息受扫描状态控制播放入口",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "e2326f3645a04de1d38df946dce413adf5af41d17967d95c2e7ce6c27fcaaed8",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: voice\nvalidation: loading",
+          "selectors": {
+            "visible": [
+              "content_scanning_placeholder",
+              "voice_message_row"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [
+              "voice_play_button"
+            ],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "disabled:voice_play_button",
+            "visible:content_scanning_placeholder",
+            "visible:voice_message_row"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "content_validation_update(valid)",
+          "stateConstraintYaml": "validation: valid",
+          "selectors": {
+            "visible": [
+              "voice_waveform"
+            ],
+            "hidden": [],
+            "enabled": [
+              "voice_play_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:content_validation_update(valid)",
+            "transition:1:enabled:voice_play_button",
+            "transition:1:visible:voice_waveform"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_018_sticker_validation",
+      "caseTitle": "贴纸消息风险态不显示原贴纸",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "a52de935b613db40e78f3469b1e1b80b723affd5d8791652a86c565c7a40bbf6",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: sticker\nvalidation: invalid",
+          "selectors": {
+            "visible": [
+              "blocked_media_placeholder",
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "sticker_alt_text",
+              "sticker_image"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:sticker_alt_text",
+            "hidden:sticker_image",
+            "visible:blocked_media_placeholder",
+            "visible:unsafe_content_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_019_banned_mime_type_maps_to_invalid",
+      "caseTitle": "banned mime type 映射为风险内容态",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "43807827e73a4527b2e9a8136df0a9f6cfe8c1664d6c9d32c0cb7e290f4cff44",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: file\nmime_policy: banned\nvalidation: unknown",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "scanner_banned_mime_type",
+          "stateConstraintYaml": "validation: invalid",
+          "selectors": {
+            "visible": [
+              "blocked_media_placeholder",
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "download_file_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:download_file_button",
+            "transition:1:scanner_banned_mime_type",
+            "transition:1:visible:blocked_media_placeholder",
+            "transition:1:visible:unsafe_content_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_020_scanner_service_unavailable",
+      "caseTitle": "扫描服务不可用时按安全策略降级",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "9f492a4b064e55c9ce2c73b903e9f0c0e78adbee61746b3a1f7dc41955a1360e",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: image\nvalidation: unknown\nscanner_service: unavailable",
+          "selectors": {
+            "visible": [
+              "content_validation_unavailable_fallback",
+              "timeline_row_shell"
+            ],
+            "hidden": [
+              "media_viewer",
+              "raw_media_content"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:media_viewer",
+            "hidden:raw_media_content",
+            "visible:content_validation_unavailable_fallback",
+            "visible:timeline_row_shell"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_021_media_viewer_non_event_media_valid",
+      "caseTitle": "非 timeline event 媒体在 viewer 中不继承错误的 event invalid 状态",
+      "functionalArea": "media_viewer",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "be342e997a71d845be3a1b6514af6e7f7b735c5a505ccfdc54458f29d2732450",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "event_content: image\nmedia_origin: non_event\nvalidation: valid\nviewer: opened",
+          "selectors": {
+            "visible": [
+              "media_viewer_image"
+            ],
+            "hidden": [
+              "event_content_validation_error",
+              "media_viewer_invalid_state"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:event_content_validation_error",
+            "hidden:media_viewer_invalid_state",
+            "visible:media_viewer_image"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_022_active_call_joined_no_duplicate_action",
+      "caseTitle": "已加入活跃通话时不展示重复加入行为",
+      "functionalArea": "active_call",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "6d47f5b4153e821fd20b69541be8248495b1c0ca9814f55a9e25e4a6b25f10f1",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "event_content: active_call\ncall_state: active_joined",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "in_call_indicator"
+            ],
+            "hidden": [
+              "join_call_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:join_call_button",
+            "visible:active_call_card",
+            "visible:in_call_indicator"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_023_active_call_missing_participants",
+      "caseTitle": "活跃通话缺少参与者数据时展示安全默认态",
+      "functionalArea": "active_call",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "73209fb310e95f77fc27a50d9a4cace109abb6f0f8d0c2dfa918e8fe45c33fba",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "event_content: active_call\ncall_state: active_joinable\njoined_members: []",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "active_call_title",
+              "join_call_button"
+            ],
+            "hidden": [
+              "participant_avatar_error"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:participant_avatar_error",
+            "visible:active_call_card",
+            "visible:active_call_title",
+            "visible:join_call_button"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_024_active_call_participant_update",
+      "caseTitle": "通话参与者更新后卡片人数同步变化",
+      "functionalArea": "active_call",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "b1a70353c00b4bde7dd99211e1f34914ea928ce47c9537fabd6042de292f3e6b",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "event_content: active_call\ncall_state: active_joinable\nparticipant_count: 1",
+          "selectors": {
+            "visible": [
+              "active_call_card"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "active_call_participant_count": "1"
+            }
+          },
+          "expectedFacts": [
+            "property:active_call_participant_count=1",
+            "visible:active_call_card"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "active_call_members_updated(count=3)",
+          "stateConstraintYaml": "participant_count: 3",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "active_call_participant_count_label"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "active_call_participant_count": "3"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:active_call_members_updated(count=3)",
+            "transition:1:property:active_call_participant_count=3",
+            "transition:1:visible:active_call_card",
+            "transition:1:visible:active_call_participant_count_label"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_025_navigation_ignores_invalid_media",
+      "caseTitle": "跳转未读不被风险媒体保护层阻断",
+      "functionalArea": "accessibility_navigation",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "0dc6933583bf330d55eee5cc3261b221468c013af1c157d163ef7cf5b562e231",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: image\nvalidation: invalid\nunread_marker_target: evt_after_invalid_media",
+          "selectors": {
+            "visible": [
+              "jump_to_unread_button",
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "raw_media_content"
+            ],
+            "enabled": [
+              "jump_to_unread_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:jump_to_unread_button",
+            "hidden:raw_media_content",
+            "visible:jump_to_unread_button",
+            "visible:unsafe_content_warning"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "jump_to_unread",
+          "stateConstraintYaml": "focused_event_id: evt_after_invalid_media",
+          "selectors": {
+            "visible": [
+              "timeline_scroll_position_stable",
+              "unread_marker_target_row"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:jump_to_unread",
+            "transition:1:visible:timeline_scroll_position_stable",
+            "transition:1:visible:unread_marker_target_row"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_026_action_menu_for_blocked_media",
+      "caseTitle": "被阻断媒体仍可打开详情但不暴露下载/播放",
+      "functionalArea": "action_menu",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "ce6444861f72012517dda48ea5a78ac7164724f4de46c0ae4f466ef1e1ec7057",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nevent_content: video\nvalidation: invalid",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "long_press_blocked_media",
+          "stateConstraintYaml": "action_sheet: visible",
+          "selectors": {
+            "visible": [
+              "action_report",
+              "action_view_details"
+            ],
+            "hidden": [
+              "action_download_media",
+              "action_play_media"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:action_download_media",
+            "transition:1:hidden:action_play_media",
+            "transition:1:long_press_blocked_media",
+            "transition:1:visible:action_report",
+            "transition:1:visible:action_view_details"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_027_final_active_call_actionable_card",
+      "caseTitle": "final 语义中 active call fixture 必须展示可加入通话卡片",
+      "functionalArea": "active_call",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "8b5330c9241cd3933d05063b290eb146aafa378b6bd165af5dab62abe70cb49b",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nprotection: render_all\nvalidation: valid\nevent_content: active_call\ncall_state: active_joinable",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "active_call_participant_count",
+              "join_call_button"
+            ],
+            "hidden": [
+              "blocked_media_notice",
+              "unsupported_event_placeholder"
+            ],
+            "enabled": [
+              "join_call_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:join_call_button",
+            "hidden:blocked_media_notice",
+            "hidden:unsupported_event_placeholder",
+            "visible:active_call_card",
+            "visible:active_call_participant_count",
+            "visible:join_call_button"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "join_call",
+          "stateConstraintYaml": "call_state: joining",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "joining_call_indicator"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [
+              "join_call_button"
+            ],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:disabled:join_call_button",
+            "transition:1:join_call",
+            "transition:1:visible:active_call_card",
+            "transition:1:visible:joining_call_indicator"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_028_final_positive_scanner_and_call",
+      "caseTitle": "final 语义同时支持扫描保护和活跃通话渲染",
+      "functionalArea": "active_call",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "361db5489b2e5b14b97772a0ceac3436485ea93c3adc2c58614db15a6b5ea7e8",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nprotection: render_all\nvalidation: valid\nevent_content: active_call\ncall_state: active_joinable",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "join_call_button"
+            ],
+            "hidden": [
+              "unsupported_event_placeholder"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:unsupported_event_placeholder",
+            "visible:active_call_card",
+            "visible:join_call_button"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_029_validation_cache_survives_scroll_rebind",
+      "caseTitle": "已验证媒体滚动重绑后不回退到扫描中",
+      "functionalArea": "validation_cache",
+      "fixtureKind": "timeline_rebind",
+      "traceDigest": "a1bb381c7dc0c43d0a5850184fbcaa953cb6098e56223adeedf6ec0287d7a6c1",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: valid\nevent_content: image\nviewer: closed\nevent_id: evt_media_cached",
+          "selectors": {
+            "visible": [
+              "image_thumbnail"
+            ],
+            "hidden": [
+              "content_scanning_placeholder",
+              "unsafe_content_warning"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:content_scanning_placeholder",
+            "hidden:unsafe_content_warning",
+            "visible:image_thumbnail"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "timeline_row_rebound(event_id=evt_media_cached)",
+          "stateConstraintYaml": "validation: valid",
+          "selectors": {
+            "visible": [
+              "image_thumbnail"
+            ],
+            "hidden": [
+              "content_scanning_placeholder",
+              "unsafe_content_warning"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:content_scanning_placeholder",
+            "transition:1:hidden:unsafe_content_warning",
+            "transition:1:timeline_row_rebound(event_id=evt_media_cached)",
+            "transition:1:visible:image_thumbnail"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_030_mixed_timeline_scanner_does_not_block_text",
+      "caseTitle": "同屏风险媒体不会阻断普通文本事件",
+      "functionalArea": "timeline_scanner",
+      "fixtureKind": "mixed_timeline_fixture",
+      "traceDigest": "a6a4ddf75e0553d19c9799f7dae142719580bc6769f38bfff0e043dfb255e59d",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: invalid\nevent_content: mixed_text_and_image\nviewer: closed",
+          "selectors": {
+            "visible": [
+              "blocked_media_placeholder",
+              "text_event_body",
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "raw_media_content"
+            ],
+            "enabled": [
+              "text_event_action_menu"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:text_event_action_menu",
+            "hidden:raw_media_content",
+            "visible:blocked_media_placeholder",
+            "visible:text_event_body",
+            "visible:unsafe_content_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_031_active_call_end_update_removes_join_action",
+      "caseTitle": "活跃通话结束事件到达后卡片移除加入入口",
+      "functionalArea": "active_call",
+      "fixtureKind": "call_state_sdk_callback",
+      "traceDigest": "05cdc1b589478555d5e6500ef0f99491cb5b5d8ae90b9c1530c6527a7586a50c",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: valid\nevent_content: active_call\ncall_state: active_joinable\nviewer: closed",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "active_call_join_button"
+            ],
+            "hidden": [],
+            "enabled": [
+              "active_call_join_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:active_call_join_button",
+            "visible:active_call_card",
+            "visible:active_call_join_button"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "active_call_state_update(ended)",
+          "stateConstraintYaml": "call_state: started_tombstoned",
+          "selectors": {
+            "visible": [
+              "active_call_card",
+              "active_call_ended_label"
+            ],
+            "hidden": [
+              "active_call_join_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:active_call_state_update(ended)",
+            "transition:1:hidden:active_call_join_button",
+            "transition:1:visible:active_call_card",
+            "transition:1:visible:active_call_ended_label"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "tp_state_032_blocked_media_details_action_without_download",
+      "caseTitle": "被阻断媒体可查看详情但不能下载或播放",
+      "functionalArea": "action_menu",
+      "fixtureKind": "protected_action_sheet",
+      "traceDigest": "83e851ae654635f0b943b11fb764eebbeb2f9ca1e0a87edf41c8f8deebc5eca3",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "protection: render_all\nvalidation: invalid\nevent_content: video\nviewer: blocked",
+          "selectors": {
+            "visible": [
+              "blocked_media_placeholder",
+              "unsafe_content_warning"
+            ],
+            "hidden": [
+              "video_play_affordance"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:video_play_affordance",
+            "visible:blocked_media_placeholder",
+            "visible:unsafe_content_warning"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "long_press_blocked_media",
+          "stateConstraintYaml": "action_sheet: opened",
+          "selectors": {
+            "visible": [
+              "message_details_action",
+              "report_content_action"
+            ],
+            "hidden": [
+              "download_media_action",
+              "play_media_action",
+              "share_media_action"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:download_media_action",
+            "transition:1:hidden:play_media_action",
+            "transition:1:hidden:share_media_action",
+            "transition:1:long_press_blocked_media",
+            "transition:1:visible:message_details_action",
+            "transition:1:visible:report_content_action"
+          ]
+        }
+      ]
+    }
+  ]
+}

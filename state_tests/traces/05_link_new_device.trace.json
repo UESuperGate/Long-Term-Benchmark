@@ -1,0 +1,1877 @@
+{
+  "version": 1,
+  "platformNeutral": true,
+  "evaluatorOwned": true,
+  "task": {
+    "id": "05_link_new_device",
+    "title": "新设备登录与二维码超时保护",
+    "base": "v26.05.0",
+    "final": "v26.08.2"
+  },
+  "cases": [
+    {
+      "caseId": "lnd_state_001_support_loading",
+      "caseTitle": "入口检查支持能力时展示加载状态",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "250d36c6cd9d3596bf2659b984901cb16d38dd233a95defc48887c0cad36894d",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: unknown\nowner_verification: not_requested\nflow_mode: none\nqr_data: none\ntimeout: not_started",
+          "selectors": {
+            "visible": [
+              "link_new_device_entry_loading"
+            ],
+            "hidden": [
+              "owner_verification_gate",
+              "qr_code_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:owner_verification_gate",
+            "hidden:qr_code_view",
+            "hidden:timeout_notice",
+            "visible:link_new_device_entry_loading"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "can_link_new_device_success(true)",
+          "stateConstraintYaml": "support: supported\nowner_verification: required",
+          "selectors": {
+            "visible": [
+              "owner_verification_gate"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:can_link_new_device_success(true)",
+            "transition:1:visible:owner_verification_gate"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_002_unsupported",
+      "caseTitle": "homeserver 或 SDK 不支持时隐藏或禁用连接入口",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "289efa397d787c57ed3fe7df47f4097b4763f659a6159802b06ea43f04d0c769",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: unsupported\nowner_verification: not_requested\nflow_mode: none",
+          "selectors": {
+            "visible": [
+              "link_new_device_unsupported_message"
+            ],
+            "hidden": [
+              "owner_verification_gate",
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [
+              "link_new_device_entry"
+            ],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "disabled:link_new_device_entry",
+            "hidden:owner_verification_gate",
+            "hidden:qr_code_view",
+            "visible:link_new_device_unsupported_message"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_003_owner_verification_required",
+      "caseTitle": "未完成设备所有者验证前不得展示二维码",
+      "functionalArea": "owner_gate",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "e66dd9fb3f48a31db47937d13025b243827f769c08beae296030a8cc75e43cff",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: required\nflow_mode: none\nqr_data: none",
+          "selectors": {
+            "visible": [
+              "owner_verification_gate"
+            ],
+            "hidden": [
+              "desktop_notice_view",
+              "qr_code_view",
+              "scan_qr_code_view"
+            ],
+            "enabled": [
+              "start_owner_verification"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:start_owner_verification",
+            "hidden:desktop_notice_view",
+            "hidden:qr_code_view",
+            "hidden:scan_qr_code_view",
+            "visible:owner_verification_gate"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "start_owner_verification",
+          "stateConstraintYaml": "owner_verification: loading",
+          "selectors": {
+            "visible": [
+              "owner_verification_loading"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:start_owner_verification",
+            "transition:1:visible:owner_verification_loading"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "owner_verification_success",
+          "stateConstraintYaml": "owner_verification: passed\nflow_mode: mobile_scan\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view",
+              "scan_warning"
+            ],
+            "hidden": [
+              "owner_verification_gate"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:owner_verification_gate",
+            "transition:2:owner_verification_success",
+            "transition:2:visible:scan_qr_code_view",
+            "transition:2:visible:scan_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_004_owner_verification_failure_retry",
+      "caseTitle": "生物识别第二次及后续失败仍允许重试或取消",
+      "functionalArea": "owner_gate",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "a4c7072b567aae029c2942280f7077630e19b1c1a9654c253d28d3788379ab88",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: loading\nflow_mode: none\nbiometric_attempt: 2",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "owner_verification_failure",
+          "stateConstraintYaml": "owner_verification: failed",
+          "selectors": {
+            "visible": [
+              "cancel_owner_verification",
+              "owner_verification_error",
+              "retry_owner_verification"
+            ],
+            "hidden": [
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:qr_code_view",
+            "transition:1:owner_verification_failure",
+            "transition:1:visible:cancel_owner_verification",
+            "transition:1:visible:owner_verification_error",
+            "transition:1:visible:retry_owner_verification"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "retry_owner_verification",
+          "stateConstraintYaml": "owner_verification: loading",
+          "selectors": {
+            "visible": [
+              "owner_verification_loading"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:retry_owner_verification",
+            "transition:2:visible:owner_verification_loading"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_005_mobile_scan_success",
+      "caseTitle": "扫码成功后进入 SDK split step 后续流程",
+      "functionalArea": "mobile_scan",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "2470145128028dc3255dd14fae249a86525526a3fc1ce8563eb380c32101c78f",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: mobile_scan\nscan_action: idle\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view",
+              "scan_warning"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:scan_qr_code_view",
+            "visible:scan_warning"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "qr_code_scanned(valid_payload)",
+          "stateConstraintYaml": "scan_action: loading",
+          "selectors": {
+            "visible": [
+              "scan_qr_loading"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:qr_code_scanned(valid_payload)",
+            "transition:1:visible:scan_qr_loading"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_step_show_digits",
+          "stateConstraintYaml": "scan_action: success\nflow_mode: digits",
+          "selectors": {
+            "visible": [
+              "digits_verification_view"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:sdk_step_show_digits",
+            "transition:2:visible:digits_verification_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_006_mobile_scan_invalid_retry",
+      "caseTitle": "无效二维码展示错误并支持 TryAgain",
+      "functionalArea": "mobile_scan",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "9eb941c182de059887c40f1ec3b43d5a84e84cd85e162887bb9432039c577bca",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: mobile_scan\nscan_action: loading",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_invalid_qr_code",
+          "stateConstraintYaml": "scan_action: failure\nflow_mode: mobile_scan",
+          "selectors": {
+            "visible": [
+              "scan_qr_error",
+              "try_again_button"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:sdk_invalid_qr_code",
+            "transition:1:visible:scan_qr_error",
+            "transition:1:visible:try_again_button"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "try_again",
+          "stateConstraintYaml": "scan_action: idle",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view"
+            ],
+            "hidden": [
+              "scan_qr_error"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:scan_qr_error",
+            "transition:2:try_again",
+            "transition:2:visible:scan_qr_code_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_007_desktop_notice_uses_same_timeout",
+      "caseTitle": "桌面 notice 与扫码页共享 flow-level timeout",
+      "functionalArea": "desktop_qr",
+      "fixtureKind": "timer_fixture",
+      "traceDigest": "4c789d56ee299d62b222854a3feb0a7b8ace252894f7a0aa12276182e440c3f0",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: desktop_notice\ntimeout: running\nnow_ms: 119000\nexpires_at_ms: 120000",
+          "selectors": {
+            "visible": [
+              "desktop_notice_view"
+            ],
+            "hidden": [
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:timeout_notice",
+            "visible:desktop_notice_view"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "timer_tick(now_ms=120001)",
+          "stateConstraintYaml": "timeout: expired\nflow_mode: error\nqr_data: expired",
+          "selectors": {
+            "visible": [
+              "retry_link_new_device",
+              "timeout_notice"
+            ],
+            "hidden": [
+              "desktop_notice_view",
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:desktop_notice_view",
+            "transition:1:hidden:qr_code_view",
+            "transition:1:timer_tick(now_ms=120001)",
+            "transition:1:visible:retry_link_new_device",
+            "transition:1:visible:timeout_notice"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_008_show_qr_timeout_no_unbounded_rotation",
+      "caseTitle": "展示二维码超时后进入 timeout 而不是无限轮换",
+      "functionalArea": "desktop_qr",
+      "fixtureKind": "timer_fixture",
+      "traceDigest": "945a210238f27f37bc6e251062a2b1d61ac0a7c5197362a6e5f7f727e5a6d113",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: show_qr\nqr_data: available\ntimeout: running\nqr_generation_count: 1",
+          "selectors": {
+            "visible": [
+              "qr_code_view"
+            ],
+            "hidden": [
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:timeout_notice",
+            "visible:qr_code_view"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "qr_expired_or_timer_elapsed",
+          "stateConstraintYaml": "timeout: expired\nqr_data: expired\nflow_mode: error",
+          "selectors": {
+            "visible": [
+              "retry_link_new_device",
+              "timeout_notice"
+            ],
+            "hidden": [
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "qr_generation_count_max": "1"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:hidden:qr_code_view",
+            "transition:1:property:qr_generation_count_max=1",
+            "transition:1:qr_expired_or_timer_elapsed",
+            "transition:1:visible:retry_link_new_device",
+            "transition:1:visible:timeout_notice"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_009_retry_creates_new_attempt",
+      "caseTitle": "timeout 后重试会创建新的连接尝试并清理旧状态",
+      "functionalArea": "timeout_retry",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "1661de7820cbf7168e74fbea3b5aaa4f12881d4cd15321eb32a24a502988e6c9",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: error\nqr_data: expired\ntimeout: expired",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "retry_link_new_device",
+          "stateConstraintYaml": "flow_mode: mobile_scan\nqr_data: none\nscan_action: idle\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view"
+            ],
+            "hidden": [
+              "stale_qr_code",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:stale_qr_code",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:retry_link_new_device",
+            "transition:1:visible:scan_qr_code_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_010_complete_and_cleanup",
+      "caseTitle": "完成连接后进入成功页并清理临时状态",
+      "functionalArea": "cleanup",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "cd1d1107e9609031d4fbfaddb44db11dd1ae22dbdbeafe6d75f44eb1cb1523ed",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: digits\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_step_done",
+          "stateConstraintYaml": "flow_mode: complete\ntimeout: not_started\nqr_data: none",
+          "selectors": {
+            "visible": [
+              "link_new_device_success"
+            ],
+            "hidden": [
+              "owner_verification_gate",
+              "qr_code_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:owner_verification_gate",
+            "transition:1:hidden:qr_code_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:sdk_step_done",
+            "transition:1:visible:link_new_device_success"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_011_support_failure_error_recoverable",
+      "caseTitle": "能力检查失败展示可恢复错误并允许关闭",
+      "functionalArea": "capability",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "6594a5e2c3a214131aae8b2ff1a68161eec4336810e6cbce01e4fc836f42db07",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: failure\nowner_verification: not_requested\nflow_mode: none",
+          "selectors": {
+            "visible": [
+              "close_error_button",
+              "link_new_device_support_error"
+            ],
+            "hidden": [
+              "owner_verification_gate",
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:owner_verification_gate",
+            "hidden:qr_code_view",
+            "visible:close_error_button",
+            "visible:link_new_device_support_error"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "close_error",
+          "stateConstraintYaml": "flow_mode: none",
+          "selectors": {
+            "visible": [],
+            "hidden": [
+              "link_new_device_support_error"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:close_error",
+            "transition:1:hidden:link_new_device_support_error"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_012_owner_cancel_cleans_flow",
+      "caseTitle": "用户取消设备所有者验证后清理连接流程",
+      "functionalArea": "owner_gate",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "7e9455c81f15d02b59a0eed73b4abf469b9a13a4c341f51e374808dc0951c9c1",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: loading\nflow_mode: none\ntimeout: not_started",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "owner_verification_cancel",
+          "stateConstraintYaml": "owner_verification: cancelled\nflow_mode: none\ntimeout: not_started",
+          "selectors": {
+            "visible": [
+              "security_settings_view"
+            ],
+            "hidden": [
+              "owner_verification_gate",
+              "qr_code_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:owner_verification_gate",
+            "transition:1:hidden:qr_code_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:owner_verification_cancel",
+            "transition:1:visible:security_settings_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_013_mobile_scan_warning_persists",
+      "caseTitle": "扫码页在 idle/loading/failure 中都保留安全警告",
+      "functionalArea": "mobile_scan",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "a7edd8c9c7228382eda4956fc24fe5711033af822ca86e685542e28b77d0d575",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: mobile_scan\nscan_action: idle",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view",
+              "scan_warning"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:scan_qr_code_view",
+            "visible:scan_warning"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "qr_code_scanned(valid_payload)",
+          "stateConstraintYaml": "scan_action: loading",
+          "selectors": {
+            "visible": [
+              "scan_qr_loading",
+              "scan_warning"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:qr_code_scanned(valid_payload)",
+            "transition:1:visible:scan_qr_loading",
+            "transition:1:visible:scan_warning"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_invalid_qr_code",
+          "stateConstraintYaml": "scan_action: failure",
+          "selectors": {
+            "visible": [
+              "scan_qr_error",
+              "scan_warning"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:sdk_invalid_qr_code",
+            "transition:2:visible:scan_qr_error",
+            "transition:2:visible:scan_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_014_desktop_qr_loading_success",
+      "caseTitle": "桌面连接二维码从 loading 到 available",
+      "functionalArea": "desktop_qr",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "2a2ae5276e83ff4c5c00671d5d94480edfd8fff155b80d5652ae2d5e3421173b",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: show_qr\nqr_data: loading\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "qr_code_loading"
+            ],
+            "hidden": [
+              "qr_code_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:qr_code_view",
+            "hidden:timeout_notice",
+            "visible:qr_code_loading"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_qr_code_ready",
+          "stateConstraintYaml": "qr_data: available",
+          "selectors": {
+            "visible": [
+              "qr_code_view"
+            ],
+            "hidden": [
+              "qr_code_loading"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:qr_code_loading",
+            "transition:1:sdk_qr_code_ready",
+            "transition:1:visible:qr_code_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_015_qr_data_failure",
+      "caseTitle": "生成二维码失败进入错误态并允许重试",
+      "functionalArea": "desktop_qr",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "a825ad56856de9b5bd45ff5d6057db5c23b5f1fe4f00c4766857222c8fc974a6",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: show_qr\nqr_data: loading\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_qr_code_failure",
+          "stateConstraintYaml": "qr_data: failure\nflow_mode: error",
+          "selectors": {
+            "visible": [
+              "link_new_device_error",
+              "retry_link_new_device"
+            ],
+            "hidden": [
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:qr_code_view",
+            "transition:1:sdk_qr_code_failure",
+            "transition:1:visible:link_new_device_error",
+            "transition:1:visible:retry_link_new_device"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_016_timer_before_deadline_no_timeout",
+      "caseTitle": "超时前的 timer tick 不改变可用界面",
+      "functionalArea": "timeout_retry",
+      "fixtureKind": "timer_fixture",
+      "traceDigest": "5ab53448764ec362506207f39130d5e5e2459d17b139edea78500c8494f74a9b",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: mobile_scan\ntimeout: running\nnow_ms: 119000\nexpires_at_ms: 120000",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "timer_tick(now_ms=119500)",
+          "stateConstraintYaml": "timeout: running\nflow_mode: mobile_scan",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view",
+              "scan_security_warning"
+            ],
+            "hidden": [
+              "qr_timeout_error",
+              "timeout_notice"
+            ],
+            "enabled": [
+              "scan_qr_code_view"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:enabled:scan_qr_code_view",
+            "transition:1:hidden:qr_timeout_error",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:timer_tick(now_ms=119500)",
+            "transition:1:visible:scan_qr_code_view",
+            "transition:1:visible:scan_security_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_017_stale_timer_ignored_after_retry",
+      "caseTitle": "重试后旧连接尝试的 timer tick 被忽略",
+      "functionalArea": "stale_event_protection",
+      "fixtureKind": "timer_fixture",
+      "traceDigest": "d5e64dfb4c496b9aba1d6a88f31ed91ffdb0ffae552847f4951bc3ca7a41a81f",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: mobile_scan\ntimeout: running\nattempt_id: new_attempt",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "timer_tick(attempt_id=old_attempt, now_ms=999999)",
+          "stateConstraintYaml": "timeout: running\nattempt_id: new_attempt",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view"
+            ],
+            "hidden": [
+              "stale_qr_code",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:stale_qr_code",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:timer_tick(attempt_id=old_attempt, now_ms=999999)",
+            "transition:1:visible:scan_qr_code_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_018_sdk_already_signed_in_error",
+      "caseTitle": "already signed in 错误映射为明确错误态",
+      "functionalArea": "sdk_error_mapping",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "97ea07052cea376d37d5c21cf5c84967208651801347e1829cb834edded87c82",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: mobile_scan\nscan_action: loading",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_error_already_signed_in",
+          "stateConstraintYaml": "flow_mode: error\nscan_action: failure",
+          "selectors": {
+            "visible": [
+              "already_signed_in_error",
+              "retry_link_new_device"
+            ],
+            "hidden": [
+              "digits_verification_view",
+              "link_new_device_success"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:digits_verification_view",
+            "transition:1:hidden:link_new_device_success",
+            "transition:1:sdk_error_already_signed_in",
+            "transition:1:visible:already_signed_in_error",
+            "transition:1:visible:retry_link_new_device"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_019_sdk_other_device_signed_out_error",
+      "caseTitle": "另一个设备已退出错误映射为错误态并清理等待状态",
+      "functionalArea": "sdk_error_mapping",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "285dbdb91ddde48cbafa1ed82d5428ad07aafcb1d5f77a097bd0a88456f496ec",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: digits\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_error_other_device_signed_out",
+          "stateConstraintYaml": "flow_mode: error\ntimeout: not_started",
+          "selectors": {
+            "visible": [
+              "other_device_signed_out_error",
+              "retry_link_new_device"
+            ],
+            "hidden": [
+              "digits_verification_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:digits_verification_view",
+            "transition:1:sdk_error_other_device_signed_out",
+            "transition:1:visible:other_device_signed_out_error",
+            "transition:1:visible:retry_link_new_device"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_020_sdk_continuation_failure",
+      "caseTitle": "continuation 失败展示错误且不进入成功页",
+      "functionalArea": "sdk_error_mapping",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "3974c4171235a31fd4058f1d617708427240f1ba1424be06da2cc27f6ba0e466",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: digits\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_continuation_failure",
+          "stateConstraintYaml": "flow_mode: error",
+          "selectors": {
+            "visible": [
+              "continuation_failure_error",
+              "retry_link_new_device"
+            ],
+            "hidden": [
+              "link_new_device_success"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:link_new_device_success",
+            "transition:1:sdk_continuation_failure",
+            "transition:1:visible:continuation_failure_error",
+            "transition:1:visible:retry_link_new_device"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_021_sdk_cancellation_failure",
+      "caseTitle": "取消连接失败不残留 QR 或等待界面",
+      "functionalArea": "sdk_error_mapping",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "25dedf4d36f3bf34a26f8fb35937f3966714beed86c07a474174095f2d07a1f4",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: show_qr\nqr_data: available\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "cancel_flow_then_sdk_cancellation_failure",
+          "stateConstraintYaml": "flow_mode: error\nqr_data: none\ntimeout: not_started",
+          "selectors": {
+            "visible": [
+              "cancellation_failure_error"
+            ],
+            "hidden": [
+              "qr_code_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:cancel_flow_then_sdk_cancellation_failure",
+            "transition:1:hidden:qr_code_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:visible:cancellation_failure_error"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_022_digits_waiting_confirmation",
+      "caseTitle": "digits 展示后等待确认状态保持可取消",
+      "functionalArea": "digits",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "120d0518b4321ecc093b7274530bf45e0a01f5698245aaf7cff3fc5a7d675027",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: digits\ntimeout: running\nconfirmation_state: waiting",
+          "selectors": {
+            "visible": [
+              "digits_verification_view",
+              "waiting_for_other_device"
+            ],
+            "hidden": [
+              "link_new_device_success"
+            ],
+            "enabled": [
+              "cancel_link_new_device"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:cancel_link_new_device",
+            "hidden:link_new_device_success",
+            "visible:digits_verification_view",
+            "visible:waiting_for_other_device"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_023_digits_mismatch_error",
+      "caseTitle": "验证码不匹配时展示错误并允许重试",
+      "functionalArea": "digits",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "3d8a24b07467aed6f45f84e7bd7adbdf62b78084b28721da7cee4cd7bc4c101e",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: digits\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_digits_mismatch",
+          "stateConstraintYaml": "flow_mode: error",
+          "selectors": {
+            "visible": [
+              "digits_mismatch_error",
+              "retry_link_new_device"
+            ],
+            "hidden": [
+              "link_new_device_success"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:link_new_device_success",
+            "transition:1:sdk_digits_mismatch",
+            "transition:1:visible:digits_mismatch_error",
+            "transition:1:visible:retry_link_new_device"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_024_desktop_notice_cancel",
+      "caseTitle": "桌面 notice 取消后清理 timeout 和临时数据",
+      "functionalArea": "desktop_qr",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "692de3742672b7b599d4139ad2cc3d835e71e6d9f704aa53e70038bb607bae21",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: desktop_notice\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "cancel_link_new_device",
+          "stateConstraintYaml": "flow_mode: none\ntimeout: not_started\nqr_data: none",
+          "selectors": {
+            "visible": [
+              "security_settings_view"
+            ],
+            "hidden": [
+              "desktop_notice_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:cancel_link_new_device",
+            "transition:1:hidden:desktop_notice_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:visible:security_settings_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_025_complete_from_scan_without_digits",
+      "caseTitle": "SDK 直接完成时进入成功页",
+      "functionalArea": "mobile_scan",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "1db441f2f1b55e26e8f6e17625b30a952691902817283c6e93fe6adeb39feef3",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: mobile_scan\nscan_action: loading\ntimeout: running",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_step_done",
+          "stateConstraintYaml": "flow_mode: complete\nscan_action: success\ntimeout: not_started",
+          "selectors": {
+            "visible": [
+              "link_new_device_success"
+            ],
+            "hidden": [
+              "scan_qr_code_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:scan_qr_code_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:sdk_step_done",
+            "transition:1:visible:link_new_device_success"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_026_back_from_success_to_sessions",
+      "caseTitle": "成功页返回会刷新会话列表并隐藏临时连接 UI",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "aac8e58d4ebac833560105c7d0e7c168f52aab1b13f841bcb63c69a0fec31d94",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: complete\ntimeout: not_started",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "done",
+          "stateConstraintYaml": "flow_mode: none\nsessions_refresh_requested: true",
+          "selectors": {
+            "visible": [
+              "security_settings_view",
+              "session_list"
+            ],
+            "hidden": [
+              "link_new_device_success",
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:done",
+            "transition:1:hidden:link_new_device_success",
+            "transition:1:hidden:qr_code_view",
+            "transition:1:visible:security_settings_view",
+            "transition:1:visible:session_list"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_027_final_qr_timeout_notice_and_retry",
+      "caseTitle": "final 语义中 QR 登录必须展示 timeout notice 并允许重试",
+      "functionalArea": "desktop_qr",
+      "fixtureKind": "timer_fixture",
+      "traceDigest": "2e248d92563e6b1bcef3967345cfaf5589f76f8f6e808b90c570cd464ec2eea7",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nsupport: supported\nowner_verification: passed\nflow_mode: show_qr\nqr_data: expired\ntimeout: expired",
+          "selectors": {
+            "visible": [
+              "retry_link_new_device",
+              "timeout_notice"
+            ],
+            "hidden": [
+              "owner_verification_gate",
+              "qr_code_view",
+              "qr_login_placeholder_or_static_qr"
+            ],
+            "enabled": [
+              "retry_link_new_device"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:retry_link_new_device",
+            "hidden:owner_verification_gate",
+            "hidden:qr_code_view",
+            "hidden:qr_login_placeholder_or_static_qr",
+            "visible:retry_link_new_device",
+            "visible:timeout_notice"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "retry_link_new_device",
+          "stateConstraintYaml": "flow_mode: mobile_scan\nqr_data: loading\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "qr_code_loading"
+            ],
+            "hidden": [
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:timeout_notice",
+            "transition:1:retry_link_new_device",
+            "transition:1:visible:qr_code_loading"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_028_final_positive_owner_gate_timeout",
+      "caseTitle": "final 语义必须同时具备 owner gate 和 timeout",
+      "functionalArea": "owner_gate",
+      "fixtureKind": "timer_fixture",
+      "traceDigest": "0a965071131ca228c8715508bb8c8ad06db157f3ba06e42d5e6214e77f2615e7",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nsupport: supported\nowner_verification: required\nflow_mode: none\ntimeout: not_started",
+          "selectors": {
+            "visible": [
+              "owner_verification_gate"
+            ],
+            "hidden": [
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:qr_code_view",
+            "visible:owner_verification_gate"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "owner_verification_success",
+          "stateConstraintYaml": "owner_verification: passed\nflow_mode: mobile_scan\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:owner_verification_success",
+            "transition:1:visible:scan_qr_code_view"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_029_final_supported_capability_creates_qr_after_owner_gate",
+      "caseTitle": "final 语义中支持能力确认后通过 owner gate 才创建二维码",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "7c611f51e6621d9d685f3a47f8bdb27ee321cb08a969a48a84c6ccd76882b433",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nsupport: supported\nowner_verification: required\nflow_mode: none\nqr_data: none",
+          "selectors": {
+            "visible": [
+              "owner_verification_gate"
+            ],
+            "hidden": [
+              "qr_code_loading",
+              "qr_code_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:qr_code_loading",
+            "hidden:qr_code_view",
+            "visible:owner_verification_gate"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "owner_verification_success",
+          "stateConstraintYaml": "owner_verification: passed\nflow_mode: show_qr\nqr_data: loading\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "qr_code_loading"
+            ],
+            "hidden": [
+              "qr_login_placeholder_or_static_qr"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:qr_login_placeholder_or_static_qr",
+            "transition:1:owner_verification_success",
+            "transition:1:visible:qr_code_loading"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_030_retry_after_error_requires_owner_policy",
+      "caseTitle": "错误后重试遵循设备所有者验证策略",
+      "functionalArea": "owner_gate",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "b5b583244370a44fff6d6f6e86c86b9f9f800ffd15e84d7e7304b614f319130b",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: error\nqr_data: failure\ntimeout: not_started\nowner_verification_reuse_allowed: false",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "retry_link_new_device",
+          "stateConstraintYaml": "owner_verification: required\nflow_mode: none\nqr_data: none",
+          "selectors": {
+            "visible": [
+              "owner_verification_gate"
+            ],
+            "hidden": [
+              "qr_code_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:qr_code_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:retry_link_new_device",
+            "transition:1:visible:owner_verification_gate"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_031_biometric_lockout_falls_back_to_device_pin",
+      "caseTitle": "生物识别锁定后可切换系统凭据或应用 PIN 继续验证",
+      "functionalArea": "owner_gate",
+      "fixtureKind": "owner_verification_error_recovery",
+      "traceDigest": "046f25e4bf2995d873637ba118e34b7459dc50b5abb205259d430bf65fbbe046",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: failed\nflow_mode: none\nauth_error: biometric_lockout\nqr_data: none",
+          "selectors": {
+            "visible": [
+              "owner_verification_error",
+              "owner_verification_gate",
+              "use_device_credential_action"
+            ],
+            "hidden": [
+              "digits_view",
+              "qr_code_view"
+            ],
+            "enabled": [
+              "cancel_owner_verification",
+              "use_device_credential_action"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:cancel_owner_verification",
+            "enabled:use_device_credential_action",
+            "hidden:digits_view",
+            "hidden:qr_code_view",
+            "visible:owner_verification_error",
+            "visible:owner_verification_gate",
+            "visible:use_device_credential_action"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "device_credential_success",
+          "stateConstraintYaml": "owner_verification: passed\nflow_mode: mobile_scan",
+          "selectors": {
+            "visible": [
+              "scan_qr_code_view",
+              "scan_security_warning"
+            ],
+            "hidden": [
+              "owner_verification_gate"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:device_credential_success",
+            "transition:1:hidden:owner_verification_gate",
+            "transition:1:visible:scan_qr_code_view",
+            "transition:1:visible:scan_security_warning"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_032_stale_sdk_done_ignored_after_timeout_retry",
+      "caseTitle": "超时重试后旧 attempt 的 SDK 完成事件被忽略",
+      "functionalArea": "stale_event_protection",
+      "fixtureKind": "attempt_scoped_sdk_callback",
+      "traceDigest": "8b66b594b138c3828a40353f33b47f703ceed51ec25ec5bdd6bd0ac8ce43a3cb",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: show_qr\nqr_data: available\ntimeout: expired\nattempt_id: old_attempt",
+          "selectors": {
+            "visible": [
+              "retry_link_new_device",
+              "timeout_notice"
+            ],
+            "hidden": [
+              "success_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:success_view",
+            "visible:retry_link_new_device",
+            "visible:timeout_notice"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "retry_link_new_device",
+          "stateConstraintYaml": "flow_mode: show_qr\nqr_data: loading\ntimeout: running\nattempt_id: new_attempt",
+          "selectors": {
+            "visible": [
+              "qr_code_loading"
+            ],
+            "hidden": [
+              "success_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:success_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:retry_link_new_device",
+            "transition:1:visible:qr_code_loading"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_step_done(attempt_id=old_attempt)",
+          "stateConstraintYaml": "flow_mode: show_qr\nqr_data: loading\ntimeout: running\nattempt_id: new_attempt",
+          "selectors": {
+            "visible": [
+              "qr_code_loading"
+            ],
+            "hidden": [
+              "success_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:success_view",
+            "transition:2:hidden:timeout_notice",
+            "transition:2:sdk_step_done(attempt_id=old_attempt)",
+            "transition:2:visible:qr_code_loading"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_033_desktop_digits_mismatch_keeps_timeout_and_allows_retry",
+      "caseTitle": "桌面验证码不匹配保留安全超时并允许重试",
+      "functionalArea": "digits",
+      "fixtureKind": "sdk_error_mapping_with_timer",
+      "traceDigest": "057b8820dc5f4569288c620bf8965e0270f01269b793ebfabaf788f98a5c607c",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: digits\nqr_data: available\ntimeout: running\ndigits_match: pending",
+          "selectors": {
+            "visible": [
+              "cancel_link_new_device",
+              "digits_view"
+            ],
+            "hidden": [
+              "success_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:success_view",
+            "visible:cancel_link_new_device",
+            "visible:digits_view"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_digits_mismatch",
+          "stateConstraintYaml": "flow_mode: error\ntimeout: running\ndigits_match: mismatch",
+          "selectors": {
+            "visible": [
+              "digits_mismatch_error",
+              "try_again"
+            ],
+            "hidden": [
+              "qr_code_view",
+              "success_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:qr_code_view",
+            "transition:1:hidden:success_view",
+            "transition:1:sdk_digits_mismatch",
+            "transition:1:visible:digits_mismatch_error",
+            "transition:1:visible:try_again"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "try_again",
+          "stateConstraintYaml": "flow_mode: desktop_notice\nqr_data: loading\ntimeout: running",
+          "selectors": {
+            "visible": [
+              "desktop_notice_view",
+              "qr_code_loading"
+            ],
+            "hidden": [
+              "digits_mismatch_error"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:digits_mismatch_error",
+            "transition:2:try_again",
+            "transition:2:visible:desktop_notice_view",
+            "transition:2:visible:qr_code_loading"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "lnd_state_034_cancel_during_qr_generation_cleans_handler",
+      "caseTitle": "二维码生成中取消会清理 handler、timer 和临时 QR 数据",
+      "functionalArea": "cleanup",
+      "fixtureKind": "cancellation_during_async_qr_loading",
+      "traceDigest": "97ba0509fa4b6725da3faf984fc636421efdaef5e57eaddef8d3c41fadf95a73",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nowner_verification: passed\nflow_mode: show_qr\nqr_data: loading\ntimeout: running\nhandler_state: active",
+          "selectors": {
+            "visible": [
+              "cancel_link_new_device",
+              "qr_code_loading"
+            ],
+            "hidden": [
+              "success_view"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:success_view",
+            "visible:cancel_link_new_device",
+            "visible:qr_code_loading"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "cancel_link_new_device",
+          "stateConstraintYaml": "flow_mode: none\nqr_data: none\ntimeout: not_started\nhandler_state: cleaned",
+          "selectors": {
+            "visible": [
+              "security_settings_entry"
+            ],
+            "hidden": [
+              "qr_code_loading",
+              "qr_code_view",
+              "success_view",
+              "timeout_notice"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:cancel_link_new_device",
+            "transition:1:hidden:qr_code_loading",
+            "transition:1:hidden:qr_code_view",
+            "transition:1:hidden:success_view",
+            "transition:1:hidden:timeout_notice",
+            "transition:1:visible:security_settings_entry"
+          ]
+        }
+      ]
+    }
+  ]
+}

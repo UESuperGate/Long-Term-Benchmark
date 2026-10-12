@@ -28,6 +28,7 @@ ANDROID_BASE_ROOT = os.environ.get("QINGYU_ANDROID_BASE_ROOT")
 ANDROID_FINAL_ROOT = os.environ.get("QINGYU_ANDROID_FINAL_ROOT")
 ANDROID_AGENT_ROOT = os.environ.get("QINGYU_ANDROID_AGENT_ROOT")
 ANDROID_GOLDEN_APK_ROOT = os.environ.get("QINGYU_ANDROID_GOLDEN_APK_ROOT")
+ANDROID_OBSERVATION_ROOT = os.environ.get("QINGYU_ANDROID_OBSERVATION_ROOT")
 ARKTS_BASE_ROOT = Path(os.environ.get("QINGYU_ARKTS_BASE_ROOT", str(ROOT)))
 ARKTS_FINAL_ROOT = Path(os.environ.get("QINGYU_ARKTS_FINAL_ROOT", str(ROOT / "final_dev_nodes")))
 ARKTS_AGENT_ROOT = os.environ.get("QINGYU_ARKTS_AGENT_ROOT")
@@ -104,6 +105,7 @@ def load_manifest() -> list[dict]:
 
 
 def android_target(task_id: str, role: str, expected: str, tag: str, worktree: Path, is_groundtruth: bool) -> dict:
+    evidence_policy = "trusted_calibration_snapshot" if is_groundtruth else "external_observer_required"
     return {
         "targetId": f"{task_id}:android:{role}",
         "taskId": task_id,
@@ -117,6 +119,7 @@ def android_target(task_id: str, role: str, expected: str, tag: str, worktree: P
         "apk": str(android_apk_path(worktree, task_id, role, is_groundtruth)),
         "package": "io.element.android.x.debug",
         "launchAdapter": "android instrumentation/debug state adapter",
+        "semanticEvidencePolicy": evidence_policy,
     }
 
 
@@ -129,6 +132,7 @@ def arkts_target(
     bundle_fallback: str,
     is_groundtruth: bool,
 ) -> dict:
+    evidence_policy = "trusted_calibration_snapshot" if is_groundtruth else "ui_tree_only"
     return {
         "targetId": f"{task_id}:arkts:{role}",
         "taskId": task_id,
@@ -142,6 +146,7 @@ def arkts_target(
         "hap": str(arkts_hap_path(project_dir)),
         "bundle": read_bundle_optional(project_dir, bundle_fallback),
         "launchAdapter": "ArkTS Want/deeplink state adapter",
+        "semanticEvidencePolicy": evidence_policy,
     }
 
 
@@ -176,6 +181,9 @@ def build_targets() -> list[dict]:
             target = android_target(task_id, "agent_result", "pass", android_final_tag, android_agent_worktree, False)
             target["candidateOf"] = f"{task_id}:android:groundtruth_final"
             target["sourceRootEnv"] = "QINGYU_ANDROID_AGENT_ROOT"
+            if ANDROID_OBSERVATION_ROOT:
+                target["semanticEvidencePolicy"] = "trusted_external_observer"
+                target["externalObservationDir"] = str(Path(ANDROID_OBSERVATION_ROOT) / task_id)
             targets.append(target)
 
         arkts_agent_dir = candidate_dir(ARKTS_AGENT_ROOT, task_id, manifest_dir, android_final_tag)

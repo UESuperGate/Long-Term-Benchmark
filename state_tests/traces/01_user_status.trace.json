@@ -1,0 +1,1348 @@
+{
+  "version": 1,
+  "platformNeutral": true,
+  "evaluatorOwned": true,
+  "task": {
+    "id": "01_user_status",
+    "title": "用户状态设置与展示",
+    "base": "v26.07.0",
+    "final": "v26.08.4"
+  },
+  "cases": [
+    {
+      "caseId": "us_state_001_unsupported_hides_entry",
+      "caseTitle": "homeserver 不支持用户状态时设置入口不出现",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "6e689496feee94eecd8ae0710d244a6114ce7c0f0c6abf5f0c0b6f8be59a1c41",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: unsupported\nown_status: none\npicker: hidden\nupdate_action: idle\nsurface: settings",
+          "selectors": {
+            "visible": [
+              "privacy_settings_entry",
+              "profile_settings_entry",
+              "security_settings_entry"
+            ],
+            "hidden": [
+              "user_status_badge",
+              "user_status_editor",
+              "user_status_settings_entry"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:user_status_badge",
+            "hidden:user_status_editor",
+            "hidden:user_status_settings_entry",
+            "visible:privacy_settings_entry",
+            "visible:profile_settings_entry",
+            "visible:security_settings_entry"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_002_empty_supported_entry",
+      "caseTitle": "支持用户状态但尚未设置时展示空状态入口",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "ba300582d196049649361a499d5b7a3d448e36bc1c99800d046337fb0d547fbb",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: none\npicker: hidden\nupdate_action: idle\nsurface: settings",
+          "selectors": {
+            "visible": [
+              "user_status_empty_value",
+              "user_status_settings_entry"
+            ],
+            "hidden": [
+              "user_status_emoji_badge",
+              "user_status_timeline_text"
+            ],
+            "enabled": [
+              "open_user_status_editor"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:open_user_status_editor",
+            "hidden:user_status_emoji_badge",
+            "hidden:user_status_timeline_text",
+            "visible:user_status_empty_value",
+            "visible:user_status_settings_entry"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "open_user_status_editor",
+          "stateConstraintYaml": "picker: predefined",
+          "selectors": {
+            "visible": [
+              "custom_status_button",
+              "predefined_status_list",
+              "user_status_editor"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:open_user_status_editor",
+            "transition:1:visible:custom_status_button",
+            "transition:1:visible:predefined_status_list",
+            "transition:1:visible:user_status_editor"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_003_custom_input_and_emoji_sheet",
+      "caseTitle": "自定义状态输入和 emoji 选择器状态绑定正确",
+      "functionalArea": "editor",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "1afda8163a98f7aa044777b774b30c669ffa1d35c809431dc5557bbcb9305162",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: none\npicker: custom_input\nupdate_action: idle\nsurface: settings",
+          "selectors": {
+            "visible": [
+              "custom_status_text_field",
+              "emoji_picker_button",
+              "save_status_button"
+            ],
+            "hidden": [],
+            "enabled": [
+              "custom_status_text_field",
+              "emoji_picker_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:custom_status_text_field",
+            "enabled:emoji_picker_button",
+            "visible:custom_status_text_field",
+            "visible:emoji_picker_button",
+            "visible:save_status_button"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "open_emoji_sheet",
+          "stateConstraintYaml": "picker: emoji_sheet_loading",
+          "selectors": {
+            "visible": [
+              "custom_status_text_field",
+              "emoji_picker_button"
+            ],
+            "hidden": [
+              "emoji_picker_grid"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:emoji_picker_grid",
+            "transition:1:open_emoji_sheet",
+            "transition:1:visible:custom_status_text_field",
+            "transition:1:visible:emoji_picker_button"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "emoji_sheet_loaded",
+          "stateConstraintYaml": "picker: emoji_sheet_shown",
+          "selectors": {
+            "visible": [
+              "emoji_picker_grid"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:emoji_sheet_loaded",
+            "transition:2:visible:emoji_picker_grid"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_004_save_success_propagates_surfaces",
+      "caseTitle": "保存用户状态成功后同步到设置、主页、DM 和资料页",
+      "functionalArea": "persistence",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "f42e1d2845283a7cff3c1af3970e8124c7157293648b871a67d433ab32b1268f",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: none\npicker: custom_input\nupdate_action: idle\nstatus_payload:\n  emoji: \"🌴\"\n  text: Away",
+          "selectors": {
+            "visible": [
+              "save_status_button"
+            ],
+            "hidden": [],
+            "enabled": [
+              "save_status_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:save_status_button",
+            "visible:save_status_button"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "save_status",
+          "stateConstraintYaml": "picker: hidden\nupdate_action: loading",
+          "selectors": {
+            "visible": [
+              "user_status_settings_entry"
+            ],
+            "hidden": [
+              "custom_status_text_field",
+              "predefined_status_list",
+              "save_status_button",
+              "user_status_editor"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:custom_status_text_field",
+            "transition:1:hidden:predefined_status_list",
+            "transition:1:hidden:save_status_button",
+            "transition:1:hidden:user_status_editor",
+            "transition:1:save_status",
+            "transition:1:visible:user_status_settings_entry"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_set_user_status_success",
+          "stateConstraintYaml": "own_status: user_set\npicker: hidden\nupdate_action: success",
+          "selectors": {
+            "visible": [
+              "dm_user_status_badge",
+              "home_status_badge",
+              "user_profile_status",
+              "user_status_settings_value"
+            ],
+            "hidden": [
+              "user_status_saving_indicator"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:user_status_saving_indicator",
+            "transition:2:sdk_set_user_status_success",
+            "transition:2:visible:dm_user_status_badge",
+            "transition:2:visible:home_status_badge",
+            "transition:2:visible:user_profile_status",
+            "transition:2:visible:user_status_settings_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_005_save_failure_keeps_previous_status",
+      "caseTitle": "保存失败时保留旧状态并展示错误",
+      "functionalArea": "persistence",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "3eefbeb7d6a70ad25640cb85639b7ee3ca0a54d01bb29b7273aff0f5d7f9c98e",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\nprevious_payload:\n  emoji: \"☕\"\n  text: Be right back\npicker: custom_input\nupdate_action: loading",
+          "selectors": {
+            "visible": [
+              "user_status_saving_indicator"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:user_status_saving_indicator"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_set_user_status_failure",
+          "stateConstraintYaml": "own_status: user_set\nupdate_action: failure",
+          "selectors": {
+            "visible": [
+              "user_status_error",
+              "user_status_settings_value"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "user_status_settings_value": "☕"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:property:user_status_settings_value=☕",
+            "transition:1:sdk_set_user_status_failure",
+            "transition:1:visible:user_status_error",
+            "transition:1:visible:user_status_settings_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_006_clear_status",
+      "caseTitle": "清除状态后所有状态展示收敛为空",
+      "functionalArea": "persistence",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "8c784126539ea25a5d7cff3558cdc1cbb16d20ecc1fa1e027839981cd2b78b55",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\npicker: hidden\nupdate_action: idle",
+          "selectors": {
+            "visible": [
+              "clear_status_button",
+              "user_status_emoji_badge"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:clear_status_button",
+            "visible:user_status_emoji_badge"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "clear_status",
+          "stateConstraintYaml": "update_action: loading",
+          "selectors": {
+            "visible": [
+              "user_status_saving_indicator"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:clear_status",
+            "transition:1:visible:user_status_saving_indicator"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_clear_user_status_success",
+          "stateConstraintYaml": "own_status: none\nupdate_action: success",
+          "selectors": {
+            "visible": [
+              "user_status_empty_value"
+            ],
+            "hidden": [
+              "dm_user_status_badge",
+              "user_profile_status",
+              "user_status_emoji_badge"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:dm_user_status_badge",
+            "transition:2:hidden:user_profile_status",
+            "transition:2:hidden:user_status_emoji_badge",
+            "transition:2:sdk_clear_user_status_success",
+            "transition:2:visible:user_status_empty_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_007_timeline_sender_emoji_only",
+      "caseTitle": "时间线发送者只展示 emoji 不展示状态文本",
+      "functionalArea": "timeline",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "50e879fc5672fb3c862ee1f966ae3a5e4c3d6eee74947fe88ae8d113f06cae56",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\nsurface: timeline_sender\nsender_status:\n  emoji: \"💡\"\n  text: Focus time",
+          "selectors": {
+            "visible": [
+              "timeline_sender_name",
+              "timeline_sender_status_emoji"
+            ],
+            "hidden": [
+              "timeline_sender_status_text"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "timeline_sender_status_emoji": "💡"
+            }
+          },
+          "expectedFacts": [
+            "hidden:timeline_sender_status_text",
+            "property:timeline_sender_status_emoji=💡",
+            "visible:timeline_sender_name",
+            "visible:timeline_sender_status_emoji"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_008_in_call_status",
+      "caseTitle": "通话状态作为 DisplayedStatus.InCall 渲染且可恢复",
+      "functionalArea": "active_call",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "6742a40a06ada9a1d6717a9c40ed58daf1df92059701f8ffe6a39fc62e2b77b0",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: in_call\npicker: hidden\nupdate_action: idle",
+          "selectors": {
+            "visible": [
+              "in_call_status_badge"
+            ],
+            "hidden": [
+              "custom_user_status_text_in_timeline"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:custom_user_status_text_in_timeline",
+            "visible:in_call_status_badge"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "call_ended",
+          "stateConstraintYaml": "own_status: none",
+          "selectors": {
+            "visible": [
+              "user_status_empty_value"
+            ],
+            "hidden": [
+              "in_call_status_badge"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:call_ended",
+            "transition:1:hidden:in_call_status_badge",
+            "transition:1:visible:user_status_empty_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_009_capability_failure_safe_fallback",
+      "caseTitle": "用户状态能力检查失败时设置页安全降级",
+      "functionalArea": "cross_surface",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "22c18c1dac22e8ecbb911969e0455a5ce856c55b3576edf2463cec18a2b67b98",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: capability_error\nown_status: none\npicker: hidden\nupdate_action: idle\nsurface: settings",
+          "selectors": {
+            "visible": [
+              "privacy_settings_entry",
+              "profile_settings_entry",
+              "security_settings_entry"
+            ],
+            "hidden": [
+              "user_status_editor",
+              "user_status_error_blocking_dialog",
+              "user_status_settings_entry"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:user_status_editor",
+            "hidden:user_status_error_blocking_dialog",
+            "hidden:user_status_settings_entry",
+            "visible:privacy_settings_entry",
+            "visible:profile_settings_entry",
+            "visible:security_settings_entry"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_010_predefined_status_selection",
+      "caseTitle": "选择预设状态后进入保存状态并关闭选择器",
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "99e5305fbbaad9e5fd1c7424aa78477a0a288ada1acd2b2a52907e878fa11aca",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: none\npicker: predefined\nupdate_action: idle",
+          "selectors": {
+            "visible": [
+              "predefined_status_away",
+              "predefined_status_focus_time",
+              "predefined_status_list"
+            ],
+            "hidden": [],
+            "enabled": [
+              "predefined_status_away"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:predefined_status_away",
+            "visible:predefined_status_away",
+            "visible:predefined_status_focus_time",
+            "visible:predefined_status_list"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "select_predefined_status(away)",
+          "stateConstraintYaml": "own_status: user_set\npicker: hidden\nupdate_action: loading\nstatus_payload:\n  emoji: \"🌴\"\n  text: Away",
+          "selectors": {
+            "visible": [
+              "user_status_saving_indicator"
+            ],
+            "hidden": [
+              "predefined_status_list"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:predefined_status_list",
+            "transition:1:select_predefined_status(away)",
+            "transition:1:visible:user_status_saving_indicator"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_011_dismiss_picker_keeps_status",
+      "caseTitle": "关闭状态选择器不修改当前状态",
+      "functionalArea": "editor",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "7806d9415d34cadf53628eaf372ff3a04a187c2a4f716b94cb8d2419c4c13f09",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\npicker: predefined\nupdate_action: idle\nstatus_payload:\n  emoji: \"☕\"\n  text: Be right back",
+          "selectors": {
+            "visible": [
+              "predefined_status_list"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:predefined_status_list"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "dismiss_status_picker",
+          "stateConstraintYaml": "own_status: user_set\npicker: hidden\nupdate_action: idle",
+          "selectors": {
+            "visible": [
+              "user_status_settings_value"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "user_status_settings_value": "☕"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:dismiss_status_picker",
+            "transition:1:property:user_status_settings_value=☕",
+            "transition:1:visible:user_status_settings_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_012_custom_input_dirty_state",
+      "caseTitle": "自定义输入只在可提交时启用保存",
+      "functionalArea": "editor",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "8b09de8324cd4c45e69ed0fbdd50576fcfe29eca62cfa92df24d62cc23fe609c",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: none\npicker: custom_input\nupdate_action: idle\ncustom_input:\n  emoji: \"\"\n  text: \"\"",
+          "selectors": {
+            "visible": [
+              "cancel_status_button",
+              "custom_status_text_field"
+            ],
+            "hidden": [
+              "save_status_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:save_status_button",
+            "visible:cancel_status_button",
+            "visible:custom_status_text_field"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "edit_custom_status(emoji=💬, text=In a meeting)",
+          "stateConstraintYaml": "custom_input:\n  emoji: \"💬\"\n  text: In a meeting",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [
+              "save_status_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:edit_custom_status(emoji=💬, text=In a meeting)",
+            "transition:1:enabled:save_status_button"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_013_custom_input_cancel_clears_draft_only",
+      "caseTitle": "取消自定义编辑只清理草稿不清除已保存状态",
+      "functionalArea": "editor",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "fe7acd59ed86d7ca211a482489effe4868a316c464ed3957c18796de9564d051",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\npicker: custom_input\nupdate_action: idle\nprevious_payload:\n  emoji: \"💡\"\n  text: Focus time\ncustom_input:\n  emoji: \"🚙\"\n  text: On the road",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "cancel_custom_input",
+          "stateConstraintYaml": "own_status: user_set\npicker: hidden\ncustom_input: null",
+          "selectors": {
+            "visible": [
+              "user_status_settings_value"
+            ],
+            "hidden": [
+              "custom_status_text_field",
+              "user_status_editor"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "user_status_settings_value": "💡"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:cancel_custom_input",
+            "transition:1:hidden:custom_status_text_field",
+            "transition:1:hidden:user_status_editor",
+            "transition:1:property:user_status_settings_value=💡",
+            "transition:1:visible:user_status_settings_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_014_update_loading_disables_mutating_actions",
+      "caseTitle": "保存请求发出后立即关闭编辑器避免并发状态写入",
+      "functionalArea": "action_menu",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "67058ebf08e1c315923b2e063fb5982e51320dc6b92668678e426dcfb7a7adfb",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\npicker: hidden\nupdate_action: loading",
+          "selectors": {
+            "visible": [
+              "user_status_settings_entry",
+              "user_status_settings_value"
+            ],
+            "hidden": [
+              "custom_status_text_field",
+              "predefined_status_list",
+              "save_status_button",
+              "user_status_editor"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:custom_status_text_field",
+            "hidden:predefined_status_list",
+            "hidden:save_status_button",
+            "hidden:user_status_editor",
+            "visible:user_status_settings_entry",
+            "visible:user_status_settings_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_015_home_top_bar_own_status",
+      "caseTitle": "自己的状态传播到主页顶部账号区域",
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "4881a9a433fa854cdecaf71136617c18223c3a7e1a7d7045ad5eeeefa8720306",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\nsurface: home_top_bar\nstatus_payload:\n  emoji: \"🚙\"\n  text: On the road",
+          "selectors": {
+            "visible": [
+              "home_status_badge",
+              "home_top_bar_avatar"
+            ],
+            "hidden": [
+              "home_status_text"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "home_status_badge": "🚙"
+            }
+          },
+          "expectedFacts": [
+            "hidden:home_status_text",
+            "property:home_status_badge=🚙",
+            "visible:home_status_badge",
+            "visible:home_top_bar_avatar"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_016_dm_room_row_remote_status",
+      "caseTitle": "DM 房间行展示对方成员状态",
+      "functionalArea": "propagation",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "7b5fa1e04c2455b5613ddc51e5d854c04a5ec42478a4aa2b71d9611a894410db",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nsurface: dm_room_row\nroom_kind: direct_message\ndm_user_status:\n  emoji: \"☕\"\n  text: Be right back",
+          "selectors": {
+            "visible": [
+              "dm_user_status_badge",
+              "room_summary_row"
+            ],
+            "hidden": [
+              "group_room_status_badge"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "dm_user_status_badge": "☕"
+            }
+          },
+          "expectedFacts": [
+            "hidden:group_room_status_badge",
+            "property:dm_user_status_badge=☕",
+            "visible:dm_user_status_badge",
+            "visible:room_summary_row"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_017_group_room_no_synthetic_status",
+      "caseTitle": "群聊房间不合成 DM 用户状态",
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "bbe4f6f97513e55a1b2e90b8fb858abf5dd0934bae049438203465525c26e86f",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nsurface: dm_room_row\nroom_kind: group\ndm_user_status: null",
+          "selectors": {
+            "visible": [
+              "room_summary_row"
+            ],
+            "hidden": [
+              "dm_user_status_badge",
+              "group_room_status_badge"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:dm_user_status_badge",
+            "hidden:group_room_status_badge",
+            "visible:room_summary_row"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_018_profile_status_refresh",
+      "caseTitle": "用户资料页状态随资料刷新更新",
+      "functionalArea": "profile",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "12f5548ab687104b8df0f93eda3655c11ac27e53bb504c9da58427a10be4b4d0",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nsurface: user_profile\nprofile_user_status:\n  emoji: \"🌴\"\n  text: Away",
+          "selectors": {
+            "visible": [
+              "user_profile_header",
+              "user_profile_status"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "user_profile_status": "🌴"
+            }
+          },
+          "expectedFacts": [
+            "property:user_profile_status=🌴",
+            "visible:user_profile_header",
+            "visible:user_profile_status"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "profile_status_refreshed(emoji=💬, text=In a meeting)",
+          "stateConstraintYaml": "profile_user_status:\n  emoji: \"💬\"\n  text: In a meeting",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "user_profile_status": "💬"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:profile_status_refreshed(emoji=💬, text=In a meeting)",
+            "transition:1:property:user_profile_status=💬"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_019_displayed_status_takes_precedence",
+      "caseTitle": "displayedStatus 与 rawStatus 不一致时使用展示态",
+      "functionalArea": "cross_surface",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "21175ad1be19946a573abba7acd3d4cd19f2af1da201130fe1beadbf23790b6c",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nsurface: user_profile\nraw_status:\n  emoji: \"🌴\"\n  text: Away\ndisplayed_status:\n  kind: in_call",
+          "selectors": {
+            "visible": [
+              "in_call_status_badge",
+              "user_profile_header"
+            ],
+            "hidden": [
+              "raw_user_status_badge",
+              "raw_user_status_text"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "in_call_status_badge": "in_call"
+            }
+          },
+          "expectedFacts": [
+            "hidden:raw_user_status_badge",
+            "hidden:raw_user_status_text",
+            "property:in_call_status_badge=in_call",
+            "visible:in_call_status_badge",
+            "visible:user_profile_header"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_020_remote_status_removed",
+      "caseTitle": "远端用户清除状态后 DM 和资料页同时隐藏",
+      "functionalArea": "propagation",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "9bb9285ffe19b03261dc299d94101ba1130db101f80c6453db99190bc5e6ad12",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nsurface: dm_room_row\ndm_user_status:\n  emoji: \"💡\"\n  text: Focus time",
+          "selectors": {
+            "visible": [
+              "dm_user_status_badge"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:dm_user_status_badge"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "remote_user_status_removed",
+          "stateConstraintYaml": "dm_user_status: null\nprofile_user_status: null",
+          "selectors": {
+            "visible": [],
+            "hidden": [
+              "dm_user_status_badge",
+              "user_profile_status"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:dm_user_status_badge",
+            "transition:1:hidden:user_profile_status",
+            "transition:1:remote_user_status_removed"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_021_final_status_entry_and_badge",
+      "caseTitle": "final 版本语义中用户状态入口和自身状态 badge 必须同时可见",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "cc3a5800598de243c5139a8f7e12195b32d8b1c2862a76e910564d7f018262eb",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nsupport: supported\nown_status: user_set\nsurface: settings\nstatus_payload:\n  emoji: \"💡\"\n  text: Focus time",
+          "selectors": {
+            "visible": [
+              "home_status_badge",
+              "profile_settings_entry",
+              "user_status_settings_entry",
+              "user_status_settings_value"
+            ],
+            "hidden": [
+              "unsupported_feature_placeholder",
+              "user_status_timeline_text"
+            ],
+            "enabled": [
+              "open_user_status_editor"
+            ],
+            "disabled": [],
+            "properties": {
+              "user_status_settings_value": "💡",
+              "home_status_badge": "💡"
+            }
+          },
+          "expectedFacts": [
+            "enabled:open_user_status_editor",
+            "hidden:unsupported_feature_placeholder",
+            "hidden:user_status_timeline_text",
+            "property:home_status_badge=💡",
+            "property:user_status_settings_value=💡",
+            "visible:home_status_badge",
+            "visible:profile_settings_entry",
+            "visible:user_status_settings_entry",
+            "visible:user_status_settings_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_022_final_positive_user_status_entry",
+      "caseTitle": "final 版本语义中支持能力打开时必须出现入口",
+      "functionalArea": "capability",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "6bc2258530e1f3a277915b9a2d39dd9bf77a9045999040d3b7363166fb6d9195",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nsupport: supported\nsurface: settings",
+          "selectors": {
+            "visible": [
+              "user_status_settings_entry"
+            ],
+            "hidden": [
+              "unsupported_feature_placeholder"
+            ],
+            "enabled": [
+              "open_user_status_editor"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:open_user_status_editor",
+            "hidden:unsupported_feature_placeholder",
+            "visible:user_status_settings_entry"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_023_remote_status_refresh_does_not_override_own_status",
+      "caseTitle": "远端 DM 状态刷新不覆盖自己的用户状态",
+      "functionalArea": "propagation",
+      "fixtureKind": "sdk_callback_cross_surface",
+      "traceDigest": "073cae2bc57c898576434e56110d12f5a56075d6a819b18ffc0eac6a89f84f3a",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\nsurface: dm_room_row\nprevious_payload:\n  emoji: \"☕\"\n  text: Be right back\nremote_status:\n  emoji: \"🌙\"\n  text: Quiet hours",
+          "selectors": {
+            "visible": [
+              "dm_user_status_badge",
+              "home_status_badge"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "home_status_badge": "☕",
+              "dm_user_status_badge": "🌙"
+            }
+          },
+          "expectedFacts": [
+            "property:dm_user_status_badge=🌙",
+            "property:home_status_badge=☕",
+            "visible:dm_user_status_badge",
+            "visible:home_status_badge"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "remote_status_refreshed(emoji=🧭, text=Travelling)",
+          "stateConstraintYaml": "remote_status:\n  emoji: \"🧭\"\n  text: Travelling",
+          "selectors": {
+            "visible": [
+              "dm_user_status_badge",
+              "home_status_badge"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "home_status_badge": "☕",
+              "dm_user_status_badge": "🧭"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:property:dm_user_status_badge=🧭",
+            "transition:1:property:home_status_badge=☕",
+            "transition:1:remote_status_refreshed(emoji=🧭, text=Travelling)",
+            "transition:1:visible:dm_user_status_badge",
+            "transition:1:visible:home_status_badge"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_024_status_text_never_leaks_to_timeline",
+      "caseTitle": "时间线状态更新后仍只显示 emoji 不泄露文本",
+      "functionalArea": "timeline",
+      "fixtureKind": "declarative_render_plus_sdk_callback",
+      "traceDigest": "672ef1c55c89ebf67d44b9c42e07c5fd7e2c7f97d5f31bad23031076416d09d5",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\nsurface: timeline_sender\nsender_status:\n  emoji: \"🛠\"\n  text: Fixing an incident",
+          "selectors": {
+            "visible": [
+              "timeline_sender_name",
+              "timeline_sender_status_emoji"
+            ],
+            "hidden": [
+              "timeline_sender_status_text",
+              "user_status_full_text_in_message_body"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "timeline_sender_status_emoji": "🛠"
+            }
+          },
+          "expectedFacts": [
+            "hidden:timeline_sender_status_text",
+            "hidden:user_status_full_text_in_message_body",
+            "property:timeline_sender_status_emoji=🛠",
+            "visible:timeline_sender_name",
+            "visible:timeline_sender_status_emoji"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sender_status_refreshed(emoji=✅, text=Back online)",
+          "stateConstraintYaml": "sender_status:\n  emoji: \"✅\"\n  text: Back online",
+          "selectors": {
+            "visible": [
+              "timeline_sender_status_emoji"
+            ],
+            "hidden": [
+              "timeline_sender_status_text",
+              "user_status_full_text_in_message_body"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "timeline_sender_status_emoji": "✅"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:hidden:timeline_sender_status_text",
+            "transition:1:hidden:user_status_full_text_in_message_body",
+            "transition:1:property:timeline_sender_status_emoji=✅",
+            "transition:1:sender_status_refreshed(emoji=✅, text=Back online)",
+            "transition:1:visible:timeline_sender_status_emoji"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_025_save_retry_after_failure_uses_latest_draft",
+      "caseTitle": "保存失败后的重试使用最新草稿而不是失败时的旧 payload",
+      "functionalArea": "failure_recovery",
+      "fixtureKind": "sdk_failure_then_user_edit",
+      "traceDigest": "6e7a3c3ca4a92e8f778b91cb9806e78e0e72e0c7c2687616fd1c36d27f15e7f1",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: user_set\npicker: custom_input\nupdate_action: failure\nprevious_payload:\n  emoji: \"☕\"\n  text: Be right back\nstatus_payload:\n  emoji: \"🧪\"\n  text: Testing",
+          "selectors": {
+            "visible": [
+              "custom_status_text_field",
+              "save_status_button",
+              "user_status_error"
+            ],
+            "hidden": [],
+            "enabled": [
+              "custom_status_text_field",
+              "save_status_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:custom_status_text_field",
+            "enabled:save_status_button",
+            "visible:custom_status_text_field",
+            "visible:save_status_button",
+            "visible:user_status_error"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "edit_custom_status(emoji=🚀, text=Shipping)",
+          "stateConstraintYaml": "status_payload:\n  emoji: \"🚀\"\n  text: Shipping\nupdate_action: idle",
+          "selectors": {
+            "visible": [
+              "save_status_button"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "custom_status_text_field": "Shipping"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:edit_custom_status(emoji=🚀, text=Shipping)",
+            "transition:1:property:custom_status_text_field=Shipping",
+            "transition:1:visible:save_status_button"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_set_user_status_success",
+          "stateConstraintYaml": "own_status: user_set\npicker: hidden\nupdate_action: success",
+          "selectors": {
+            "visible": [
+              "user_status_settings_value"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "user_status_settings_value": "🚀"
+            }
+          },
+          "expectedFacts": [
+            "transition:2:property:user_status_settings_value=🚀",
+            "transition:2:sdk_set_user_status_success",
+            "transition:2:visible:user_status_settings_value"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "us_state_026_call_status_restore_manual_status",
+      "caseTitle": "通话临时状态结束后恢复进入通话前的手动状态",
+      "functionalArea": "persistence",
+      "fixtureKind": "call_state_side_effect",
+      "traceDigest": "fd8ffeae8cb17b84f7b12bc0926226284676ba9590a1007ca6e14caba4745535",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "support: supported\nown_status: in_call\nprevious_payload:\n  emoji: \"📚\"\n  text: Reading\nsurface: home_top_bar",
+          "selectors": {
+            "visible": [
+              "home_status_badge",
+              "in_call_status_badge"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "home_status_badge": "📞"
+            }
+          },
+          "expectedFacts": [
+            "property:home_status_badge=📞",
+            "visible:home_status_badge",
+            "visible:in_call_status_badge"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "call_ended_restore_previous_status",
+          "stateConstraintYaml": "own_status: user_set\nupdate_action: success",
+          "selectors": {
+            "visible": [
+              "home_status_badge"
+            ],
+            "hidden": [
+              "in_call_status_badge"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "home_status_badge": "📚"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:call_ended_restore_previous_status",
+            "transition:1:hidden:in_call_status_badge",
+            "transition:1:property:home_status_badge=📚",
+            "transition:1:visible:home_status_badge"
+          ]
+        }
+      ]
+    }
+  ]
+}

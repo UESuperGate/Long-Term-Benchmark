@@ -1,0 +1,1429 @@
+{
+  "version": 1,
+  "platformNeutral": true,
+  "evaluatorOwned": true,
+  "task": {
+    "id": "04_live_location",
+    "title": "实时位置分享",
+    "base": "v26.04.0",
+    "final": "v26.05.1"
+  },
+  "cases": [
+    {
+      "caseId": "ll_state_001_room_entry_enabled",
+      "caseTitle": "普通房间允许进入实时位置分享",
+      "functionalArea": "composer_gate",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "7b852a21529c30bba1f578ef5cd374d35bd63fc90e385c5e42d38c919edd7175",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\ndialog: none\nlive_session: inactive\nshare_action: idle",
+          "selectors": {
+            "visible": [
+              "live_location_entry",
+              "share_location_entry"
+            ],
+            "hidden": [
+              "thread_live_location_blocked_message"
+            ],
+            "enabled": [
+              "live_location_entry"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:live_location_entry",
+            "hidden:thread_live_location_blocked_message",
+            "visible:live_location_entry",
+            "visible:share_location_entry"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "initiate_live_location_share",
+          "stateConstraintYaml": "dialog: duration_picker",
+          "selectors": {
+            "visible": [
+              "live_location_duration_picker"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:initiate_live_location_share",
+            "transition:1:visible:live_location_duration_picker"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_002_thread_entry_disabled",
+      "caseTitle": "thread 内禁止启动实时位置分享",
+      "functionalArea": "composer_gate",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "53cc623a9377c85c09e1aa81e243418698b3a00e7af98949395dd6b03aff17aa",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: thread\npermission: granted\ndialog: none\nlive_session: inactive",
+          "selectors": {
+            "visible": [
+              "share_location_entry",
+              "thread_live_location_blocked_message"
+            ],
+            "hidden": [
+              "live_location_duration_picker"
+            ],
+            "enabled": [],
+            "disabled": [
+              "live_location_entry"
+            ],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "disabled:live_location_entry",
+            "hidden:live_location_duration_picker",
+            "visible:share_location_entry",
+            "visible:thread_live_location_blocked_message"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_003_permission_denied",
+      "caseTitle": "定位权限拒绝时不启动 active share",
+      "functionalArea": "permission_flow",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "f7060af431a701ae094b096114ac87bdf1c077185b31f2a02553ea091267c93b",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: denied\ndialog: constraints\nlive_session: inactive",
+          "selectors": {
+            "visible": [
+              "location_permission_prompt_or_constraints"
+            ],
+            "hidden": [
+              "live_location_banner",
+              "live_location_duration_picker"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:live_location_banner",
+            "hidden:live_location_duration_picker",
+            "visible:location_permission_prompt_or_constraints"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "deny_permission",
+          "stateConstraintYaml": "permission: denied\nlive_session: inactive",
+          "selectors": {
+            "visible": [
+              "location_permission_error"
+            ],
+            "hidden": [
+              "live_location_banner"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:deny_permission",
+            "transition:1:hidden:live_location_banner",
+            "transition:1:visible:location_permission_error"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_004_disclaimer_then_duration",
+      "caseTitle": "首次使用展示免责声明再进入时长选择",
+      "functionalArea": "composer_gate",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "ca3c21e32cb99c535918a9472382f4eaeac05569931402220067b16a0639976d",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\ndialog: disclaimer\nlive_session: inactive",
+          "selectors": {
+            "visible": [
+              "live_location_disclaimer"
+            ],
+            "hidden": [],
+            "enabled": [
+              "accept_live_location_disclaimer"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:accept_live_location_disclaimer",
+            "visible:live_location_disclaimer"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "accept_disclaimer",
+          "stateConstraintYaml": "dialog: duration_picker",
+          "selectors": {
+            "visible": [
+              "live_location_duration_picker"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:accept_disclaimer",
+            "transition:1:visible:live_location_duration_picker"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_005_start_share_success",
+      "caseTitle": "选择时长后启动分享并出现 timeline/bannner",
+      "functionalArea": "timeline_item",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "2f6e199159d8b31ca136ed2f2d31f2fcbf4ff3124a0f52a4a4cd7bd52c397b90",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\ndialog: duration_picker\nlive_session: inactive\nshare_action: idle",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "start_live_location_share(duration=1h)",
+          "stateConstraintYaml": "live_session: starting\nshare_action: loading",
+          "selectors": {
+            "visible": [
+              "start_live_location_loading"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:start_live_location_share(duration=1h)",
+            "transition:1:visible:start_live_location_loading"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_start_live_location_success",
+          "stateConstraintYaml": "live_session: active\nshare_action: success\ndialog: none",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_timeline_item",
+              "stop_live_location_button"
+            ],
+            "hidden": [
+              "start_live_location_loading"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:start_live_location_loading",
+            "transition:2:sdk_start_live_location_success",
+            "transition:2:visible:live_location_banner",
+            "transition:2:visible:live_location_timeline_item",
+            "transition:2:visible:stop_live_location_button"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_006_start_share_failure",
+      "caseTitle": "启动失败时不留下 active share",
+      "functionalArea": "failure_recovery",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "d27fea6d8635dda73372eb6109b8ca95dd35912136970923a39ddea9bbee91a5",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\ndialog: duration_picker\nlive_session: starting\nshare_action: loading",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_start_live_location_failure",
+          "stateConstraintYaml": "live_session: inactive\nshare_action: failure",
+          "selectors": {
+            "visible": [
+              "live_location_error"
+            ],
+            "hidden": [
+              "live_location_banner",
+              "stop_live_location_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_banner",
+            "transition:1:hidden:stop_live_location_button",
+            "transition:1:sdk_start_live_location_failure",
+            "transition:1:visible:live_location_error"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_007_map_updates_location",
+      "caseTitle": "活跃分享地图跟随 lastLocation 更新",
+      "functionalArea": "map_view",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "c51a164e0fe73c968118ef10589bd6e010527de16876aab512dfb8669d6003c8",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nmap: opened_with_location\nlocation:\n  lat: 48.8566\n  lon: 2.3522",
+          "selectors": {
+            "visible": [
+              "live_location_marker",
+              "live_map"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "live_location_marker": "48.8566,2.3522"
+            }
+          },
+          "expectedFacts": [
+            "property:live_location_marker=48.8566,2.3522",
+            "visible:live_location_marker",
+            "visible:live_map"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "live_location_update(lat=51.5074, lon=-0.1278)",
+          "stateConstraintYaml": "location:\n  lat: 51.5074\n  lon: -0.1278",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "live_location_marker": "51.5074,-0.1278"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:live_location_update(lat=51.5074, lon=-0.1278)",
+            "transition:1:property:live_location_marker=51.5074,-0.1278"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_008_stop_share",
+      "caseTitle": "停止分享后 banner 消失且 timeline 转为已结束",
+      "functionalArea": "stop_timeout",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "3e5d450e8dfe4c0e24e24afd28b87bf4a7963598c5719e9da0d080d487c800ef",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nshare_action: idle\nmap: opened_with_location",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "stop_live_location_button"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:live_location_banner",
+            "visible:stop_live_location_button"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "stop_live_location_share",
+          "stateConstraintYaml": "share_action: loading",
+          "selectors": {
+            "visible": [
+              "stop_live_location_loading"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:stop_live_location_share",
+            "transition:1:visible:stop_live_location_loading"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_stop_live_location_success",
+          "stateConstraintYaml": "live_session: stopped\nshare_action: success",
+          "selectors": {
+            "visible": [
+              "live_location_ended_label"
+            ],
+            "hidden": [
+              "live_location_banner",
+              "stop_live_location_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:2:hidden:live_location_banner",
+            "transition:2:hidden:stop_live_location_button",
+            "transition:2:sdk_stop_live_location_success",
+            "transition:2:visible:live_location_ended_label"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_009_timeout_expiry",
+      "caseTitle": "超时 tick 自动收敛为 expired",
+      "functionalArea": "stop_timeout",
+      "fixtureKind": "timer_fixture",
+      "traceDigest": "effe7695abe6e8d78f795da430417fa607e5718c7bb5f28e586b3b022ecd1559",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nexpires_at_ms: 1000\nnow_ms: 999",
+          "selectors": {
+            "visible": [
+              "live_location_banner"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:live_location_banner"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "time_tick(now_ms=1001)",
+          "stateConstraintYaml": "live_session: expired",
+          "selectors": {
+            "visible": [
+              "live_location_ended_label"
+            ],
+            "hidden": [
+              "live_location_banner"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_banner",
+            "transition:1:time_tick(now_ms=1001)",
+            "transition:1:visible:live_location_ended_label"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_010_capability_disabled",
+      "caseTitle": "不可分享实时位置时入口禁用但静态位置仍可用",
+      "functionalArea": "composer_gate",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "b6b0817ad74621d2988e2ae8c5a9f260ead4b7b305b1a70a22a7aeae5b28b28a",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\ncan_share_live_location: false\nlive_session: inactive",
+          "selectors": {
+            "visible": [
+              "share_static_location_entry"
+            ],
+            "hidden": [
+              "live_location_duration_picker"
+            ],
+            "enabled": [],
+            "disabled": [
+              "live_location_entry"
+            ],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "disabled:live_location_entry",
+            "hidden:live_location_duration_picker",
+            "visible:share_static_location_entry"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_011_permission_unknown_requests_permission",
+      "caseTitle": "权限未知时发起分享先进入权限请求态",
+      "functionalArea": "permission_flow",
+      "fixtureKind": "sdk_callback_fixture",
+      "traceDigest": "73de98b77de6cddc65db47e40e79e8f952c9bcc71014285d649c60832361733d",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: unknown\ndialog: none\nlive_session: inactive",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "initiate_live_location_share",
+          "stateConstraintYaml": "dialog: constraints",
+          "selectors": {
+            "visible": [
+              "live_location_entry_blocked",
+              "location_permission_prompt_or_constraints"
+            ],
+            "hidden": [
+              "live_location_banner",
+              "live_location_duration_picker"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_banner",
+            "transition:1:hidden:live_location_duration_picker",
+            "transition:1:initiate_live_location_share",
+            "transition:1:visible:live_location_entry_blocked",
+            "transition:1:visible:location_permission_prompt_or_constraints"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_012_accepted_disclaimer_skips_dialog",
+      "caseTitle": "已接受免责声明后直接进入时长选择",
+      "functionalArea": "composer_gate",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "2ea8841f0cb425045684700f9762b9d820328185e0edbdbabfe399284581e0a3",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\ndisclaimer_accepted: true\ndialog: none\nlive_session: inactive",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "initiate_live_location_share",
+          "stateConstraintYaml": "dialog: duration_picker",
+          "selectors": {
+            "visible": [
+              "live_location_duration_picker",
+              "start_live_location_button"
+            ],
+            "hidden": [
+              "live_location_disclaimer",
+              "location_permission_prompt_or_constraints"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_disclaimer",
+            "transition:1:hidden:location_permission_prompt_or_constraints",
+            "transition:1:initiate_live_location_share",
+            "transition:1:visible:live_location_duration_picker",
+            "transition:1:visible:start_live_location_button"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_013_constraints_dialog_blocks_start",
+      "caseTitle": "定位约束未满足时不能直接启动分享",
+      "functionalArea": "composer_gate",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "ef4be3a3409f88f66aa59487ef26e6aac33f44b42bc5cea23156ef831ddd31bc",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\ndialog: constraints\nconstraints_satisfied: false\nlive_session: inactive",
+          "selectors": {
+            "visible": [
+              "location_constraints_dialog"
+            ],
+            "hidden": [
+              "live_location_banner",
+              "start_live_location_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:live_location_banner",
+            "hidden:start_live_location_button",
+            "visible:location_constraints_dialog"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_014_start_replaces_existing_share",
+      "caseTitle": "同房间重复启动分享会收敛为一个 active session",
+      "functionalArea": "timeline_item",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "b5ad678da90e60a45cccd8dccf07cbb101739260875745d0652ec541b81dc0bb",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "context: room\npermission: granted\nlive_session: active\nactive_session_count_for_room: 1",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "start_live_location_share(duration=2h)",
+          "stateConstraintYaml": "live_session: starting\nactive_session_count_for_room: 1",
+          "selectors": {
+            "visible": [
+              "start_live_location_loading"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:start_live_location_share(duration=2h)",
+            "transition:1:visible:start_live_location_loading"
+          ]
+        },
+        {
+          "phase": "transition_2",
+          "ordinal": 2,
+          "event": "sdk_start_live_location_success",
+          "stateConstraintYaml": "live_session: active\nactive_session_count_for_room: 1",
+          "selectors": {
+            "visible": [
+              "live_location_banner"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "active_session_count_for_room": "1"
+            }
+          },
+          "expectedFacts": [
+            "transition:2:property:active_session_count_for_room=1",
+            "transition:2:sdk_start_live_location_success",
+            "transition:2:visible:live_location_banner"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_015_multi_room_banner_list",
+      "caseTitle": "多房间分享时 banner 能表示多个 active shares",
+      "functionalArea": "banner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "35c4e615bf6e7992076f3ba3939ce930d72d6be4c0f030320b3c4e9362662e19",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nactive_rooms: [room_a, room_b]",
+          "selectors": {
+            "visible": [
+              "active_room_chip_room_a",
+              "active_room_chip_room_b",
+              "live_location_banner"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "active_live_location_room_count": "2"
+            }
+          },
+          "expectedFacts": [
+            "property:active_live_location_room_count=2",
+            "visible:active_room_chip_room_a",
+            "visible:active_room_chip_room_b",
+            "visible:live_location_banner"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_016_stop_one_room_keeps_other_banner",
+      "caseTitle": "停止一个房间分享不影响其它房间 active 状态",
+      "functionalArea": "banner",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "d604c89a40dbeafe658eeff87649dc845934ae30d9f685a16ec101313e87153d",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nactive_rooms: [room_a, room_b]\ncurrent_room: room_a",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "stop_live_location_share(room_a)",
+          "stateConstraintYaml": "active_rooms: [room_b]\ncurrent_room_session: stopped",
+          "selectors": {
+            "visible": [
+              "active_room_chip_room_b",
+              "live_location_banner"
+            ],
+            "hidden": [
+              "active_room_chip_room_a"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "active_live_location_room_count": "1"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:hidden:active_room_chip_room_a",
+            "transition:1:property:active_live_location_room_count=1",
+            "transition:1:stop_live_location_share(room_a)",
+            "transition:1:visible:active_room_chip_room_b",
+            "transition:1:visible:live_location_banner"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_017_stop_failure_keeps_active",
+      "caseTitle": "停止失败时保留 active share 并展示错误",
+      "functionalArea": "stop_timeout",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "361dd37aecffc1f24eaa6b142137de6b8e817faf4557a6670c76c8ae57df8d52",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nshare_action: loading",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "sdk_stop_live_location_failure",
+          "stateConstraintYaml": "live_session: active\nshare_action: failure",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_error",
+              "stop_live_location_button"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:sdk_stop_live_location_failure",
+            "transition:1:visible:live_location_banner",
+            "transition:1:visible:live_location_error",
+            "transition:1:visible:stop_live_location_button"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_018_map_no_last_location",
+      "caseTitle": "活跃分享暂无 lastLocation 时地图展示等待态",
+      "functionalArea": "map_view",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "85ff8d7d8122ec73e5092531777259b5cb4fbc06af28114e281a488ccbc57a15",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nmap: opened_no_location\nlocation: null",
+          "selectors": {
+            "visible": [
+              "live_location_no_location_yet",
+              "live_map"
+            ],
+            "hidden": [
+              "live_location_marker"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:live_location_marker",
+            "visible:live_location_no_location_yet",
+            "visible:live_map"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "live_location_update(lat=35.6895, lon=139.6917)",
+          "stateConstraintYaml": "map: opened_with_location\nlocation:\n  lat: 35.6895\n  lon: 139.6917",
+          "selectors": {
+            "visible": [
+              "live_location_marker"
+            ],
+            "hidden": [
+              "live_location_no_location_yet"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_no_location_yet",
+            "transition:1:live_location_update(lat=35.6895, lon=139.6917)",
+            "transition:1:visible:live_location_marker"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_019_remote_live_share_cannot_stop",
+      "caseTitle": "他人的实时位置分享不可由当前用户停止",
+      "functionalArea": "stop_timeout",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "00bcafb470054673af42bbeabc8b35b1972f857d9fc88362624f09ec182bfd0c",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nmap: opened_with_location\nis_own_user: false",
+          "selectors": {
+            "visible": [
+              "live_location_marker",
+              "live_location_timeline_item"
+            ],
+            "hidden": [
+              "stop_live_location_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:stop_live_location_button",
+            "visible:live_location_marker",
+            "visible:live_location_timeline_item"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_020_own_live_share_can_stop",
+      "caseTitle": "自己的实时位置分享展示停止入口",
+      "functionalArea": "stop_timeout",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "af4e8b7ded1571b87a7b0a6c9b565f72124b939f9456e862224387c0d1a68dfd",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nmap: opened_with_location\nis_own_user: true",
+          "selectors": {
+            "visible": [
+              "live_location_timeline_item",
+              "stop_live_location_button"
+            ],
+            "hidden": [],
+            "enabled": [
+              "stop_live_location_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:stop_live_location_button",
+            "visible:live_location_timeline_item",
+            "visible:stop_live_location_button"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_021_final_live_and_static_location_coexist",
+      "caseTitle": "final 语义中实时位置与静态位置消息共存",
+      "functionalArea": "timeline_item",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "bdac13663f5558232697c203dd8487295e8b866f10521e67e7a3d36eff269060",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nevent_content: static_and_live_location\nlive_session: active\nmap: opened_with_location",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_timeline_item",
+              "static_location_timeline_item",
+              "static_map_preview"
+            ],
+            "hidden": [
+              "unsupported_live_location_placeholder"
+            ],
+            "enabled": [
+              "open_live_map"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:open_live_map",
+            "hidden:unsupported_live_location_placeholder",
+            "visible:live_location_banner",
+            "visible:live_location_timeline_item",
+            "visible:static_location_timeline_item",
+            "visible:static_map_preview"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_022_live_location_push_notification",
+      "caseTitle": "实时位置开始通知渲染为 live location start",
+      "functionalArea": "notification",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "5ebd92c4242ef31ed2e7552c7a823753f6f2ee0cc9d829ad45d925bdd8eaad08",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "notification_event: live_location_start\nlive_session: active",
+          "selectors": {
+            "visible": [
+              "notification_live_location_start",
+              "notification_room_name"
+            ],
+            "hidden": [
+              "notification_generic_unsupported_event",
+              "notification_static_location_label"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:notification_generic_unsupported_event",
+            "hidden:notification_static_location_label",
+            "visible:notification_live_location_start",
+            "visible:notification_room_name"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_023_manager_unrecoverable_error_clears_all",
+      "caseTitle": "active manager 不可恢复错误会清理本地 active 状态",
+      "functionalArea": "active_manager",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "ecdbb510f72a225e0bfbb9e78ecdc088fb14e2833321713bcf054e06fe2d89c9",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nactive_rooms: [room_a, room_b]",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "live_location_manager_unrecoverable_error",
+          "stateConstraintYaml": "live_session: inactive\nactive_rooms: []",
+          "selectors": {
+            "visible": [
+              "live_location_error"
+            ],
+            "hidden": [
+              "live_location_banner",
+              "stop_live_location_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_banner",
+            "transition:1:hidden:stop_live_location_button",
+            "transition:1:live_location_manager_unrecoverable_error",
+            "transition:1:visible:live_location_error"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_024_final_live_location_actionable_timeline_item",
+      "caseTitle": "final 语义中实时位置 fixture 必须展示 timeline item 和控制入口",
+      "functionalArea": "timeline_item",
+      "fixtureKind": "event_transition_fixture",
+      "traceDigest": "42eabae43b89ee6648d929ab1547f04f59c19d7f5d08aeb44b0d6d481950fb8e",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nevent_content: live_location\nlive_session: active\nis_own_user: true",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_last_update",
+              "live_location_timeline_item"
+            ],
+            "hidden": [
+              "unsupported_event_placeholder"
+            ],
+            "enabled": [
+              "open_live_map",
+              "stop_live_location_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:open_live_map",
+            "enabled:stop_live_location_button",
+            "hidden:unsupported_event_placeholder",
+            "visible:live_location_banner",
+            "visible:live_location_last_update",
+            "visible:live_location_timeline_item"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_025_final_positive_live_location_timeline",
+      "caseTitle": "final 语义中实时位置 timeline、map、banner 都可达",
+      "functionalArea": "timeline_item",
+      "fixtureKind": "declarative_state_fixture",
+      "traceDigest": "d150003a1d8594ba9e82d5edcfab112d6523785b3934922fc280a69206b3cc53",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "release_semantics: final\nevent_content: live_location\nlive_session: active\nmap: closed\nis_own_user: true",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_timeline_item"
+            ],
+            "hidden": [
+              "unsupported_event_placeholder"
+            ],
+            "enabled": [
+              "open_live_map",
+              "stop_live_location_button"
+            ],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "enabled:open_live_map",
+            "enabled:stop_live_location_button",
+            "hidden:unsupported_event_placeholder",
+            "visible:live_location_banner",
+            "visible:live_location_timeline_item"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_026_timeout_stop_failure_reports_error",
+      "caseTitle": "超时自动停止失败时不误报仍在分享成功",
+      "functionalArea": "stop_timeout",
+      "fixtureKind": "sdk_failure_fixture",
+      "traceDigest": "01de46e1562287b182f1384c8df5ab30443799b8595d2d70c6f777756684ef47",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "live_session: active\nexpires_at_ms: 1000\nnow_ms: 1001\ntimeout_stop_result: failure",
+          "selectors": {
+            "visible": [],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": []
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "timeout_stop_live_location_failure",
+          "stateConstraintYaml": "live_session: active\nshare_action: failure",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_error"
+            ],
+            "hidden": [
+              "live_location_ended_label"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_ended_label",
+            "transition:1:timeout_stop_live_location_failure",
+            "transition:1:visible:live_location_banner",
+            "transition:1:visible:live_location_error"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_027_permission_revoked_mid_share_stops_manager",
+      "caseTitle": "分享中途定位权限被撤回会停止 manager 并提示用户",
+      "functionalArea": "failure_recovery",
+      "fixtureKind": "runtime_permission_change",
+      "traceDigest": "62c917cf3add465047b4293e677e36bde0ba213731d9d83f7d8ec67fa20b3ab4",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "room_context: room\npermission: granted\nactive_share: own_active\nmap: open\ntimeline_item: live_active",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_map",
+              "stop_live_location_button"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:live_location_banner",
+            "visible:live_location_map",
+            "visible:stop_live_location_button"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "permission_revoked_while_sharing",
+          "stateConstraintYaml": "permission: denied\nactive_share: none\ntimeline_item: live_ended",
+          "selectors": {
+            "visible": [
+              "live_location_ended_label",
+              "live_location_permission_error"
+            ],
+            "hidden": [
+              "live_location_banner",
+              "stop_live_location_button"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_banner",
+            "transition:1:hidden:stop_live_location_button",
+            "transition:1:permission_revoked_while_sharing",
+            "transition:1:visible:live_location_ended_label",
+            "transition:1:visible:live_location_permission_error"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_028_background_resume_uses_latest_location",
+      "caseTitle": "后台恢复后 timeline 和地图使用最新 lastLocation",
+      "functionalArea": "active_manager",
+      "fixtureKind": "lifecycle_resume_with_manager_snapshot",
+      "traceDigest": "075561c40d55bbf63a789f5bcafa4c7047bddc16ac81c763742536588c2e5f42",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "room_context: room\npermission: granted\nactive_share: own_active\nmap: closed\nlast_location:\n  lat: 48.8566\n  lon: 2.3522\n  age: fresh",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_timeline_card"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "live_location_timeline_coordinates": "48.8566,2.3522"
+            }
+          },
+          "expectedFacts": [
+            "property:live_location_timeline_coordinates=48.8566,2.3522",
+            "visible:live_location_banner",
+            "visible:live_location_timeline_card"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "app_resumed_with_last_location(lat=52.52, lon=13.405)",
+          "stateConstraintYaml": "last_location:\n  lat: 52.52\n  lon: 13.405\n  age: fresh",
+          "selectors": {
+            "visible": [
+              "live_location_banner",
+              "live_location_timeline_card"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {
+              "live_location_timeline_coordinates": "52.52,13.405"
+            }
+          },
+          "expectedFacts": [
+            "transition:1:app_resumed_with_last_location(lat=52.52, lon=13.405)",
+            "transition:1:property:live_location_timeline_coordinates=52.52,13.405",
+            "transition:1:visible:live_location_banner",
+            "transition:1:visible:live_location_timeline_card"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_029_notification_tap_routes_to_live_location_room",
+      "caseTitle": "实时位置通知点击返回对应房间和地图入口",
+      "functionalArea": "notification",
+      "fixtureKind": "notification_intent_routing",
+      "traceDigest": "6fb2c74c9ddd48c099ab47e35331a38c8a96a739718e06bb0065014206a92ab0",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "active_share: remote_active\nnotification: live_location_started\nroom_id: room_b\nmap: closed",
+          "selectors": {
+            "visible": [
+              "live_location_notification_label"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "visible:live_location_notification_label"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "tap_live_location_notification(room_b)",
+          "stateConstraintYaml": "surface: room_timeline\nroom_id: room_b",
+          "selectors": {
+            "visible": [
+              "live_location_timeline_card",
+              "open_live_location_map",
+              "room_timeline"
+            ],
+            "hidden": [],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:tap_live_location_notification(room_b)",
+            "transition:1:visible:live_location_timeline_card",
+            "transition:1:visible:open_live_location_map",
+            "transition:1:visible:room_timeline"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "ll_state_030_location_staleness_changes_map_affordance",
+      "caseTitle": "位置过期后地图显示 stale 状态且不误报实时",
+      "functionalArea": "map_view",
+      "fixtureKind": "timer_tick_with_location_age",
+      "traceDigest": "f9a916181724b6a576b5eb5101806c2060ea8e42a7a4133bc2efafc9932af4fb",
+      "phases": [
+        {
+          "phase": "initial",
+          "ordinal": 0,
+          "event": "",
+          "stateConstraintYaml": "active_share: remote_active\nmap: open\ntimeline_item: live_active\nlast_location:\n  lat: 37.7749\n  lon: -122.4194\n  age: fresh",
+          "selectors": {
+            "visible": [
+              "live_location_fresh_indicator",
+              "live_location_map"
+            ],
+            "hidden": [
+              "live_location_stale_indicator"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "hidden:live_location_stale_indicator",
+            "visible:live_location_fresh_indicator",
+            "visible:live_location_map"
+          ]
+        },
+        {
+          "phase": "transition_1",
+          "ordinal": 1,
+          "event": "time_tick(location_age=stale)",
+          "stateConstraintYaml": "last_location:\n  lat: 37.7749\n  lon: -122.4194\n  age: stale",
+          "selectors": {
+            "visible": [
+              "live_location_map",
+              "live_location_stale_indicator"
+            ],
+            "hidden": [
+              "live_location_fresh_indicator"
+            ],
+            "enabled": [],
+            "disabled": [],
+            "properties": {}
+          },
+          "expectedFacts": [
+            "transition:1:hidden:live_location_fresh_indicator",
+            "transition:1:time_tick(location_age=stale)",
+            "transition:1:visible:live_location_map",
+            "transition:1:visible:live_location_stale_indicator"
+          ]
+        }
+      ]
+    }
+  ]
+}

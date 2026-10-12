@@ -23,6 +23,17 @@ def metric(passed: int, total: int) -> dict[str, int | float]:
     return {"passed": passed, "total": total, "rate": rate(passed, total)}
 
 
+def semantic_metric(passed: int, scored: int, expected: int) -> dict[str, int | float | bool | None]:
+    complete = scored == expected
+    return {
+        "passed": passed,
+        "total": scored,
+        "expected": expected,
+        "rate": rate(passed, scored) if scored else None,
+        "available": complete,
+    }
+
+
 def binding_case_counts(task_ids: set[str]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for task_id in sorted(task_ids):
@@ -53,18 +64,20 @@ def summarize(
         task_id = str(task["id"])
         expected_cases = int(case_counts[task_id])
         task_rows = [row for (row_task, _), row in row_by_case.items() if row_task == task_id]
-        semantic_passed = sum(row.get("semanticStatus") == "passed" for row in task_rows)
+        scored_rows = [row for row in task_rows if row.get("semanticStatus") in {"passed", "failed"}]
+        semantic_passed = sum(row.get("semanticStatus") == "passed" for row in scored_rows)
         per_task.append(
             {
                 "id": task_id,
                 "codeGeneration": metric(int(bool(task.get("codeGenerated"))), 1),
                 "compile": metric(int(task.get("buildExit") == 0), 1),
-                "semanticTestcase": metric(semantic_passed, expected_cases),
+                "semanticTestcase": semantic_metric(semantic_passed, len(scored_rows), expected_cases),
             }
         )
 
     expected_total = sum(case_counts[task_id] for task_id in task_ids)
-    semantic_passed = sum(row.get("semanticStatus") == "passed" for row in row_by_case.values())
+    scored_rows = [row for row in row_by_case.values() if row.get("semanticStatus") in {"passed", "failed"}]
+    semantic_passed = sum(row.get("semanticStatus") == "passed" for row in scored_rows)
     status_counts = Counter(str(row.get("semanticStatus") or "missing") for row in rows)
     strict_counts = Counter(str(row.get("strictStatus") or "missing") for row in rows)
     return {
@@ -75,7 +88,7 @@ def summarize(
         "benchmarkMetrics": {
             "codeGeneration": metric(sum(bool(task.get("codeGenerated")) for task in tasks), len(tasks)),
             "compile": metric(sum(task.get("buildExit") == 0 for task in tasks), len(tasks)),
-            "semanticTestcase": metric(semantic_passed, expected_total),
+            "semanticTestcase": semantic_metric(semantic_passed, len(scored_rows), expected_total),
         },
         "tasks": per_task,
         "diagnostics": {
@@ -103,7 +116,11 @@ def write_markdown(summary: dict[str, Any], path: Path) -> None:
     }
     for key in ("codeGeneration", "compile", "semanticTestcase"):
         value = metrics[key]
-        lines.append(f"| {labels[key]} | {value['passed']} | {value['total']} | {value['rate']:.2%} |")
+        rendered_rate = f"{value['rate']:.2%}" if value["rate"] is not None else "N/A"
+        rendered_total = str(value["total"])
+        if key == "semanticTestcase" and not value.get("available", True):
+            rendered_total = f"{value['total']} scored / {value['expected']} expected"
+        lines.append(f"| {labels[key]} | {value['passed']} | {rendered_total} | {rendered_rate} |")
     lines.extend(["", "Diagnostics are retained in the JSON output and are not benchmark metrics."])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

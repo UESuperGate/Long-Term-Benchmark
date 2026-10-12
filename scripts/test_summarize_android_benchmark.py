@@ -44,9 +44,30 @@ class AndroidBenchmarkSummaryTest(unittest.TestCase):
         )
         self.assertEqual(result["benchmarkMetrics"]["codeGeneration"]["passed"], 1)
         self.assertEqual(result["benchmarkMetrics"]["compile"]["passed"], 1)
-        self.assertEqual(result["benchmarkMetrics"]["semanticTestcase"], {"passed": 1, "total": 5, "rate": 0.2})
+        self.assertEqual(
+            result["benchmarkMetrics"]["semanticTestcase"],
+            {"passed": 1, "total": 2, "expected": 5, "rate": 0.5, "available": False},
+        )
         self.assertEqual(result["diagnostics"]["semanticRowsObserved"], 2)
         self.assertEqual(result["diagnostics"]["semanticRowsExpected"], 5)
+
+    def test_not_scored_rows_do_not_count_as_semantic_failures(self) -> None:
+        manifest = {"runId": "test", "tasks": [{"id": "task_a", "codeGenerated": True, "buildExit": 0}]}
+        report = {
+            "results": [{
+                "taskId": "task_a",
+                "caseId": "a1",
+                "platform": "android",
+                "targetRole": "agent_result",
+                "semanticStatus": "not_scored",
+                "strictStatus": "instrumentationUnbound",
+            }]
+        }
+        result = summarize(manifest, report, {"task_a": 1})
+        self.assertEqual(
+            result["benchmarkMetrics"]["semanticTestcase"],
+            {"passed": 0, "total": 0, "expected": 1, "rate": None, "available": False},
+        )
 
 
 if __name__ == "__main__":

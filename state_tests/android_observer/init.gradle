@@ -1,0 +1,40 @@
+def observerModule = System.getenv("QINGYU_OBSERVER_MODULE")
+def observerSource = System.getenv("QINGYU_OBSERVER_SOURCE")
+
+if (!observerModule || !observerSource) {
+    throw new GradleException("QINGYU_OBSERVER_MODULE and QINGYU_OBSERVER_SOURCE are required")
+}
+
+gradle.beforeProject { project ->
+    if (project.path != observerModule) {
+        return
+    }
+    def registerSource = {
+        def android = project.extensions.getByName("android")
+        def testSourceSet = android.sourceSets.getByName("test")
+        testSourceSet.java.setSrcDirs([observerSource])
+        if (testSourceSet.hasProperty("kotlin")) {
+            testSourceSet.kotlin.setSrcDirs([observerSource])
+        }
+    }
+    project.pluginManager.withPlugin("com.android.library") { registerSource() }
+    project.pluginManager.withPlugin("com.android.application") { registerSource() }
+
+    // AGP and Kotlin plugin versions expose test Kotlin directories through
+    // different source-set APIs. Enforce isolation at the compiler task too,
+    // so candidate-owned test sources can never be compiled with the probe.
+    project.afterEvaluate {
+        def observerFiles = project.fileTree(observerSource)
+        project.tasks.configureEach { task ->
+            if (task.name == "compileDebugUnitTestKotlin" || task.name == "compileDebugUnitTestJavaWithJavac") {
+                task.setSource(observerFiles)
+                task.doFirst {
+                    task.setSource(observerFiles)
+                    if (System.getenv("QINGYU_OBSERVER_DEBUG") == "1") {
+                        println("QINGYU_OBSERVER_SOURCES ${task.name} ${observerFiles.files.sort()}")
+                    }
+                }
+            }
+        }
+    }
+}

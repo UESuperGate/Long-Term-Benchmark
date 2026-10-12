@@ -17,6 +17,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from semantic_candidate_integrity import audit_candidate
+from state_test_public_contract import write_public_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID_SOURCE = ROOT / "_sources" / "element-x-android"
@@ -25,7 +28,6 @@ ENDPOINT = "https://api.minimaxi.com/v1"
 SDK_ROOT = Path.home() / "Library" / "Android" / "sdk"
 JAVA_HOME = Path("/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home")
 MIRROR_INIT = ROOT / "scripts" / "android_maven_mirror.init.gradle"
-ANDROID_SCAFFOLD = ROOT / "state_tests" / "android_scaffold"
 BUILD_SEMAPHORE = threading.Semaphore(1)
 
 ANDROID_SPEC_REPLACEMENTS = {
@@ -147,12 +149,6 @@ def render_android_spec(task: dict[str, str]) -> str:
     return text
 
 
-def install_android_scaffold(candidate: Path) -> None:
-    if not ANDROID_SCAFFOLD.is_dir():
-        raise FileNotFoundError(f"Android state-test scaffold is missing: {ANDROID_SCAFFOLD}")
-    shutil.copytree(ANDROID_SCAFFOLD, candidate, dirs_exist_ok=True)
-
-
 def is_generated_product_code(path: str) -> bool:
     normalized = path.replace("\\", "/")
     if normalized.startswith(("_benchmark_inputs/", "app/src/debug/")):
@@ -188,11 +184,12 @@ def changed_paths(candidate: Path) -> list[str]:
 
 
 def state_test_binding_changed(candidate: Path) -> bool:
+    """Compatibility helper retained for old reports; new runs protect the binding."""
     return "app/src/debug/kotlin/io/element/android/x/StateTestScenario.kt" in changed_paths(candidate)
 
 
 def prompt_for(task: dict[str, str], project: Path, inputs: Path) -> str:
-    return f"""IMPORTANT: Implement the task now. Do not stop after orientation and do not ask what to do next. Finish by editing the Android source and state-test binding.
+    return f"""IMPORTANT: Implement the task now. Do not stop after orientation and do not ask what to do next. Finish by editing the Android production source.
 
 You are working in a clean archive of the official Element X Android repository at {task['base_tag']}.
 
@@ -204,7 +201,7 @@ State-test YAML: {inputs / task['state']}
 Implement the requested long-horizon task in this Android project only.
 
 Rules:
-- Treat the requirement spec and state-test YAML as the public task contract.
+- Treat the requirement spec and public state-transition inputs as the task contract. Expected states and UI assertions are evaluator-private.
 - The project directory is the complete readable workspace. Do not inspect any path outside it, including the home directory, Gradle caches, Android SDK, JDK, temporary directories, sibling repositories, or system files.
 - Start by reading the requirement and state-test YAML. Follow their `android_evidence` and `platform_bindings` anchors and inspect no more than 5 production source files before editing.
 - Your next step after those focused reads must be a minimal production Kotlin edit. It may introduce only the smallest model or state shape needed by the task. Do not perform a repository survey first; continue exploring and refining after this concrete checkpoint.
@@ -217,19 +214,14 @@ Rules:
 - Do not read or copy any HarmonyOS/ArkTS implementation or another task result.
 - Update the real Kotlin/Compose feature implementation, models, presenters, and tests needed by the requirement. Documentation-only changes are insufficient.
 - Preserve the upstream architecture, Java 21 compatibility, and existing product flavors.
-- A debug-only state-test ContentProvider is already installed. Do not replace its transport or manifest registration.
-- `StateTestContract.kt` owns the stable `StateTestObservation` transport type and an answer-free `DeterministicStateTestStore`; do not replace or duplicate those declarations. Use the helper for case reset, event acknowledgement, and fact projection.
-- Implement the task-specific binding in `app/src/debug/kotlin/io/element/android/x/StateTestScenario.kt`. A new `caseId` must reset and apply that case's deterministic initial fixture. A capture with `stateEvent` must apply exactly that public transition and set `appliedEvent` only after the event is applied.
-- Do not invent imports or production helpers for the state-test binding. Add the binding only after its referenced production state types exist, and keep the supplied compile-safe placeholder until then.
-- Return `semanticFacts` using `visible:<token>`, `hidden:<token>`, `enabled:<token>`, `disabled:<token>`, and `property:<key>=<value>` from the public YAML.
-- Derive semantic facts from actual feature/presenter/fixture state. Do not pre-emit future transition facts, copy expected results, or implement a case-id-to-answer lookup detached from feature behavior.
-- The debug binding is evaluation glue only. Production feature behavior belongs in normal source modules and is required for code-generation credit.
-- The evaluator owns transition ordinals. Emit current unprefixed facts and acknowledge only the requested event.
+- Do not add or modify debug-only benchmark harnesses, `StateTest*.kt` files, case-id switches, or semantic probe providers.
+- Do not add case-id switches, semanticFacts projections, strict_state_fact markers, state_probe_snapshot output, or production files used only by benchmark code.
+- Implement the real feature through production presenters, state holders, event sinks, SDK boundaries, and Compose UI. The evaluator observes those surfaces independently after generation.
 - Project-local shell access is limited to inspection, Git diff/status, and Gradle. Do not use absolute paths or `..` in shell commands.
 - Run `./gradlew :app:assembleGplayDebug --no-daemon` after the first coherent implementation. Use compiler errors to repair the implementation and repeat until it builds or the task time budget is exhausted.
-- Run that exact Gradle command without pipes or redirection after no more than 25 write/edit calls. A compiling vertical slice takes priority over adding secondary surfaces. Implement the state-test binding before broadening beyond the required surfaces.
+- Run that exact Gradle command without pipes or redirection after no more than 25 write/edit calls. A compiling vertical slice takes priority over adding secondary surfaces.
 
-When done, summarize changed production files, state-test binding files, implemented behavior, and remaining blockers.
+When done, summarize changed production files, implemented behavior, and remaining blockers.
 """
 
 
@@ -405,12 +397,11 @@ def prepare_task(task: dict[str, str], candidate_root: Path) -> tuple[Path, Path
     build_text = build_text.replace('include("arm64-v8a")', "// ABI splits are disabled for the arm64 benchmark build.")
     build_text = build_text.replace("isUniversalApk = true", "isUniversalApk = false")
     build_file.write_text(build_text, encoding="utf-8")
-    install_android_scaffold(candidate)
     inputs = candidate / "_benchmark_inputs"
     inputs.mkdir()
     android_spec = inputs / f"android-{task['spec']}"
     android_spec.write_text(render_android_spec(task), encoding="utf-8")
-    shutil.copy2(ROOT / "state_tests" / task["state"], inputs / task["state"])
+    write_public_contract(ROOT / "state_tests" / task["state"], inputs / task["state"])
     shutil.copy2(ROOT / "state_tests" / "README.md", inputs / "state_tests_README.md")
     shutil.copy2(ROOT / "state_tests" / "state-test-schema.json", inputs / "state-test-schema.json")
     prompt = inputs / "opencode_prompt.md"
@@ -460,6 +451,9 @@ def clean_build_outputs(project: Path) -> None:
         output = module_root / "build"
         if output.exists():
             shutil.rmtree(output)
+    for gradle_state in sorted(project.rglob(".gradle"), key=lambda path: len(path.parts), reverse=True):
+        if gradle_state.is_dir():
+            shutil.rmtree(gradle_state)
 
 
 def run_task(
@@ -521,13 +515,14 @@ def run_task(
     build_log = log_root / f"{task['id']}_build.log"
     print(f"[build] {task['id']} implementation_exit={implementation_exit}", flush=True)
     build_exit = compile_candidate(candidate, task_env, build_log, build_timeout)
+    diagnostic_history: list[str] = []
+    if build_exit != 0:
+        diagnostic_history.append(build_error_excerpt(build_log))
     source_session_id = session_id_from_log(agent_log)
     repair_budget = agent_timeout if resume else repair_reserve
     repair_deadline = time.monotonic() + repair_budget
     repair_attempt = 0
-    binding_changed = state_test_binding_changed(candidate)
-    pending_forced_repair = force_repair
-    while (build_exit != 0 or not binding_changed or pending_forced_repair) and repair_attempt < 5:
+    while build_exit != 0 and repair_attempt < 5:
         remaining = int(repair_deadline - time.monotonic())
         if remaining <= 0:
             break
@@ -536,41 +531,25 @@ def run_task(
         repair_log = log_root / f"{task['id']}_repair{suffix}.jsonl"
         repair_started = time.monotonic()
         if build_exit != 0:
-            compile_context = (
-                f"The current candidate failed to compile.\n\nCompiler diagnostics:\n{build_error_excerpt(build_log)}"
+            history = diagnostic_history[-3:]
+            rendered_history = "\n\n".join(
+                f"--- failing build {index} ---\n{diagnostics}"
+                for index, diagnostics in enumerate(history, start=max(1, len(diagnostic_history) - len(history) + 1))
             )
-        elif not binding_changed:
             compile_context = (
-                "The current candidate compiles, but its required StateTestScenario.kt binding is still the supplied placeholder."
+                "The current candidate failed to compile. The diagnostic history below is ordered "
+                "oldest to newest. Preserve earlier fixes and resolve any shared design cause if errors "
+                f"alternate between builds.\n\nCompiler diagnostic history:\n{rendered_history}"
             )
-        else:
-            compile_context = (
-                "The current candidate compiles, but strict device-side semantic verification failed. "
-                "Read _benchmark_inputs/semantic_failures.json, reproduce each mismatch against the public state-test YAML, "
-                "and repair the production-state reducer and fact projection. Treat protocol/ready failures separately from "
-                "semantic mismatches. Do not copy expected arrays into case-id answer tables. The build is already green: "
-                "before any shell or Gradle call, make at least one reducer or binding edit justified by a failed phase. "
-                "Use the read/grep tools for diagnosis and do not inspect build logs or unrelated tests before that edit."
-            )
-        binding_context = (
-            "Implement the task-specific binding in app/src/debug/kotlin/io/element/android/x/StateTestScenario.kt "
-            f"from _benchmark_inputs/{task['state']}. Read that public YAML and the existing production state you need. "
-            "The binding must reset each case fixture, apply only the requested stateEvent, acknowledge it after applying, "
-            "and project current semantic facts from real feature state. Do not hard-code expected snapshots or future facts."
-            if not binding_changed
-            else "Preserve and compile the existing task-specific StateTestScenario.kt binding."
-        )
         repair_prompt = f"""Continue the benchmark task in this current candidate; do not restart repository exploration.
 
 {compile_context}
 
-{binding_context}
-
-Fix only this candidate. Read at most two directly related files before your first edit. Keep the production implementation intact, do not inspect external paths, and run the exact project-local `./gradlew :app:assembleGplayDebug --no-daemon` command without pipes before finishing. Continue through all compiler errors visible within this repair attempt rather than stopping after the first edit.
+Fix only this candidate. Read at most two directly related production files before your first edit. Do not add or modify debug benchmark harnesses, do not inspect external paths, and run the exact project-local `./gradlew :app:assembleGplayDebug --no-daemon` command without pipes before finishing. Continue through all compiler errors visible within this repair attempt rather than stopping after the first edit.
 """
         print(
             f"[repair] {task['id']} attempt={repair_attempt} remaining={remaining}s "
-            f"source_session={source_session_id} binding_changed={binding_changed}",
+            f"source_session={source_session_id}",
             flush=True,
         )
         repair_exit = run_logged(
@@ -607,8 +586,10 @@ Fix only this candidate. Read at most two directly related files before your fir
         build_log = log_root / f"{task['id']}_build_after_repair{build_suffix}.log"
         print(f"[rebuild] {task['id']} attempt={repair_attempt} repair_exit={repair_exit}", flush=True)
         build_exit = compile_candidate(candidate, task_env, build_log, build_timeout)
-        binding_changed = state_test_binding_changed(candidate)
-        pending_forced_repair = False
+        if build_exit != 0:
+            diagnostics = build_error_excerpt(build_log)
+            if not diagnostic_history or diagnostics != diagnostic_history[-1]:
+                diagnostic_history.append(diagnostics)
     agent_exit = int(agent_phases[-1]["exit"]) if agent_phases else 0
     agent_duration = round(sum(float(phase["durationSeconds"]) for phase in agent_phases), 3)
     agent_finished_at = datetime.now().astimezone()
@@ -617,18 +598,19 @@ Fix only this candidate. Read at most two directly related files before your fir
         for phase in agent_phases
         if (failure := provider_failure_from_log(Path(str(phase["log"])))) is not None
     ]
-    benchmark_valid = not provider_failures
+    integrity = audit_candidate(candidate, "android")
+    benchmark_valid = not provider_failures and bool(integrity["valid"])
     changed = changed_paths(candidate)
     generated_code_files = [path for path in changed if is_generated_product_code(path)]
     apk = find_apk(candidate)
     if apk:
         archived_apk = candidate / "_benchmark_artifacts" / "app-gplay-arm64-v8a-debug.apk"
         archived_apk.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(apk, archived_apk)
-        clean_build_outputs(candidate)
-        apk = candidate / "app" / "build" / "outputs" / "apk" / "gplay" / "debug" / archived_apk.name
-        apk.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(archived_apk, apk)
+        if archived_apk.exists():
+            archived_apk.unlink()
+        shutil.move(str(apk), str(archived_apk))
+        apk = archived_apk
+    clean_build_outputs(candidate)
     task_finished_at = datetime.now().astimezone()
     task_duration = round(time.monotonic() - task_started, 3)
     print(f"[result] {task['id']} agent={agent_exit} build={build_exit} apk={bool(apk)}", flush=True)
@@ -648,9 +630,10 @@ Fix only this candidate. Read at most two directly related files before your fir
         "agentDurationSeconds": agent_duration,
         "agentPhases": agent_phases,
         "benchmarkValid": benchmark_valid,
+        "semanticIntegrity": integrity,
         "infrastructureFailures": provider_failures,
         "codeGenerated": bool(generated_code_files),
-        "stateBindingGenerated": binding_changed,
+        "stateBindingGenerated": False,
         "generatedCodeFiles": generated_code_files,
         "changedFiles": changed,
         "buildExit": build_exit,
@@ -681,7 +664,7 @@ def main() -> int:
     parser.add_argument(
         "--force-repair",
         action="store_true",
-        help="Run one repair attempt even when the existing candidate compiles and has a state binding.",
+        help="Deprecated compatibility flag. Semantic failure feedback is intentionally disabled.",
     )
     args = parser.parse_args()
     run_started_at = datetime.now().astimezone()

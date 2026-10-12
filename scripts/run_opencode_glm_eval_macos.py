@@ -14,6 +14,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from state_test_public_contract import write_public_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "bigmodel-glm/glm-5.3"
@@ -99,7 +101,7 @@ State-test YAML: {inputs / task['state']}
 Implement the requested long-horizon task in this ArkTS project only.
 
 Rules:
-- Treat the requirement spec and state-test YAML as the public task contract.
+- Treat the requirement spec and public state-transition inputs as the task contract. Expected states and UI assertions are evaluator-private.
 - Evaluator binding manifests and oracle facts are hidden evaluator inputs. Do not search for, read, copy, or recreate state_tests/bindings/*.json.
 - Do not read or copy from any ArkTS final answer directory outside this project.
 - Do not modify Android source.
@@ -107,21 +109,12 @@ Rules:
 - Keep the implementation constrained to behavior described by the spec/state tests.
 - First read entry/src/main/ets/pages/Index.ets and any local project files you need.
 - Update the real ArkTS implementation, not only README or benchmark notes.
-- Preserve the state-test transport contract: `caseId` initializes a fixture and
-  `stateEvent` drives one public transition through the same event sink used by
-  the real UI or mocked SDK callback. Re-delivered Wants must be supported.
-- Expose `state_probe_snapshot` only from actual runtime state. Include the
-  current case id, the last applied event (when any), and semantic facts derived
-  from the rendered state. Do not pre-emit facts for transitions that have not
-  executed.
-- Give rendered semantic nodes stable ArkUI ids matching the public `expect_ui`
-  tokens. Runtime facts use `visible:<token>`, `hidden:<token>`,
-  `enabled:<token>`, `disabled:<token>`, and `property:<key>=<value>`.
-  After a stateEvent, emit the current unprefixed facts plus `lastEvent`; the
-  evaluator owns transition ordinals and prefixes.
-- Do not hardcode state_test_result, final_feature_available, feature_available=true, or a case-id switch that renders expected tokens without implementing the underlying feature state.
-- Do not emit strict_state_fact unless each fact is computed from actual app state after the testcase state and transitions are applied.
-- The app must expose real UI/state semantics for each case; target-level smoke markers are insufficient.
+- Keep the supplied state-test transport generic. Do not add case-id switches,
+  semanticFacts projections, strict_state_fact markers, or state_probe_snapshot
+  output. The evaluator observes production ArkUI nodes independently.
+- Give real rendered semantic nodes stable ArkUI ids derived from product concepts,
+  and route UI actions through production event sinks and mocked SDK boundaries.
+- Do not add production files or reducers used only by benchmark code.
 - After editing, run ohpm install if needed and hvigorw assembleHap --no-daemon.
 - Fix build errors before finishing. If build still fails, leave the source in your best attempted state and summarize the blocker.
 
@@ -164,12 +157,27 @@ def prepare_task(task: dict[str, str], candidate_root: Path) -> tuple[Path, Path
     inputs = candidate / "_benchmark_inputs"
     inputs.mkdir()
     shutil.copy2(ROOT / "specs" / task["spec"], inputs / task["spec"])
-    shutil.copy2(ROOT / "state_tests" / task["state"], inputs / task["state"])
+    write_public_contract(ROOT / "state_tests" / task["state"], inputs / task["state"])
     shutil.copy2(ROOT / "state_tests" / "README.md", inputs / "state_tests_README.md")
     shutil.copy2(ROOT / "state_tests" / "state-test-schema.json", inputs / "state-test-schema.json")
     prompt = inputs / "opencode_prompt.md"
     prompt.write_text(prompt_for(task, candidate, inputs), encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=candidate, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=candidate, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Benchmark Runner",
+            "-c",
+            "user.email=benchmark@localhost",
+            "commit",
+            "-qm",
+            "benchmark baseline",
+        ],
+        cwd=candidate,
+        check=True,
+    )
     return candidate, prompt
 
 

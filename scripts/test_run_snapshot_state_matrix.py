@@ -151,6 +151,79 @@ class StateMatrixScoringTest(unittest.TestCase):
         self.assertEqual(result["strictStatus"], "mismatch")
         self.assertEqual(result["missingFacts"], ["visible:entry"])
 
+    def test_strict_mode_rejects_candidate_prefixed_transition_facts(self) -> None:
+        case = {
+            "selectors": {"visible": ["entry"]},
+            "expectedInitialFacts": ["visible:entry"],
+            "expectedFacts": ["visible:entry", "transition:1:open", "transition:1:visible:dialog"],
+            "transitionSelectors": [{
+                "ordinal": 1,
+                "event": "open",
+                "visible": ["dialog"],
+                "hidden": [],
+                "enabled": [],
+                "disabled": [],
+                "properties": {},
+            }],
+        }
+        capture = {
+            "integrity": {"valid": True},
+            "evidencePolicy": "trusted_external_observer",
+            "initial": {"readyObserved": True, "status": "captured", "layoutText": "", "snapshot": {"semanticFacts": ["visible:entry"]}},
+            "transitions": [{
+                "readyObserved": True,
+                "status": "captured",
+                "layoutText": "",
+                "snapshot": {"lastEvent": "open", "semanticFacts": ["transition:1:visible:dialog"]},
+            }],
+        }
+        result = score_case(capture, "pass", case, "strict")
+        self.assertEqual(result["observedPolarity"], "fail")
+        self.assertIn("transition:1:visible:dialog", result["missingFacts"])
+
+    def test_contradictory_snapshot_fails(self) -> None:
+        case = {
+            "selectors": {"visible": ["entry"]},
+            "expectedInitialFacts": ["visible:entry"],
+            "expectedFacts": ["visible:entry"],
+            "transitionSelectors": [],
+        }
+        capture = {
+            "integrity": {"valid": True},
+            "evidencePolicy": "trusted_external_observer",
+            "initial": {
+                "readyObserved": True,
+                "status": "captured",
+                "layoutText": "",
+                "snapshot": {"semanticFacts": ["visible:entry", "hidden:entry"]},
+            },
+            "transitions": [],
+        }
+        result = score_case(capture, "pass", case, "strict")
+        self.assertEqual(result["semanticStatus"], "failed")
+        self.assertEqual(result["reason"], "contradictory_semantic_facts")
+
+    def test_ui_tree_policy_ignores_self_reported_snapshot_facts(self) -> None:
+        case = {
+            "selectors": {"visible": ["entry"]},
+            "expectedInitialFacts": ["visible:entry"],
+            "expectedFacts": ["visible:entry"],
+            "transitionSelectors": [],
+        }
+        capture = {
+            "integrity": {"valid": True},
+            "evidencePolicy": "ui_tree_only",
+            "initial": {
+                "readyObserved": True,
+                "status": "captured",
+                "layoutText": "{}",
+                "snapshot": {"semanticFacts": ["visible:entry"]},
+            },
+            "transitions": [],
+        }
+        result = score_case(capture, "pass", case, "strict")
+        self.assertEqual(result["observedPolarity"], "fail")
+
     def test_android_phase_query_url_encodes_state_event(self) -> None:
         runner = Runner({"targets": [], "caseTargets": []}, Path("unused"), android_serial="emulator-5556")
         calls: list[list[str]] = []
@@ -199,6 +272,41 @@ class StateMatrixScoringTest(unittest.TestCase):
 
         self.assertTrue(phase["readyObserved"])
         self.assertEqual(phase["queryAttempts"], 2)
+
+    def test_external_observer_requires_matching_trace_digest(self) -> None:
+        runner = Runner({"targets": [], "caseTargets": []}, Path("unused"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case_dir = root / "case-1"
+            case_dir.mkdir()
+            bundle = case_dir / "capture.json"
+            bundle.write_text(
+                json.dumps({
+                    "observerOwner": "evaluator",
+                    "caseId": "case-1",
+                    "traceDigest": "wrong",
+                    "capture": {"initial": {"readyObserved": True}},
+                }),
+                encoding="utf-8",
+            )
+            capture, detail = runner.external_observer_capture(
+                {"externalObservationDir": str(root)},
+                "case-1",
+                {"traceDigest": "expected"},
+            )
+            self.assertEqual(detail["status"], "external_capture_invalid")
+            self.assertEqual(capture["initial"]["status"], "external_capture_invalid")
+
+            payload = json.loads(bundle.read_text(encoding="utf-8"))
+            payload["traceDigest"] = "expected"
+            bundle.write_text(json.dumps(payload), encoding="utf-8")
+            capture, detail = runner.external_observer_capture(
+                {"externalObservationDir": str(root)},
+                "case-1",
+                {"traceDigest": "expected"},
+            )
+            self.assertEqual(detail["status"], "external_capture_loaded")
+            self.assertTrue(capture["initial"]["readyObserved"])
 
 
 if __name__ == "__main__":
