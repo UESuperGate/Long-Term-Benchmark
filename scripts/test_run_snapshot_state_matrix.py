@@ -129,6 +129,28 @@ class StateMatrixScoringTest(unittest.TestCase):
         self.assertEqual(result["observedPolarity"], "pass")
         self.assertEqual(result["missingFacts"], [])
 
+    def test_transport_snapshot_with_empty_facts_is_semantic_failure(self) -> None:
+        case = {
+            "selectors": {"visible": ["entry"]},
+            "expectedInitialFacts": ["visible:entry"],
+            "transitionSelectors": [],
+        }
+        capture = {
+            "initial": {
+                "readyObserved": True,
+                "status": "captured",
+                "layoutText": "",
+                "snapshot": {"caseId": "case-1", "ready": True, "semanticFacts": []},
+            },
+            "transitions": [],
+        }
+
+        result = score_case(capture, "pass", case, "strict")
+
+        self.assertEqual(result["semanticStatus"], "failed")
+        self.assertEqual(result["strictStatus"], "mismatch")
+        self.assertEqual(result["missingFacts"], ["visible:entry"])
+
     def test_android_phase_query_url_encodes_state_event(self) -> None:
         runner = Runner({"targets": [], "caseTargets": []}, Path("unused"), android_serial="emulator-5556")
         calls: list[list[str]] = []
@@ -149,6 +171,34 @@ class StateMatrixScoringTest(unittest.TestCase):
 
         self.assertTrue(phase["readyObserved"])
         self.assertIn("stateEvent=open+panel", calls[0][-1])
+
+    def test_android_initial_query_retries_once_after_cold_start_failure(self) -> None:
+        runner = Runner(
+            {"targets": [], "caseTargets": []},
+            Path("unused"),
+            android_serial="emulator-5556",
+            poll_interval=0,
+        )
+        calls = 0
+
+        def fake_adb(args: list[str], timeout: int = 60) -> tuple[int, str]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return 1, "Error while accessing provider"
+            return 0, 'Row: 0 snapshot={"caseId":"case-1","semanticFacts":[]}'
+
+        runner.adb = fake_adb  # type: ignore[method-assign]
+        with tempfile.TemporaryDirectory() as directory:
+            phase = runner.capture_android_provider_phase(
+                {"package": "io.element.android.x.debug"},
+                "case-1",
+                "initial",
+                Path(directory),
+            )
+
+        self.assertTrue(phase["readyObserved"])
+        self.assertEqual(phase["queryAttempts"], 2)
 
 
 if __name__ == "__main__":

@@ -404,15 +404,26 @@ class Runner:
         if event:
             query["stateEvent"] = event
         uri = f"content://{target['package']}.state-test-probe/probe?{urllib.parse.urlencode(query)}"
-        code, output = self.adb(["shell", "content", "query", "--uri", shlex.quote(uri)], timeout=30)
-        (phase_dir / "provider_query.txt").write_text(output, encoding="utf-8")
-        snapshot = extract_snapshot_from_text(output)
+        attempts = 2 if not event else 1
+        outputs: list[str] = []
+        code = 1
+        snapshot = None
+        for attempt in range(attempts):
+            code, output = self.adb(["shell", "content", "query", "--uri", shlex.quote(uri)], timeout=30)
+            outputs.append(output)
+            snapshot = extract_snapshot_from_text(output)
+            if snapshot:
+                break
+            if attempt + 1 < attempts:
+                time.sleep(self.poll_interval)
+        (phase_dir / "provider_query.txt").write_text("\n\n".join(outputs), encoding="utf-8")
         return {
             "status": "queried" if snapshot else "snapshot_missing",
             "snapshot": snapshot,
             "layoutText": output,
             "readyObserved": bool(snapshot and snapshot.get("caseId") == case_id),
             "queryExit": code,
+            "queryAttempts": len(outputs),
             "phase": phase,
         }
 
