@@ -1,0 +1,992 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-13T07:51:21.861286+00:00",
+  "repository": "/Users/z1an/research/Long-Term-Benchmark/_sources/element-x-android",
+  "remote": "https://github.com/element-hq/element-x-android.git",
+  "baseRef": "v26.08.4",
+  "baseCommit": "ec3286ef8fb4beaf89989763af32b3f4144733e6",
+  "finalRef": "v26.09.1",
+  "finalCommit": "18bb4632f2448b21464cea77d38fb7b6a2d0d1bf",
+  "baseIsAncestor": true,
+  "commits": [
+    {
+      "commit": "2cb68ba8110eecd0fae0c13993a395c2028fe487",
+      "authoredAt": "2026-03-26T20:22:31Z",
+      "subject": "Max selections support",
+      "body": ""
+    },
+    {
+      "commit": "a3fb65e924447bb00aff2a53e4d6fefc6d8fc170",
+      "authoredAt": "2026-06-09T11:00:18Z",
+      "subject": "Address design",
+      "body": ""
+    },
+    {
+      "commit": "f067ba34e77ca9770ab0ec47f171c0a9e0b4c08d",
+      "authoredAt": "2026-06-11T17:04:37+03:00",
+      "subject": "Update features/poll/api/src/main/kotlin/io/element/android/features/poll/api/pollcontent/PollContentState.kt",
+      "body": "Co-authored-by: Benoit Marty <benoit.marty@gmail.com>"
+    },
+    {
+      "commit": "64ba29f91a369bb40e95ac0584c84a67ffcf0b52",
+      "authoredAt": "2026-08-07T14:03:17+02:00",
+      "subject": "Merge branch 'develop' into feat/polls-max-selections",
+      "body": ""
+    },
+    {
+      "commit": "a04078aa9d8fe0e7d51bc4245891177a8a139957",
+      "authoredAt": "2026-08-07T13:38:20Z",
+      "subject": "Address review",
+      "body": ""
+    },
+    {
+      "commit": "221f13269e0c82c25700354ef98a663e7d042dc7",
+      "authoredAt": "2026-08-07T13:42:16Z",
+      "subject": "Fix",
+      "body": ""
+    },
+    {
+      "commit": "d36daca2420e9835df9dd798765636e2a03359e1",
+      "authoredAt": "2026-08-07T13:44:43Z",
+      "subject": "Fix",
+      "body": ""
+    },
+    {
+      "commit": "0b0124708dd64aec1d55ae1f046484d780065010",
+      "authoredAt": "2026-08-14T18:05:32Z",
+      "subject": "Add the new test to the list",
+      "body": ""
+    },
+    {
+      "commit": "2c4cf090cbadba051aa937dd52e7fc2d2788d2d5",
+      "authoredAt": "2026-08-14T18:27:41Z",
+      "subject": "Update screenshots",
+      "body": ""
+    },
+    {
+      "commit": "b08224fedbccf66f9ca517614ceb85366804534c",
+      "authoredAt": "2026-08-24T20:09:11Z",
+      "subject": "Merge",
+      "body": ""
+    },
+    {
+      "commit": "6b2e83cb6331644ac4f725d151aabb11cf3ce869",
+      "authoredAt": "2026-08-25T11:03:42+03:00",
+      "subject": "Fall back to the message body when the formatted body has nothing to render",
+      "body": "The HTML sanitiser in toHtmlDocument() drops every tag outside its safelist,\nwhich does not include img. A formatted body whose only content is an image —\na custom emoji, or a bot posting an image inline — therefore cleans down to an\nempty document, and because that document is not null the ?: body fallbacks in\nthe timeline item factory, the room list preview, the notification resolver and\nplainText are all dead. The message renders as an empty bubble.\n\nReturn null from toHtmlDocument() when no text survives the sanitisation, so the\nexisting fallbacks take the plain text body, which for these messages carries the\nalt text the sender provided."
+    },
+    {
+      "commit": "88b3559c6b8e1b6b0ef096abd7e810d9fb3c0eeb",
+      "authoredAt": "2026-08-25T14:30:09+03:00",
+      "subject": "Rank the mention suggestions by how well they match what was typed",
+      "body": "The member suggestions were emitted in whatever order the room member list\nhappened to be in, so a member who only matches somewhere in the middle of\ntheir name could be offered above one whose name starts with the query.\n\nMatches are now ordered by how well they match: display name prefix first,\nthen user ID localpart prefix, then any other match. The sort is stable, so\nmembers of equal rank keep the order the member list gave them.\n\nThe @room suggestion was also matched case sensitively, so typing @Ro or\n@ROOM dropped it while @ro kept it. It now matches the query the same way\nthe members do."
+    },
+    {
+      "commit": "e09d6e0a224da90cdedc99807f5248f34e64d7d6",
+      "authoredAt": "2026-08-25T15:22:32+03:00",
+      "subject": "Name a sender the timeline has no profile for from the room member list",
+      "body": "The timeline renders a message with the sender's raw Matrix ID whenever the\nSDK has no profile for them, even though the room member list the same screen\nalready holds usually knows their display name and avatar.\n\nThe timeline item factory now falls back to the room member for a sender whose\nprofile is not resolved, both when the item is first built and when the member\nlist arrives afterwards, so the name and the avatar settle on the display name\ninstead of staying on the ID."
+    },
+    {
+      "commit": "2278116579681b7a129e756d813023783ee311fa",
+      "authoredAt": "2026-08-25T21:52:20+03:00",
+      "subject": "Keep the thread of a message that has been deleted",
+      "body": "Deleting a message that headed a thread took the thread with it: the \"N\nreplies\" summary under the message disappeared and there was no way back to\nthe replies, which are still there.\n\nEvery branch of the timeline content mapper passes `MsgLikeContent`'s thread\ninformation on except the redacted one, which returned a bare\n`RedactedContent` and dropped it. The thread summary lives on\n`MsgLikeContent` next to `kind`, so it survives the redaction; only the app\nwas throwing it away. `RedactedContent` now carries the thread info like the\nother contents do, and `EventTimelineItem.threadInfo()` reads it.\n\nA deleted message that still heads a thread is also left out of the \"N\nremoved messages\" group, which would otherwise hide the summary again as soon\nas three deletions ended up next to each other.\n\nPart of #7397"
+    },
+    {
+      "commit": "6d28d91541f9338fc01265659a8feaa4e723d9cb",
+      "authoredAt": "2026-08-26T03:18:28+03:00",
+      "subject": "Offer conversations in the system share sheet",
+      "body": "Sharing from another app listed Element X once, with no way to pick a\nconversation: the Direct Share row never showed any.\n\nThe app already publishes a long-lived, conversation-categorised shortcut per\nroom, which is most of what the sharing shortcuts API needs. The part that was\nmissing is the declaration that ties those shortcuts to the share intent: the\nlauncher activity had no `android.app.shortcuts` meta-data, so there was no\n`<share-target>` for the system to match them against.\n\nIt now ships one, matching the activity that already receives ACTION_SEND, and\nthe shortcuts carry the category it names.\n\nThe system offers these from Android 10 onwards, where sharing shortcuts are\nhandled natively. Reaching further back would additionally need the\nandroidx.sharetarget library, which is not added here.\n\nPart of #3835"
+    },
+    {
+      "commit": "743aefbe373899380bee84bf6c372b8c44e07574",
+      "authoredAt": "2026-08-27T14:21:59+02:00",
+      "subject": "Merge tag 'v26.08.4' into develop",
+      "body": "tag"
+    },
+    {
+      "commit": "4996819812cee98a995123734c2ffc2ba1c0cf1b",
+      "authoredAt": "2026-08-27T14:53:48+02:00",
+      "subject": "Changelog for version 26.08.4",
+      "body": ""
+    },
+    {
+      "commit": "8645260d4691b5ceef6efb8417201a78e4b3df9d",
+      "authoredAt": "2026-08-27T14:58:39+02:00",
+      "subject": "Do not open the editor when finishing the release",
+      "body": "`git flow release finish` opened the editor three times, and the content was\nnever edited: twice for the merge commits, where the message generated by git is\nalways kept, and once for the message of the annotated tag, where a placeholder\nwas typed by hand. The last tags carry the message \"tag\" for that reason.\n\nGIT_MERGE_AUTOEDIT=no keeps the merge messages git already generates, and -m\nprovides the tag message. git flow appends the tag name to that message, so the\ntag of the next release will read \"Release v26.09.0\".\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+    },
+    {
+      "commit": "0832b7de233c5bd767fe3bb543df7259e75aaa31",
+      "authoredAt": "2026-08-27T16:27:18+03:00",
+      "subject": "Merge remote-tracking branch 'upstream/develop' into fix/7397-keep-thread-after-redaction",
+      "body": "# Conflicts:\n#\tfeatures/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenterTest.kt\n#\tfeatures/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/factories/TimelineItemsFactoryTest.kt\n#\tfeatures/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/voicemessages/timeline/RedactedVoiceMessageManagerTest.kt\n#\tlibraries/mediaviewer/impl/src/test/kotlin/io/element/android/libraries/mediaviewer/impl/datasource/EventItemFactoryTest.kt"
+    },
+    {
+      "commit": "eb946c6daf1ec20fc54cd8e970b0c2153c78edf8",
+      "authoredAt": "2026-08-27T15:31:54+02:00",
+      "subject": "Merge pull request #7583 from element-hq/feature/bma/releaseV2NoEditor",
+      "body": "Do not open the editor when finishing the release"
+    },
+    {
+      "commit": "e19cfbb4231af00ee4b2a9a056fb3353cbc540d4",
+      "authoredAt": "2026-08-27T16:51:44+03:00",
+      "subject": "Merge branch 'develop' into fix/7397-keep-thread-after-redaction",
+      "body": ""
+    },
+    {
+      "commit": "586ae00cda27725314b51a336d06c142426a6ef8",
+      "authoredAt": "2026-08-27T15:54:43+02:00",
+      "subject": "Ensure that noisy notifications are still noisy when content is hidden when a PIN code is protecting the application. Closes #7575",
+      "body": ""
+    },
+    {
+      "commit": "f0c88eb12e7d8bbf775c09836ae75533207bc79f",
+      "authoredAt": "2026-08-27T18:47:22+02:00",
+      "subject": "Update dependency net.zetetic:sqlcipher-android to v4.18.0 (#7552)",
+      "body": "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+    },
+    {
+      "commit": "616ed92d00aa025045ef0494351b18863acb5a4e",
+      "authoredAt": "2026-08-27T18:47:58+02:00",
+      "subject": "Update dependency com.google.firebase:firebase-bom to v34.18.0 (#7581)",
+      "body": "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+    },
+    {
+      "commit": "b8981ff493dc368e92c150b917ae9a93da1eaf42",
+      "authoredAt": "2026-08-27T20:01:26+02:00",
+      "subject": "Update dependency io.github.sergio-sastre.ComposablePreviewScanner:android to v0.9.3 (#7535)",
+      "body": "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+    },
+    {
+      "commit": "c986a2a97106795c4cd4fc84dc55f13823a8efad",
+      "authoredAt": "2026-08-27T20:01:45+02:00",
+      "subject": "Update dependency com.google.guava:guava to v33.7.1-android (#7534)",
+      "body": "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+    },
+    {
+      "commit": "3fecabfe3e1c545ec15397d3692ee2e63c96ad43",
+      "authoredAt": "2026-08-27T20:02:51+02:00",
+      "subject": "Merge pull request #7584 from element-hq/feature/bma/fixSilentNotification",
+      "body": "Ensure that noisy notifications are still noisy when the app has a PIN code."
+    },
+    {
+      "commit": "0c65dcea9d804c0d792cfc46f43d05a39389fedc",
+      "authoredAt": "2026-08-27T20:06:17+02:00",
+      "subject": "Merge pull request #7571 from hayaksi1/fix/7397-keep-thread-after-redaction",
+      "body": "Don't hide the thread of a deleted message inside the removed messages group"
+    },
+    {
+      "commit": "e8e67dc0c58778db75057f7bdc62e376bdf79f44",
+      "authoredAt": "2026-08-27T21:19:35+03:00",
+      "subject": "Merge remote-tracking branch 'upstream/develop' into fix/5356-sender-name-fallback",
+      "body": "# Conflicts:\n#\tfeatures/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/factories/TimelineItemsFactoryTest.kt"
+    },
+    {
+      "commit": "84cd878069a461b07ea08ae96e4f83a25589df88",
+      "authoredAt": "2026-08-27T18:40:10Z",
+      "subject": "Merge remote-tracking branch 'origin/develop' into HEAD",
+      "body": ""
+    },
+    {
+      "commit": "3ec30d7c944f044e44343a1d0eb500475d388e33",
+      "authoredAt": "2026-08-27T23:19:05+02:00",
+      "subject": "Merge pull request #7539 from hayaksi1/fix/5356-sender-name-fallback",
+      "body": "Name a sender the timeline has no profile for from the room member list"
+    },
+    {
+      "commit": "712fe5b2179097feb5a14b171aee316680300744",
+      "authoredAt": "2026-08-27T19:19:01+01:00",
+      "subject": "Implement a hook allowing enterprise modules to perform actions on startup",
+      "body": "Add an interface `io.element.android.features.enterprise.api.AppStartupHook`,\nwhich can be implemented in the enterprise build to perform certain actions on\nstartup.\n\nIt's a bit of a kludge for now since it doesn't block the rest of the app from\nproceeding, but it will serve our purposes for now."
+    },
+    {
+      "commit": "f6da347fff36d6d2c91b47efdf3349dde270e4a8",
+      "authoredAt": "2026-08-27T23:06:37+01:00",
+      "subject": "Merge remote-tracking branch 'origin/develop' into rav/app_startup_hook",
+      "body": ""
+    },
+    {
+      "commit": "a52d13ab5f45047ea8f9a2b6677d435d89899209",
+      "authoredAt": "2026-08-28T10:08:53+02:00",
+      "subject": "Update dependency org.unifiedpush.android:connector to v3.3.4 (#7586)",
+      "body": "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>"
+    },
+    {
+      "commit": "3488757e2aa9ca88d4f6384a76d9e56d2c9714fd",
+      "authoredAt": "2026-08-28T10:38:23+02:00",
+      "subject": "Merge pull request #7574 from hayaksi1/fix/3835-direct-share-targets",
+      "body": "Offer conversations in the system share sheet"
+    },
+    {
+      "commit": "4d12ec3682d46f50ec4203ed5200c9983423a6aa",
+      "authoredAt": "2026-08-28T10:39:24+02:00",
+      "subject": "Merge pull request #7536 from hayaksi1/fix/3434-mention-suggestion-ranking",
+      "body": "Rank the mention suggestions by how well they match what was typed"
+    },
+    {
+      "commit": "cca60ebc3aad6c516eb59db0f7fb2f0fccea4375",
+      "authoredAt": "2026-08-28T11:01:54+02:00",
+      "subject": "Limit usage of nullable callback.",
+      "body": ""
+    },
+    {
+      "commit": "65878c6a34ee417737670cbeae2cd02ce0e87861",
+      "authoredAt": "2026-08-28T12:02:18+02:00",
+      "subject": "Log the SDK git Sha at application startup Also improve the rendering of the log",
+      "body": ""
+    },
+    {
+      "commit": "97126715c190e386b66c8520de88d0d8ef7058c0",
+      "authoredAt": "2026-08-28T14:10:21+02:00",
+      "subject": "Merge pull request #7589 from element-hq/feature/bma/logGitSha",
+      "body": "Log the SDK git Sha at application startup"
+    },
+    {
+      "commit": "c204d867a2398fb18c4fef76fd26654aa56b8f76",
+      "authoredAt": "2026-08-28T16:06:25+02:00",
+      "subject": "Merge pull request #7585 from element-hq/rav/app_startup_hook",
+      "body": "Implement a hook allowing enterprise modules to perform actions on startup"
+    },
+    {
+      "commit": "c4606e59efab49640a18c5e46edef1727242d83f",
+      "authoredAt": "2026-08-28T19:02:43+02:00",
+      "subject": "Fix test compilation issue.",
+      "body": ""
+    },
+    {
+      "commit": "c47446bfb974bb5abce9f2938fafd71a52a1a5b6",
+      "authoredAt": "2026-08-28T22:09:29+02:00",
+      "subject": "Merge pull request #7588 from element-hq/feature/bma/avoidNullableCallback",
+      "body": "Limit usage of nullable callback."
+    },
+    {
+      "commit": "bd81a0ce9b79d2ec21b5eba52515c626f84e1fc7",
+      "authoredAt": "2026-08-29T13:35:28Z",
+      "subject": "Update dependency org.unifiedpush.android:connector to v3.3.5",
+      "body": ""
+    },
+    {
+      "commit": "b15125289b2d35d71ae2e67a86ed3f17e589c762",
+      "authoredAt": "2026-08-30T02:04:57+03:00",
+      "subject": "Merge branch 'develop' into fix/1874-empty-formatted-body",
+      "body": ""
+    },
+    {
+      "commit": "7e8efebe4d353a5e65ed3d7a6049c831add3b2ce",
+      "authoredAt": "2026-08-30T12:38:04+02:00",
+      "subject": "Fix crash due to JSON.stringify on a cirular structure in injectes js.",
+      "body": ""
+    },
+    {
+      "commit": "dc2d05f9daac762ce1c0a81330c0cbad97c735e9",
+      "authoredAt": "2026-08-30T13:12:57+02:00",
+      "subject": "also add try catch block",
+      "body": ""
+    },
+    {
+      "commit": "8b03e4d41a520269a4467df528d92648225178dd",
+      "authoredAt": "2026-08-28T18:34:27+02:00",
+      "subject": "Ensure that sessionVerifiedStatus is updated when the crypto is ready.",
+      "body": "If we do not do that the FTUE state stays on WaitingForInitialState and user is stuck on a blank screen."
+    },
+    {
+      "commit": "ffa68de260ef40ffab379f184943168cab5d3a01",
+      "authoredAt": "2026-08-31T09:40:29+02:00",
+      "subject": "Merge pull request #7604 from element-hq/feature/bma/fixBlankScreen",
+      "body": "Ensure that sessionVerifiedStatus is updated when the crypto is ready."
+    },
+    {
+      "commit": "f97d207b16824e7123ad103f0a7e8723811094b6",
+      "authoredAt": "2026-08-31T09:51:03+02:00",
+      "subject": "[release] Check that there is no unmerged PR with the label \"Z-NextRelease\", else exit",
+      "body": ""
+    },
+    {
+      "commit": "0d4adb175d3695afc07cdab9d9402c4336214647",
+      "authoredAt": "2026-08-31T10:40:26+02:00",
+      "subject": "Merge pull request #7606 from element-hq/feature/bma/releaseScriptCheckUnmergedPrs",
+      "body": "[release] Check that there is no unmerged PR with the label \"Z-NextRelease\", else exit"
+    },
+    {
+      "commit": "9ad21a1724fec37fcc62d9ff21cd60f02f50d856",
+      "authoredAt": "2026-08-31T10:42:33+02:00",
+      "subject": "Merge pull request #7595 from element-hq/renovate/org.unifiedpush.android-connector-3.x",
+      "body": "Update dependency org.unifiedpush.android:connector to v3.3.5"
+    },
+    {
+      "commit": "b85174d35ef22eea461796dd86d5e3bd5c3522ee",
+      "authoredAt": "2026-08-31T12:44:40+03:00",
+      "subject": "Only track read receipts on message-like events (#7361)",
+      "body": "Ask the SDK to track receipts on message-like events only, for the live\ntimeline and for the focused and threaded ones, so all three agree. The\ndisabled case for the media and pinned-event timelines is unchanged. \n\nThis matches the behaviour on Element X iOS.\n\nThe SDK attaches the receipt to the preceding event rather than the next\none, which is the placement its API offers."
+    },
+    {
+      "commit": "8081682f8fc38d54c3bfae1bd78f6433830bb38f",
+      "authoredAt": "2026-08-28T17:21:54+02:00",
+      "subject": "Remove ExternalSession, fallback login with Element Web is gone.",
+      "body": ""
+    },
+    {
+      "commit": "9855224e50e4c488dd01b41621d0b260a500790a",
+      "authoredAt": "2026-08-31T12:19:23+02:00",
+      "subject": "Merge pull request #7600 from toger5/toger5/fix-crash-on-circular-obj-logging",
+      "body": "Fix crash due to JSON.stringify on a cirular structure in injectes js."
+    },
+    {
+      "commit": "c6fe9786a9a76a3d3b5773c28ed57566cdcf940f",
+      "authoredAt": "2026-08-31T13:23:01+03:00",
+      "subject": "Stop rescanning message bodies for emoji only on every recomposition (#7531)",
+      "body": "Deciding whether a text message is emoji only compares the formatted body to\nthe plain one and runs a grapheme scan over the whole message. Nothing was\nremembered, so both ran again on every recomposition of every visible message.\n\nRemember the decision against the body and the formatted body. The preview\nbranch moves into the same computation, so the composable wrapper around\ncontainsOnlyEmojis, which had a single caller and existed only to read\nLocalInspectionMode, is no longer needed."
+    },
+    {
+      "commit": "ab09500e7e907beeeda462d3496cb431b526cae7",
+      "authoredAt": "2026-08-31T15:06:39+02:00",
+      "subject": "Remove unused import",
+      "body": ""
+    },
+    {
+      "commit": "0ad3ab1d9dd7fd64011262bd6bb652bf4de2e219",
+      "authoredAt": "2026-08-31T15:26:35+02:00",
+      "subject": "Merge pull request #6477 from bxdxnn/feat/polls-max-selections",
+      "body": "Support multi-select polls"
+    },
+    {
+      "commit": "012c5a1f81e2f68c9884b971fead7740896925e5",
+      "authoredAt": "2026-08-31T15:45:14+02:00",
+      "subject": "Do some renaming now that user can select multiple answers per poll",
+      "body": ""
+    },
+    {
+      "commit": "f3b34b7267b3e533ce56dc23158055722f48d2ea",
+      "authoredAt": "2026-08-31T17:01:00+02:00",
+      "subject": "Merge pull request #7608 from element-hq/feature/bma/cleanUpExternalSession",
+      "body": "Remove ExternalSession, fallback login with Element Web is gone."
+    },
+    {
+      "commit": "e6c2b962750ad2dade2da228951a8c3ad912620a",
+      "authoredAt": "2026-08-31T18:59:38+02:00",
+      "subject": "Setting version for the release 26.09.0",
+      "body": ""
+    },
+    {
+      "commit": "b385a936837881e2fb018ca5d07f1a5b2ba68244",
+      "authoredAt": "2026-08-31T19:00:51+02:00",
+      "subject": "Adding fastlane file for version 26.09.0",
+      "body": ""
+    },
+    {
+      "commit": "8ec40353685408f7b4b8ed87595e21ddee70e5b1",
+      "authoredAt": "2026-08-31T19:00:52+02:00",
+      "subject": "Merge branch 'release/26.09.0'",
+      "body": ""
+    },
+    {
+      "commit": "987d343379a6e6cf9311163ebfeb627b4f690af5",
+      "authoredAt": "2026-09-01T07:05:00Z",
+      "subject": "Update roborazzi to v1.73.0",
+      "body": ""
+    },
+    {
+      "commit": "b6ec225e54ea63d0bde9580197a237fb6ff40278",
+      "authoredAt": "2026-09-01T09:50:13+02:00",
+      "subject": "Merge pull request #7613 from element-hq/feature/bma/polls-max-selections",
+      "body": "Support creating polls with multiple answers and send response with multiple answers"
+    },
+    {
+      "commit": "3c789b4c1237f8e9ff901a96c08dd62990608f27",
+      "authoredAt": "2026-09-01T10:05:08+02:00",
+      "subject": "Merge pull request #7618 from element-hq/renovate/roborazzi",
+      "body": "Update roborazzi to v1.73.0"
+    },
+    {
+      "commit": "52fcc797b77390fdd234732e7546124942f4e9fa",
+      "authoredAt": "2026-09-01T11:37:59+02:00",
+      "subject": "Merge pull request #7523 from hayaksi1/fix/1874-empty-formatted-body",
+      "body": "Fall back to the message body when the formatted body has nothing to render"
+    },
+    {
+      "commit": "e5065d9baac2873a4063e2327c74ae5c380d6703",
+      "authoredAt": "2026-09-01T12:40:05+02:00",
+      "subject": "Fix invalid placeholders in translations (#7612)",
+      "body": "* Add logic to find invalid string placeholders in `checkForbiddenTerms.py`\n\n* Fix found invalid placeholder in Chinese translations"
+    },
+    {
+      "commit": "7c42f22b7c105bfd849f96e77ecab7b9a818d905",
+      "authoredAt": "2026-09-01T13:57:32+02:00",
+      "subject": "Setting version for the release 26.09.1",
+      "body": ""
+    },
+    {
+      "commit": "aa695d2ad6af94f278464cc0e4ccdb9702a8549c",
+      "authoredAt": "2026-09-01T13:57:54+02:00",
+      "subject": "Adding fastlane file for version 26.09.1",
+      "body": ""
+    },
+    {
+      "commit": "18bb4632f2448b21464cea77d38fb7b6a2d0d1bf",
+      "authoredAt": "2026-09-01T14:01:46+02:00",
+      "subject": "Merge branch 'release/26.09.1'",
+      "body": ""
+    }
+  ],
+  "changedFiles": [
+    {
+      "status": "M",
+      "path": "CHANGES.md",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "app/src/main/AndroidManifest.xml",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "app/src/main/kotlin/io/element/android/x/ElementXApplication.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "app/src/main/kotlin/io/element/android/x/MainActivity.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "app/src/main/kotlin/io/element/android/x/di/AppBindings.kt",
+      "kind": "production"
+    },
+    {
+      "status": "A",
+      "path": "app/src/main/kotlin/io/element/android/x/di/ApplicationBindings.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "app/src/main/kotlin/io/element/android/x/info/Logs.kt",
+      "kind": "production"
+    },
+    {
+      "status": "A",
+      "path": "app/src/main/res/xml/shortcuts.xml",
+      "kind": "production"
+    },
+    {
+      "status": "A",
+      "path": "fastlane/metadata/android/en-US/changelogs/202609000.txt",
+      "kind": "production"
+    },
+    {
+      "status": "A",
+      "path": "fastlane/metadata/android/en-US/changelogs/202609010.txt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/call/impl/src/main/kotlin/io/element/android/features/call/impl/utils/WebViewWidgetMessageInterceptor.kt",
+      "kind": "production"
+    },
+    {
+      "status": "A",
+      "path": "features/enterprise/api/src/main/kotlin/io/element/android/features/enterprise/api/AppStartupHook.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/suggestions/SuggestionsProcessor.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineEvent.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenter.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/event/TimelineItemPollView.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/event/TimelineItemTextView.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/factories/event/TimelineItemContentPollFactory.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/factories/event/TimelineItemEventFactory.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/groups/TimelineItemGrouper.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/model/event/TimelineItemPollContent.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/model/event/TimelineItemPollContentPreviewParam.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/utils/Emoji.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/messagecomposer/suggestions/SuggestionsProcessorTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenterTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/components/event/TimelineItemPollViewTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/factories/TimelineItemsFactoryTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/factories/event/TimelineItemContentMessageFactoryTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/groups/TimelineItemGrouperTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/utils/EmojiTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/api/src/main/kotlin/io/element/android/features/poll/api/actions/SendPollResponseAction.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/api/src/main/kotlin/io/element/android/features/poll/api/pollcontent/PollContentState.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/api/src/main/kotlin/io/element/android/features/poll/api/pollcontent/PollContentStateFixtures.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/api/src/main/kotlin/io/element/android/features/poll/api/pollcontent/PollContentView.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/api/src/main/res/values-zh/translations.xml",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/PollConstants.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/actions/DefaultSendPollResponseAction.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/create/CreatePollEvent.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/create/CreatePollPresenter.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/create/CreatePollState.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/create/CreatePollStatePreviewParam.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/create/CreatePollView.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/create/PollFormState.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/history/PollHistoryEvent.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/history/PollHistoryPresenter.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/history/PollHistoryView.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/model/DefaultPollContentStateFactory.kt",
+      "kind": "production"
+    },
+    {
+      "status": "A",
+      "path": "features/poll/impl/src/main/res/values/temporary.xml",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/create/CreatePollPresenterTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/create/PollFormStateSaverTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/history/PollHistoryPresenterTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/history/PollHistoryViewTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/pollcontent/PollContentStateFactoryTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/test/src/main/kotlin/io/element/android/features/poll/test/actions/FakeSendPollResponseAction.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/poll/test/src/main/kotlin/io/element/android/features/poll/test/pollcontent/FakePollContentStateFactory.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "features/roommembermoderation/api/src/main/kotlin/io/element/android/features/roommembermoderation/api/RoomMemberModerationRenderer.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/roommembermoderation/impl/src/main/kotlin/io/element/android/features/roommembermoderation/impl/DefaultRoomMemberModerationRenderer.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/roommembermoderation/impl/src/main/kotlin/io/element/android/features/roommembermoderation/impl/RoomMemberModerationView.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "features/roommembermoderation/impl/src/test/kotlin/io/element/android/features/roommembermoderation/impl/RoomMemberModerationViewTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "gradle/libs.versions.toml",
+      "kind": "production"
+    },
+    {
+      "status": "A",
+      "path": "libraries/core/src/main/kotlin/io/element/android/libraries/core/log/logger/BoxWrapper.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/MatrixAuthenticationService.kt",
+      "kind": "production"
+    },
+    {
+      "status": "D",
+      "path": "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/external/ExternalSession.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/auth/RustMatrixAuthenticationService.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/mapper/Session.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/JoinedRustRoom.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RustRoomFactory.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/verification/RustSessionVerificationService.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/mapper/SessionKtTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/auth/FakeMatrixAuthenticationService.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/notification/NotificationData.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrixui/src/main/kotlin/io/element/android/libraries/matrix/ui/messages/ToHtmlDocument.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrixui/src/test/kotlin/io/element/android/libraries/matrix/ui/messages/ToHtmlDocumentTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/matrixui/src/test/kotlin/io/element/android/libraries/matrix/ui/messages/ToPlainTextTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/DefaultNotifiableEventResolver.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/DefaultNotificationDrawerManager.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/FallbackNotificationFactory.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/NotificationResultProcessor.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/conversations/DefaultNotificationConversationService.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/factories/NotificationCreator.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/model/FallbackNotifiableEvent.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/DefaultNotifiableEventResolverTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/DefaultNotificationDrawerManagerTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/DefaultNotificationResultProcessorTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "A",
+      "path": "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/FallbackNotificationFactoryTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/conversations/DefaultNotificationConversationServiceTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/factories/DefaultNotificationCreatorTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/fixtures/NotifiableEventFixture.kt",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "plugins/src/main/kotlin/Versions.kt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "tests/konsist/src/test/kotlin/io/element/android/tests/konsist/KonsistPreviewTest.kt",
+      "kind": "test"
+    },
+    {
+      "status": "A",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.api.pollcontent_PollContentViewMultipleSelection_Day_0_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "A",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.api.pollcontent_PollContentViewMultipleSelection_Night_0_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Day_0_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Day_1_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Day_2_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Day_3_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Day_6_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Day_7_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "A",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Day_8_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Night_0_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Night_1_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Night_2_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Night_3_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Night_6_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Night_7_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "A",
+      "path": "tests/uitests/src/test/snapshots/images/features.poll.impl.create_CreatePollView_Night_8_en.png",
+      "kind": "test"
+    },
+    {
+      "status": "M",
+      "path": "tools/localazy/checkForbiddenTerms.py",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "tools/manifest/gplay/release/aaptDump.txt",
+      "kind": "production"
+    },
+    {
+      "status": "M",
+      "path": "tools/release/releaseV2.sh",
+      "kind": "production"
+    }
+  ],
+  "counts": {
+    "commits": 70,
+    "productionFiles": 65,
+    "testFiles": 44
+  },
+  "releaseNoteDiffs": [
+    {
+      "path": "CHANGES.md",
+      "diff": "diff --git a/CHANGES.md b/CHANGES.md\nindex a56dd4d1bb..5f4be5d6eb 100644\n--- a/CHANGES.md\n+++ b/CHANGES.md\n@@ -1,3 +1,23 @@\n+Changes in Element X v26.08.4\n+=============================\n+\n+<!-- Release notes generated using configuration in .github/release.yml at v26.08.4 -->\n+\n+## What's Changed\n+### 🧱 Build\n+* Add releaseV2.sh, a release script automating the GitHub release by @bmarty in https://github.com/element-hq/element-x-android/pull/7579\n+* Update submodule ref. by @bmarty in https://github.com/element-hq/element-x-android/pull/7582\n+### Others\n+* Keep the formatting of a caption that is being edited by @hayaksi1 in https://github.com/element-hq/element-x-android/pull/7572\n+* Say when the server cannot be reached instead of showing nothing by @hayaksi1 in https://github.com/element-hq/element-x-android/pull/7567\n+* Keep saving files to Downloads once 32 files share the same name by @hayaksi1 in https://github.com/element-hq/element-x-android/pull/7344\n+* Fix removed messages hiding its thread on deletion by @bxdxnn in https://github.com/element-hq/element-x-android/pull/7480\n+* Drop the sender's name from the room list preview of two-person rooms by @hayaksi1 in https://github.com/element-hq/element-x-android/pull/7562\n+* Document how the Element Call base URL developer option is used by @hayaksi1 in https://github.com/element-hq/element-x-android/pull/7546\n+\n+\n+**Full Changelog**: https://github.com/element-hq/element-x-android/compare/v26.08.3...v26.08.4\n+\n Changes in Element X v26.08.3\n =============================\n \n",
+      "truncated": false
+    }
+  ]
+}

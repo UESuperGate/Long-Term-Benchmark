@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "taskId": "07_recent_search_history",
+  "releaseEvidence": {
+    "source": "Element X Android GitHub release v26.09.3",
+    "entry": "Add recent search results to global search",
+    "release": "https://github.com/element-hq/element-x-android/releases/tag/v26.09.3",
+    "pullRequest": "https://github.com/element-hq/element-x-android/pull/7742"
+  },
+  "implementationEvidence": {
+    "commit": "8b1b5560d9",
+    "featureInsertions": 900,
+    "symbols": [
+      "GlobalSearchEvent.SaveQueryToHistory",
+      "GlobalSearchEvent.SaveRoomToHistory",
+      "GlobalSearchEvent.SearchHistoryResultSelected",
+      "GlobalSearchState.history",
+      "DefaultSearchHistoryStore",
+      "DefaultSearchHistoryFileStore",
+      "SearchHistoryResult",
+      "MAX_SEARCH_HISTORY_SIZE = 25"
+    ],
+    "productionPaths": [
+      "features/home/impl/src/main/kotlin/io/element/android/features/home/impl/search/GlobalSearchPresenter.kt",
+      "features/home/impl/src/main/kotlin/io/element/android/features/home/impl/search/GlobalSearchState.kt",
+      "features/home/impl/src/main/kotlin/io/element/android/features/home/impl/search/history"
+    ],
+    "testPaths": [
+      "features/home/impl/src/test/kotlin/io/element/android/features/home/impl/search/GlobalSearchPresenterTest.kt",
+      "features/home/impl/src/test/kotlin/io/element/android/features/home/impl/search/history/DefaultSearchHistoryStoreTest.kt",
+      "features/home/impl/src/test/kotlin/io/element/android/features/home/impl/search/history/SearchHistoryResultSerializationTest.kt"
+    ]
+  },
+  "baseFailureEvidence": [
+    "The base GlobalSearchState has no history state.",
+    "The base has no query/room history events and no persistent SearchHistoryStore.",
+    "The base cannot restore, deduplicate, cap, clear or recover persisted history."
+  ],
+  "longHorizonSignals": [
+    "The feature connects presenter events, asynchronous state, room lookup, encrypted file persistence and rendering.",
+    "Ordering, deduplication and capacity must remain consistent across memory and process restart.",
+    "Corrupted storage and missing rooms must degrade safely without breaking search."
+  ],
+  "rawEvidence": "raw_release_evidence.json"
+}

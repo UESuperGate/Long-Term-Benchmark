@@ -1,10 +1,11 @@
 # Element X Multi-Platform Long-Term Benchmark
 
-This workspace contains five long-horizon Element X tasks for Android and
-ArkTS/OpenHarmony. Both platforms consume the same public requirement specs,
-state-test YAML files, case ids, state vectors, transition events, and semantic
-oracles. Platform-specific runners differ only in how they apply a transition
-and capture the resulting state.
+This workspace contains seven long-horizon Element X tasks for Android and
+ArkTS/OpenHarmony: the original five-task suite plus two release-derived
+extensions. Both platforms consume the same public requirement specs, case ids,
+state vectors, transition events, and semantic oracles. Platform-specific
+runners differ only in how they apply a transition and capture the resulting
+state.
 
 The ArkTS bases preserve the relevant user-visible base behavior with a mock
 Matrix service and semantic UI ids. The Android benchmark is built from the
@@ -56,6 +57,18 @@ correspond to the same feature intervals represented by the ArkTS tasks.
 | Timeline protection/rich events | `v26.07.1` | `v26.08.0` | 32 |
 | Live location | `v26.04.0` | `v26.05.1` | 30 |
 | Link new device | `v26.05.0` | `v26.08.2` | 34 |
+
+The extended canonical-transition suite adds:
+
+| Task | Base tag | Ground-truth final tag | Canonical cases |
+| --- | --- | --- | ---: |
+| Multi-select polls | `v26.08.4` | `v26.09.1` | 9 |
+| Recent search history | `v26.09.2` | `v26.09.3` | 11 |
+
+Their extraction evidence and shared contracts live under `benchmark_tasks/`.
+The Android and ArkTS base/final projects calibrate to `0/20` and `20/20`
+respectively; the MiniMax-M3 run is archived in
+[`experiment_results/extended_opencode_minimax_m3_20261013`](experiment_results/extended_opencode_minimax_m3_20261013/README.md).
 
 Local Android evaluation environment:
 
@@ -192,6 +205,8 @@ Base apps:
 - `03_active_call_timeline_base_26_07_1`: before active call timeline items are rendered.
 - `04_live_location_base_26_04_0`: before live location sharing is available.
 - `05_link_new_device_base_26_05_0`: before the richer link-new-device QR flow iterations.
+- `06_multi_select_polls_base_26_08_4`: before polls support multiple answers.
+- `07_recent_search_history_base_26_09_2`: before global search persists recent queries and rooms.
 
 Each app intentionally uses the same ArkTS structure so benchmark tasks can compare implementation trajectories cleanly:
 - `AppScope/app.json5`

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "taskId": "06_multi_select_polls",
+  "title": "Create and vote in polls with multiple selections",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v26.08.4",
+    "baseCommit": "ec3286ef8fb4beaf89989763af32b3f4144733e6",
+    "finalRef": "v26.09.1",
+    "finalCommit": "18bb4632f2448b21464cea77d38fb7b6a2d0d1bf"
+  },
+  "releaseNotes": [
+    {
+      "text": "Support creating polls with multiple answers and send response with multiple answers",
+      "source": "CHANGES.md v26.09.1 / PR #7613"
+    }
+  ],
+  "functionalAreas": ["poll_creation", "poll_editing", "vote_selection", "submission", "failure_recovery"],
+  "stateSurfaces": ["PollFormState", "CreatePollPresenter", "PollContentState", "timeline poll UI"],
+  "eventEntrypoints": ["SetMaxSelections", "RemoveAnswer", "Save", "select answer", "sendPollResponse"],
+  "evidence": {
+    "productionPaths": ["features/poll/api/src/main", "features/poll/impl/src/main"],
+    "testPaths": ["features/poll/impl/src/test"],
+    "commits": ["0ad3ab1d9d", "b6ec225e54"]
+  },
+  "nonGoals": ["Changing poll anonymity rules", "Changing poll result percentages", "Adding ranked-choice voting"],
+  "handoff": {
+    "requirement": "../../specs/elementx-spec6-multi-select-polls.md",
+    "evidence": "evidence.json",
+    "transitions": "transitions.json"
+  }
+}

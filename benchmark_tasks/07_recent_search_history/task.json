@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "taskId": "07_recent_search_history",
+  "title": "Persistent recent queries and rooms in global search",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v26.09.2",
+    "baseCommit": "477c81399761c02db99f3ae9447a528f3be4d1d7",
+    "finalRef": "v26.09.3",
+    "finalCommit": "d2ca5629c87e898362b6a907eb22c8922d8fe35b"
+  },
+  "releaseNotes": [
+    {
+      "text": "Add recent search results to global search",
+      "source": "GitHub release v26.09.3 / PR #7742"
+    }
+  ],
+  "functionalAreas": ["search_state", "history_ordering", "persistence", "history_selection", "corruption_recovery"],
+  "stateSurfaces": ["GlobalSearchPresenter", "GlobalSearchState.history", "SearchHistoryStore", "global search UI"],
+  "eventEntrypoints": ["SaveQueryToHistory", "SaveRoomToHistory", "SearchHistoryResultSelected", "clear"],
+  "evidence": {
+    "productionPaths": ["features/home/impl/src/main/kotlin/io/element/android/features/home/impl/search"],
+    "testPaths": ["features/home/impl/src/test/kotlin/io/element/android/features/home/impl/search"],
+    "commits": ["8b1b5560d9"]
+  },
+  "nonGoals": ["Changing server-side message search ranking", "Persisting message result bodies", "Cross-account history sharing"],
+  "handoff": {
+    "requirement": "../../specs/elementx-spec7-recent-search-history.md",
+    "evidence": "evidence.json",
+    "transitions": "transitions.json"
+  }
+}

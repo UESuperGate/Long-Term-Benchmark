@@ -16,13 +16,14 @@ Require the Android `task.json`, public requirement, `transitions.json`, Android
 1. **Freeze source and toolchains.** Record Android and OpenHarmony refs, Android SDK/emulator details, DevEco Studio, OpenHarmony SDK/API, hvigor, ohpm, Node, and JDK versions. Reuse local DevEco/OpenHarmony installations first.
 2. **Inventory the complete client boundary.** Map Android modules and dependencies needed by the task: models, reducers/presenters, repositories, SDK calls, persistence, navigation, UI surfaces, resources, and tests. A partial showcase screen is not a migrated base.
 3. **Build the ArkTS base.** Port the Android base behavior and surrounding prerequisites while intentionally excluding final-only semantics. Preserve unrelated behavior needed to reach and exercise the task. Build and smoke-test the base.
-4. **Build the ArkTS ground-truth final.** Port the Android final delta end to end, including state, events, effects, failure recovery, persistence, navigation, and real rendered surfaces. Do not add semantics absent from Android final.
-5. **Bind the shared contract.** Keep every canonical `caseId`, `given`, `event`, `expected`, and digest unchanged. Add only ArkTS fixture, event, and observation bindings. Platform adapters may translate transport and framework details; they may not redefine expected behavior.
-6. **Generate ArkTS semantic tests.** Prefer runtime observation of production ArkUI state and effects. Stable component IDs may identify product concepts, but candidate code must not expose testcase switches, semantic-fact projections, or evaluator-only reducers.
-7. **Calibrate both platforms.** Require Android base `0/N`, Android final `N/N`, ArkTS base `0/N`, and ArkTS final `N/N`, with identical case IDs/digests and no unscored cases. Run `scripts/validate_transition_parity.py` before accepting the migration.
-8. **Prepare the agent task.** Copy the ArkTS base into an isolated workspace. Supply the public requirement and public transition inputs only. Do not expose final source, private selectors, bindings, or semantic feedback.
-9. **Run agent_result.** Use OpenCode plus MiniMax-M3 by default, allow subagents within the candidate directory, set the task timeout to 3600 seconds, build with project-local hvigor, and score with the evaluator-owned ArkTS adapter. Use the same one-shot and timing rules as `$testgen-skill`.
-10. **Publish benchmark evidence.** Report code generation, compile, and semantic testcase rates for Android and ArkTS. Keep adapter/transport/provider diagnostics separate. Archive version manifests, prompts, diffs, builds, case rows, and overall elapsed time, then clean temporary build and candidate data.
+4. **Replace copied project identity.** Update package names, bundle IDs, version labels, module descriptions, visible strings, and task metadata so no prior benchmark task identity survives in the new base or final project.
+5. **Build the ArkTS ground-truth final.** Port the Android final delta end to end, including state, events, effects, failure recovery, persistence, navigation, and real rendered surfaces. Do not add semantics absent from Android final.
+6. **Bind the shared contract.** Keep every canonical `caseId`, `given`, `event`, `expected`, and digest unchanged. Add only ArkTS fixture, event, and observation bindings. Platform adapters may translate transport and framework details; they may not redefine expected behavior.
+7. **Generate ArkTS semantic tests.** Prefer runtime observation of production ArkUI state and effects. Require evidence that stores, repositories, presenters, navigation, and rendered controls are connected through the real app entry path; dead or demo-only implementations do not satisfy a transition. Stable component IDs may identify product concepts, but candidate code must not expose testcase switches, semantic-fact projections, or evaluator-only reducers.
+8. **Calibrate both platforms.** Require Android base `0/N`, Android final `N/N`, ArkTS base `0/N`, and ArkTS final `N/N`, with identical case IDs/digests and no unscored cases. Run `scripts/validate_transition_parity.py` before accepting the migration.
+9. **Prepare the agent task.** Copy the ArkTS base into an isolated workspace. Supply the public requirement and public transition inputs only. Do not expose final source, private selectors, bindings, or semantic feedback.
+10. **Run agent_result.** Use OpenCode plus MiniMax-M3 by default, allow subagents within the candidate directory, set the task timeout to 3600 seconds, build with project-local hvigor, and score with the evaluator-owned ArkTS adapter. Use the same one-shot and timing rules as `$testgen-skill`. Export candidate-local `PWD`/`OLDPWD`, deny shell wildcard commands that accept absolute paths, and audit logs for any path outside the candidate before accepting the run.
+11. **Publish benchmark evidence.** Report code generation, compile, and semantic testcase rates for Android and ArkTS. Keep adapter/transport/provider diagnostics separate. Archive version manifests, prompts, diffs, builds, case rows, and overall elapsed time, then clean temporary build and candidate data.
 
 ## Correctness Gates
 
@@ -30,6 +31,7 @@ Require the Android `task.json`, public requirement, `transitions.json`, Android
 - Shared transitions are semantically identical across platforms; parity is proved by IDs, normalized clauses, and digests.
 - Base/final polarity is valid on both platforms before any agent score is interpreted.
 - The ArkTS final passes through production behavior, not evaluator markers or hardcoded case responses.
+- Effectful semantics are production-wired; providing an unused file-backed store while the page injects an in-memory fake does not pass persistence cases.
 - The agent sees no external workspace, final implementation, hidden oracle, or semantic failure feedback.
 
 ## Repository Integration

@@ -18,17 +18,25 @@ Produce:
 - normalized `base.json`, `final.json`, and `agent.json` result files.
 - a benchmark summary containing only code generation, compile, and semantic testcase metrics; keep transport, adapter, and provider failures in diagnostics.
 
+Build a canonical contract from a reviewed draft instead of hand-writing digests:
+
+```bash
+python3 scripts/build_transition_contract.py \
+  --input transitions.draft.json \
+  --output transitions.json
+```
+
 ## Workflow
 
-1. **Trace behavior before writing tests.** Compare base and final production code and final tests. Identify state holders, events, effects, persistence/SDK calls, rendering, asynchronous completion, and rollback or cleanup.
+1. **Trace behavior before writing tests.** Compare base and final production code and final tests. Identify state holders, events, effects, persistence/SDK calls, rendering, asynchronous completion, and rollback or cleanup. Resolve every scored boundary value, enum member, default, and capacity from final production code and corroborate it with an upstream test when one exists; record the source path and symbol in task evidence instead of inferring a plausible value.
 2. **Define the canonical transitions.** Give each case a stable ID and atomic `given`, `event`, `expected`, plus invariants and evidence. Cover initial state, success, failure, cancellation, retry/timeout, persistence/restoration, and cross-surface propagation when the feature has them.
 3. **Separate changed from unchanged semantics.** Every scored case must be final-positive and must fail on base for a semantic reason. Put unchanged regressions in a non-polarity diagnostic suite.
-4. **Generate evaluator-owned Android tests.** Prefer runtime state/effect/UI observation through a narrow adapter. Keep fixtures deterministic. Do not let candidate code select outcomes by testcase ID, return oracle facts, or read evaluator files. Compile adapters independently per class or case so one API mismatch cannot hide unrelated results.
+4. **Generate evaluator-owned Android tests.** Prefer runtime state/effect/UI observation through a narrow adapter. Keep fixtures deterministic. For every effectful transition, verify that the implementation is wired into the production entry path; an unused persistent store, repository, presenter, or UI component is not semantic evidence. Do not let candidate code select outcomes by testcase ID, return oracle facts, or read evaluator files. Compile adapters independently per class or case so one API mismatch cannot hide unrelated results.
 5. **Retain exact upstream JUnit only as diagnostics.** It is useful for source fidelity, but an API-shape compile failure is `adapter_failed`, not evidence that the semantic transition failed.
-6. **Calibrate on immutable refs.** Run the same case IDs and transition digests against Android base and final. Require base `0/N` and final `N/N`, with no `not_scored`. Repair the contract or adapter when calibration fails; never hardcode tag checks or markers.
-7. **Run the agent candidate.** Use OpenCode with `minimax-token-plan/MiniMax-M3`, endpoint `https://api.minimaxi.com/v1`, and a 3600-second task timeout. Keep the API key in the user's OpenCode config or an environment variable, never in the skill, repository, prompt, logs, or result bundle. Allow subagents, constrain all exploration to the copied candidate directory, and provide only the public requirement and public transition inputs.
+6. **Calibrate on immutable refs.** Run the same case IDs and transition digests against Android base and final. Require base `0/N` and final `N/N`, with no `not_scored`. A final failure must first trigger a contract-to-source audit: correct any guessed constants or semantics before changing observer rules or migrated code. Repair the contract or adapter when calibration fails; never hardcode tag checks or markers.
+7. **Run the agent candidate.** Use OpenCode with `minimax-token-plan/MiniMax-M3`, endpoint `https://api.minimaxi.com/v1`, and a 3600-second task timeout. Keep the API key in the user's OpenCode config or an environment variable, never in the skill, repository, prompt, logs, or result bundle. Allow subagents, constrain all exploration to the copied candidate directory, and provide only the public requirement and public transition inputs. Set both subprocess `cwd` and exported `PWD`/`OLDPWD` to the candidate. `external_directory: deny` is not sufficient when shell wildcards such as `ls *`, `find *`, or `cat *` permit absolute operands; deny those patterns and allow only fixed project-local commands.
 8. **Score once without semantic feedback.** Build diagnostics may be used for compilation repair. Do not reveal failing semantic cases to the agent or iteratively coach it against the oracle.
-9. **Check discrimination and integrity.** Require all semantic cases to be scored and normally require `0 < agent_passed < N`. If an agent gets `0/N` or `N/N`, audit mutations, missing effects, overly weak assertions, leakage, and task completeness. Do not tune expectations merely to force a middle score.
+9. **Check discrimination and integrity.** Require all semantic cases to be scored and normally require `0 < agent_passed < N`. If an agent gets `0/N` or `N/N`, audit mutations, missing effects, production wiring, overly weak assertions, leakage, and task completeness. A class that implements the requested behavior but is replaced by an in-memory fake or never instantiated in the app must fail the affected transition. Do not tune expectations merely to force a middle score.
 10. **Record and clean up.** Time from overall run start through the last task completion; do not separately add subagent time. Preserve prompts, versions, logs, diffs, build outcome, semantic rows, and digests. Remove build caches, temporary worktrees, unpacked archives, and duplicate candidates after archiving evidence.
 
 Validate normalized results with:

@@ -1,0 +1,87 @@
+{
+  "taskId": "06_multi_select_polls",
+  "description": "Shared Android/ArkTS semantics for creating, editing and voting in multi-select polls",
+  "cases": [
+    {
+      "caseId": "mp_state_001_default_limit",
+      "key": "default_limit",
+      "functionalArea": "poll_creation",
+      "given": {"mode": "new", "answers": ["A", "B"]},
+      "event": {"name": "open_editor"},
+      "expected": {"maxSelections": 1, "maxAllowedSelections": 2, "limitControlVisible": true},
+      "invariants": ["question and answers remain editable"]
+    },
+    {
+      "caseId": "mp_state_002_set_limit",
+      "key": "set_limit",
+      "functionalArea": "poll_creation",
+      "given": {"mode": "new", "answers": ["A", "B", "C"], "maxSelections": 1},
+      "event": {"name": "set_max_selections", "value": 2},
+      "expected": {"maxSelections": 2, "maxAllowedSelections": 3},
+      "invariants": ["answers are unchanged"]
+    },
+    {
+      "caseId": "mp_state_003_remove_clamps_limit",
+      "key": "remove_clamps_limit",
+      "functionalArea": "poll_creation",
+      "given": {"answers": ["A", "B", "C"], "maxSelections": 3},
+      "event": {"name": "remove_answer", "index": 2},
+      "expected": {"answers": ["A", "B"], "maxSelections": 2, "maxAllowedSelections": 2},
+      "invariants": ["maxSelections is at least one"]
+    },
+    {
+      "caseId": "mp_state_004_edit_restores_limit",
+      "key": "edit_restores_limit",
+      "functionalArea": "poll_editing",
+      "given": {"storedPoll": {"answers": ["A", "B", "C"], "maxSelections": 2}},
+      "event": {"name": "open_editor", "mode": "edit"},
+      "expected": {"answers": ["A", "B", "C"], "maxSelections": 2},
+      "invariants": ["stored question and poll kind are restored"]
+    },
+    {
+      "caseId": "mp_state_005_save_sends_limit",
+      "key": "save_sends_limit",
+      "functionalArea": "submission",
+      "given": {"question": "Lunch?", "answers": ["A", "B", "C"], "maxSelections": 2, "valid": true},
+      "event": {"name": "save_poll"},
+      "expected": {"effect": "create_or_edit_poll", "payload": {"answers": ["A", "B", "C"], "maxSelections": 2}},
+      "invariants": ["analytics is emitted only after success"]
+    },
+    {
+      "caseId": "mp_state_006_submit_multiple_answers",
+      "key": "submit_multiple_answers",
+      "functionalArea": "vote_selection",
+      "given": {"poll": {"answerIds": ["a", "b", "c"], "maxSelections": 2}, "selected": ["a", "b"]},
+      "event": {"name": "submit_vote"},
+      "expected": {"effect": "send_poll_response", "answerIds": ["a", "b"]},
+      "invariants": ["answer order is preserved"]
+    },
+    {
+      "caseId": "mp_state_007_limit_disables_unselected",
+      "key": "limit_disables_unselected",
+      "functionalArea": "vote_selection",
+      "given": {"answerIds": ["a", "b", "c"], "selected": ["a", "b"], "maxSelections": 2, "ended": false},
+      "event": {"name": "render_poll"},
+      "expected": {"enabled": ["a", "b"], "disabled": ["c"]},
+      "invariants": ["selected answers remain enabled so they can be deselected"]
+    },
+    {
+      "caseId": "mp_state_008_deselect_reopens_choices",
+      "key": "deselect_reopens_choices",
+      "functionalArea": "vote_selection",
+      "given": {"answerIds": ["a", "b", "c"], "selected": ["a", "b"], "maxSelections": 2},
+      "event": {"name": "toggle_answer", "answerId": "a"},
+      "expected": {"selected": ["b"], "enabled": ["a", "b", "c"]},
+      "invariants": ["selection count never exceeds maxSelections"]
+    },
+    {
+      "caseId": "mp_state_009_failure_keeps_selection",
+      "key": "failure_keeps_selection",
+      "functionalArea": "failure_recovery",
+      "given": {"selected": ["a", "b"], "submission": "loading"},
+      "event": {"name": "send_poll_response_failed"},
+      "expected": {"selected": ["a", "b"], "submission": "failure", "retryEnabled": true},
+      "invariants": ["no success analytics is emitted"]
+    }
+  ]
+}

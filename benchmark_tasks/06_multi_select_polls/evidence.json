@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "taskId": "06_multi_select_polls",
+  "releaseEvidence": {
+    "source": "Element X Android v26.09.1 CHANGES.md",
+    "entry": "Support creating polls with multiple answers and send response with multiple answers",
+    "pullRequest": "https://github.com/element-hq/element-x-android/pull/7613"
+  },
+  "implementationEvidence": {
+    "commits": ["0ad3ab1d9d", "b6ec225e54"],
+    "changedFiles": 49,
+    "insertions": 276,
+    "deletions": 79,
+    "symbols": [
+      "CreatePollEvent.SetMaxSelections",
+      "PollFormState.maxSelections",
+      "PollFormState.removeAnswer",
+      "CreatePollPresenter",
+      "DefaultSendPollResponseAction.execute",
+      "DefaultPollContentStateFactory.create",
+      "PollContentState.maxSelections"
+    ],
+    "productionPaths": [
+      "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/create",
+      "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/actions/DefaultSendPollResponseAction.kt",
+      "features/poll/impl/src/main/kotlin/io/element/android/features/poll/impl/model/DefaultPollContentStateFactory.kt",
+      "features/poll/api/src/main/kotlin/io/element/android/features/poll/api/pollcontent"
+    ],
+    "testPaths": [
+      "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/create/CreatePollPresenterTest.kt",
+      "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/create/PollFormStateSaverTest.kt",
+      "features/poll/impl/src/test/kotlin/io/element/android/features/poll/impl/pollcontent/PollContentStateFactoryTest.kt"
+    ]
+  },
+  "baseFailureEvidence": [
+    "The base has no SetMaxSelections event or persisted maxSelections form state.",
+    "The base sends exactly one answerId by wrapping it in listOf(answerId).",
+    "The base enables every answer in an active poll and cannot enforce a multi-selection limit."
+  ],
+  "longHorizonSignals": [
+    "The feature changes creation, editing, persistence, timeline rendering and SDK submission.",
+    "The maximum must remain valid when answers are removed and when an existing poll is edited.",
+    "Voting requires reversible selection state, limit enforcement, multiple-ID submission and failure recovery."
+  ],
+  "rawEvidence": "raw_release_evidence.json"
+}
