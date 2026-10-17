@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "taskId": "17_pinned_messages",
+  "android": {
+    "roots": ["features/messages/impl/src/main/kotlin"],
+    "cases": {
+      "pm_state_001_open_loading": [
+        {"options": [{"path": ".*pinned/PinnedEventsTimelineProvider\\.kt$", "patterns": ["class PinnedEventsTimelineProvider", "AsyncData\\.Loading", "room\\.pinnedEventsTimeline\\(\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["room\\.pinnedEventsTimeline\\(\\)", "!hasFirstEmit", "PinnedMessagesState\\.Loading"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListNode\\.kt$", "patterns": ["PinnedMessagesListView\\(", "presenter\\.present\\(\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesNode\\.kt$", "patterns": ["presenter\\.present\\(\\)", "PinnedMessagesView\\(", "onViewInTimelineClick"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_002_load_failure": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["is AsyncData\\.Failure", "PinnedMessagesListState\\.Failed"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["openResult\\.isFailure", "initialErrorFlow\\.value", "PinnedMessagesState\\.Failure"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListView\\.kt$", "patterns": ["PinnedMessagesListState\\.Failed", "ErrorDialog\\("], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesView\\.kt$", "patterns": ["PinnedMessagesState\\.Failure", "PinnedMessagesFailureView", "PinnedMessagesEvents\\.Retry"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_003_empty_success": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["is AsyncData\\.Success", "timelineItems\\.data\\.isEmpty\\(\\)", "PinnedMessagesListState\\.Empty"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["hasFirstEmit", "items\\.isEmpty\\(\\)", "PinnedMessagesState\\.Empty"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListView\\.kt$", "patterns": ["PinnedMessagesListState\\.Empty", "PinnedMessagesListEmpty\\(\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesView\\.kt$", "patterns": ["PinnedMessagesState\\.Empty", "PinnedMessagesEmptyView", "screen_pinned_timeline_empty_state"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_004_filled_list": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["timelineItemsFactory\\.replaceWith", "PinnedMessagesListState\\.Filled", "timelineItems = timelineItems\\.data"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["timelineItemsFactory\\.replaceWith", "filterIsInstance<TimelineItem\\.Event>", "PinnedMessagesState\\.Loaded"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListState\\.kt$", "patterns": ["loadedPinnedMessagesCount", "TimelineItem\\.Event"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesView\\.kt$", "patterns": ["items\\(items, key = \\{ it\\.eventId", "PinnedItemRow\\(", "event\\.eventId\\?\\.let"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_005_unpin_permission_denied": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["canPinUnpin = room\\.canPinUnpin", "UserEventPermissions"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["canPinUnpin = room\\.canPinUnpin", "canAct = canPinUnpin", "if \\(!canAct\\)"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListTimelineActionPostProcessor\\.kt$", "patterns": ["add\\(TimelineItemAction\\.ViewInTimeline\\)", "actions\\.firstOrNull.*TimelineItemAction\\.Unpin"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesView\\.kt$", "patterns": ["action_view_in_timeline", "if \\(canPinUnpin\\)", "action_unpin"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_006_unpin_permission_allowed": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["canPinUnpin = room\\.canPinUnpin", "actionListPresenter"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["canPinUnpin = room\\.canPinUnpin", "PinnedMessagesEvents\\.Unpin", "currentTimeline\\.unpinEvent"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListTimelineActionPostProcessor\\.kt$", "patterns": ["TimelineItemAction\\.Unpin", "let\\(::add\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesView\\.kt$", "patterns": ["if \\(canPinUnpin\\)", "onClick = onUnpin", "enabled = !isUnpinInFlight"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_007_view_in_timeline": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["TimelineItemAction\\.ViewInTimeline", "navigator\\.onViewInTimelineClick\\(eventId\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["override fun onViewInTimeline", "backstack\\.pop\\(\\)", "timelineController\\.focusOnEvent\\(eventId\\)"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListNode\\.kt$", "patterns": ["override fun onViewInTimelineClick", "callbacks\\.forEach.*onViewInTimelineClick"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesNode\\.kt$", "patterns": ["callbacks\\.forEach \\{ it\\.onViewInTimeline\\(eventId\\) \\}", "navigateUp\\(\\)", "onViewInTimelineClick"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_008_unpin_success": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["handleUnpinAction", "unpinEvent\\(targetEvent\\.eventId\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["canAct = canPinUnpin", "currentTimeline\\.unpinEvent\\(targetEventId\\)", "unpinInFlight = null"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListView\\.kt$", "patterns": ["PinnedMessagesListEvents\\.HandleAction", "onActionSelected"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesView\\.kt$", "patterns": ["PinnedMessagesEvents\\.Unpin\\(eventId\\)", "action_unpin", "enabled = !isUnpinInFlight"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_009_unpin_failure_recovery": [
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["unpinEvent\\(targetEvent\\.eventId\\)", "onFailure", "snackbarDispatcher\\.post"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesPresenter\\.kt$", "patterns": ["result\\.isFailure", "unpinError = \"unpin_failed\"", "unpinInFlight = null"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pinned/list/PinnedMessagesListPresenter\\.kt$", "patterns": ["SnackbarMessage\\(CommonStrings\\.common_error\\)", "invokeOnTimeline"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pinned/PinnedMessagesView\\.kt$", "patterns": ["state\\.unpinError != null", "state\\.unpinInFlight == null", "PinnedMessagesEvents\\.Unpin\\(eventId\\)"], "forbid": ["pm_state_|testcase"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "pm_state_001_open_loading": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["openPinnedMessages", "PinnedMessagesListState\\.Loading", "openPinnedTimeline"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["beginPinnedList\\(\\)", "PinnedListState\\.LOADING", "loadInitialPinnedPage"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["open_pinned_messages", "this\\.openPinnedMessages\\(\\)", "pinned_messages_loading"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["RoomStore\\.shared\\(\\)\\.beginPinnedList\\(\\)", "router\\.pushUrl", "pages/PinnedMessagesPage"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_002_load_failure": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["PinnedMessagesListState\\.Failed", "retryEnabled = true", "catch"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["failureForNextLoad", "PinnedListState\\.FAILED", "loadFailureMessage"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["pinned_messages_failed", "Unable to load pinned messages", "pinned_messages_retry"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/PinnedMessagesPage\\.ets$", "patterns": ["PinnedListState\\.FAILED", "FailedState\\(\\)", "loadInitialPinnedPage\\(\\)"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_003_empty_success": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["messages\\.length === 0", "PinnedMessagesListState\\.Empty"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["items\\.length === 0", "PinnedListState\\.EMPTY", "loadInitialPinnedPage"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["pinned_messages_empty", "No pinned messages"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/PinnedMessagesPage\\.ets$", "patterns": ["PinnedListState\\.EMPTY", "EmptyState\\(\\)", "No pinned messages"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_004_filled_list": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["PinnedMessagesListState\\.Filled", "this\\.pinnedMessages = messages"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["serverPinned\\.slice", "this\\.pinnedList\\.items = items", "PinnedListState\\.FILLED"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["ForEach\\(this\\.pinnedMessages", "message\\.eventId", "pinned_messages_filled"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/PinnedMessagesPage\\.ets$", "patterns": ["ForEach\\(RoomStore\\.shared\\(\\)\\.pinnedList\\.items", "item\\.eventId", "pinned_list"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_005_unpin_permission_denied": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["availableActions", "if \\(this\\.canPinUnpin\\)", "actions\\.push\\('unpin'\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["if \\(!this\\.state\\.canPinUnpin\\)", "unpinEvent\\(eventId", "return;"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["if \\(this\\.canPinUnpin\\)", "View in timeline"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/PinnedMessagesPage\\.ets$", "patterns": ["Button\\('View in timeline'\\)", "if \\(RoomStore\\.shared\\(\\)\\.state\\.canPinUnpin\\)", "Button\\(RoomStore\\.shared\\(\\)\\.pinnedList\\.unpinStatus"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_006_unpin_permission_allowed": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["setPermission", "canPinUnpin", "actions\\.push\\('unpin'\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["setCanPinUnpin", "this\\.state\\.canPinUnpin", "unpinEvent\\(eventId"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Button\\('Unpin'\\)", "this\\.unpin\\(message\\.eventId\\)"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/PinnedMessagesPage\\.ets$", "patterns": ["if \\(RoomStore\\.shared\\(\\)\\.state\\.canPinUnpin\\)", "'Unpin'", "this\\.unpinItem\\(item\\)"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_007_view_in_timeline": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["viewInTimeline", "this\\.focusedEventId = eventId"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["focusEventInTimeline\\(eventId", "this\\.state\\.focusedEventId = eventId", "notifyChanged\\(\\)"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["this\\.presenter\\.viewInTimeline\\(eventId\\)", "this\\.screen = 'room_timeline'", "focused_event_label"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/PinnedMessagesPage\\.ets$", "patterns": ["focusEventInTimeline\\(item\\.eventId\\)", "router\\.back\\(\\)", "View in timeline"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_008_unpin_success": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["async unpinEvent", "persistPinnedState", "filter.*eventId !== eventId"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["this\\.presenter\\.unpin", "syncPresenterState", "Button\\('Unpin'\\)"], "forbid": ["pm_state_|testcase"]}]}
+      ],
+      "pm_state_009_unpin_failure_recovery": [
+        {"options": [{"path": ".*features/PinnedMessagesFeature\\.ets$", "patterns": ["const previous = this\\.pinnedMessages\\.slice", "this\\.pinnedMessages = previous", "this\\.retryEnabled = true"], "forbid": ["pm_state_|testcase"]}, {"path": ".*features/PinnedMessagesBase\\.ets$", "patterns": ["failureForUnpin\\.has\\(eventId\\)", "UnpinStatus\\.FAILED", "retryLastFailedUnpin", "this\\.unpinEvent\\(eventId\\)"], "forbid": ["pm_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["unpin_error", "dismiss_unpin_error", "presenter\\.dismissError"], "forbid": ["pm_state_|testcase"]}, {"path": ".*pages/PinnedMessagesPage\\.ets$", "patterns": ["UnpinStatus\\.FAILED", "UnpinFailureBar\\(\\)", "retryLastFailedUnpin\\(\\)"], "forbid": ["pm_state_|testcase"]}]}
+      ]
+    }
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "taskId": "08_threads",
+  "android": {
+    "roots": [
+      "features/messages/impl/src/main/kotlin",
+      "libraries/matrix/api/src/main/kotlin",
+      "libraries/matrix/impl/src/main/kotlin",
+      "libraries/mediaupload/api/src/main/kotlin"
+    ],
+    "cases": {
+      "th_state_001_open_thread": [
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["CreateTimelineParams\\.Threaded", "threadRootEventId", "MessagesView"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*TimelineController\\.kt$", "patterns": ["focusOnThread", "CreateTimelineParams\\.ThreadedRoot", "threadRootFlow\\.value = ThreadId"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*TimelineController\\.kt$", "patterns": ["suspend fun focusOnThread", "CreateTimelineParams\\.Threaded", "return focusOn"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*MessagesFlowNode\\.kt$", "patterns": ["NavTarget\\.OpenThread", "ThreadedMessagesNode\\.Inputs", "createNode<ThreadedMessagesNode>"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["NavTarget\\.Thread", "MessagesNode\\.Inputs\\(focusedEventId = navTarget\\.threadRootEventId, isThread = true\\)", "createNode<MessagesNode>"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["is NavTarget\\.Thread", "MessagesNode\\.Inputs", "threadRootId = navTarget\\.threadRootId", "createNode<MessagesNode>"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_002_focus_reply": [
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["focusedEventId", "TimelineEvents\\.FocusOnEvent", "rememberSaveable"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["rememberSaveable", "inputs\\.focusedEventId", "TimelineEvents\\.FocusOnEvent"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["state\\.timelineState\\.eventSink", "LaunchedEffect", "focusedEventId = null"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["focusOnThread", "state\\.timelineState\\.eventSink", "focusedEventId = null"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_003_focus_failure_preserves_thread": [
+        {"options": [{"path": ".*TimelineController\\.kt$", "patterns": ["suspend fun focusOnEvent", "CreateTimelineParams\\.Focused", "onFailure", "CancellationException"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["TimelineController\\(room, threadedTimeline\\)", "TimelineEvents\\.FocusOnEvent"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["isThread", "TimelineEvents\\.FocusOnThread", "state\\.timelineState\\.eventSink"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["focusOnThread", "TimelineEvents\\.FocusOnEvent", "state\\.timelineState\\.eventSink"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_004_send_thread_message": [
+        {"options": [{"path": ".*MessageComposerPresenter\\.kt$", "patterns": ["invokeOnCurrentTimeline", "sendMessage\\(", "resetComposer"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["messageComposerPresenterFactory\\.create\\(timelineController", "MessagesView"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["messageComposerPresenterFactory\\.create\\(this\\)", "isThread", "MessagesView"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["messageComposerPresenterFactory\\.create\\(this\\)", "threadRootId", "MessagesView"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_005_reply_remote_event": [
+        {"options": [{"path": ".*MessagesPresenter\\.kt$", "patterns": ["threadInfo\\.threadRootId", "navigator\\.onOpenThread", "toThreadId"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*MessageComposerPresenter\\.kt$", "patterns": ["MessageComposerMode\\.Reply", "replyMessage\\(", "invokeOnCurrentTimeline"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*MessagesFlowNode\\.kt$", "patterns": ["override fun onOpenThread", "backstack\\.push\\(NavTarget\\.OpenThread"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["override fun onOpenThread", "backstack\\.newRoot\\(NavTarget\\.Thread", "MessagesNode\\.Inputs"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["is NavTarget\\.Thread", "MessagesNode\\.Inputs", "threadRootId = navTarget\\.threadRootId", "createNode<MessagesNode>"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_006_send_thread_attachment": [
+        {"options": [{"path": ".*MessagesFlowNode\\.kt$", "patterns": ["onPreviewAttachments", "Timeline\\.Mode\\.Thread", "NavTarget\\.AttachmentPreview"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["onPreviewAttachments", "Timeline\\.Mode\\.THREAD", "backstack\\.push\\(NavTarget\\.AttachmentPreview"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["onPreviewAttachment", "callbacks\\.forEach", "MessagesView"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["onPreviewAttachment", "callbacks\\.forEach", "MessagesView"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_007_restore_nested_context": [
+        {"options": [{"path": ".*MessagesFlowNode\\.kt$", "patterns": ["NavTarget\\.AttachmentPreview", "Timeline\\.Mode\\.Thread", "backstack\\.push"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["NavTarget\\.AttachmentPreview", "Timeline\\.Mode\\.THREAD", "backstack\\.push"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["is NavTarget\\.Thread", "onPreviewAttachments", "backstack\\.push\\(NavTarget\\.AttachmentPreview"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["MessageComposerEvents\\.SaveDraft", "Lifecycle\\.Event\\.ON_PAUSE", "messageComposerPresenterFactory"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["MessageComposerEvents\\.SaveDraft", "Lifecycle\\.Event\\.ON_PAUSE", "messageComposerPresenterFactory"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_008_retry_failed_send": [
+        {"options": [{"path": ".*MessageComposerPresenter\\.kt$", "patterns": ["sendMessage", "onFailure", "CancellationException"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["SendActionState\\.Failure", "ReadyToUpload", "sendPreProcessedMedia"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["messageComposerPresenterFactory\\.create\\(timelineController", "MessagesView"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["messageComposerPresenterFactory\\.create\\(this\\)", "isThread", "MessagesView"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_009_back_isolates_room": [
+        {"options": [{"path": ".*ThreadedMessagesNode\\.kt$", "patterns": ["private val threadedTimeline", "private val timelineController", "override fun onOpenThread"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*MessagesNode\\.kt$", "patterns": ["DisposableEffect", "threadRootId = null", "focusOnLive"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*MessagesFlowNode\\.kt$", "patterns": ["is NavTarget\\.OpenThread", "ThreadedMessagesNode\\.Inputs", "createNode<ThreadedMessagesNode>"], "forbid": ["state_probe_snapshot"]}, {"path": ".*MessagesFlowNode\\.kt$", "patterns": ["is NavTarget\\.Thread", "MessagesNode\\.Inputs", "createNode<MessagesNode>"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "th_state_001_open_thread": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["openThread\\(", "threadRootId", "ThreadSurface\\.Thread", "threadEvents"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*ThreadTimelineFeature\\.ets$", "patterns": ["openThread\\(", "threadRootId = rootEventId", "visibleEvents", "ComposerSurface\\.Thread"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.openThread", "room_event_", "ThreadSurface\\.Room"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["openThreadFor", "threadPresenter\\.openThread", "threadComposerSurface = 'thread'"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_002_focus_reply": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["focusEvent\\(", "threadEvents\\.includes", "ThreadFocusState\\.Success"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*ThreadTimelineFeature\\.ets$", "patterns": ["focusEvent\\(", "events\\.indexOf\\(eventId\\)", "gateway\\.focusEvent", "focusedEventId = eventId"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.focusEvent", "thread_focus_state", "ForEach\\(this\\.threadEvents"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["focusThreadEvent", "threadPresenter\\.focusEvent", "threadFocusedEventId = eventId"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_003_focus_failure_preserves_thread": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["ThreadFocusState\\.Failure", "return false", "focusedEventId"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.focusEvent", "focusState", "threadEvents"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "th_state_004_send_thread_message": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["sendMessage\\(", "gateway\\.sendMessage", "this\\.threadRootId", "composerText = ''"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*ThreadTimelineFeature\\.ets$", "patterns": ["sendMessage\\(", "gateway\\.sendThreadMessage", "sendState = RoomSendState\\.Success", "composerText = ''"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["thread_send", "presenter\\.sendMessage", "thread_composer"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["thread_send", "threadPresenter\\.sendMessage", "thread_composer"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_005_reply_remote_event": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["setReplyTarget", "lastReplyTargetId", "reply_message", "replyTargetId = ''"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*ThreadTimelineFeature\\.ets$", "patterns": ["setReplyTarget", "gateway\\.sendThreadMessage", "lastReplyTargetId", "replyTargetId = null"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.setReplyTarget", "thread_reply_target", "presenter\\.sendMessage"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["thread_reply_target", "threadPresenter\\.setReplyTarget", "sendThreadReply"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_006_send_thread_attachment": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["sendAttachment\\(", "send_attachment", "lastThreadRootId"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*ThreadTimelineFeature\\.ets$", "patterns": ["sendAttachment\\(", "gateway\\.sendThreadAttachment", "lastAttachmentId", "lastThreadRootId"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["thread_send_attachment", "presenter\\.sendAttachment", "thread_attachment_preview"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["thread_send_attachment", "sendThreadAttachment", "threadPresenter\\.sendAttachment"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_007_restore_nested_context": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["openAttachmentPreview", "returnToThread", "ThreadSurface\\.AttachmentPreview", "threadRootId"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*ThreadTimelineFeature\\.ets$", "patterns": ["openNestedSurface", "returnToThread", "composerSurface = ComposerSurface\\.Thread", "composerText", "replyTargetId"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["return_to_thread", "presenter\\.returnToThread", "presenter\\.openAttachmentPreview"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["openNested", "returnToThreadSurface", "threadPresenter\\.returnToThread", "threadComposerSurface = 'thread'"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "th_state_008_retry_failed_send": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["failNextSend", "ThreadSendState\\.Failure", "retrySend", "attempts"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Fail next", "presenter\\.retrySend", "Send failed; draft kept"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "th_state_009_back_isolates_room": [
+        {"options": [{"path": ".*ThreadFeature\\.ets$", "patterns": ["navigateBack", "ThreadSurface\\.Room", "threadRootId = ''", "focusedEventId = ''"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*ThreadTimelineFeature\\.ets$", "patterns": ["closeThread", "threadRootId = ''", "focusedEventId = null", "composerSurface = ComposerSurface\\.Room"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["thread_back", "presenter\\.navigateBack", "ThreadSurface\\.Room"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["thread_back_to_room", "navigateBackFromThread", "threadPresenter\\.closeThread", "threadComposerSurface = 'room'"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ]
+    }
+  }
+}

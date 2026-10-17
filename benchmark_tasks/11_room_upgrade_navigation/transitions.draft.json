@@ -1,0 +1,66 @@
+{
+  "taskId": "11_room_upgrade_navigation",
+  "description": "Shared Android/ArkTS semantics for rendering and navigating room-upgrade relationships",
+  "cases": [
+    {
+      "caseId": "ru_state_002_tombstone_is_read_only",
+      "key": "tombstone_is_read_only",
+      "functionalArea": "tombstone_state",
+      "given": {"roomId": "!old:example.org", "history": ["Earlier message"], "successorRoomId": "!new:example.org", "composerEnabled": true},
+      "event": {"name": "render_messages"},
+      "expected": {"history": ["Earlier message"], "composerVisible": false, "successorBannerVisible": true},
+      "invariants": ["existing room history remains visible"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt"]}
+    },
+    {
+      "caseId": "ru_state_003_open_successor",
+      "key": "open_successor",
+      "functionalArea": "navigation",
+      "given": {"currentRoomId": "!old:example.org", "successorRoomId": "!new:example.org"},
+      "event": {"name": "open_successor_room"},
+      "expected": {"effect": "navigate_to_room", "roomId": "!new:example.org", "navigationState": "success"},
+      "invariants": ["the old room history is not mutated"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt"]}
+    },
+    {
+      "caseId": "ru_state_005_room_list_tombstone_preview",
+      "key": "room_list_tombstone_preview",
+      "functionalArea": "room_list_preview",
+      "given": {"roomId": "!old:example.org", "lastMessage": "Earlier message", "successorRoomId": "!new:example.org"},
+      "event": {"name": "render_room_list_summary"},
+      "expected": {"isTombstoned": true, "preview": "room_replaced", "avatarMarkedTombstoned": true},
+      "invariants": ["the underlying last message is retained"],
+      "evidence": {"androidProduction": ["features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/datasource/RoomListRoomSummaryFactory.kt", "features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomSummaryRow.kt"]}
+    },
+    {
+      "caseId": "ru_state_006_map_predecessor",
+      "key": "map_predecessor_metadata",
+      "functionalArea": "room_metadata_mapping",
+      "given": {"roomId": "!new:example.org", "predecessor": {"roomId": "!old:example.org", "lastEventId": "$last:example.org"}},
+      "event": {"name": "observe_timeline_room_info"},
+      "expected": {"predecessorRoom": {"roomId": "!old:example.org", "lastEventId": "$last:example.org"}},
+      "invariants": ["the predecessor event identifier is preserved"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenter.kt", "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/tombstone/PredecessorRoom.kt"]}
+    },
+    {
+      "caseId": "ru_state_007_predecessor_banner",
+      "key": "predecessor_banner",
+      "functionalArea": "predecessor_timeline_link",
+      "given": {"roomId": "!new:example.org", "predecessorRoomId": "!old:example.org"},
+      "event": {"name": "render_room_beginning"},
+      "expected": {"predecessorBannerVisible": true, "historyVisible": true},
+      "invariants": ["the ordinary room-beginning content remains visible"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt"]}
+    },
+    {
+      "caseId": "ru_state_008_open_predecessor",
+      "key": "open_predecessor",
+      "functionalArea": "navigation",
+      "given": {"currentRoomId": "!new:example.org", "predecessor": {"roomId": "!old:example.org", "lastEventId": "$last:example.org"}},
+      "event": {"name": "open_predecessor_room"},
+      "expected": {"effect": "navigate_to_room", "roomId": "!old:example.org", "navigationState": "success"},
+      "invariants": ["the predecessor event id remains available in timeline metadata"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineEvents.kt"]}
+    }
+  ]
+}

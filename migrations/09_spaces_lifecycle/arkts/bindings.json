@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "taskId": "09_spaces_lifecycle",
+  "canonicalContract": "../canonical/transitions.json",
+  "cases": [
+    {
+      "caseId": "sp_state_001_open_space",
+      "traceDigest": "5031e634ed571cc5f31bb38df86b4e3df9dcd2b29045dee14e9722d353c7931c",
+      "fixture": {
+        "joinedSpaces": [
+          "!space"
+        ],
+        "selectedSpaceId": null
+      },
+      "eventEntrypoint": {
+        "name": "open_space",
+        "spaceId": "!space"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_002_paginate_children",
+      "traceDigest": "ca25230e5347452e118ea36ae74f5ef2bae6e3616f355b09a9d2ceb9deb56932",
+      "fixture": {
+        "children": [
+          "!a",
+          "!b"
+        ],
+        "hasMoreToLoad": true
+      },
+      "eventEntrypoint": {
+        "name": "load_more",
+        "page": [
+          "!b",
+          "!c"
+        ]
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*SpacesPresenter\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_003_join_child_success",
+      "traceDigest": "d2a2f922ddb410c597f4d3c62077a25d4edbc47509893137f3290de252235c94",
+      "fixture": {
+        "children": [
+          {
+            "roomId": "!a",
+            "membership": null
+          },
+          {
+            "roomId": "!b",
+            "membership": null
+          }
+        ],
+        "joinActions": {}
+      },
+      "eventEntrypoint": {
+        "name": "join_child",
+        "roomId": "!a",
+        "result": "success"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*SpacesPresenter\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_004_join_failure_retry",
+      "traceDigest": "1456999016f97381098ca180378c02ebbccca8ec178c939a62eeb544b2d43dd4",
+      "fixture": {
+        "joinActions": {
+          "!a": "failure",
+          "!b": "loading"
+        },
+        "memberships": {
+          "!a": null,
+          "!b": null
+        }
+      },
+      "eventEntrypoint": {
+        "name": "clear_failure_then_retry",
+        "roomId": "!a",
+        "result": "success"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_005_accept_invite",
+      "traceDigest": "14dbe856aaf84f5cc940ec12ee69aed4a884288a14756d342054309432da880f",
+      "fixture": {
+        "spaceInvites": [
+          "!invited"
+        ],
+        "seenInvites": []
+      },
+      "eventEntrypoint": {
+        "name": "accept_invite",
+        "spaceId": "!invited"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*SpacesPresenter\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_006_default_leave_selection",
+      "traceDigest": "aac1c6b8a362a8ec39ccd2fc66a248d8d912924c903666479a6b4eb4faf57a6b",
+      "fixture": {
+        "spaceId": "!space",
+        "children": [
+          {
+            "roomId": "!normal",
+            "isDirect": false,
+            "isLastAdmin": false
+          },
+          {
+            "roomId": "!admin",
+            "isDirect": false,
+            "isLastAdmin": true
+          },
+          {
+            "roomId": "!dm",
+            "isDirect": true,
+            "isLastAdmin": false
+          }
+        ]
+      },
+      "eventEntrypoint": {
+        "name": "open_leave_space"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*SpacesPresenter\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_007_bulk_and_toggle_selection",
+      "traceDigest": "2d2cc288c89339c3b5e71b692f01b6dec28c2ac1e0522cab1f7b2a85b763ff36",
+      "fixture": {
+        "eligibleRoomIds": [
+          "!a",
+          "!b"
+        ],
+        "lastAdminRoomIds": [
+          "!admin"
+        ],
+        "selectedRoomIds": [
+          "!a"
+        ]
+      },
+      "eventEntrypoint": {
+        "name": "deselect_all_select_all_toggle",
+        "roomId": "!b"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*SpacesPresenter\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_008_leave_failure_retry",
+      "traceDigest": "5e887f899a885fbea5e1f8dbd6240ee9ea166b74d27c009b3854607233c19a35",
+      "fixture": {
+        "spaceId": "!space",
+        "selectedRoomIds": [
+          "!a"
+        ],
+        "leaveState": "idle"
+      },
+      "eventEntrypoint": {
+        "name": "leave_failure_then_retry",
+        "secondResult": "success"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "sp_state_009_leave_selected_rooms",
+      "traceDigest": "70bbbfc920ebc8eea403219bbf2f808bf28f895bf3fc22a238a9a2fc2599ff1a",
+      "fixture": {
+        "spaceId": "!space",
+        "selectedRoomIds": [
+          "!a",
+          "!c"
+        ],
+        "leaveState": "idle"
+      },
+      "eventEntrypoint": {
+        "name": "confirm_leave",
+        "result": "success"
+      },
+      "observations": [
+        ".*SpacesFeature\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    }
+  ]
+}

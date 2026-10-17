@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "10_media_upload_quality",
+  "releaseEvidence": ["CHANGES.md v25.08.3: Add media file limit size warning and media quality selection"],
+  "implementationEvidence": {
+    "symbols": ["DefaultMediaOptimizationSelectorPresenter", "MediaOptimizationSelectorState", "VideoMetadataExtractor", "VideoUploadEstimation", "MediaSender"],
+    "productionPaths": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments", "libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api"],
+    "testPaths": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/attachments/video/DefaultMediaOptimizationSelectorPresenterTest.kt", "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/attachments/AttachmentsPreviewPresenterTest.kt", "libraries/mediaupload/api/src/test/kotlin/io/element/android/libraries/mediaupload/api/MediaSenderTest.kt"]
+  },
+  "baseFailureEvidence": ["The base has no media optimization selector state or quality-selection events.", "The base cannot compare estimated video outputs with the homeserver maximum upload size.", "The base cannot disable sending or explain that every available quality exceeds the limit."],
+  "longHorizonSignals": ["The task combines asynchronously loaded server limits, metadata extraction, size estimation, persisted defaults, preview UI, and send validation.", "Invalid or unavailable presets must not replace the current valid choice.", "The implementation commit changes 174 files and includes 43 test files."],
+  "rawEvidence": "raw_release_evidence.json"
+}

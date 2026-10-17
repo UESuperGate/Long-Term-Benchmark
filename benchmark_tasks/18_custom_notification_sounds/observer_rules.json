@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "taskId": "18_custom_notification_sounds",
+  "android": {
+    "roots": ["features/preferences/impl/src/main/kotlin", "libraries/preferences", "libraries/push"],
+    "cases": {
+      "ns_state_001_restore_independent_slots": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["getMessageSoundFlow", "getCallRingtoneFlow", "messageSoundDisplayName", "callRingtoneDisplayName"], "forbid": ["ns_state_|testcase"]}, {"path": ".*sound/NotificationSoundsService\\.kt$", "patterns": ["getMessageSoundConfigFlow\\(\\)", "getCallRingtoneConfigFlow\\(\\)", "messageState\\.value", "callState\\.value"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*NotificationSound\\.kt$", "patterns": ["sealed interface NotificationSound", "SystemDefault", "ElementDefault", "Silent", "Custom"], "forbid": ["ns_state_|testcase"]}, {"path": ".*sound/NotificationSoundConfig\\.kt$", "patterns": ["sealed interface NotificationSoundConfig", "SystemDefault", "BundledPreset", "Custom", "Silent"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_002_message_preset": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["SelectMessageSoundPreset", "applyMessageSound", "recreateNoisyChannel"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*DefaultAppPreferencesStore\\.kt$", "patterns": ["setMessageSoundAndIncrementVersion", "messageSoundChannelVersionKey", "messageSoundDisplayNameKey"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_003_message_picker_launch": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["pendingMessageSoundPickerLaunch", "LaunchMessageSoundPicker", "showMessageSoundDialog = false"], "forbid": ["ns_state_|testcase"]}, {"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["registerFilePicker", "messagePickerToken", "messageSoundPicker\\.launch\\(\\)", "NotifySoundPicked\\(NotificationSoundSlotId\\.MESSAGE"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*NotificationSettingsView\\.kt$", "patterns": ["pendingMessageSoundPickerLaunch", "SetMessageSound", "rememberSoundPickerOnClick"], "forbid": ["ns_state_|testcase"]}, {"path": ".*NotificationSettingsView\\.kt$", "patterns": ["onDismissSoundDialog\\(NotificationSoundSlotId\\.MESSAGE\\)", "onLaunchSoundPicker\\(NotificationSoundSlotId\\.MESSAGE\\)", "onSelectCustom"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_004_message_custom_copy": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["copyToAppFiles", "SoundSlot\\.Message", "recreateNoisyChannel"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*DefaultNotificationSoundCopier\\.kt$", "patterns": ["class DefaultNotificationSoundCopier", "copyToAppFiles", "FileProvider\\.getUriForFile", "CopyResult\\.Success", "displayName"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_005_message_copy_failure": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["messageSoundCopyError = true", "CopyResult\\.Failure", "return@withLock"], "forbid": ["ns_state_|testcase"]}, {"path": ".*sound/NotificationSoundsService\\.kt$", "patterns": ["copyToAppStorage\\(picked, slot\\.tag\\(\\)\\)", "onFailure = \\{ error ->", "action\\.value = AsyncAction\\.Failure\\(error\\)", "NotificationSoundSlotId\\.MESSAGE -> messageAction"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*NotificationSettingsView\\.kt$", "patterns": ["messageSound\\.copyError", "DismissMessageSoundCopyError"], "forbid": ["ns_state_|testcase"]}, {"path": ".*NotificationSettingsView\\.kt$", "patterns": ["state\\.sounds\\.messageError\\?\\.let", "ErrorDialog\\(", "DismissSoundError\\(error\\.slot\\)"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_006_call_preset": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["SelectCallRingtonePreset", "applyCallRingtone", "recreateRingingCallChannel"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*DefaultAppPreferencesStore\\.kt$", "patterns": ["setCallRingtoneAndIncrementVersion", "callRingtoneChannelVersionKey", "callRingtoneDisplayNameKey"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_007_call_custom_copy": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["copyToAppFiles", "SoundSlot\\.Call", "recreateRingingCallChannel"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*DefaultNotificationSoundCopier\\.kt$", "patterns": ["SoundSlot\\.Call", "copyToAppFiles", "FileProvider\\.getUriForFile", "CopyResult\\.Success"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_008_call_copy_failure": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["callRingtoneCopyError = true", "DismissCallRingtoneCopyError", "CopyResult\\.Failure"], "forbid": ["ns_state_|testcase"]}, {"path": ".*sound/NotificationSoundsService\\.kt$", "patterns": ["copyToAppStorage\\(picked, slot\\.tag\\(\\)\\)", "onFailure = \\{ error ->", "action\\.value = AsyncAction\\.Failure\\(error\\)", "NotificationSoundSlotId\\.CALL -> callAction"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*NotificationSettingsView\\.kt$", "patterns": ["callRingtone\\.copyError", "DismissCallRingtoneCopyError"], "forbid": ["ns_state_|testcase"]}, {"path": ".*NotificationSettingsView\\.kt$", "patterns": ["state\\.sounds\\.callError\\?\\.let", "ErrorDialog\\(", "DismissSoundError\\(error\\.slot\\)"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_009_latest_pick_wins": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["messageSoundLock = Mutex\\(\\)", "callRingtoneLock = Mutex\\(\\)", "messageSoundLock\\.withLock", "callRingtoneLock\\.withLock"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*DefaultAppPreferencesStore\\.kt$", "patterns": ["newVersion = .*messageSoundChannelVersionKey.*\\+ 1", "newVersion = .*callRingtoneChannelVersionKey.*\\+ 1"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_010_legacy_migration_guard": [
+        {"options": [{"path": ".*NotificationSettingsPresenter\\.kt$", "patterns": ["callRingtone == NotificationSound\\.SystemDefault", "callRingtoneVersion == 0", "readRingingCallChannelSound", "legacyCallRingtone = null"], "forbid": ["ns_state_|testcase"]}, {"path": ".*sound/NotificationSoundsService\\.kt$", "patterns": ["hasExplicitCallRingtonePreference\\(\\)\\.first\\(\\)", "return false", "getCurrentChannelSoundUri\\(NotificationSoundSlot\\.CALL\\)"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*NotificationChannels\\.kt$", "patterns": ["readRingingCallChannelSound", "NotificationSound\\.SystemDefault", "NotificationSound\\.Custom"], "forbid": ["ns_state_|testcase"]}, {"path": ".*sound/NotificationSoundsService\\.kt$", "patterns": ["setCallRingtoneConfig\\(config\\.serialize\\(\\)\\)", "setCallRingtoneChannelVersion\\(next\\)", "callState\\.value = config", "return true"], "forbid": ["ns_state_|testcase"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "ns_state_001_restore_independent_slots": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["class NotificationSoundSnapshot", "messageSound", "callRingtone", "store\\.load"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["message_sound_row", "call_ringtone_row", "presenter\\.load"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_002_message_preset": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["selectPreset", "SoundSlot\\.Message", "messageChannelVersion = nextVersion", "recreateChannel"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["PresetButton", "this\\.selectPreset\\(slot, kind\\)", "\\$\\{slot\\}_sound_dialog"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_003_message_picker_launch": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["pendingMessageSoundPickerLaunch", "launchSystemPicker", "showMessageSoundDialog = false"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["AudioViewPicker", "audioPicker\\.select", "\\$\\{slot\\}_sound_picker"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_004_message_custom_copy": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["copyToAppFiles", "fs\\.copyFile", "file://", "NotificationSoundSelection\\.custom"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["setCustomSound", "Copying sound into app storage", "Custom sound and notification channel updated"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_005_message_copy_failure": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["if \\(!copyResult\\.succeeded\\)", "setCopyError", "return false"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["message_sound_error", "dismissCopyError\\(SoundSlot\\.Message\\)", "previous sound was kept"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_006_call_preset": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["selectPreset", "SoundSlot\\.Call", "callChannelVersion = nextVersion", "recreateChannel"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["call_ringtone_row", "\\$\\{slot\\}_sound_dialog", "this\\.selectPreset\\(slot, kind\\)"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_007_call_custom_copy": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["SoundSlot\\.Call", "copyToAppFiles", "updated\\.callRingtone = effective", "callChannelVersion = nextVersion"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["setCustomSound\\(this\\.abilityContext\\(\\), slot", "\\$\\{slot\\}_sound_picker", "syncPresenterState"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_008_call_copy_failure": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["callCopyError", "setCopyError", "this\\.snapshot = previous"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["call_ringtone_error", "dismissCopyError\\(SoundSlot\\.Call\\)", "previous sound was kept"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_009_latest_pick_wins": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["messageQueue", "callQueue", "this\\.messageQueue\\.then", "this\\.callQueue\\.then"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["previous\\.messageChannelVersion \\+ 1", "previous\\.callChannelVersion \\+ 1", "await this\\.channelGateway\\.recreateChannel"], "forbid": ["ns_state_|testcase"]}]}
+      ],
+      "ns_state_010_legacy_migration_guard": [
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["migrateLegacyCallRingtone", "callChannelVersion !== 0", "callRingtone\\.kind !== NotificationSoundKind\\.SystemDefault", "return false"], "forbid": ["ns_state_|testcase"]}, {"path": ".*features/sound/LegacyRingtoneMigrator\\.ets$", "patterns": ["repository\\.read\\('call'\\)", "persisted !== undefined", "migrated: false", "reason: 'already_explicit'"], "forbid": ["ns_state_|testcase"]}]},
+        {"options": [{"path": ".*features/NotificationSoundFeature\\.ets$", "patterns": ["migrated\\.callRingtone = legacySelection\\.copy", "migrated\\.callChannelVersion = 1", "store\\.save"], "forbid": ["ns_state_|testcase"]}, {"path": ".*features/sound/SoundSettingsService\\.ets$", "patterns": ["hydrateFromRepository\\(\\)", "migrateCallSlotIfNeeded\\(\\)", "if \\(outcome\\.migrated\\)", "installPreference\\(outcome\\.preference\\)"], "forbid": ["ns_state_|testcase"]}]}
+      ]
+    }
+  }
+}

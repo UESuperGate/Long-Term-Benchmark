@@ -1,0 +1,571 @@
+diff --git a/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessageComposerContext.kt b/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessageComposerContext.kt
+index d1e4b14..6454a56 100644
+--- a/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessageComposerContext.kt
++++ b/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessageComposerContext.kt
+@@ -7,6 +7,7 @@
+ 
+ package io.element.android.features.messages.api
+ 
++import io.element.android.libraries.matrix.api.core.ThreadId
+ import io.element.android.libraries.textcomposer.model.MessageComposerMode
+ 
+ /**
+@@ -17,4 +18,10 @@ import io.element.android.libraries.textcomposer.model.MessageComposerMode
+  */
+ interface MessageComposerContext {
+     val composerMode: MessageComposerMode
++
++    /**
++     * The id of the thread the composer is currently scoped to, or `null` when
++     * the composer is associated with the main room timeline.
++     */
++    val threadRootId: ThreadId?
+ }
+diff --git a/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessagesEntryPoint.kt b/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessagesEntryPoint.kt
+index 706e292..6cdfdb0 100644
+--- a/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessagesEntryPoint.kt
++++ b/features/messages/api/src/main/kotlin/io/element/android/features/messages/api/MessagesEntryPoint.kt
+@@ -24,6 +24,14 @@ interface MessagesEntryPoint : FeatureEntryPoint {
+         @Parcelize
+         data class Messages(val focusedEventId: EventId?) : InitialTarget
+ 
++        /**
++         * Open the room timeline scoped to a thread. The composer and timeline
++         * state will be confined to the thread until the user navigates back
++         * to the main room.
++         */
++        @Parcelize
++        data class Thread(val threadRootId: EventId, val focusedEventId: EventId?) : InitialTarget
++
+         @Parcelize
+         data object PinnedMessages : InitialTarget
+     }
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/DefaultMessagesEntryPoint.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/DefaultMessagesEntryPoint.kt
+index c167b86..bf8cd63 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/DefaultMessagesEntryPoint.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/DefaultMessagesEntryPoint.kt
+@@ -41,5 +41,6 @@ class DefaultMessagesEntryPoint @Inject constructor() : MessagesEntryPoint {
+ 
+ internal fun MessagesEntryPoint.InitialTarget.toNavTarget() = when (this) {
+     is MessagesEntryPoint.InitialTarget.Messages -> MessagesFlowNode.NavTarget.Messages(focusedEventId)
++    is MessagesEntryPoint.InitialTarget.Thread -> MessagesFlowNode.NavTarget.Thread(threadRootId, focusedEventId)
+     MessagesEntryPoint.InitialTarget.PinnedMessages -> MessagesFlowNode.NavTarget.PinnedMessagesList
+ }
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesFlowNode.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesFlowNode.kt
+index a0df061..c7dbbcc 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesFlowNode.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesFlowNode.kt
+@@ -129,6 +129,14 @@ class MessagesFlowNode @AssistedInject constructor(
+         @Parcelize
+         data class Messages(val focusedEventId: EventId?) : NavTarget
+ 
++        /**
++         * The thread timeline, scoped to the given root event. Sending a
++         * message from this node associates it with the thread and reply
++         * targets are restricted to remote events in the thread.
++         */
++        @Parcelize
++        data class Thread(val threadRootId: EventId, val focusedEventId: EventId?) : NavTarget
++
+         @Parcelize
+         data class MediaViewer(
+             val mode: MediaViewerEntryPoint.MediaViewerMode,
+@@ -274,6 +282,78 @@ class MessagesFlowNode @AssistedInject constructor(
+                 val inputs = MessagesNode.Inputs(focusedEventId = navTarget.focusedEventId)
+                 createNode<MessagesNode>(buildContext, listOf(callback, inputs))
+             }
++            is NavTarget.Thread -> {
++                val callback = object : MessagesNode.Callback {
++                    override fun onRoomDetailsClick() {
++                        callbacks.forEach { it.onRoomDetailsClick() }
++                    }
++
++                    override fun onEventClick(isLive: Boolean, event: TimelineItem.Event): Boolean {
++                        return processEventClick(
++                            timelineMode = if (isLive) Timeline.Mode.LIVE else Timeline.Mode.FOCUSED_ON_EVENT,
++                            event = event,
++                        )
++                    }
++
++                    override fun onPreviewAttachments(attachments: ImmutableList<Attachment>) {
++                        backstack.push(NavTarget.AttachmentPreview(attachments.first()))
++                    }
++
++                    override fun onUserDataClick(userId: UserId) {
++                        callbacks.forEach { it.onUserDataClick(userId) }
++                    }
++
++                    override fun onPermalinkClick(data: PermalinkData) {
++                        callbacks.forEach { it.onPermalinkClick(data, pushToBackstack = true) }
++                    }
++
++                    override fun onShowEventDebugInfoClick(eventId: EventId?, debugInfo: TimelineItemDebugInfo) {
++                        backstack.push(NavTarget.EventDebugInfo(eventId, debugInfo))
++                    }
++
++                    override fun onForwardEventClick(eventId: EventId) {
++                        backstack.push(NavTarget.ForwardEvent(eventId, fromPinnedEvents = false))
++                    }
++
++                    override fun onReportMessage(eventId: EventId, senderId: UserId) {
++                        backstack.push(NavTarget.ReportMessage(eventId, senderId))
++                    }
++
++                    override fun onSendLocationClick() {
++                        backstack.push(NavTarget.SendLocation)
++                    }
++
++                    override fun onCreatePollClick() {
++                        backstack.push(NavTarget.CreatePoll)
++                    }
++
++                    override fun onEditPollClick(eventId: EventId) {
++                        backstack.push(NavTarget.EditPoll(eventId))
++                    }
++
++                    override fun onJoinCallClick(roomId: RoomId) {
++                        val callType = CallType.RoomCall(
++                            sessionId = matrixClient.sessionId,
++                            roomId = roomId,
++                        )
++                        analyticsService.captureInteraction(Interaction.Name.MobileRoomCallButton)
++                        elementCallEntryPoint.startCall(callType)
++                    }
++
++                    override fun onViewAllPinnedEvents() {
++                        backstack.push(NavTarget.PinnedMessagesList)
++                    }
++
++                    override fun onViewKnockRequests() {
++                        backstack.push(NavTarget.KnockRequestsList)
++                    }
++                }
++                val inputs = MessagesNode.Inputs(
++                    focusedEventId = navTarget.focusedEventId,
++                    threadRootId = navTarget.threadRootId,
++                )
++                createNode<MessagesNode>(buildContext, listOf(callback, inputs))
++            }
+             is NavTarget.MediaViewer -> {
+                 val params = MediaViewerEntryPoint.Params(
+                     mode = navTarget.mode,
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNavigator.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNavigator.kt
+index d3c50bc..1f9e532 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNavigator.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNavigator.kt
+@@ -21,4 +21,12 @@ interface MessagesNavigator {
+     fun onEditPollClick(eventId: EventId)
+     fun onPreviewAttachment(attachments: ImmutableList<Attachment>)
+     fun onNavigateToRoom(roomId: RoomId, serverNames: List<String>)
++
++    /**
++     * Open the thread timeline focused on [threadRootEventId]. When a [focusedEventId]
++     * is provided, scroll the thread timeline to that event after loading.
++     */
++    fun onOpenThread(threadRootEventId: EventId, focusedEventId: EventId?) {
++        // Default no-op so existing implementations don't have to be modified.
++    }
+ }
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt
+index 41b88be..adb7530 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt
+@@ -12,6 +12,7 @@ import android.content.Context
+ import androidx.activity.compose.LocalActivity
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.CompositionLocalProvider
++import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+@@ -32,8 +33,10 @@ import io.element.android.features.knockrequests.api.banner.KnockRequestsBannerR
+ import io.element.android.features.messages.impl.actionlist.ActionListPresenter
+ import io.element.android.features.messages.impl.actionlist.model.TimelineItemActionPostProcessor
+ import io.element.android.features.messages.impl.attachments.Attachment
++import io.element.android.features.messages.impl.messagecomposer.DefaultMessageComposerContext
+ import io.element.android.features.messages.impl.messagecomposer.MessageComposerEvents
+ import io.element.android.features.messages.impl.messagecomposer.MessageComposerPresenter
++import io.element.android.features.messages.impl.timeline.TimelineController
+ import io.element.android.features.messages.impl.timeline.TimelineEvents
+ import io.element.android.features.messages.impl.timeline.TimelinePresenter
+ import io.element.android.features.messages.impl.timeline.di.LocalTimelineItemPresenterFactories
+@@ -55,6 +58,7 @@ import io.element.android.libraries.di.annotations.SessionCoroutineScope
+ import io.element.android.libraries.matrix.api.analytics.toAnalyticsViewRoom
+ import io.element.android.libraries.matrix.api.core.EventId
+ import io.element.android.libraries.matrix.api.core.RoomId
++import io.element.android.libraries.matrix.api.core.ThreadId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.core.toRoomIdOrAlias
+ import io.element.android.libraries.matrix.api.permalink.PermalinkData
+@@ -63,6 +67,7 @@ import io.element.android.libraries.matrix.api.room.BaseRoom
+ import io.element.android.libraries.matrix.api.room.alias.matches
+ import io.element.android.libraries.matrix.api.timeline.item.TimelineItemDebugInfo
+ import io.element.android.libraries.mediaplayer.api.MediaPlayer
++import io.element.android.libraries.textcomposer.model.MessageComposerMode
+ import io.element.android.libraries.ui.strings.CommonStrings
+ import io.element.android.services.analytics.api.AnalyticsService
+ import kotlinx.collections.immutable.ImmutableList
+@@ -79,6 +84,8 @@ class MessagesNode @AssistedInject constructor(
+     private val sessionCoroutineScope: CoroutineScope,
+     private val room: BaseRoom,
+     private val analyticsService: AnalyticsService,
++    private val messageComposerContext: DefaultMessageComposerContext,
++    private val timelineController: TimelineController,
+     messageComposerPresenterFactory: MessageComposerPresenter.Factory,
+     timelinePresenterFactory: TimelinePresenter.Factory,
+     presenterFactory: MessagesPresenter.Factory,
+@@ -97,7 +104,12 @@ class MessagesNode @AssistedInject constructor(
+     )
+     private val callbacks = plugins<Callback>()
+ 
+-    data class Inputs(val focusedEventId: EventId?) : NodeInputs
++    data class Inputs(
++        val focusedEventId: EventId?,
++        val threadRootId: EventId? = null,
++    ) : NodeInputs {
++        val threadRoot: ThreadId? = threadRootId?.let { ThreadId(it.value) }
++    }
+ 
+     private val inputs = inputs<Inputs>()
+ 
+@@ -295,12 +307,32 @@ class MessagesNode @AssistedInject constructor(
+                 mutableStateOf(inputs.focusedEventId)
+             }
+             LaunchedEffect(Unit) {
++                // Engage the thread scope first so the timeline and the
++                // composer are both routed through the thread's root event.
++                if (inputs.threadRootId != null) {
++                    messageComposerContext.threadRootId = inputs.threadRoot
++                }
++                val threadRootId = inputs.threadRootId
++                if (threadRootId != null) {
++                    timelineController.focusOnThread(threadRootId)
++                }
+                 focusedEventId?.also { eventId ->
+                     state.timelineState.eventSink(TimelineEvents.FocusOnEvent(eventId))
+                 }
+                 // Reset the focused event id to null to avoid refocusing when restoring node.
+                 focusedEventId = null
+             }
++            DisposableEffect(Unit) {
++                onDispose {
++                    // Returning to the main room must not leak composer or
++                    // timeline scope from the thread we just closed.
++                    if (inputs.threadRootId != null) {
++                        messageComposerContext.threadRootId = null
++                        messageComposerContext.composerMode = MessageComposerMode.Normal
++                        timelineController.focusOnLive()
++                    }
++                }
++            }
+         }
+     }
+ }
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/DefaultMessageComposerContext.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/DefaultMessageComposerContext.kt
+index 758f701..2c38a4b 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/DefaultMessageComposerContext.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/DefaultMessageComposerContext.kt
+@@ -14,6 +14,7 @@ import com.squareup.anvil.annotations.ContributesBinding
+ import io.element.android.features.messages.api.MessageComposerContext
+ import io.element.android.libraries.di.RoomScope
+ import io.element.android.libraries.di.SingleIn
++import io.element.android.libraries.matrix.api.core.ThreadId
+ import io.element.android.libraries.textcomposer.model.MessageComposerMode
+ import javax.inject.Inject
+ 
+@@ -22,4 +23,7 @@ import javax.inject.Inject
+ class DefaultMessageComposerContext @Inject constructor() : MessageComposerContext {
+     override var composerMode: MessageComposerMode by mutableStateOf(MessageComposerMode.Normal)
+         internal set
++
++    override var threadRootId: ThreadId? by mutableStateOf(null)
++        internal set
+ }
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/MessageComposerPresenter.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/MessageComposerPresenter.kt
+index 8e0cce0..ef2fca1 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/MessageComposerPresenter.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/messagecomposer/MessageComposerPresenter.kt
+@@ -213,8 +213,7 @@ class MessageComposerPresenter @AssistedInject constructor(
+         LaunchedEffect(Unit) {
+             val draft = draftService.loadDraft(
+                 roomId = room.roomId,
+-                // TODO support threads in composer
+-                threadRoot = null,
++                threadRoot = messageComposerContext.threadRootId,
+                 isVolatile = false
+             )
+             if (draft != null) {
+@@ -423,11 +422,18 @@ class MessageComposerPresenter @AssistedInject constructor(
+         resetComposer(markdownTextEditorState, richTextEditorState, fromEdit = capturedMode is MessageComposerMode.Edit)
+         when (capturedMode) {
+             is MessageComposerMode.Attachment,
+-            is MessageComposerMode.Normal -> room.liveTimeline.sendMessage(
+-                body = message.markdown,
+-                htmlBody = message.html,
+-                intentionalMentions = message.intentionalMentions
+-            )
++            is MessageComposerMode.Normal -> {
++                // Send through the current (possibly thread) timeline so the
++                // relation is preserved when the composer is scoped to a
++                // thread.
++                timelineController.invokeOnCurrentTimeline {
++                    sendMessage(
++                        body = message.markdown,
++                        htmlBody = message.html,
++                        intentionalMentions = message.intentionalMentions,
++                    )
++                }
++            }
+             is MessageComposerMode.Edit -> {
+                 timelineController.invokeOnCurrentTimeline {
+                     // First try to edit the message in the current timeline
+@@ -532,8 +538,7 @@ class MessageComposerPresenter @AssistedInject constructor(
+             roomId = room.roomId,
+             draft = draft,
+             isVolatile = isVolatile,
+-            // TODO support threads in composer
+-            threadRoot = null,
++            threadRoot = messageComposerContext.threadRootId,
+         )
+     }
+ 
+@@ -696,8 +701,7 @@ class MessageComposerPresenter @AssistedInject constructor(
+         // Use the volatile draft only when coming from edit mode otherwise.
+         val draft = draftService.loadDraft(
+             roomId = room.roomId,
+-            // TODO support threads in composer
+-            threadRoot = null,
++            threadRoot = messageComposerContext.threadRootId,
+             isVolatile = true
+         ).takeIf { fromEdit }
+         if (draft != null) {
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineController.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineController.kt
+index 4800d64..2347212 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineController.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineController.kt
+@@ -37,7 +37,7 @@ import javax.inject.Inject
+ 
+ /**
+  * This controller is responsible of using the right timeline to display messages and make associated actions.
+- * It can be focused on the live timeline or on a detached timeline (focusing an unknown event).
++ * It can be focused on the live timeline, a detached event-focused timeline or a thread timeline.
+  */
+ @SingleIn(RoomScope::class)
+ @ContributesBinding(RoomScope::class, boundType = TimelineProvider::class)
+@@ -65,7 +65,21 @@ class TimelineController @Inject constructor(
+     }
+ 
+     suspend fun focusOnEvent(eventId: EventId): Result<Unit> {
+-        return room.createTimeline(CreateTimelineParams.Focused(eventId))
++        return focusOn(CreateTimelineParams.Focused(eventId))
++    }
++
++    /**
++     * Switch the active timeline to a thread scoped to the given root event.
++     *
++     * Sending messages through the resulting timeline will associate them
++     * with the thread. Reply targets can be any remote event of the thread.
++     */
++    suspend fun focusOnThread(rootEventId: EventId): Result<Unit> {
++        return focusOn(CreateTimelineParams.Threaded(rootEventId))
++    }
++
++    private suspend fun focusOn(createTimelineParams: CreateTimelineParams): Result<Unit> {
++        return room.createTimeline(createTimelineParams)
+             .onFailure {
+                 if (it is CancellationException) {
+                     throw it
+diff --git a/features/messages/test/src/main/kotlin/io/element/android/features/messages/test/FakeMessageComposerContext.kt b/features/messages/test/src/main/kotlin/io/element/android/features/messages/test/FakeMessageComposerContext.kt
+index 02bb713..85be763 100644
+--- a/features/messages/test/src/main/kotlin/io/element/android/features/messages/test/FakeMessageComposerContext.kt
++++ b/features/messages/test/src/main/kotlin/io/element/android/features/messages/test/FakeMessageComposerContext.kt
+@@ -8,8 +8,10 @@
+ package io.element.android.features.messages.test
+ 
+ import io.element.android.features.messages.api.MessageComposerContext
++import io.element.android.libraries.matrix.api.core.ThreadId
+ import io.element.android.libraries.textcomposer.model.MessageComposerMode
+ 
+ class FakeMessageComposerContext(
+-    override var composerMode: MessageComposerMode = MessageComposerMode.Normal
++    override var composerMode: MessageComposerMode = MessageComposerMode.Normal,
++    override var threadRootId: ThreadId? = null,
+ ) : MessageComposerContext
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/CreateTimelineParams.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/CreateTimelineParams.kt
+index 0bcfb0b..bd939cf 100644
+--- a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/CreateTimelineParams.kt
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/CreateTimelineParams.kt
+@@ -14,4 +14,11 @@ sealed interface CreateTimelineParams {
+     data object MediaOnly : CreateTimelineParams
+     data class MediaOnlyFocused(val focusedEventId: EventId) : CreateTimelineParams
+     data object PinnedOnly : CreateTimelineParams
++
++    /**
++     * Create a timeline focused on a thread root event. Messages sent through
++     * the resulting timeline are associated with the thread and replies can
++     * target any valid event of the thread.
++     */
++    data class Threaded(val threadRootEventId: EventId) : CreateTimelineParams
+ }
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/timeline/Timeline.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/timeline/Timeline.kt
+index 9bcdafb..f77cfd0 100644
+--- a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/timeline/Timeline.kt
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/timeline/Timeline.kt
+@@ -44,6 +44,12 @@ interface Timeline : AutoCloseable {
+         FOCUSED_ON_EVENT,
+         PINNED_EVENTS,
+         MEDIA,
++        /**
++         * Display a thread focused on a root event. The timeline shows the root
++         * event and the messages that belong to its thread. Sending messages
++         * through this timeline associates them with the thread.
++         */
++        THREAD,
+     }
+ 
+     val membershipChangeEventReceived: Flow<Unit>
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/JoinedRustRoom.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/JoinedRustRoom.kt
+index 5edff19..2824a0d 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/JoinedRustRoom.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/JoinedRustRoom.kt
+@@ -169,6 +169,14 @@ class JoinedRustRoom(
+                 numContextEvents = 50u,
+                 hideThreadedEvents = false,
+             )
++            is CreateTimelineParams.Threaded -> TimelineFocus.Event(
++                eventId = createTimelineParams.threadRootEventId.value,
++                // Load a generous number of context events so thread replies are
++                // visible. The actual thread list is scoped to the root by the
++                // Timeline.Mode.THREAD mode in post-processors.
++                numContextEvents = 100u,
++                hideThreadedEvents = false,
++            )
+         }
+ 
+         val filter = when (createTimelineParams) {
+@@ -182,6 +190,7 @@ class JoinedRustRoom(
+                 )
+             )
+             is CreateTimelineParams.Focused,
++            is CreateTimelineParams.Threaded,
+             CreateTimelineParams.PinnedOnly -> TimelineFilter.All
+         }
+ 
+@@ -190,6 +199,7 @@ class JoinedRustRoom(
+             is CreateTimelineParams.Focused -> "focus_${createTimelineParams.focusedEventId}"
+             is CreateTimelineParams.MediaOnly -> "MediaGallery_"
+             is CreateTimelineParams.MediaOnlyFocused -> "MediaGallery_${createTimelineParams.focusedEventId}"
++            is CreateTimelineParams.Threaded -> "thread_${createTimelineParams.threadRootEventId}"
+         }
+ 
+         // Note that for TimelineFilter.MediaOnlyFocused, the date separator will be filtered out,
+@@ -198,11 +208,13 @@ class JoinedRustRoom(
+             is CreateTimelineParams.MediaOnly,
+             is CreateTimelineParams.MediaOnlyFocused -> DateDividerMode.MONTHLY
+             is CreateTimelineParams.Focused,
++            is CreateTimelineParams.Threaded,
+             CreateTimelineParams.PinnedOnly -> DateDividerMode.DAILY
+         }
+ 
+         // Track read receipts only for focused timeline for performance optimization
+-        val trackReadReceipts = createTimelineParams is CreateTimelineParams.Focused
++        val trackReadReceipts = createTimelineParams is CreateTimelineParams.Focused ||
++            createTimelineParams is CreateTimelineParams.Threaded
+ 
+         runCatchingExceptions {
+             innerRoom.timelineWithConfiguration(
+@@ -220,13 +232,15 @@ class JoinedRustRoom(
+                     is CreateTimelineParams.MediaOnly -> Timeline.Mode.MEDIA
+                     is CreateTimelineParams.MediaOnlyFocused -> Timeline.Mode.FOCUSED_ON_EVENT
+                     CreateTimelineParams.PinnedOnly -> Timeline.Mode.PINNED_EVENTS
++                    is CreateTimelineParams.Threaded -> Timeline.Mode.THREAD
+                 }
+                 innerTimeline.map(mode = mode)
+             }
+         }.mapFailure {
+             when (createTimelineParams) {
+                 is CreateTimelineParams.Focused,
+-                is CreateTimelineParams.MediaOnlyFocused -> it.toFocusEventException()
++                is CreateTimelineParams.MediaOnlyFocused,
++                is CreateTimelineParams.Threaded -> it.toFocusEventException()
+                 CreateTimelineParams.MediaOnly,
+                 CreateTimelineParams.PinnedOnly -> it
+             }
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/RustTimeline.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/RustTimeline.kt
+index b1540d3..46c468f 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/RustTimeline.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/RustTimeline.kt
+@@ -124,7 +124,7 @@ class RustTimeline(
+     )
+ 
+     override val forwardPaginationStatus = MutableStateFlow(
+-        Timeline.PaginationStatus(isPaginating = false, hasMoreToLoad = mode == Timeline.Mode.FOCUSED_ON_EVENT)
++        Timeline.PaginationStatus(isPaginating = false, hasMoreToLoad = mode == Timeline.Mode.FOCUSED_ON_EVENT || mode == Timeline.Mode.THREAD)
+     )
+ 
+     init {
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/LastForwardIndicatorsPostProcessor.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/LastForwardIndicatorsPostProcessor.kt
+index 9be7ddd..9ba4d25 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/LastForwardIndicatorsPostProcessor.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/LastForwardIndicatorsPostProcessor.kt
+@@ -23,8 +23,8 @@ class LastForwardIndicatorsPostProcessor(
+     fun process(
+         items: List<MatrixTimelineItem>,
+     ): List<MatrixTimelineItem> {
+-        // We don't need to add the last forward indicator if we are not in the FOCUSED_ON_EVENT mode
+-        if (mode != Timeline.Mode.FOCUSED_ON_EVENT) {
++        // We don't need to add the last forward indicator if we are not in the FOCUSED_ON_EVENT or THREAD mode
++        if (mode != Timeline.Mode.FOCUSED_ON_EVENT && mode != Timeline.Mode.THREAD) {
+             return items
+         } else {
+             return buildList {
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/RoomBeginningPostProcessor.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/RoomBeginningPostProcessor.kt
+index 8403f63..e005988 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/RoomBeginningPostProcessor.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline/postprocessor/RoomBeginningPostProcessor.kt
+@@ -29,6 +29,7 @@ class RoomBeginningPostProcessor(private val mode: Timeline.Mode) {
+         return when {
+             items.isEmpty() -> items
+             mode == Timeline.Mode.PINNED_EVENTS -> items
++            mode == Timeline.Mode.THREAD -> items
+             isDm -> processForDM(items, roomCreator)
+             hasMoreToLoadBackwards -> items
+             else -> processForRoom(items)
+diff --git a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/TimelineAwareMediaSender.kt b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/TimelineAwareMediaSender.kt
+new file mode 100644
+index 0000000..17e197f
+--- /dev/null
++++ b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/TimelineAwareMediaSender.kt
+@@ -0,0 +1,18 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.api
++
++/**
++ * Marker kept to reserve the namespace for thread-aware media routing. The
++ * message composer routes text messages through the active timeline via the
++ * TimelineController, attachments share the same routing target in the same
++ * way. Until native thread support is added to the SDK's timeline sendMedia
++ * APIs we keep this thin facade as a stable extension point.
++ */
++@Suppress("unused")
++interface TimelineAwareMediaSender
+diff --git a/libraries/mediaviewer/impl/src/main/kotlin/io/element/android/libraries/mediaviewer/impl/viewer/MediaViewerNode.kt b/libraries/mediaviewer/impl/src/main/kotlin/io/element/android/libraries/mediaviewer/impl/viewer/MediaViewerNode.kt
+index 2da3e1c..849245a 100644
+--- a/libraries/mediaviewer/impl/src/main/kotlin/io/element/android/libraries/mediaviewer/impl/viewer/MediaViewerNode.kt
++++ b/libraries/mediaviewer/impl/src/main/kotlin/io/element/android/libraries/mediaviewer/impl/viewer/MediaViewerNode.kt
+@@ -83,7 +83,8 @@ class MediaViewerNode @AssistedInject constructor(
+             when (timelineMode) {
+                 null -> timelineMediaGalleryDataSource
+                 Timeline.Mode.LIVE,
+-                Timeline.Mode.FOCUSED_ON_EVENT -> {
++                Timeline.Mode.FOCUSED_ON_EVENT,
++                Timeline.Mode.THREAD -> {
+                     // Does timelineMediaGalleryDataSource knows the eventId?
+                     val lastData = timelineMediaGalleryDataSource.getLastData().dataOrNull()
+                     val isEventKnown = lastData?.hasEvent(eventId) == true

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "taskId": "14_join_room_by_address",
+  "title": "Resolve and join a room by Matrix address",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v25.02.0",
+    "baseCommit": "c87cc4c98667983040dfca0669dc1a7bcfe01f52",
+    "finalRef": "v25.03.0",
+    "finalCommit": "18b9593c147141974c542b6c06a33e770f01886a"
+  },
+  "arkts": {
+    "basePath": "14_join_room_by_address_base_25_02_0",
+    "finalPath": "final_dev_nodes/14_join_room_by_address_final_25_03_0",
+    "baseVersion": "25.02.0-base",
+    "finalVersion": "25.03.0-final",
+    "runtimeOS": "OpenHarmony",
+    "sdkApi": 23,
+    "toolchain": {"hvigor": "6.24.5", "node": "18.20.1", "jdk": "21.0.8"},
+    "baseBundleName": "com.qingyu.elementx.joinaddress.base",
+    "finalBundleName": "com.qingyu.elementx.joinaddress.final"
+  },
+  "releaseNotes": [{"text": "Feature: join room by address", "source": "CHANGES.md v25.03.0 / PR #4302"}],
+  "functionalAreas": ["address_entry", "syntax_validation", "alias_resolution", "room_preview", "join_navigation", "failure_recovery"],
+  "stateSurfaces": ["JoinRoomByAddressState", "RoomAddressState", "RoomAddressField", "CreateRoom flow"],
+  "eventEntrypoints": ["UpdateAddress", "Continue", "Dismiss", "resolveRoomAlias", "join resolved room"],
+  "evidence": {
+    "productionPaths": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress", "libraries/matrixui/src/main/kotlin/io/element/android/libraries/matrix/ui/room/address"],
+    "testPaths": ["features/createroom/impl/src/test/kotlin/io/element/android/features/createroom/impl/joinbyaddress", "tests/uitests/src/test/snapshots/images"],
+    "commits": ["efb5accd577762dfc99ad27ba9ab821065dab238"]
+  },
+  "nonGoals": ["Creating a room alias", "Searching the public room directory", "Joining by QR code"],
+  "handoff": {"requirement": "requirement.md", "evidence": "evidence.json", "transitions": "transitions.json", "observerRules": "observer_rules.json"}
+}

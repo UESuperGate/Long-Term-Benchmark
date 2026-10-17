@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "taskId": "13_user_verification",
+  "canonicalContract": "../canonical/transitions.json",
+  "cases": [
+    {
+      "caseId": "uv_state_001_profile_routes_user_request",
+      "traceDigest": "f8ee9048171bb4f23e7476653f4b3e2f81c2f733bec817eb32d402153b3e8162",
+      "fixture": {
+        "profileUserId": "@alice:example.org",
+        "isCurrentUser": false,
+        "verificationAvailable": true
+      },
+      "eventEntrypoint": {
+        "name": "verify_user_from_profile"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_002_request_targets_user",
+      "traceDigest": "c050e5b7ef8d43335092cbb7f560f39373d0585595a16ac848fd495644da527f",
+      "fixture": {
+        "step": "initial",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        }
+      },
+      "eventEntrypoint": {
+        "name": "request_verification"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_003_start_sas_after_acceptance",
+      "traceDigest": "7956b81a95ba3415a3518253fa1b9058a554c79627adb0d769a8ab420ad0380d",
+      "fixture": {
+        "step": "ready",
+        "requestAccepted": true
+      },
+      "eventEntrypoint": {
+        "name": "start_sas_verification"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_004_challenge_is_stable",
+      "traceDigest": "2233f9d6e9726146c2b20f26d23e88059b348e2796d033cb4f845f07089f111f",
+      "fixture": {
+        "step": "awaiting_other_device_response",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ]
+      },
+      "eventEntrypoint": {
+        "name": "receive_challenge"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_005_accept_challenge_once",
+      "traceDigest": "6b15ba85baae338af5c0ef6e8564a4d2ea5a1145c0901bfc0f2ad2fea9bc916f",
+      "fixture": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "approveCalls": 0
+      },
+      "eventEntrypoint": {
+        "name": "accept_challenge"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_006_decline_challenge_once",
+      "traceDigest": "742660b82b52d06617d49a719a96969ba9c74831c95c5f4f394e642a4fde0ff3",
+      "fixture": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "declineCalls": 0
+      },
+      "eventEntrypoint": {
+        "name": "decline_challenge"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_007_finish_clears_violation",
+      "traceDigest": "29ebcee9e82a925a089fa27242eba50f359f5266dd399c435d432b5030d95a3f",
+      "fixture": {
+        "step": "verifying",
+        "identityState": "verification_violation"
+      },
+      "eventEntrypoint": {
+        "name": "verification_finished"
+      },
+      "observations": [
+        "UserProfileFeature\\.ets$",
+        "UserVerificationFeature\\.ets$",
+        "VerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_008_local_cancel",
+      "traceDigest": "d48207c07a6a7137cceb1869ede911f246be1ed420693fd1270ffdb20aeb871a",
+      "fixture": {
+        "step": "awaiting_other_device_response",
+        "identityState": "verification_violation"
+      },
+      "eventEntrypoint": {
+        "name": "cancel"
+      },
+      "observations": [
+        "UserProfileFeature\\.ets$",
+        "UserVerificationFeature\\.ets$",
+        "VerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_009_failure_reset",
+      "traceDigest": "e9ef89f47bd0219ec2679da15c71736d93ad8ae377d38c88af4111c217c6e5c8",
+      "fixture": {
+        "step": "canceled",
+        "failure": "sdk_failure",
+        "identityState": "verification_violation"
+      },
+      "eventEntrypoint": {
+        "name": "reset"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "uv_state_010_identity_violation_surfaces",
+      "traceDigest": "31f3780972bcd5c3cd0aee8f7a2d69f68e86a4d5185063bd39a1caa324f905a2",
+      "fixture": {
+        "encryptedRoom": true,
+        "userId": "@alice:example.org",
+        "identityState": "verification_violation"
+      },
+      "eventEntrypoint": {
+        "name": "observe_identity_change"
+      },
+      "observations": [
+        "UserVerificationFeature\\.ets$",
+        "pages/Index\\.ets$"
+      ]
+    }
+  ]
+}

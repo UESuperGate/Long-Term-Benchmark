@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "taskId": "14_join_room_by_address",
+  "android": {
+    "roots": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl"],
+    "cases": {
+      "jr_state_001_entry_opens_address_flow": [
+        {"options": [{"path": "JoinRoomByAddressNode\\.kt$", "patterns": ["presenterFactory.create", "JoinRoomByAddressView", "plugins<CreateRoomNavigator>"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressNode\\.kt$", "patterns": ["presenterFactory.create", "JoinRoomByAddressView", "plugins<JoinRoomByAddressEntryPoint.Callback>"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["RoomAddressField", "JoinRoomByAddressEvents.UpdateAddress", "JoinRoomByAddressEvents.Continue"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "LoggedInFlowNode\\.kt$", "patterns": ["override fun onJoinByAddressClick", "backstack.replace\\(NavTarget.JoinRoomByAddress\\)", "joinRoomByAddressEntryPoint"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_002_update_trims_and_debounces": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["UpdateAddress", "event.address.trim\\(\\)", "delay\\(300\\)", "LaunchedEffect\\(fullAddress\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["onAddressChange", "JoinRoomByAddressEvents.UpdateAddress"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_003_invalid_after_continue": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["Continue", "validateAddress = true", "RoomAddressState.Invalid", "if \\(validateAddress \\|\\| internalAddressState is RoomAddressState.RoomFound\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressPresenter\\.kt$", "patterns": ["AddressState.Invalid", "JoinRoomByAddressEvents.Continue", "hasContinueBeenPressed = true"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["RoomAddressState.Invalid", "invalid_address", "TextFieldValidity.Invalid"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressView\\.kt$", "patterns": ["state.hasContinueBeenPressed && state.addressState is AddressState.Invalid", "screen_join_room_by_address_invalid_address", "JoinRoomByAddressEvents.Continue"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_004_valid_address_resolves": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["RoomAlias\\(fullAddress\\)", "isRoomAliasValid", "RoomAddressState.Resolving", "resolveRoomAlias\\(roomAlias\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressPresenter\\.kt$", "patterns": ["MatrixPatterns.isRoomAlias", "AddressState.Resolving", "withTimeoutOrNull", "matrixClient.resolveRoomAlias\\(RoomAlias\\(trimmed\\)\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["RoomAddressState.Resolving", "showProgress"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressView\\.kt$", "patterns": ["AddressState.Resolving", "CircularProgressIndicator"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_005_found_then_continue_navigates": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["RoomAddressState.RoomFound", "onRoomFound", "onDismissJoinRoomByAddress", "roomId.toRoomIdOrAlias", "serverNames = state.resolved.servers"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressPresenter\\.kt$", "patterns": ["AddressState.Found", "pendingAdvance", "onResolved\\(RoomAlias\\(address.trim\\(\\)\\), found.resolvedRoomAlias\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressNode\\.kt$", "patterns": ["plugins<CreateRoomNavigator>", "presenterFactory.create\\(navigator\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "LoggedInFlowNode\\.kt$", "patterns": ["override fun onJoinExistingRoom", "roomId.toRoomIdOrAlias\\(\\)", "serverNames = serverNames", "backstack.replace"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_006_continue_waits_for_resolution": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["validateAddress = true", "addressState is RoomAddressState.RoomFound && validateAddress", "onRoomFound\\(addressState\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressPresenter\\.kt$", "patterns": ["hasContinueBeenPressed = true", "state is AddressState.Found", "pendingAdvance", "onResolved"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["JoinRoomByAddressEvents.Continue", "showProgress = state.addressState is RoomAddressState.Resolving"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressView\\.kt$", "patterns": ["AddressState.Resolving", "JoinRoomByAddressEvents.Continue", "CircularProgressIndicator"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_007_not_found_recovers": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["resolved.isPresent", "RoomAddressState.RoomNotFound", "onFailure = \\{ _ -> RoomAddressState.RoomNotFound \\}"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["RoomAddressState.RoomNotFound", "room_not_found", "onValueChange = onAddressChange"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_008_timeout_recovers": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["ADDRESS_RESOLVE_TIMEOUT_IN_SECONDS = 10", "withTimeoutOrNull", "\\?: RoomAddressState.RoomNotFound"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["RoomAddressState.RoomNotFound", "TextFieldValidity.Invalid"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_009_dismiss_closes_flow": [
+        {"options": [{"path": "JoinRoomByAddressPresenter\\.kt$", "patterns": ["JoinRoomByAddressEvents.Dismiss", "navigator.onDismissJoinRoomByAddress\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "LoggedInFlowNode\\.kt$", "patterns": ["override fun onCancel\\(\\)", "backstack.replace\\(NavTarget.CreateRoom\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "JoinRoomByAddressView\\.kt$", "patterns": ["onDismissRequest", "JoinRoomByAddressEvents.Dismiss"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "features/joinroombyaddress/impl/.*/JoinRoomByAddressView\\.kt$", "patterns": ["latestOnDismissClick\\(\\)", "latestOnBackClick\\(\\)", "JoinRoomByAddressTopBar"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "jr_state_001_entry_opens_address_flow": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["showJoinRoomByAddress", "addressFlowVisible = true"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/Index\\.ets$", "patterns": ["Button\\('Join by address'\\)", "router.pushUrl", "pages/JoinRoomByAddress"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["new JoinRoomByAddressPresenter", "Join a room by address", "navigator.showJoinRoomByAddress"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/JoinRoomByAddress\\.ets$", "patterns": ["new JoinRoomByAddressPresenter", "AddressState.Unknown", "this.presenter.reset\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_002_update_trims_and_debounces": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["ADDRESS_DEBOUNCE_MS: number = 300", "value.trim\\(\\)", "updateToken", "await delay\\(ADDRESS_DEBOUNCE_MS\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["room_address_input", "presenter.updateAddress", "this.address = value.trim\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_003_invalid_after_continue": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["validationRequested = true", "RoomAddressState.Invalid", "visibleAddressState"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "JoinRoomByAddressPresenter\\.ets$", "patterns": ["requestContinue\\(\\): void", "validationRequested = true", "addressState = AddressState.Invalid", "internalAddressState = AddressState.Invalid"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["presenter.continue", "Enter a valid Matrix room address", "stateMessage"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/JoinRoomByAddress\\.ets$", "patterns": ["presenter.requestContinue\\(\\)", "validationMessage", "address_validation_message"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_004_valid_address_resolves": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["isValidRoomAlias", "RoomAddressState.Resolving", "resolveWithTimeout", "resolveRoomAlias"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["RoomAddressState.Resolving", "Resolving...", "presenter.updateAddress"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_005_found_then_continue_navigates": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["navigateToResolvedRoom", "dismissJoinRoomByAddress", "openRoom\\(this.resolvedRoom.roomId, this.resolvedRoom.servers\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["presenter.continue", "openedRoomId", "Opening"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_006_continue_waits_for_resolution": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["validationRequested = true", "if \\(this.validationRequested\\)", "this.navigateToResolvedRoom\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["join_room_continue", "presenter.continue", "this.refresh\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_007_not_found_recovers": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["RoomNotFound", "resolved === undefined", "catch\\(\\(\\) =>"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "JoinRoomByAddressPresenter\\.ets$", "patterns": ["errCandidate.kind === 'error'", "lastError = errCandidate", "addressState = AddressState.NotFound", "pendingContinue = false"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Room not found. Check the address and retry.", "room_address_input"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/JoinRoomByAddress\\.ets$", "patterns": ["TextInput", "AddressState.NotFound", "address_error_message", "presenter.retry\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_008_timeout_recovers": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["ADDRESS_RESOLVE_TIMEOUT_MS: number = 10000", "setTimeout", "resolve\\(undefined\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["RoomAddressState.RoomNotFound", "presenter.updateAddress"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "jr_state_009_dismiss_closes_flow": [
+        {"options": [{"path": "JoinRoomByAddressFeature\\.ets$", "patterns": ["dismiss\\(\\): void", "dismissJoinRoomByAddress", "updateToken \\+= 1"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "JoinRoomByAddressPresenter\\.ets$", "patterns": ["dismiss\\(\\): void", "closed = true", "cancelInFlight\\(\\)", "pendingNavigation = null"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Button\\('Cancel'\\)", "presenter.dismiss", "addressFlowVisible"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/JoinRoomByAddress\\.ets$", "patterns": ["Button\\('Dismiss'\\)", "presenter.dismiss\\(\\)", "router.back\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ]
+    }
+  }
+}

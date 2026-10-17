@@ -1,0 +1,1804 @@
+diff --git a/features/preferences/impl/build.gradle.kts b/features/preferences/impl/build.gradle.kts
+index 1c801dbb..a2bf1c2e 100644
+--- a/features/preferences/impl/build.gradle.kts
++++ b/features/preferences/impl/build.gradle.kts
+@@ -58,6 +58,7 @@ dependencies {
+     implementation(projects.libraries.featureflag.ui)
+     implementation(projects.libraries.network)
+     implementation(projects.libraries.pushstore.api)
++    implementation(projects.libraries.push.impl)
+     implementation(projects.libraries.indicator.api)
+     implementation(projects.libraries.preferences.api)
+     implementation(projects.libraries.troubleshoot.api)
+@@ -104,6 +105,7 @@ dependencies {
+     testImplementation(projects.libraries.permissions.test)
+     testImplementation(projects.libraries.preferences.test)
+     testImplementation(projects.libraries.push.test)
++    testImplementation(projects.libraries.push.impl)
+     testImplementation(projects.libraries.pushstore.test)
+     testImplementation(projects.libraries.roomselect.test)
+     testImplementation(projects.libraries.troubleshoot.test)
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsEvents.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsEvents.kt
+index 8f1b332c..b7ae2505 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsEvents.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsEvents.kt
+@@ -8,6 +8,10 @@
+ 
+ package io.element.android.features.preferences.impl.notifications
+ 
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundConfig
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundSlotId
++import io.element.android.features.preferences.impl.notifications.sound.PickedSound
++
+ sealed interface NotificationSettingsEvents {
+     data object RefreshSystemNotificationsEnabled : NotificationSettingsEvents
+     data class SetNotificationsEnabled(val enabled: Boolean) : NotificationSettingsEvents
+@@ -20,4 +24,31 @@ sealed interface NotificationSettingsEvents {
+     data object ChangePushProvider : NotificationSettingsEvents
+     data object CancelChangePushProvider : NotificationSettingsEvents
+     data class SetPushProvider(val index: Int) : NotificationSettingsEvents
++
++    /** Open the dialog that lists presets for the [slot]. */
++    data class OpenSoundDialog(val slot: NotificationSoundSlotId) : NotificationSettingsEvents
++
++    /** Dismiss the dialog for [slot]. */
++    data class DismissSoundDialog(val slot: NotificationSoundSlotId) : NotificationSettingsEvents
++
++    /** Apply a preset choice (system default, bundled, silent). */
++    data class SelectSoundConfig(
++        val slot: NotificationSoundSlotId,
++        val config: NotificationSoundConfig,
++    ) : NotificationSettingsEvents
++
++    /**
++     * Launch the system file picker for [slot]. The picker URI returned from the OS is provided
++     * via [NotifySoundPicked] once the activity result is delivered.
++     */
++    data class LaunchSoundPicker(val slot: NotificationSoundSlotId) : NotificationSettingsEvents
++
++    /** Hand a [PickedSound] back to the presenter for [slot]. */
++    data class NotifySoundPicked(
++        val slot: NotificationSoundSlotId,
++        val picked: PickedSound?,
++    ) : NotificationSettingsEvents
++
++    /** Dismiss the error for [slot]. */
++    data class DismissSoundError(val slot: NotificationSoundSlotId) : NotificationSettingsEvents
+ }
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt
+index 12f13e73..99d24995 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt
+@@ -20,16 +20,22 @@ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberCoroutineScope
+ import androidx.compose.runtime.setValue
+ import dev.zacsweers.metro.Inject
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundSlotId
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundsService
++import io.element.android.features.preferences.impl.notifications.sound.PickedSound
++import io.element.android.libraries.androidutils.file.getFileName
+ import io.element.android.libraries.architecture.AsyncAction
+ import io.element.android.libraries.architecture.AsyncData
+ import io.element.android.libraries.architecture.Presenter
+ import io.element.android.libraries.architecture.runUpdatingStateNoSuccess
+ import io.element.android.libraries.core.extensions.runCatchingExceptions
++import io.element.android.libraries.core.mimetype.MimeTypes
+ import io.element.android.libraries.di.annotations.SessionCoroutineScope
+ import io.element.android.libraries.fullscreenintent.api.FullScreenIntentPermissionsState
+ import io.element.android.libraries.matrix.api.MatrixClient
+ import io.element.android.libraries.matrix.api.notificationsettings.NotificationSettingsService
+ import io.element.android.libraries.matrix.api.room.RoomNotificationMode
++import io.element.android.libraries.mediapickers.api.PickerProvider
+ import io.element.android.libraries.push.api.PushService
+ import io.element.android.libraries.pushproviders.api.Distributor
+ import io.element.android.libraries.pushproviders.api.PushProvider
+@@ -52,6 +58,8 @@ class NotificationSettingsPresenter(
+     private val pushService: PushService,
+     private val systemNotificationsEnabledProvider: SystemNotificationsEnabledProvider,
+     private val fullScreenIntentPermissionsPresenter: Presenter<FullScreenIntentPermissionsState>,
++    private val notificationSoundsService: NotificationSoundsService,
++    private val pickerProvider: PickerProvider,
+     @SessionCoroutineScope
+     private val sessionCoroutineScope: CoroutineScope,
+ ) : Presenter<NotificationSettingsState> {
+@@ -72,15 +80,22 @@ class NotificationSettingsPresenter(
+             mutableStateOf(NotificationSettingsState.MatrixSettings.Uninitialized)
+         }
+ 
+-        // Used to force a recomposition
+         var refreshFullScreenIntentSettings by remember { mutableIntStateOf(0) }
+ 
++        // Dialog / picker state for the message sound and call ringtone — independent per slot.
++        var showMessageSoundDialog by remember { mutableStateOf(false) }
++        var showCallRingtoneDialog by remember { mutableStateOf(false) }
++        var messagePickerToken by remember { mutableIntStateOf(0) }
++        var callPickerToken by remember { mutableIntStateOf(0) }
++
++        val soundsState = notificationSoundsService.state()
++
+         LaunchedEffect(Unit) {
+             fetchSettings(matrixSettings)
+             observeNotificationSettings(matrixSettings, changeNotificationSettingAction)
++            runCatchingExceptions { notificationSoundsService.migrateLegacyCallChannelSoundIfNeeded() }
+         }
+ 
+-        // List of PushProvider -> Distributor
+         val distributors = remember {
+             pushService.getAvailablePushProviders()
+                 .flatMap { pushProvider ->
+@@ -89,7 +104,6 @@ class NotificationSettingsPresenter(
+                     }
+                 }
+         }
+-        // List of Distributors
+         val availableDistributors = remember {
+             distributors.map { it.second }.toImmutableList()
+         }
+@@ -115,7 +129,6 @@ class NotificationSettingsPresenter(
+             showChangePushProviderDialog = false
+             data ?: return@launch
+             val (pushProvider, distributor) = data
+-            // No op if the distributor is the same.
+             if (distributor == currentDistributor.dataOrNull()) return@launch
+             currentDistributor = AsyncData.Loading(currentDistributor.dataOrNull())
+             pushService.registerWith(
+@@ -124,12 +137,8 @@ class NotificationSettingsPresenter(
+                 distributor = distributor
+             )
+                 .fold(
+-                    {
+-                        refreshPushProvider++
+-                    },
+-                    {
+-                        currentDistributor = AsyncData.Failure(it)
+-                    }
++                    { refreshPushProvider++ },
++                    { currentDistributor = AsyncData.Failure(it) }
+                 )
+         }
+ 
+@@ -157,9 +166,78 @@ class NotificationSettingsPresenter(
+                 NotificationSettingsEvents.ChangePushProvider -> showChangePushProviderDialog = true
+                 NotificationSettingsEvents.CancelChangePushProvider -> showChangePushProviderDialog = false
+                 is NotificationSettingsEvents.SetPushProvider -> localCoroutineScope.changePushProvider(distributors.getOrNull(event.index))
++
++                is NotificationSettingsEvents.OpenSoundDialog -> when (event.slot) {
++                    NotificationSoundSlotId.MESSAGE -> showMessageSoundDialog = true
++                    NotificationSoundSlotId.CALL -> showCallRingtoneDialog = true
++                }
++                is NotificationSettingsEvents.DismissSoundDialog -> when (event.slot) {
++                    NotificationSoundSlotId.MESSAGE -> showMessageSoundDialog = false
++                    NotificationSoundSlotId.CALL -> showCallRingtoneDialog = false
++                }
++                is NotificationSettingsEvents.SelectSoundConfig -> {
++                    notificationSoundsService.setFromConfig(event.slot, event.config)
++                    when (event.slot) {
++                        NotificationSoundSlotId.MESSAGE -> showMessageSoundDialog = false
++                        NotificationSoundSlotId.CALL -> showCallRingtoneDialog = false
++                    }
++                }
++                is NotificationSettingsEvents.LaunchSoundPicker -> when (event.slot) {
++                    NotificationSoundSlotId.MESSAGE -> messagePickerToken++
++                    NotificationSoundSlotId.CALL -> callPickerToken++
++                }
++                is NotificationSettingsEvents.NotifySoundPicked -> {
++                    event.picked?.let { picked ->
++                        notificationSoundsService.setFromPickedUri(event.slot, picked)
++                    }
++                }
++                is NotificationSettingsEvents.DismissSoundError -> {
++                    notificationSoundsService.dismissError(event.slot)
++                }
+             }
+         }
+ 
++        // Build two audio pickers, one per slot. They run completely independently so a late
++        // message pick and a late call pick can never cross paths even when the user fires
++        // both back-to-back.
++        val context = androidx.compose.ui.platform.LocalContext.current
++        val messageSoundPicker = pickerProvider.registerFilePicker(mimeType = MimeTypes.Audio) { uri, _ ->
++            val picked = uri?.let {
++                val displayName = context.getFileName(it) ?: it.lastPathSegment ?: ""
++                PickedSound(it, displayName)
++            }
++            handleEvent(NotificationSettingsEvents.NotifySoundPicked(NotificationSoundSlotId.MESSAGE, picked))
++        }
++        val callSoundPicker = pickerProvider.registerFilePicker(mimeType = MimeTypes.Audio) { uri, _ ->
++            val picked = uri?.let {
++                val displayName = context.getFileName(it) ?: it.lastPathSegment ?: ""
++                PickedSound(it, displayName)
++            }
++            handleEvent(NotificationSettingsEvents.NotifySoundPicked(NotificationSoundSlotId.CALL, picked))
++        }
++        LaunchedEffect(messagePickerToken, messageSoundPicker) {
++            if (messagePickerToken > 0) {
++                messageSoundPicker.launch()
++            }
++        }
++        LaunchedEffect(callPickerToken, callSoundPicker) {
++            if (callPickerToken > 0) {
++                callSoundPicker.launch()
++            }
++        }
++
++        val slotsState = toNotificationSoundSlotsState(
++            messageSound = soundsState.messageSound,
++            callRingtone = soundsState.callRingtone,
++            messageAction = soundsState.messageAction,
++            callAction = soundsState.callAction,
++            showMessageSoundDialog = showMessageSoundDialog,
++            showCallRingtoneDialog = showCallRingtoneDialog,
++            messagePickerToken = messagePickerToken,
++            callPickerToken = callPickerToken,
++            hasExplicitCallRingtonePreference = soundsState.hasExplicitCallRingtonePreference,
++        )
++
+         return NotificationSettingsState(
+             matrixSettings = matrixSettings.value,
+             appSettings = NotificationSettingsState.AppSettings(
+@@ -170,6 +248,7 @@ class NotificationSettingsPresenter(
+             currentPushDistributor = currentDistributor,
+             availablePushDistributors = availableDistributors,
+             showChangePushProviderDialog = showChangePushProviderDialog,
++            sounds = slotsState,
+             fullScreenIntentPermissionsState = key(refreshFullScreenIntentSettings) { fullScreenIntentPermissionsPresenter.present() },
+             eventSink = ::handleEvent,
+         )
+@@ -192,7 +271,6 @@ class NotificationSettingsPresenter(
+     private fun CoroutineScope.fetchSettings(target: MutableState<NotificationSettingsState.MatrixSettings>) = launch {
+         val groupDefaultMode = notificationSettingsService.getDefaultRoomNotificationMode(isEncrypted = false, isOneToOne = false).getOrThrow()
+         val encryptedGroupDefaultMode = notificationSettingsService.getDefaultRoomNotificationMode(isEncrypted = true, isOneToOne = false).getOrThrow()
+-
+         val oneToOneDefaultMode = notificationSettingsService.getDefaultRoomNotificationMode(isEncrypted = false, isOneToOne = true).getOrThrow()
+         val encryptedOneToOneDefaultMode = notificationSettingsService.getDefaultRoomNotificationMode(isEncrypted = true, isOneToOne = true).getOrThrow()
+ 
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsState.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsState.kt
+index 0a55909e..68aced3e 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsState.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsState.kt
+@@ -8,6 +8,8 @@
+ 
+ package io.element.android.features.preferences.impl.notifications
+ 
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundConfig
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundSlotId
+ import io.element.android.libraries.architecture.AsyncAction
+ import io.element.android.libraries.architecture.AsyncData
+ import io.element.android.libraries.fullscreenintent.api.FullScreenIntentPermissionsState
+@@ -23,6 +25,7 @@ data class NotificationSettingsState(
+     val availablePushDistributors: ImmutableList<Distributor>,
+     val showChangePushProviderDialog: Boolean,
+     val fullScreenIntentPermissionsState: FullScreenIntentPermissionsState,
++    val sounds: NotificationSoundSlotsState,
+     val eventSink: (NotificationSettingsEvents) -> Unit,
+ ) {
+     sealed interface MatrixSettings {
+@@ -51,3 +54,60 @@ data class NotificationSettingsState(
+      */
+     val showAdvancedSettings: Boolean = currentPushDistributor.isFailure() || availablePushDistributors.size > 1
+ }
++
++/**
++ * Snapshot of the message-sound and call-ringtone settings as exposed to the view.
++ *
++ * Each slot is fully independent: changing one never changes the other.
++ */
++data class NotificationSoundSlotsState(
++    val messageSound: NotificationSoundConfig,
++    val callRingtone: NotificationSoundConfig,
++    val showMessageSoundDialog: Boolean,
++    val showCallRingtoneDialog: Boolean,
++    val messagePickerToken: Int,
++    val callPickerToken: Int,
++    val messageError: NotificationSoundError?,
++    val callError: NotificationSoundError?,
++    /** True when the user has set an explicit preference for the call ringtone. */
++    val hasExplicitCallRingtonePreference: Boolean,
++)
++
++/**
++ * A dismissible, retryable error surface for a sound-slot apply.
++ */
++data class NotificationSoundError(
++    val slot: NotificationSoundSlotId,
++    val message: String,
++    val cause: Throwable?,
++)
++
++/**
++ * Convert the sound service state into the view-facing [NotificationSoundSlotsState]. Pure mapping
++ * so it stays side-effect free and easy to unit-test.
++ */
++internal fun toNotificationSoundSlotsState(
++    messageSound: NotificationSoundConfig,
++    callRingtone: NotificationSoundConfig,
++    messageAction: AsyncAction<NotificationSoundConfig>,
++    callAction: AsyncAction<NotificationSoundConfig>,
++    showMessageSoundDialog: Boolean,
++    showCallRingtoneDialog: Boolean,
++    messagePickerToken: Int,
++    callPickerToken: Int,
++    hasExplicitCallRingtonePreference: Boolean,
++): NotificationSoundSlotsState = NotificationSoundSlotsState(
++    messageSound = messageSound,
++    callRingtone = callRingtone,
++    showMessageSoundDialog = showMessageSoundDialog,
++    showCallRingtoneDialog = showCallRingtoneDialog,
++    messagePickerToken = messagePickerToken,
++    callPickerToken = callPickerToken,
++    messageError = (messageAction as? AsyncAction.Failure)?.let {
++        NotificationSoundError(slot = NotificationSoundSlotId.MESSAGE, message = it.error.message ?: "error", cause = it.error)
++    },
++    callError = (callAction as? AsyncAction.Failure)?.let {
++        NotificationSoundError(slot = NotificationSoundSlotId.CALL, message = it.error.message ?: "error", cause = it.error)
++    },
++    hasExplicitCallRingtonePreference = hasExplicitCallRingtonePreference,
++)
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsStateProvider.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsStateProvider.kt
+index fb396443..b26fd180 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsStateProvider.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsStateProvider.kt
+@@ -9,6 +9,7 @@
+ package io.element.android.features.preferences.impl.notifications
+ 
+ import androidx.compose.ui.tooling.preview.PreviewParameterProvider
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundConfig
+ import io.element.android.libraries.architecture.AsyncAction
+ import io.element.android.libraries.architecture.AsyncData
+ import io.element.android.libraries.fullscreenintent.api.FullScreenIntentPermissionsState
+@@ -45,6 +46,20 @@ open class NotificationSettingsStateProvider : PreviewParameterProvider<Notifica
+             aInvalidNotificationSettingsState(fixFailed = true),
+             aValidNotificationSettingsState(fullScreenIntentPermissionsState = aFullScreenIntentPermissionsState(permissionGranted = false)),
+             aValidNotificationSettingsState(appNotificationEnabled = false),
++            aValidNotificationSettingsState(showMessageSoundDialog = true),
++            aValidNotificationSettingsState(showCallRingtoneDialog = true),
++            aValidNotificationSettingsState(messageSoundError = NotificationSoundError(
++                slot = io.element.android.features.preferences.impl.notifications.sound.NotificationSoundSlotId.MESSAGE,
++                message = "Unable to copy",
++                cause = RuntimeException("disk full"),
++            )),
++            aValidNotificationSettingsState(callRingtoneError = NotificationSoundError(
++                slot = io.element.android.features.preferences.impl.notifications.sound.NotificationSoundSlotId.CALL,
++                message = "Unable to copy",
++                cause = RuntimeException("permission denied"),
++            )),
++            aValidNotificationSettingsState(messageSound = NotificationSoundConfig.Custom(absolutePath = "/tmp/foo.mp3", displayName = "My Sound")),
++            aValidNotificationSettingsState(callRingtone = NotificationSoundConfig.Silent),
+         )
+ }
+ 
+@@ -62,6 +77,13 @@ fun aValidNotificationSettingsState(
+     ),
+     showChangePushProviderDialog: Boolean = false,
+     fullScreenIntentPermissionsState: FullScreenIntentPermissionsState = aFullScreenIntentPermissionsState(),
++    messageSound: NotificationSoundConfig = NotificationSoundConfig.SystemDefault,
++    callRingtone: NotificationSoundConfig = NotificationSoundConfig.SystemDefault,
++    showMessageSoundDialog: Boolean = false,
++    showCallRingtoneDialog: Boolean = false,
++    messageSoundError: NotificationSoundError? = null,
++    callRingtoneError: NotificationSoundError? = null,
++    hasExplicitCallRingtonePreference: Boolean = false,
+     eventSink: (NotificationSettingsEvents) -> Unit = {},
+ ) = NotificationSettingsState(
+     matrixSettings = NotificationSettingsState.MatrixSettings.Valid(
+@@ -79,6 +101,17 @@ fun aValidNotificationSettingsState(
+     currentPushDistributor = currentPushDistributor,
+     availablePushDistributors = availablePushDistributors.toImmutableList(),
+     showChangePushProviderDialog = showChangePushProviderDialog,
++    sounds = NotificationSoundSlotsState(
++        messageSound = messageSound,
++        callRingtone = callRingtone,
++        showMessageSoundDialog = showMessageSoundDialog,
++        showCallRingtoneDialog = showCallRingtoneDialog,
++        messagePickerToken = 0,
++        callPickerToken = 0,
++        messageError = messageSoundError,
++        callError = callRingtoneError,
++        hasExplicitCallRingtonePreference = hasExplicitCallRingtonePreference,
++    ),
+     fullScreenIntentPermissionsState = fullScreenIntentPermissionsState,
+     eventSink = eventSink,
+ )
+@@ -98,6 +131,17 @@ fun aInvalidNotificationSettingsState(
+     currentPushDistributor = AsyncData.Uninitialized,
+     availablePushDistributors = persistentListOf(),
+     showChangePushProviderDialog = false,
++    sounds = NotificationSoundSlotsState(
++        messageSound = NotificationSoundConfig.SystemDefault,
++        callRingtone = NotificationSoundConfig.SystemDefault,
++        showMessageSoundDialog = false,
++        showCallRingtoneDialog = false,
++        messagePickerToken = 0,
++        callPickerToken = 0,
++        messageError = null,
++        callError = null,
++        hasExplicitCallRingtonePreference = false,
++    ),
+     fullScreenIntentPermissionsState = aFullScreenIntentPermissionsState(),
+     eventSink = eventSink,
+ )
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsView.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsView.kt
+index 09f54b70..e36f6c7e 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsView.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsView.kt
+@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.Lifecycle
+ import io.element.android.compound.tokens.generated.CompoundIcons
+ import io.element.android.features.preferences.impl.R
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundConfig
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundSlotId
+ import io.element.android.libraries.androidutils.system.startNotificationSettingsIntent
+ import io.element.android.libraries.architecture.AsyncData
+ import io.element.android.libraries.designsystem.components.Announcement
+@@ -80,10 +82,12 @@ fun NotificationSettingsView(
+                 onGroupChatsClick = { onOpenEditDefault(false) },
+                 onDirectChatsClick = { onOpenEditDefault(true) },
+                 onMentionNotificationsChange = { state.eventSink(NotificationSettingsEvents.SetAtRoomNotificationsEnabled(it)) },
+-                // TODO We are removing the call notification toggle until support for call notifications has been added
+-//                onCallsNotificationsChanged = { state.eventSink(NotificationSettingsEvents.SetCallNotificationsEnabled(it)) },
+                 onInviteForMeNotificationsChange = { state.eventSink(NotificationSettingsEvents.SetInviteForMeNotificationsEnabled(it)) },
+                 onTroubleshootNotificationsClick = onTroubleshootNotificationsClick,
++                onOpenSoundDialog = { state.eventSink(NotificationSettingsEvents.OpenSoundDialog(it)) },
++                onLaunchSoundPicker = { state.eventSink(NotificationSettingsEvents.LaunchSoundPicker(it)) },
++                onSelectSoundConfig = { slot, config -> state.eventSink(NotificationSettingsEvents.SelectSoundConfig(slot, config)) },
++                onDismissSoundDialog = { state.eventSink(NotificationSettingsEvents.DismissSoundDialog(it)) },
+             )
+         }
+         AsyncActionView(
+@@ -92,6 +96,21 @@ fun NotificationSettingsView(
+             onErrorDismiss = { state.eventSink(NotificationSettingsEvents.ClearNotificationChangeError) },
+             onSuccess = {},
+         )
++
++        state.sounds.messageError?.let { error ->
++            ErrorDialog(
++                title = stringResource(id = CommonStrings.dialog_title_error),
++                content = stringResource(id = R.string.screen_notification_settings_sound_error_set_failed),
++                onSubmit = { state.eventSink(NotificationSettingsEvents.DismissSoundError(error.slot)) }
++            )
++        }
++        state.sounds.callError?.let { error ->
++            ErrorDialog(
++                title = stringResource(id = CommonStrings.dialog_title_error),
++                content = stringResource(id = R.string.screen_notification_settings_sound_error_set_failed),
++                onSubmit = { state.eventSink(NotificationSettingsEvents.DismissSoundError(error.slot)) }
++            )
++        }
+     }
+ }
+ 
+@@ -103,10 +122,12 @@ private fun NotificationSettingsContentView(
+     onGroupChatsClick: () -> Unit,
+     onDirectChatsClick: () -> Unit,
+     onMentionNotificationsChange: (Boolean) -> Unit,
+-    // TODO We are removing the call notification toggle until support for call notifications has been added
+-//    onCallsNotificationsChanged: (Boolean) -> Unit,
+     onInviteForMeNotificationsChange: (Boolean) -> Unit,
+     onTroubleshootNotificationsClick: () -> Unit,
++    onOpenSoundDialog: (NotificationSoundSlotId) -> Unit,
++    onLaunchSoundPicker: (NotificationSoundSlotId) -> Unit,
++    onSelectSoundConfig: (NotificationSoundSlotId, NotificationSoundConfig) -> Unit,
++    onDismissSoundDialog: (NotificationSoundSlotId) -> Unit,
+ ) {
+     val context = LocalContext.current
+     val systemSettings: NotificationSettingsState.AppSettings = state.appSettings
+@@ -153,6 +174,53 @@ private fun NotificationSettingsContentView(
+                 )
+             }
+         }
++
++        PreferenceCategory(title = stringResource(id = R.string.screen_notification_settings_sound_section_title)) {
++            ListItem(
++                headlineContent = {
++                    Text(stringResource(id = R.string.screen_notification_settings_message_sound))
++                },
++                supportingContent = {
++                    Text(text = soundLabel(state.sounds.messageSound))
++                },
++                onClick = { onOpenSoundDialog(NotificationSoundSlotId.MESSAGE) }
++            )
++            ListItem(
++                headlineContent = {
++                    Text(stringResource(id = R.string.screen_notification_settings_call_ringtone))
++                },
++                supportingContent = {
++                    Text(text = soundLabel(state.sounds.callRingtone))
++                },
++                onClick = { onOpenSoundDialog(NotificationSoundSlotId.CALL) }
++            )
++
++            if (state.sounds.showMessageSoundDialog) {
++                SoundChoiceDialog(
++                    slot = NotificationSoundSlotId.MESSAGE,
++                    current = state.sounds.messageSound,
++                    onSelectPreset = { config -> onSelectSoundConfig(NotificationSoundSlotId.MESSAGE, config) },
++                    onSelectCustom = {
++                        onDismissSoundDialog(NotificationSoundSlotId.MESSAGE)
++                        onLaunchSoundPicker(NotificationSoundSlotId.MESSAGE)
++                    },
++                    onDismiss = { onDismissSoundDialog(NotificationSoundSlotId.MESSAGE) }
++                )
++            }
++            if (state.sounds.showCallRingtoneDialog) {
++                SoundChoiceDialog(
++                    slot = NotificationSoundSlotId.CALL,
++                    current = state.sounds.callRingtone,
++                    onSelectPreset = { config -> onSelectSoundConfig(NotificationSoundSlotId.CALL, config) },
++                    onSelectCustom = {
++                        onDismissSoundDialog(NotificationSoundSlotId.CALL)
++                        onLaunchSoundPicker(NotificationSoundSlotId.CALL)
++                    },
++                    onDismiss = { onDismissSoundDialog(NotificationSoundSlotId.CALL) }
++                )
++            }
++        }
++
+         PreferenceCategory(title = stringResource(id = R.string.screen_notification_settings_notification_section_title)) {
+             ListItem(
+                 headlineContent = {
+@@ -183,14 +251,6 @@ private fun NotificationSettingsContentView(
+             )
+         }
+         PreferenceCategory(title = stringResource(id = R.string.screen_notification_settings_additional_settings_section_title)) {
+-            // TODO We are removing the call notification toggle until support for call notifications has been added
+-//                PreferenceSwitch(
+-//                    modifier = Modifier,
+-//                    title = stringResource(id = CommonStrings.screen_notification_settings_calls_label),
+-//                    isChecked = matrixSettings.callNotificationsEnabled,
+-//                    switchAlignment = Alignment.Top,
+-//                    onCheckedChange = onCallsNotificationsChanged
+-//                )
+             PreferenceSwitch(
+                 modifier = Modifier,
+                 title = stringResource(id = R.string.screen_notification_settings_invite_for_me_label),
+@@ -261,6 +321,65 @@ private fun NotificationSettingsContentView(
+     }
+ }
+ 
++@Composable
++private fun SoundChoiceDialog(
++    slot: NotificationSoundSlotId,
++    current: NotificationSoundConfig,
++    onSelectPreset: (NotificationSoundConfig) -> Unit,
++    onSelectCustom: () -> Unit,
++    onDismiss: () -> Unit,
++) {
++    val presets: List<NotificationSoundConfig> = buildList {
++        add(NotificationSoundConfig.SystemDefault)
++        add(NotificationSoundConfig.Silent)
++        addAll(NotificationSoundConfig.BUILTIN_BUNDLED_PRESETS)
++    }
++    val dialogTitle = stringResource(
++        id = when (slot) {
++            NotificationSoundSlotId.MESSAGE -> R.string.screen_notification_settings_sound_dialog_title_message
++            NotificationSoundSlotId.CALL -> R.string.screen_notification_settings_sound_dialog_title_call
++        }
++    )
++    val index = presets.indexOfFirst { it.matches(current) }.takeIf { it >= 0 } ?: 0
++    val optionsList = buildList {
++        addAll(presets.map { ListOption(title = soundLabel(it)) })
++        // Trailing "Custom…" entry.
++        add(ListOption(title = stringResource(id = R.string.screen_notification_settings_sound_option_choose_custom)))
++    }.toImmutableList()
++    SingleSelectionDialog(
++        title = dialogTitle,
++        options = optionsList,
++        initialSelection = index,
++        onSelectOption = { i ->
++            when {
++                i < presets.size -> presets.getOrNull(i)?.let { onSelectPreset(it) }
++                i == presets.size -> onSelectCustom()
++                else -> Unit
++            }
++        },
++        onDismissRequest = onDismiss,
++    )
++}
++
++@Composable
++private fun soundLabel(config: NotificationSoundConfig): String = when (config) {
++    NotificationSoundConfig.SystemDefault -> stringResource(id = R.string.screen_notification_settings_sound_option_default)
++    NotificationSoundConfig.Silent -> stringResource(id = R.string.screen_notification_settings_sound_option_silent)
++    is NotificationSoundConfig.BundledPreset -> stringResource(id = R.string.screen_notification_settings_sound_option_element_default)
++    is NotificationSoundConfig.Custom -> if (config.displayName.isNotBlank() && config.displayName != "__custom__") {
++        config.displayName
++    } else {
++        config.absolutePath.substringAfterLast('/')
++    }
++}
++
++private fun NotificationSoundConfig.matches(other: NotificationSoundConfig): Boolean {
++    if (this is NotificationSoundConfig.Custom && other is NotificationSoundConfig.Custom) {
++        return this.absolutePath == other.absolutePath
++    }
++    return this == other
++}
++
+ @Composable
+ private fun getTitleForRoomNotificationMode(mode: RoomNotificationMode?) =
+     when (mode) {
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundConfig.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundConfig.kt
+new file mode 100644
+index 00000000..844453cf
+--- /dev/null
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundConfig.kt
+@@ -0,0 +1,85 @@
++/*
++ * Copyright (c) 2025 Element Creations Ltd.
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial.
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.preferences.impl.notifications.sound
++
++import android.net.Uri
++import androidx.compose.runtime.Immutable
++
++/**
++ * Describes a user-facing choice for a notification sound (message sound or call ringtone).
++ *
++ * The choices are intentionally explicit and serialisable so that:
++ * - they can round-trip through DataStore (see [serialize] / [deserialize]),
++ * - they can be matched deterministically regardless of the picker URI lifetime.
++ *
++ * Bundled presets are referenced by their preset id; custom files are referenced by their
++ * absolute path inside the app's storage dir (after copy).
++ */
++@Immutable
++sealed interface NotificationSoundConfig {
++    /** Use the system default ringtone / notification sound. */
++    data object SystemDefault : NotificationSoundConfig
++
++    /** Use a preset bundled with the application. */
++    data class BundledPreset(val presetId: String) : NotificationSoundConfig
++
++    /** Use a custom audio file copied into the app's private storage. */
++    data class Custom(val absolutePath: String, val displayName: String) : NotificationSoundConfig
++
++    /** No sound. */
++    data object Silent : NotificationSoundConfig
++
++    fun serialize(): String? = when (this) {
++        SystemDefault -> TOKEN_SYSTEM_DEFAULT
++        is BundledPreset -> "$TOKEN_BUNDLED_PREFIX$presetId"
++        is Custom -> "$TOKEN_CUSTOM_PREFIX${absolutePath}\u0001${displayName}"
++        Silent -> TOKEN_SILENT
++    }
++
++    companion object {
++        const val TOKEN_SYSTEM_DEFAULT = "system_default"
++        const val TOKEN_SILENT = "silent"
++        const val TOKEN_BUNDLED_PREFIX = "bundled:"
++        const val TOKEN_CUSTOM_PREFIX = "custom:"
++
++        /** Identifier of the bundled Element notification preset (libraries/push/impl/R.raw.message). */
++        const val BUNDLED_PRESET_ELEMENT = "element_default"
++
++        /** Built-in option list presented to the user. */
++        val BUILTIN_BUNDLED_PRESETS: List<BundledPreset> = listOf(
++            BundledPreset(BUNDLED_PRESET_ELEMENT),
++        )
++
++        fun deserialize(serialized: String?): NotificationSoundConfig {
++            if (serialized.isNullOrEmpty()) return SystemDefault
++            return when {
++                serialized == TOKEN_SYSTEM_DEFAULT -> SystemDefault
++                serialized == TOKEN_SILENT -> Silent
++                serialized.startsWith(TOKEN_BUNDLED_PREFIX) -> BundledPreset(serialized.removePrefix(TOKEN_BUNDLED_PREFIX))
++                serialized.startsWith(TOKEN_CUSTOM_PREFIX) -> {
++                    val payload = serialized.removePrefix(TOKEN_CUSTOM_PREFIX)
++                    val sep = payload.indexOf('\u0001')
++                    if (sep < 0) {
++                        Custom(payload, payload.substringAfterLast('/'))
++                    } else {
++                        Custom(payload.substring(0, sep), payload.substring(sep + 1))
++                    }
++                }
++                else -> SystemDefault
++            }
++        }
++    }
++}
++
++/**
++ * Describes a `Uri` for a sound choice. This is a separate type from [NotificationSoundConfig]
++ * because the picker returns `Uri` directly (which we must not persist as the effective sound).
++ */
++@Immutable
++data class PickedSound(val uri: Uri, val displayName: String)
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundFileRepository.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundFileRepository.kt
+new file mode 100644
+index 00000000..d6599026
+--- /dev/null
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundFileRepository.kt
+@@ -0,0 +1,147 @@
++/*
++ * Copyright (c) 2025 Element Creations Ltd.
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial.
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.preferences.impl.notifications.sound
++
++import android.content.Context
++import android.net.Uri
++import androidx.core.net.toUri
++import dev.zacsweers.metro.AppScope
++import dev.zacsweers.metro.ContributesBinding
++import dev.zacsweers.metro.SingleIn
++import io.element.android.libraries.androidutils.file.getFileName
++import io.element.android.libraries.core.extensions.runCatchingExceptions
++import io.element.android.libraries.di.annotations.ApplicationContext
++import timber.log.Timber
++import java.io.File
++import java.io.FileOutputStream
++import java.util.UUID
++
++/**
++ * Copies user-picked audio documents into app-owned private storage so the resulting sound
++ * remains available across device reboots and so the picker-issued transient URI is never
++ * persisted as the effective sound.
++ */
++interface NotificationSoundFileRepository {
++    /**
++     * Copy [source] (typically a `content://` URI returned by the system file picker) into
++     * app-owned storage and report the new on-disk [Uri] and the chosen [displayName].
++     *
++     * @return [Result.success] with a [CopiedSound] on success, or [Result.failure] describing
++     * the failure. The original preference is **not** modified by this method.
++     */
++    suspend fun copyToAppStorage(source: PickedSound, slot: NotificationSoundSlotTag): Result<CopiedSound>
++
++    /**
++     * Delete a previously-copied file. Failures are logged but never throw.
++     */
++    suspend fun delete(filePath: String)
++
++    /**
++     * Resolve the on-disk [Uri] for a file at [absolutePath].
++     */
++    fun uriForFile(absolutePath: String): Uri
++}
++
++/**
++ * Identifier of the slot that owns the copied file. Files for the two slots live in
++ * separate folders so that picking a new message sound does not invalidate a saved call
++ * ringtone, and vice versa.
++ */
++enum class NotificationSoundSlotTag {
++    MESSAGE,
++    CALL,
++}
++
++data class CopiedSound(
++    val absolutePath: String,
++    val uri: Uri,
++    val displayName: String,
++    val slot: NotificationSoundSlotTag,
++)
++
++@ContributesBinding(AppScope::class)
++@SingleIn(AppScope::class)
++class DefaultNotificationSoundFileRepository(
++    @ApplicationContext private val context: Context,
++) : NotificationSoundFileRepository {
++    override suspend fun copyToAppStorage(source: PickedSound, slot: NotificationSoundSlotTag): Result<CopiedSound> {
++        return runCatchingExceptions {
++            val destinationDir = File(context.filesDir, "notification_sounds/${slot.folderName}").apply {
++                if (!exists()) mkdirs()
++            }
++            val name = source.displayName
++                .ifBlank { context.getFileName(source.uri) ?: "sound_${System.currentTimeMillis()}" }
++            val sanitizedName = name.sanitizeFileName()
++            val extension = sanitizedName.substringAfterLast('.', missingDelimiterValue = "")
++            val uniqueName = if (extension.isNotEmpty()) {
++                "${UUID.randomUUID()}.${extension}"
++            } else {
++                "${UUID.randomUUID()}.audio"
++            }
++            val tempFile = File(destinationDir, "tmp_${UUID.randomUUID()}")
++            val destFile = File(destinationDir, uniqueName)
++            // Read from the picker-provided URI and write to a temp file we control. We do this
++            // BEFORE swapping any preference or notification channel so that any I/O failure
++            // (broken content, removed document, permission loss) leaves the previous effective
++            // sound untouched.
++            val bytesCopied = context.contentResolver.openInputStream(source.uri)?.use { input ->
++                FileOutputStream(tempFile).use { output ->
++                    input.copyTo(output)
++                }
++                tempFile.length().also {
++                    if (it <= 0) {
++                        tempFile.delete()
++                        error("Copied sound file is empty")
++                    }
++                }
++            } ?: run {
++                tempFile.delete()
++                error("Could not open input stream for ${source.uri}")
++            }
++            // Atomic rename so we never expose a half-written file to the channel code.
++            if (!tempFile.renameTo(destFile)) {
++                // Some filesystems require explicit copy fallback.
++                tempFile.copyTo(destFile, overwrite = true)
++                tempFile.delete()
++            }
++            val uri = uriForFile(destFile.absolutePath)
++            CopiedSound(
++                absolutePath = destFile.absolutePath,
++                uri = uri,
++                displayName = sanitizedName,
++                slot = slot,
++            ).also {
++                Timber.d("Copied ${bytesCopied} bytes for $slot sound into ${destFile.absolutePath}")
++            }
++        }.onFailure { Timber.e(it, "Failed to copy notification sound for $slot") }
++    }
++
++    override suspend fun delete(filePath: String) {
++        runCatchingExceptions {
++            val file = File(filePath)
++            if (file.exists()) file.delete()
++        }
++    }
++
++    override fun uriForFile(absolutePath: String): Uri = File(absolutePath).toUri()
++
++    private val NotificationSoundSlotTag.folderName: String
++        get() = when (this) {
++            NotificationSoundSlotTag.MESSAGE -> "message"
++            NotificationSoundSlotTag.CALL -> "call"
++        }
++
++    private fun String.sanitizeFileName(): String {
++        val trimmed = trim()
++        if (trimmed.isEmpty()) return "sound.${System.currentTimeMillis()}.audio"
++        // Strip path separators and characters that aren't safe on every filesystem.
++        val safe = trimmed.replace(Regex("[\\\\/:*?\"<>|]"), "_")
++        return if (safe.length > 96) safe.substring(0, 96) else safe
++    }
++}
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundsService.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundsService.kt
+new file mode 100644
+index 00000000..b9780d79
+--- /dev/null
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/sound/NotificationSoundsService.kt
+@@ -0,0 +1,376 @@
++/*
++ * Copyright (c) 2025 Element Creations Ltd.
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial.
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.preferences.impl.notifications.sound
++
++import android.net.Uri
++import android.provider.Settings
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.remember
++import dev.zacsweers.metro.ContributesBinding
++import dev.zacsweers.metro.SingleIn
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.di.annotations.SessionCoroutineScope
++import io.element.android.libraries.matrix.api.core.SessionId
++import io.element.android.libraries.push.impl.notifications.channels.NotificationChannels
++import io.element.android.libraries.push.impl.notifications.channels.NotificationSoundSlot
++import io.element.android.libraries.pushstore.api.UserPushStore
++import io.element.android.libraries.pushstore.api.UserPushStoreFactory
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.combine
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++import timber.log.Timber
++import java.io.File
++
++/** Identifies a notification-sound slot the user can customise. */
++enum class NotificationSoundSlotId {
++    MESSAGE,
++    CALL;
++
++    fun toNotificationSoundSlot(): NotificationSoundSlot = when (this) {
++        MESSAGE -> NotificationSoundSlot.MESSAGE
++        CALL -> NotificationSoundSlot.CALL
++    }
++
++    fun tag(): NotificationSoundSlotTag = when (this) {
++        MESSAGE -> NotificationSoundSlotTag.MESSAGE
++        CALL -> NotificationSoundSlotTag.CALL
++    }
++}
++
++data class NotificationSoundsState(
++    val messageSound: NotificationSoundConfig,
++    val callRingtone: NotificationSoundConfig,
++    val messageAction: AsyncAction<NotificationSoundConfig>,
++    val callAction: AsyncAction<NotificationSoundConfig>,
++    val hasExplicitCallRingtonePreference: Boolean,
++)
++
++interface NotificationSoundsService {
++    @Composable
++    fun state(): NotificationSoundsState
++
++    /**
++     * Apply a picker-provided URI to [slot]. The transient picker URI is **never** persisted as
++     * the effective sound — it is first copied to app-owned storage. Concurrent calls for the
++     * same slot are serialised using a per-slot mutex AND a monotonically increasing token so
++     * that a late-finishing pick can never resurrect an older choice.
++     */
++    fun setFromPickedUri(slot: NotificationSoundSlotId, picked: PickedSound)
++
++    /** Apply a non-file choice (system default, bundled preset, silent). */
++    fun setFromConfig(slot: NotificationSoundSlotId, config: NotificationSoundConfig)
++
++    /** Dismiss the error displayed for [slot]. */
++    fun dismissError(slot: NotificationSoundSlotId)
++
++    /**
++     * Discover any call-channel ringtone left behind by a legacy install and migrate it as the
++     * effective call ringtone, **unless** the user already has an explicit new preference.
++     * Returns true when a migration actually occurred.
++     */
++    suspend fun migrateLegacyCallChannelSoundIfNeeded(): Boolean
++}
++
++@ContributesBinding(SessionScope::class)
++@SingleIn(SessionScope::class)
++class DefaultNotificationSoundsService(
++    private val userPushStoreFactory: UserPushStoreFactory,
++    private val sessionId: SessionId,
++    private val notificationChannels: NotificationChannels,
++    private val fileRepository: NotificationSoundFileRepository,
++    @SessionCoroutineScope private val sessionCoroutineScope: CoroutineScope,
++) : NotificationSoundsService {
++
++    private val userPushStore: UserPushStore
++        get() = userPushStoreFactory.getOrCreate(sessionId)
++    private val messageState = MutableStateFlow<NotificationSoundConfig>(NotificationSoundConfig.SystemDefault)
++    private val callState = MutableStateFlow<NotificationSoundConfig>(NotificationSoundConfig.SystemDefault)
++    private val messageAction = MutableStateFlow<AsyncAction<NotificationSoundConfig>>(AsyncAction.Uninitialized)
++    private val callAction = MutableStateFlow<AsyncAction<NotificationSoundConfig>>(AsyncAction.Uninitialized)
++    private val explicitCallRingtonePreference = MutableStateFlow(false)
++
++    private val messageLock = Mutex()
++    private val callLock = Mutex()
++
++    // Token per slot to enforce "latest pick wins": every time we start a new update we bump the
++    // token, and the operation only commits its result back to the store if its token is still
++    // the latest one for that slot. This stops a late `complete` from resurrecting an older pick.
++    private val messageToken = MutableStateFlow(0L)
++    private val callToken = MutableStateFlow(0L)
++
++    init {
++        observePreferences()
++    }
++
++    private fun observePreferences() {
++        userPushStore.getMessageSoundConfigFlow()
++            .onEach { serialized -> messageState.value = NotificationSoundConfig.deserialize(serialized) }
++            .launchIn(sessionCoroutineScope)
++        userPushStore.getCallRingtoneConfigFlow()
++            .onEach { serialized -> callState.value = NotificationSoundConfig.deserialize(serialized) }
++            .launchIn(sessionCoroutineScope)
++        userPushStore.hasExplicitCallRingtonePreference()
++            .onEach { hasExplicit -> explicitCallRingtonePreference.value = hasExplicit }
++            .launchIn(sessionCoroutineScope)
++        userPushStore.getMessageSoundChannelVersionFlow()
++            .combine(messageToken, ::Pair)
++            .launchIn(sessionCoroutineScope)
++    }
++
++    @Composable
++    override fun state(): NotificationSoundsState {
++        val message = messageState.collectAsState().value
++        val call = callState.collectAsState().value
++        val mAction = messageAction.collectAsState().value
++        val cAction = callAction.collectAsState().value
++        val explicit = explicitCallRingtonePreference.collectAsState().value
++        return remember(message, call, mAction, cAction, explicit) {
++            NotificationSoundsState(
++                messageSound = message,
++                callRingtone = call,
++                messageAction = mAction,
++                callAction = cAction,
++                hasExplicitCallRingtonePreference = explicit,
++            )
++        }
++    }
++
++    override fun setFromPickedUri(slot: NotificationSoundSlotId, picked: PickedSound) {
++        sessionCoroutineScope.launch { applyFromPicked(slot, picked) }
++    }
++
++    override fun setFromConfig(slot: NotificationSoundSlotId, config: NotificationSoundConfig) {
++        sessionCoroutineScope.launch { applyDirect(slot, config) }
++    }
++
++    override fun dismissError(slot: NotificationSoundSlotId) {
++        when (slot) {
++            NotificationSoundSlotId.MESSAGE -> messageAction.value = AsyncAction.Uninitialized
++            NotificationSoundSlotId.CALL -> callAction.value = AsyncAction.Uninitialized
++        }
++    }
++
++    override suspend fun migrateLegacyCallChannelSoundIfNeeded(): Boolean {
++        if (userPushStore.hasExplicitCallRingtonePreference().first()) {
++            // Never overwrite an explicit, user-set preference.
++            return false
++        }
++        val legacySound = notificationChannels.getCurrentChannelSoundUri(NotificationSoundSlot.CALL)
++            ?: return false
++        val systemDefault = Settings.System.DEFAULT_RINGTONE_URI
++        if (legacySound == systemDefault) {
++            // The platform default is already installed; recording it as a preference would
++            // be wasted, so we leave the preference absent and let the channel drive.
++            return false
++        }
++        // External content:// URIs are not guaranteed to survive reboots / app updates, so we
++        // copy the resource into our own storage and persist that. Schemes other than
++        // `content://` (e.g. `android.resource://`, `file://`) are kept as-is and used
++        // directly because they are app-stable.
++        val legacyPath = legacySound.toString()
++        val config: NotificationSoundConfig = if (legacySound.scheme == android.content.ContentResolver.SCHEME_CONTENT) {
++            val picked = PickedSound(legacySound, legacyPath.substringAfterLast('/').ifEmpty { legacyPath })
++            fileRepository.copyToAppStorage(picked, NotificationSoundSlotTag.CALL).fold(
++                onSuccess = { copied ->
++                    NotificationSoundConfig.Custom(absolutePath = copied.absolutePath, displayName = copied.displayName)
++                },
++                onFailure = { error ->
++                    Timber.w(error, "Could not copy legacy call channel sound; falling back to keeping the source URI")
++                    NotificationSoundConfig.Custom(absolutePath = legacyPath, displayName = legacyPath.substringAfterLast('/').ifEmpty { legacyPath })
++                }
++            )
++        } else {
++            NotificationSoundConfig.Custom(absolutePath = legacyPath, displayName = legacyPath.substringAfterLast('/').ifEmpty { legacyPath })
++        }
++        userPushStore.setCallRingtoneConfig(config.serialize())
++        callState.value = config
++        val currentVersion = userPushStore.getCallRingtoneChannelVersionFlow().first()
++        val next = currentVersion + 1
++        userPushStore.setCallRingtoneChannelVersion(next)
++        Timber.d("Migrated legacy call channel sound to $config (version=$next)")
++        return true
++    }
++
++    private suspend fun applyDirect(slot: NotificationSoundSlotId, config: NotificationSoundConfig) {
++        val lock = lockFor(slot)
++        val tokenState = tokenFor(slot)
++        val action = actionFor(slot)
++        var appliedUri: Uri? = null
++        var success = false
++        lock.withLock {
++            val token = tokenState.value + 1
++            tokenState.value = token
++            action.value = AsyncAction.Loading
++            try {
++                persistPreference(slot, config)
++                bumpChannelVersion(slot)
++                if (tokenState.value == token) {
++                    appliedUri = appliedUriFor(config)
++                    action.value = AsyncAction.Success(config)
++                    success = true
++                }
++            } catch (e: Throwable) {
++                Timber.e(e, "Failed to apply sound config $config to $slot")
++                if (tokenState.value == token) {
++                    action.value = AsyncAction.Failure(e)
++                }
++            }
++        }
++        // Push the new sound onto the system channel outside the lock to keep I/O brief
++        // and to let two concurrent slot updates make progress independently of each other.
++        if (success) {
++            updateChannel(slot, appliedUri)
++        }
++    }
++
++    private suspend fun applyFromPicked(slot: NotificationSoundSlotId, picked: PickedSound) {
++        val lock = lockFor(slot)
++        val tokenState = tokenFor(slot)
++        val action = actionFor(slot)
++        var pathToApply: String? = null
++        lock.withLock {
++            val token = tokenState.value + 1
++            tokenState.value = token
++            action.value = AsyncAction.Loading
++            // CRITICAL: the picker URI is transient — we must NOT persist it. Instead we
++            // copy to app storage first. If the copy fails we keep the previous effective
++            // sound and surface a dismissible error.
++            val copyResult = fileRepository.copyToAppStorage(picked, slot.tag())
++            copyResult.fold(
++                onSuccess = { copied ->
++                    if (tokenState.value != token) {
++                        // We've been superseded by a newer pick; clean up the file we just copied.
++                        cleanup(copied.absolutePath)
++                        return@fold
++                    }
++                    val config = NotificationSoundConfig.Custom(copied.absolutePath, copied.displayName)
++                    try {
++                        persistPreference(slot, config)
++                        bumpChannelVersion(slot)
++                        pathToApply = copied.absolutePath
++                        action.value = AsyncAction.Success(config)
++                    } catch (e: Throwable) {
++                        Timber.e(e, "Failed to persist $config for $slot")
++                        action.value = AsyncAction.Failure(e)
++                        cleanup(copied.absolutePath)
++                    }
++                },
++                onFailure = { error ->
++                    if (tokenState.value == token) {
++                        action.value = AsyncAction.Failure(error)
++                    }
++                }
++            )
++        }
++        // Apply the channel sound outside the lock so two concurrent picker results can
++        // still race on the channel — the channel-version token enforces ordering.
++        pathToApply?.let { path -> updateChannel(slot, Uri.fromFile(File(path))) }
++    }
++
++    private suspend fun persistPreference(slot: NotificationSoundSlotId, config: NotificationSoundConfig) {
++        when (slot) {
++            NotificationSoundSlotId.MESSAGE -> userPushStore.setMessageSoundConfig(config.serialize())
++            NotificationSoundSlotId.CALL -> userPushStore.setCallRingtoneConfig(config.serialize())
++        }
++    }
++
++    private fun bumpChannelVersion(slot: NotificationSoundSlotId) {
++        val current = when (slot) {
++            NotificationSoundSlotId.MESSAGE -> messageChannelVersion
++            NotificationSoundSlotId.CALL -> callChannelVersion
++        }
++        // Read once synchronously from the in-memory mirror so the version stays consistent
++        // with the existing flow state.
++        val next = current + 1
++        when (slot) {
++            NotificationSoundSlotId.MESSAGE -> {
++                messageChannelVersion = next
++                // Persist asynchronously so we don't block the lock; the value is also
++                // captured in the in-memory mirror so subsequent reads are accurate.
++                sessionCoroutineScope.launch { userPushStore.setMessageSoundChannelVersion(next) }
++            }
++            NotificationSoundSlotId.CALL -> {
++                callChannelVersion = next
++                sessionCoroutineScope.launch { userPushStore.setCallRingtoneChannelVersion(next) }
++            }
++        }
++    }
++
++    private fun updateChannel(slot: NotificationSoundSlotId, uri: Uri?) {
++        try {
++            notificationChannels.setChannelSound(slot.toNotificationSoundSlot(), uri)
++        } catch (e: Throwable) {
++            Timber.e(e, "Failed to update notification channel sound for $slot")
++        }
++    }
++
++    private suspend fun cleanup(path: String) {
++        withContext(Dispatchers.IO) {
++            fileRepository.delete(path)
++        }
++    }
++
++    private fun lockFor(slot: NotificationSoundSlotId): Mutex = when (slot) {
++        NotificationSoundSlotId.MESSAGE -> messageLock
++        NotificationSoundSlotId.CALL -> callLock
++    }
++
++    private fun tokenFor(slot: NotificationSoundSlotId): MutableStateFlow<Long> = when (slot) {
++        NotificationSoundSlotId.MESSAGE -> messageToken
++        NotificationSoundSlotId.CALL -> callToken
++    }
++
++    private fun actionFor(slot: NotificationSoundSlotId): MutableStateFlow<AsyncAction<NotificationSoundConfig>> = when (slot) {
++        NotificationSoundSlotId.MESSAGE -> messageAction
++        NotificationSoundSlotId.CALL -> callAction
++    }
++
++    // In-memory mirror of the DataStore-backed channel-version counter. Read by bumpChannelVersion
++    // and written after every successful apply so the next bump is monotonic.
++    @Volatile
++    private var messageChannelVersion: Int = 0
++    @Volatile
++    private var callChannelVersion: Int = 0
++}
++
++private fun appliedUriFor(config: NotificationSoundConfig): Uri? = when (config) {
++    is NotificationSoundConfig.Custom -> Uri.fromFile(File(config.absolutePath))
++    is NotificationSoundConfig.BundledPreset -> bundledPresetUri(config.presetId)
++    NotificationSoundConfig.SystemDefault -> null
++    NotificationSoundConfig.Silent -> null
++}
++
++/**
++ * Resolve the on-device URI of a bundled preset. Today there is only one preset
++ * (`element_default`) which lives in the push library raw resources.
++ */
++internal fun bundledPresetUri(presetId: String): Uri? {
++    if (presetId != NotificationSoundConfig.BUNDLED_PRESET_ELEMENT) return null
++    val packageName = bundledResourcePackageName ?: return null
++    return Uri.Builder()
++        .scheme(android.content.ContentResolver.SCHEME_ANDROID_RESOURCE)
++        .path("//" + packageName + "/" + bundledResourceRawId)
++        .build()
++}
++
++@Volatile
++internal var bundledResourcePackageName: String? = null
++
++@Volatile
++internal var bundledResourceRawId: Int = 0
+diff --git a/features/preferences/impl/src/main/res/values/temporary.xml b/features/preferences/impl/src/main/res/values/temporary.xml
+new file mode 100644
+index 00000000..c52b0ea6
+--- /dev/null
++++ b/features/preferences/impl/src/main/res/values/temporary.xml
+@@ -0,0 +1,22 @@
++<?xml version="1.0" encoding="utf-8"?><!--
++  ~ Copyright (c) 2026 Element Creations Ltd.
++  ~
++  ~ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial.
++  ~ Please see LICENSE files in the repository root for full details.
++  -->
++<resources>
++    <string name="screen_notification_settings_sound_section_title">Sounds</string>
++    <string name="screen_notification_settings_message_sound">Message sound</string>
++    <string name="screen_notification_settings_call_ringtone">Call ringtone</string>
++    <string name="screen_notification_settings_sound_dialog_title_message">Choose a message sound</string>
++    <string name="screen_notification_settings_sound_dialog_title_call">Choose a call ringtone</string>
++    <string name="screen_notification_settings_sound_option_default">System default</string>
++    <string name="screen_notification_settings_sound_option_element_default">Element default</string>
++    <string name="screen_notification_settings_sound_option_silent">Silent</string>
++    <string name="screen_notification_settings_sound_option_choose_custom">Choose custom sound…</string>
++    <string name="screen_notification_settings_sound_picker_title">Pick an audio file</string>
++    <string name="screen_notification_settings_sound_error_set_failed">Couldn\'t apply the new sound. Your previous choice is still active.</string>
++    <string name="screen_notification_settings_sound_error_retry">Retry</string>
++    <string name="screen_notification_settings_sound_error_dismiss">Dismiss</string>
++    <string name="screen_notification_settings_sound_error_copy_failed">Couldn\'t copy the selected audio file.</string>
++</resources>
+diff --git a/features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt b/features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt
+index 26bb0ba1..4fc27352 100644
+--- a/features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt
++++ b/features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt
+@@ -9,6 +9,8 @@
+ package io.element.android.features.preferences.impl.notifications
+ 
+ import com.google.common.truth.Truth.assertThat
++import io.element.android.features.preferences.impl.notifications.sound.FakeNotificationSoundsService
++import io.element.android.features.preferences.impl.notifications.sound.NotificationSoundsService
+ import io.element.android.libraries.architecture.AsyncData
+ import io.element.android.libraries.fullscreenintent.api.FullScreenIntentPermissionsState
+ import io.element.android.libraries.fullscreenintent.api.aFullScreenIntentPermissionsState
+@@ -17,6 +19,7 @@ import io.element.android.libraries.matrix.api.room.RoomNotificationMode
+ import io.element.android.libraries.matrix.test.AN_EXCEPTION
+ import io.element.android.libraries.matrix.test.FakeMatrixClient
+ import io.element.android.libraries.matrix.test.notificationsettings.FakeNotificationSettingsService
++import io.element.android.libraries.mediapickers.test.FakePickerProvider
+ import io.element.android.libraries.push.api.PushService
+ import io.element.android.libraries.push.test.FakePushService
+ import io.element.android.libraries.pushproviders.api.Distributor
+@@ -357,6 +360,8 @@ class NotificationSettingsPresenterTest {
+         notificationSettingsService: FakeNotificationSettingsService = FakeNotificationSettingsService(),
+         pushService: PushService = FakePushService(),
+         fullScreenIntentPermissionsStateLambda: () -> FullScreenIntentPermissionsState = { aFullScreenIntentPermissionsState() },
++        notificationSoundsService: NotificationSoundsService = FakeNotificationSoundsService(),
++        pickerProvider: io.element.android.libraries.mediapickers.api.PickerProvider = FakePickerProvider(),
+     ): NotificationSettingsPresenter {
+         val matrixClient = FakeMatrixClient(notificationSettingsService = notificationSettingsService)
+         return NotificationSettingsPresenter(
+@@ -366,6 +371,8 @@ class NotificationSettingsPresenterTest {
+             pushService = pushService,
+             systemNotificationsEnabledProvider = FakeSystemNotificationsEnabledProvider(),
+             fullScreenIntentPermissionsPresenter = { fullScreenIntentPermissionsStateLambda() },
++            notificationSoundsService = notificationSoundsService,
++            pickerProvider = pickerProvider,
+             sessionCoroutineScope = backgroundScope,
+         )
+     }
+diff --git a/features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/sound/FakeNotificationSoundsService.kt b/features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/sound/FakeNotificationSoundsService.kt
+new file mode 100644
+index 00000000..5ee4e472
+--- /dev/null
++++ b/features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/sound/FakeNotificationSoundsService.kt
+@@ -0,0 +1,93 @@
++/*
++ * Copyright (c) 2025 Element Creations Ltd.
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial.
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.preferences.impl.notifications.sound
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.setValue
++import io.element.android.libraries.architecture.AsyncAction
++
++/**
++ * In-memory [NotificationSoundsService] used by tests. The persisted side-effects (DataStore
++ * and channel writes) are stubbed; behaviour is captured through [setFromConfigCalls],
++ * [setFromPickedUriCalls] and [migrateCalls].
++ */
++class FakeNotificationSoundsService(
++    initialMessageSound: NotificationSoundConfig = NotificationSoundConfig.SystemDefault,
++    initialCallRingtone: NotificationSoundConfig = NotificationSoundConfig.SystemDefault,
++    initialExplicitCallRingtone: Boolean = false,
++) : NotificationSoundsService {
++    private var messageSoundState by mutableStateOf(initialMessageSound)
++    private var callRingtoneState by mutableStateOf(initialCallRingtone)
++    private var messageActionState by mutableStateOf<AsyncAction<NotificationSoundConfig>>(AsyncAction.Uninitialized)
++    private var callActionState by mutableStateOf<AsyncAction<NotificationSoundConfig>>(AsyncAction.Uninitialized)
++    private var explicitCallRingtonePreference by mutableStateOf(initialExplicitCallRingtone)
++
++    val setFromConfigCalls = mutableListOf<Pair<NotificationSoundSlotId, NotificationSoundConfig>>()
++    val setFromPickedUriCalls = mutableListOf<Pair<NotificationSoundSlotId, PickedSound>>()
++    val migrateCalls = mutableListOf<Unit>()
++
++    var migrateResult: Boolean = false
++
++    @Composable
++    override fun state(): NotificationSoundsState {
++        return NotificationSoundsState(
++            messageSound = messageSoundState,
++            callRingtone = callRingtoneState,
++            messageAction = messageActionState,
++            callAction = callActionState,
++            hasExplicitCallRingtonePreference = explicitCallRingtonePreference,
++        )
++    }
++
++    override fun setFromPickedUri(slot: NotificationSoundSlotId, picked: PickedSound) {
++        setFromPickedUriCalls += slot to picked
++        // Simulate a successful copy by deriving a custom config from the display name.
++        val config = NotificationSoundConfig.Custom(absolutePath = "/tmp/${picked.displayName}", displayName = picked.displayName)
++        when (slot) {
++            NotificationSoundSlotId.MESSAGE -> {
++                messageSoundState = config
++                messageActionState = AsyncAction.Success(config)
++            }
++            NotificationSoundSlotId.CALL -> {
++                callRingtoneState = config
++                callActionState = AsyncAction.Success(config)
++                explicitCallRingtonePreference = true
++            }
++        }
++    }
++
++    override fun setFromConfig(slot: NotificationSoundSlotId, config: NotificationSoundConfig) {
++        setFromConfigCalls += slot to config
++        when (slot) {
++            NotificationSoundSlotId.MESSAGE -> {
++                messageSoundState = config
++                messageActionState = AsyncAction.Success(config)
++            }
++            NotificationSoundSlotId.CALL -> {
++                callRingtoneState = config
++                callActionState = AsyncAction.Success(config)
++                explicitCallRingtonePreference = true
++            }
++        }
++    }
++
++    override fun dismissError(slot: NotificationSoundSlotId) {
++        when (slot) {
++            NotificationSoundSlotId.MESSAGE -> messageActionState = AsyncAction.Uninitialized
++            NotificationSoundSlotId.CALL -> callActionState = AsyncAction.Uninitialized
++        }
++    }
++
++    override suspend fun migrateLegacyCallChannelSoundIfNeeded(): Boolean {
++        migrateCalls += Unit
++        return migrateResult
++    }
++}
+diff --git a/libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannels.kt b/libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannels.kt
+index dc009c0b..2855b6a9 100644
+--- a/libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannels.kt
++++ b/libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannels.kt
+@@ -28,6 +28,7 @@ import io.element.android.libraries.di.annotations.ApplicationContext
+ import io.element.android.libraries.matrix.api.core.SessionId
+ import io.element.android.libraries.push.impl.R
+ import io.element.android.services.toolbox.api.strings.StringProvider
++import timber.log.Timber
+ 
+ /* ==========================================================================================
+  * IDs for channels
+@@ -37,6 +38,17 @@ internal const val NOISY_NOTIFICATION_CHANNEL_ID = "DEFAULT_NOISY_NOTIFICATION_C
+ internal const val CALL_NOTIFICATION_CHANNEL_ID = "CALL_NOTIFICATION_CHANNEL_ID_V3"
+ internal const val RINGING_CALL_NOTIFICATION_CHANNEL_ID = "RINGING_CALL_NOTIFICATION_CHANNEL_ID"
+ 
++/**
++ * The category of notification channel whose sound can be customised.
++ */
++enum class NotificationSoundSlot {
++    /** The noisy message notification channel. */
++    MESSAGE,
++
++    /** The ringing-call notification channel. */
++    CALL,
++}
++
+ /**
+  * on devices >= android O, we need to define a channel for each notifications.
+  */
+@@ -60,6 +72,29 @@ interface NotificationChannels {
+     fun getChannelIdForTest(): String
+ 
+     fun getSilentChannelId(): String = SILENT_NOTIFICATION_CHANNEL_ID
++
++    /**
++     * The notification channel id currently associated with [slot].
++     */
++    fun getChannelIdForSlot(slot: NotificationSoundSlot): String
++
++    /**
++     * Read the sound URI that is currently configured for the channel associated with [slot].
++     *
++     * @return the URI if a non-default sound is configured, or `null` if the channel is silent or
++     * uses the system default.
++     */
++    fun getCurrentChannelSoundUri(slot: NotificationSoundSlot): Uri?
++
++    /**
++     * Update the sound of the [slot]'s notification channel.
++     *
++     * Passing `null` removes any custom sound (i.e. the channel becomes silent).
++     * The new channel is created with the same importance / vibration / lights as the current one.
++     *
++     * @return `true` if the channel was updated successfully.
++     */
++    fun setChannelSound(slot: NotificationSoundSlot, soundUri: Uri?): Boolean
+ }
+ 
+ @ChecksSdkIntAtLeast(api = Build.VERSION_CODES.O)
+@@ -202,4 +237,80 @@ class DefaultNotificationChannels(
+     }
+ 
+     override fun getChannelIdForTest(): String = NOISY_NOTIFICATION_CHANNEL_ID
++
++    override fun getChannelIdForSlot(slot: NotificationSoundSlot): String = when (slot) {
++        NotificationSoundSlot.MESSAGE -> NOISY_NOTIFICATION_CHANNEL_ID
++        NotificationSoundSlot.CALL -> RINGING_CALL_NOTIFICATION_CHANNEL_ID
++    }
++
++    override fun getCurrentChannelSoundUri(slot: NotificationSoundSlot): Uri? {
++        if (!supportNotificationChannels()) return null
++        val channelId = getChannelIdForSlot(slot)
++        val channel = notificationManager.getNotificationChannel(channelId) ?: return null
++        return channel.sound
++    }
++
++    override fun setChannelSound(slot: NotificationSoundSlot, soundUri: Uri?): Boolean {
++        if (!supportNotificationChannels()) return false
++        return runCatching {
++            val channelId = getChannelIdForSlot(slot)
++            val existing = notificationManager.getNotificationChannel(channelId)
++            // The system returns an immutable snapshot; rebuild from current state to avoid a flash of defaults.
++            val importance = existing?.importance ?: defaultImportanceFor(slot)
++            val accentColor = NotificationConfig.NOTIFICATION_ACCENT_COLOR
++            val builder = NotificationChannelCompat.Builder(channelId, importance)
++                .setName(channelName(slot))
++                .setDescription(channelDescription(slot))
++                .setVibrationEnabled(true)
++                .setLightsEnabled(true)
++                .setLightColor(accentColor)
++            when {
++                slot == NotificationSoundSlot.CALL -> {
++                    builder.setSound(
++                        soundUri ?: Settings.System.DEFAULT_RINGTONE_URI,
++                        AudioAttributes.Builder()
++                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
++                            .setLegacyStreamType(AudioManager.STREAM_RING)
++                            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
++                            .build()
++                    )
++                    builder.setImportance(NotificationManagerCompat.IMPORTANCE_MAX)
++                }
++                soundUri != null -> {
++                    builder.setSound(
++                        soundUri,
++                        AudioAttributes.Builder()
++                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
++                            .setUsage(USAGE_NOTIFICATION)
++                            .build()
++                    )
++                }
++                else -> {
++                    // Silent
++                    builder.setSound(null, null)
++                }
++            }
++            // Replacing the channel resets user customisation. Use update if available so we don't lose importance changes the user might have made.
++            runCatching { notificationManager.deleteNotificationChannel(channelId) }
++            notificationManager.createNotificationChannel(builder.build())
++            // Touch the channel so it appears immediately in the system UI.
++            notificationManager.getNotificationChannel(channelId)
++            true
++        }.onFailure { Timber.e(it, "Failed to set channel sound for $slot").let {} }.getOrDefault(false)
++    }
++
++    private fun defaultImportanceFor(slot: NotificationSoundSlot): Int = when (slot) {
++        NotificationSoundSlot.MESSAGE -> NotificationManagerCompat.IMPORTANCE_DEFAULT
++        NotificationSoundSlot.CALL -> NotificationManagerCompat.IMPORTANCE_MAX
++    }
++
++    private fun channelName(slot: NotificationSoundSlot): String = when (slot) {
++        NotificationSoundSlot.MESSAGE -> stringProvider.getString(R.string.notification_channel_noisy).ifEmpty { "Noisy notifications" }
++        NotificationSoundSlot.CALL -> stringProvider.getString(R.string.notification_channel_ringing_calls).ifEmpty { "Ringing calls" }
++    }
++
++    private fun channelDescription(slot: NotificationSoundSlot): String = when (slot) {
++        NotificationSoundSlot.MESSAGE -> stringProvider.getString(R.string.notification_channel_noisy)
++        NotificationSoundSlot.CALL -> stringProvider.getString(R.string.notification_channel_ringing_calls)
++    }
+ }
+diff --git a/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/FakeNotificationChannels.kt b/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/FakeNotificationChannels.kt
+index 194caf72..ce6cd24c 100644
+--- a/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/FakeNotificationChannels.kt
++++ b/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/FakeNotificationChannels.kt
+@@ -8,12 +8,21 @@
+ 
+ package io.element.android.libraries.push.impl.notifications.channels
+ 
++import android.net.Uri
+ import io.element.android.libraries.matrix.api.core.SessionId
+ 
+ class FakeNotificationChannels(
+     var channelForIncomingCall: (ring: Boolean) -> String = { _ -> "" },
+     var channelIdForMessage: (sessionId: SessionId, noisy: Boolean) -> String = { _, _ -> "" },
+-    var channelIdForTest: () -> String = { "" }
++    var channelIdForTest: () -> String = { "" },
++    var channelIdForSlot: (NotificationSoundSlot) -> String = { slot ->
++        when (slot) {
++            NotificationSoundSlot.MESSAGE -> "MOCK_MESSAGE_CHANNEL"
++            NotificationSoundSlot.CALL -> "MOCK_CALL_CHANNEL"
++        }
++    },
++    var currentChannelSoundUri: (NotificationSoundSlot) -> Uri? = { _ -> null },
++    var setChannelSoundResult: (NotificationSoundSlot, Uri?) -> Boolean = { _, _ -> true },
+ ) : NotificationChannels {
+     override fun getChannelForIncomingCall(ring: Boolean): String {
+         return channelForIncomingCall(ring)
+@@ -26,4 +35,10 @@ class FakeNotificationChannels(
+     override fun getChannelIdForTest(): String {
+         return channelIdForTest()
+     }
++
++    override fun getChannelIdForSlot(slot: NotificationSoundSlot): String = channelIdForSlot(slot)
++
++    override fun getCurrentChannelSoundUri(slot: NotificationSoundSlot): Uri? = currentChannelSoundUri(slot)
++
++    override fun setChannelSound(slot: NotificationSoundSlot, soundUri: Uri?): Boolean = setChannelSoundResult(slot, soundUri)
+ }
+diff --git a/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannelsTest.kt b/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannelsTest.kt
+index b004c355..4ff58294 100644
+--- a/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannelsTest.kt
++++ b/libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannelsTest.kt
+@@ -84,6 +84,16 @@ class NotificationChannelsTest {
+         assertThat(notificationChannels.getChannelIdForTest()).isEqualTo(NOISY_NOTIFICATION_CHANNEL_ID)
+     }
+ 
++    @Test
++    fun `getChannelIdForSlot - returns the corresponding channel id`() {
++        val notificationChannels = createNotificationChannels()
++
++        assertThat(notificationChannels.getChannelIdForSlot(NotificationSoundSlot.MESSAGE))
++            .isEqualTo(NOISY_NOTIFICATION_CHANNEL_ID)
++        assertThat(notificationChannels.getChannelIdForSlot(NotificationSoundSlot.CALL))
++            .isEqualTo(RINGING_CALL_NOTIFICATION_CHANNEL_ID)
++    }
++
+     private fun createNotificationChannels(
+         notificationManager: NotificationManagerCompat = mockk(relaxed = true),
+         enterpriseService: EnterpriseService = FakeEnterpriseService(),
+diff --git a/libraries/pushstore/api/src/main/kotlin/io/element/android/libraries/pushstore/api/UserPushStore.kt b/libraries/pushstore/api/src/main/kotlin/io/element/android/libraries/pushstore/api/UserPushStore.kt
+index 8a1b2f9f..d3d409a9 100644
+--- a/libraries/pushstore/api/src/main/kotlin/io/element/android/libraries/pushstore/api/UserPushStore.kt
++++ b/libraries/pushstore/api/src/main/kotlin/io/element/android/libraries/pushstore/api/UserPushStore.kt
+@@ -29,5 +29,43 @@ interface UserPushStore {
+      */
+     fun useCompleteNotificationFormat(): Boolean
+ 
++    /**
++     * Persisted serialized form of the message sound preference.
++     *
++     * Returns `null` when no explicit value has been stored yet.
++     */
++    fun getMessageSoundConfigFlow(): Flow<String?>
++
++    /**
++     * Persisted serialized form of the call ringtone preference.
++     *
++     * Returns `null` when no explicit value has been stored yet.
++     */
++    fun getCallRingtoneConfigFlow(): Flow<String?>
++
++    /**
++     * Channel version counter that is incremented every time the message-sound
++     * notification channel has been rewritten. Used to enforce serialization
++     * when multiple picker results arrive in parallel.
++     */
++    fun getMessageSoundChannelVersionFlow(): Flow<Int>
++
++    /**
++     * Channel version counter for the call ringtone notification channel.
++     */
++    fun getCallRingtoneChannelVersionFlow(): Flow<Int>
++
++    /**
++     * True if the user has explicitly chosen a value for the call ringtone
++     * (rather than relying on the legacy channel value). The legacy migration
++     * must not overwrite such an explicit selection.
++     */
++    fun hasExplicitCallRingtonePreference(): Flow<Boolean>
++
++    suspend fun setMessageSoundConfig(serialized: String?)
++    suspend fun setCallRingtoneConfig(serialized: String?)
++    suspend fun setMessageSoundChannelVersion(version: Int)
++    suspend fun setCallRingtoneChannelVersion(version: Int)
++
+     suspend fun reset()
+ }
+diff --git a/libraries/pushstore/impl/src/main/kotlin/io/element/android/libraries/pushstore/impl/UserPushStoreDataStore.kt b/libraries/pushstore/impl/src/main/kotlin/io/element/android/libraries/pushstore/impl/UserPushStoreDataStore.kt
+index 8ad2d62b..02c9d3e4 100644
+--- a/libraries/pushstore/impl/src/main/kotlin/io/element/android/libraries/pushstore/impl/UserPushStoreDataStore.kt
++++ b/libraries/pushstore/impl/src/main/kotlin/io/element/android/libraries/pushstore/impl/UserPushStoreDataStore.kt
+@@ -13,6 +13,7 @@ import androidx.datastore.core.DataStore
+ import androidx.datastore.preferences.core.Preferences
+ import androidx.datastore.preferences.core.booleanPreferencesKey
+ import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.intPreferencesKey
+ import androidx.datastore.preferences.core.stringPreferencesKey
+ import androidx.datastore.preferences.preferencesDataStoreFile
+ import io.element.android.libraries.androidutils.hash.hash
+@@ -56,6 +57,10 @@ class UserPushStoreDataStore(
+     private val currentPushKey = stringPreferencesKey("currentPushKey")
+     private val notificationEnabled = booleanPreferencesKey("notificationEnabled")
+     private val ignoreRegistrationError = booleanPreferencesKey("ignoreRegistrationError")
++    private val messageSoundConfigKey = stringPreferencesKey("messageSoundConfig")
++    private val callRingtoneConfigKey = stringPreferencesKey("callRingtoneConfig")
++    private val messageSoundChannelVersionKey = intPreferencesKey("messageSoundChannelVersion")
++    private val callRingtoneChannelVersionKey = intPreferencesKey("callRingtoneChannelVersion")
+ 
+     override suspend fun getPushProviderName(): String? {
+         return store.data.first()[pushProviderName]
+@@ -105,6 +110,58 @@ class UserPushStoreDataStore(
+         }
+     }
+ 
++    override fun getMessageSoundConfigFlow(): Flow<String?> {
++        return store.data.map { it[messageSoundConfigKey] }
++    }
++
++    override fun getCallRingtoneConfigFlow(): Flow<String?> {
++        return store.data.map { it[callRingtoneConfigKey] }
++    }
++
++    override fun getMessageSoundChannelVersionFlow(): Flow<Int> {
++        return store.data.map { it[messageSoundChannelVersionKey] ?: 0 }
++    }
++
++    override fun getCallRingtoneChannelVersionFlow(): Flow<Int> {
++        return store.data.map { it[callRingtoneChannelVersionKey] ?: 0 }
++    }
++
++    override fun hasExplicitCallRingtonePreference(): Flow<Boolean> {
++        return store.data.map { it[callRingtoneConfigKey] != null }
++    }
++
++    override suspend fun setMessageSoundConfig(serialized: String?) {
++        store.edit { prefs ->
++            if (serialized == null) {
++                prefs.remove(messageSoundConfigKey)
++            } else {
++                prefs[messageSoundConfigKey] = serialized
++            }
++        }
++    }
++
++    override suspend fun setCallRingtoneConfig(serialized: String?) {
++        store.edit { prefs ->
++            if (serialized == null) {
++                prefs.remove(callRingtoneConfigKey)
++            } else {
++                prefs[callRingtoneConfigKey] = serialized
++            }
++        }
++    }
++
++    override suspend fun setMessageSoundChannelVersion(version: Int) {
++        store.edit { prefs ->
++            prefs[messageSoundChannelVersionKey] = version
++        }
++    }
++
++    override suspend fun setCallRingtoneChannelVersion(version: Int) {
++        store.edit { prefs ->
++            prefs[callRingtoneChannelVersionKey] = version
++        }
++    }
++
+     override suspend fun reset() {
+         store.edit {
+             it.clear()
+diff --git a/libraries/pushstore/test/src/main/kotlin/io/element/android/libraries/pushstore/test/userpushstore/FakeUserPushStore.kt b/libraries/pushstore/test/src/main/kotlin/io/element/android/libraries/pushstore/test/userpushstore/FakeUserPushStore.kt
+index e095a490..87f1b41c 100644
+--- a/libraries/pushstore/test/src/main/kotlin/io/element/android/libraries/pushstore/test/userpushstore/FakeUserPushStore.kt
++++ b/libraries/pushstore/test/src/main/kotlin/io/element/android/libraries/pushstore/test/userpushstore/FakeUserPushStore.kt
+@@ -11,6 +11,7 @@ package io.element.android.libraries.pushstore.test.userpushstore
+ import io.element.android.libraries.pushstore.api.UserPushStore
+ import kotlinx.coroutines.flow.Flow
+ import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.map
+ 
+ class FakeUserPushStore(
+     private var pushProviderName: String? = null
+@@ -18,6 +19,11 @@ class FakeUserPushStore(
+     private var currentRegisteredPushKey: String? = null
+     private val notificationEnabledForDevice = MutableStateFlow(true)
+     private val ignoreRegistrationError = MutableStateFlow(false)
++    private val messageSoundConfig = MutableStateFlow<String?>(null)
++    private val callRingtoneConfig = MutableStateFlow<String?>(null)
++    private val messageSoundChannelVersion = MutableStateFlow(0)
++    private val callRingtoneChannelVersion = MutableStateFlow(0)
++
+     override suspend fun getPushProviderName(): String? {
+         return pushProviderName
+     }
+@@ -54,7 +60,38 @@ class FakeUserPushStore(
+         ignoreRegistrationError.value = ignore
+     }
+ 
++    override fun getMessageSoundConfigFlow(): Flow<String?> = messageSoundConfig
++
++    override fun getCallRingtoneConfigFlow(): Flow<String?> = callRingtoneConfig
++
++    override fun getMessageSoundChannelVersionFlow(): Flow<Int> = messageSoundChannelVersion
++
++    override fun getCallRingtoneChannelVersionFlow(): Flow<Int> = callRingtoneChannelVersion
++
++    override fun hasExplicitCallRingtonePreference(): Flow<Boolean> =
++        callRingtoneConfig.map { it != null }
++
++    override suspend fun setMessageSoundConfig(serialized: String?) {
++        messageSoundConfig.value = serialized
++    }
++
++    override suspend fun setCallRingtoneConfig(serialized: String?) {
++        callRingtoneConfig.value = serialized
++    }
++
++    override suspend fun setMessageSoundChannelVersion(version: Int) {
++        messageSoundChannelVersion.value = version
++    }
++
++    override suspend fun setCallRingtoneChannelVersion(version: Int) {
++        callRingtoneChannelVersion.value = version
++    }
++
+     override suspend fun reset() {
+         pushProviderName = null
++        messageSoundConfig.value = null
++        callRingtoneConfig.value = null
++        messageSoundChannelVersion.value = 0
++        callRingtoneChannelVersion.value = 0
+     }
+ }

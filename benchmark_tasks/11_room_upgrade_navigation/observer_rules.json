@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "taskId": "11_room_upgrade_navigation",
+  "android": {
+    "roots": [
+      "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room",
+      "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room",
+      "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl",
+      "features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl",
+      "appnav/src/main/kotlin/io/element/android/appnav"
+    ],
+    "cases": {
+      "ru_state_002_tombstone_is_read_only": [
+        {"options": [{"path": "MessagesView\\.kt$", "patterns": ["state\\.successorRoom\\s*!=\\s*null", "SuccessorRoomBanner", "state\\.userEventPermissions\\.canSendMessage"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "MessagesPresenter\\.kt$", "patterns": ["val isTombstoned = roomInfo\\.successorRoom != null", "canSendMessage = userEventPermissions\\.canSendMessage && !isTombstoned", "successorRoom = roomInfo\\.successorRoom"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "MessagesView\\.kt$", "patterns": ["onRoomSuccessorClick", "MessageComposerView", "TimelineView"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "MessagesView\\.kt$", "patterns": ["else if \\(state\\.isTombstoned\\)", "TombstonedRoomBanner\\(", "TimelineView\\("], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "ru_state_003_open_successor": [
+        {"options": [{"path": "MessagesView\\.kt$", "patterns": ["onRoomSuccessorClick\\(roomSuccessor\\.roomId\\)", "TimelineEvents\\.NavigateToRoom"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "MessagesView\\.kt$", "patterns": ["RoomUpgradeSuccessorBannerView", "state\\.eventSink\\(MessagesEvents\\.OpenSuccessorRoom\\(roomId\\)\\)"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "MessagesNode\\.kt$", "patterns": ["override fun onNavigateToRoom", "onPermalinkClick"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "LoggedInFlowNode\\.kt$", "patterns": ["override fun onOpenRoom\\(roomId: RoomId\\)", "backstack\\.push\\(NavTarget\\.Room\\(roomId\\.toRoomIdOrAlias\\(\\)\\)\\)"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "TimelinePresenter\\.kt$", "patterns": ["TimelineEvents\\.NavigateToRoom", "navigator\\.onNavigateToRoom\\(event\\.roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}, {"path": "MessagesPresenter\\.kt$", "patterns": ["MessagesEvents\\.OpenSuccessorRoom", "navigator\\.onOpenSuccessorRoom\\(event\\.roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "ru_state_005_room_list_tombstone_preview": [
+        {"options": [{"path": "RoomListRoomSummaryFactory\\.kt$", "patterns": ["isTombstoned\\s*=\\s*roomInfo\\.successorRoom\\s*!=\\s*null"], "forbid": ["ru_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "RoomSummaryRow\\.kt$", "patterns": ["room\\.isTombstoned", "screen_roomlist_tombstoned_room_description", "RoomAvatar"], "forbid": ["ru_state_|traceDigest|testcase"]}]}
+      ],
+      "ru_state_006_map_predecessor": [
+        {"options": [{"path": "PredecessorRoom\\.kt$", "patterns": ["data class PredecessorRoom", "val roomId:\\s*RoomId", "val lastEventId:\\s*EventId"], "forbid": ["ru_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "TimelinePresenter\\.kt$", "patterns": ["predecessorRoom\\s*=\\s*room\\.predecessorRoom\\(\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}]}
+      ],
+      "ru_state_007_predecessor_banner": [
+        {"options": [{"path": "TimelineItemRoomBeginningView\\.kt$", "patterns": ["if \\(predecessorRoom != null\\)", "screen_room_timeline_upgraded_room_message"], "forbid": ["ru_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "TimelineItemRoomBeginningView\\.kt$", "patterns": ["ComposerAlertMolecule", "onPredecessorRoomClick\\(predecessorRoom\\.roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}]}
+      ],
+      "ru_state_008_open_predecessor": [
+        {"options": [{"path": "TimelineItemRoomBeginningView\\.kt$", "patterns": ["onPredecessorRoomClick:\\s*\\(RoomId\\)\\s*->\\s*Unit", "onPredecessorRoomClick\\(predecessorRoom\\.roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "TimelineEvents\\.kt$", "patterns": ["data class NavigateToRoom\\(val roomId:\\s*RoomId\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "ru_state_002_tombstone_is_read_only": [
+        {"options": [{"path": "RoomUpgradeFeature\\.ets$", "patterns": ["get canCompose", "return !this\\.isTombstoned"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "RoomFeature\\.ets$", "patterns": ["composerEnabled\\(\\): boolean", "return !this\\.isTombstoned\\(\\)", "history: string\\[\\]"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["if \\(this\\.isTombstoned\\)", "successor_room_banner", "message_composer"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "pages/RoomDetail\\.ets$", "patterns": ["if \\(this\\.tombstoned\\)", "open_successor", "if \\(this\\.composerEnabled\\)", "ForEach\\(this\\.history"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "ru_state_003_open_successor": [
+        {"options": [{"path": "RoomUpgradeFeature\\.ets$", "patterns": ["openSuccessorRoom\\(\\)", "navigateToRoom\\(successor\\.roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "RoomFeature\\.ets$", "patterns": ["openSuccessor\\(\\): boolean", "return this\\.navigateToRoom\\(successorId\\)", "this\\.gateway\\.openRoom\\(roomId\\)", "this\\.store\\.selectRoom\\(roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["open_successor_room", "this\\.presenter\\.openSuccessorRoom\\(\\)", "this\\.refresh\\(\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "pages/RoomDetail\\.ets$", "patterns": ["open_successor", "this\\.presenter\\.openSuccessor\\(\\)", "router\\.replaceUrl\\(\\{ url: 'pages/RoomDetail'"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "ru_state_005_room_list_tombstone_preview": [
+        {"options": [{"path": "RoomUpgradeFeature\\.ets$", "patterns": ["roomListPreview\\(room:\\s*RoomSnapshot\\)", "room\\.successorRoom !== undefined", "This room has been replaced"], "forbid": ["ru_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["room_list_tombstoned_room", "roomListPreview\\(this\\.presenter\\.oldRoom\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}]}
+      ],
+      "ru_state_006_map_predecessor": [
+        {"options": [{"path": "RoomUpgradeFeature\\.ets$", "patterns": ["class PredecessorRoom", "lastEventId:\\s*string", "predecessorRoom\\?: PredecessorRoom"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "RoomFeature\\.ets$", "patterns": ["class PredecessorInfo", "lastEventId: string", "predecessor: PredecessorInfo \\| null", "applyPredecessorMetadata\\(", "this\\.store\\.applyPredecessor\\("], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["currentRoom\\.predecessorRoom !== undefined", "hasPredecessor"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "pages/RoomDetail\\.ets$", "patterns": ["this\\.presenter\\.currentRoom\\(\\)", "current\\.predecessorRoomId\\(\\)", "current\\.predecessorLastEventId\\(\\)"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "ru_state_007_predecessor_banner": [
+        {"options": [{"path": "RoomUpgradeFeature\\.ets$", "patterns": ["replacementRoom", "new PredecessorRoom", "!old:example\\.org", "\\$last:example\\.org"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "RoomFeature\\.ets$", "patterns": ["applyPredecessor\\(", "room\\.predecessor = new PredecessorInfo", "setRoomHistory\\("], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["if \\(this\\.hasPredecessor\\)", "This room replaces an earlier room", "open_predecessor_room"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "pages/RoomDetail\\.ets$", "patterns": ["if \\(this\\.predecessorRoomId\\.length > 0\\)", "open_predecessor", "ForEach\\(this\\.history"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "ru_state_008_open_predecessor": [
+        {"options": [{"path": "RoomUpgradeFeature\\.ets$", "patterns": ["openPredecessorRoom\\(\\)", "navigateToRoom\\(predecessor\\.roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "RoomFeature\\.ets$", "patterns": ["openPredecessor\\(\\): boolean", "return this\\.navigateToRoom\\(predecessorId\\)", "predecessorLastEventId\\(\\): string", "this\\.gateway\\.openRoom\\(roomId\\)"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["open_predecessor_room", "this\\.presenter\\.openPredecessorRoom\\(\\)", "this\\.refresh\\(\\)"], "forbid": ["ru_state_|traceDigest|testcase"]}, {"path": "pages/RoomDetail\\.ets$", "patterns": ["open_predecessor", "this\\.presenter\\.openPredecessor\\(\\)", "router\\.replaceUrl\\(\\{ url: 'pages/RoomDetail'", "this\\.predecessorLastEventId"], "forbid": ["ru_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ]
+    }
+  }
+}

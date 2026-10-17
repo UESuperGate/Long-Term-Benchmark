@@ -1,0 +1,1989 @@
+diff --git a/features/roomdetails/impl/build.gradle.kts b/features/roomdetails/impl/build.gradle.kts
+index 1c092ec..abdaa2e 100644
+--- a/features/roomdetails/impl/build.gradle.kts
++++ b/features/roomdetails/impl/build.gradle.kts
+@@ -46,6 +46,7 @@ dependencies {
+     implementation(projects.features.createroom.api)
+     implementation(projects.features.leaveroom.api)
+     implementation(projects.features.userprofile.shared)
++    implementation(projects.features.verifyuser.api)
+     implementation(projects.services.analytics.compose)
+     implementation(projects.features.poll.api)
+     implementation(projects.features.messages.api)
+diff --git a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt
+index 774abfe..1263183 100644
+--- a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt
++++ b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt
+@@ -35,6 +35,7 @@ import io.element.android.features.roomdetails.impl.notificationsettings.RoomNot
+ import io.element.android.features.roomdetails.impl.rolesandpermissions.RolesAndPermissionsFlowNode
+ import io.element.android.features.roomdetails.impl.securityandprivacy.SecurityAndPrivacyFlowNode
+ import io.element.android.features.userprofile.shared.UserProfileNodeHelper
++import io.element.android.features.verifyuser.api.VerifyUserEntryPoint
+ import io.element.android.libraries.architecture.BackstackWithOverlayBox
+ import io.element.android.libraries.architecture.BaseFlowNode
+ import io.element.android.libraries.architecture.createNode
+@@ -65,6 +66,7 @@ class RoomDetailsFlowNode @AssistedInject constructor(
+     private val knockRequestsListEntryPoint: KnockRequestsListEntryPoint,
+     private val mediaViewerEntryPoint: MediaViewerEntryPoint,
+     private val mediaGalleryEntryPoint: MediaGalleryEntryPoint,
++    private val verifyUserEntryPoint: VerifyUserEntryPoint,
+ ) : BaseFlowNode<RoomDetailsFlowNode.NavTarget>(
+     backstack = BackStack(
+         initialElement = plugins.filterIsInstance<RoomDetailsEntryPoint.Params>().first().initialElement.toNavTarget(),
+@@ -98,6 +100,9 @@ class RoomDetailsFlowNode @AssistedInject constructor(
+         @Parcelize
+         data class RoomMemberDetails(val roomMemberId: UserId) : NavTarget
+ 
++        @Parcelize
++        data class VerifyUser(val userId: UserId) : NavTarget
++
+         @Parcelize
+         data class AvatarPreview(val name: String, val avatarUrl: String) : NavTarget
+ 
+@@ -224,10 +229,24 @@ class RoomDetailsFlowNode @AssistedInject constructor(
+                     override fun onStartCall(dmRoomId: RoomId) {
+                         elementCallEntryPoint.startCall(CallType.RoomCall(roomId = dmRoomId, sessionId = room.sessionId))
+                     }
++
++                    override fun openVerifyUser() {
++                        overlay.show(NavTarget.VerifyUser(navTarget.roomMemberId))
++                    }
+                 }
+                 val plugins = listOf(RoomMemberDetailsNode.RoomMemberDetailsInput(navTarget.roomMemberId), callback)
+                 createNode<RoomMemberDetailsNode>(buildContext, plugins)
+             }
++            is NavTarget.VerifyUser -> {
++                verifyUserEntryPoint.nodeBuilder(this, buildContext)
++                    .params(VerifyUserEntryPoint.Params(navTarget.userId))
++                    .callback(object : VerifyUserEntryPoint.Callback {
++                        override fun onDone() {
++                            overlay.hide()
++                        }
++                    })
++                    .build()
++            }
+             is NavTarget.AvatarPreview -> {
+                 val callback = object : MediaViewerEntryPoint.Callback {
+                     override fun onDone() {
+diff --git a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/members/details/RoomMemberDetailsNode.kt b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/members/details/RoomMemberDetailsNode.kt
+index 7b5ce77..99cd438 100644
+--- a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/members/details/RoomMemberDetailsNode.kt
++++ b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/members/details/RoomMemberDetailsNode.kt
+@@ -18,6 +18,7 @@ import dagger.assisted.Assisted
+ import dagger.assisted.AssistedInject
+ import im.vector.app.features.analytics.plan.MobileScreen
+ import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.userprofile.api.UserProfileEvents
+ import io.element.android.features.userprofile.shared.UserProfileNodeHelper
+ import io.element.android.features.userprofile.shared.UserProfileView
+ import io.element.android.libraries.architecture.NodeInputs
+@@ -78,7 +79,8 @@ class RoomMemberDetailsNode @AssistedInject constructor(
+             onShareUser = ::onShareUser,
+             onOpenDm = ::onStartDM,
+             onStartCall = ::onStartCall,
++            onVerifyUser = { state.eventSink(UserProfileEvents.VerifyUser) },
+             openAvatarPreview = callback::openAvatarPreview,
+         )
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileEvents.kt b/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileEvents.kt
+index 77917e3..898b968 100644
+--- a/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileEvents.kt
++++ b/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileEvents.kt
+@@ -14,4 +14,6 @@ sealed interface UserProfileEvents {
+     data class UnblockUser(val needsConfirmation: Boolean = false) : UserProfileEvents
+     data object ClearBlockUserError : UserProfileEvents
+     data object ClearConfirmationDialog : UserProfileEvents
+-}
++    /** User wants to start verifying this user via the VerifyUser feature. */
++    data object VerifyUser : UserProfileEvents
++}
+\ No newline at end of file
+diff --git a/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileState.kt b/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileState.kt
+index 5d3ae9c..4dcb7e5 100644
+--- a/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileState.kt
++++ b/features/userprofile/api/src/main/kotlin/io/element/android/features/userprofile/api/UserProfileState.kt
+@@ -17,6 +17,10 @@ data class UserProfileState(
+     val userName: String?,
+     val avatarUrl: String?,
+     val isVerified: AsyncData<Boolean>,
++    /** True when the Verify User action should be exposed to the user. */
++    val verificationAvailable: Boolean,
++    /** True when the user was previously verified but their identity has changed. */
++    val identityViolation: Boolean,
+     val isBlocked: AsyncData<Boolean>,
+     val startDmActionState: AsyncAction<RoomId>,
+     val displayConfirmationDialog: ConfirmationDialog?,
+@@ -29,4 +33,4 @@ data class UserProfileState(
+         Block,
+         Unblock
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/features/userprofile/impl/build.gradle.kts b/features/userprofile/impl/build.gradle.kts
+index 2c94082..e787d2e 100644
+--- a/features/userprofile/impl/build.gradle.kts
++++ b/features/userprofile/impl/build.gradle.kts
+@@ -33,6 +33,7 @@ dependencies {
+     implementation(projects.libraries.androidutils)
+     implementation(projects.libraries.mediaviewer.api)
+     implementation(projects.features.call.api)
++    implementation(projects.features.verifyuser.api)
+     api(projects.features.userprofile.api)
+     api(projects.features.userprofile.shared)
+     implementation(libs.coil.compose)
+diff --git a/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/UserProfileFlowNode.kt b/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/UserProfileFlowNode.kt
+index 489d824..cc663d2 100644
+--- a/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/UserProfileFlowNode.kt
++++ b/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/UserProfileFlowNode.kt
+@@ -25,6 +25,7 @@ import io.element.android.features.call.api.ElementCallEntryPoint
+ import io.element.android.features.userprofile.api.UserProfileEntryPoint
+ import io.element.android.features.userprofile.impl.root.UserProfileNode
+ import io.element.android.features.userprofile.shared.UserProfileNodeHelper
++import io.element.android.features.verifyuser.api.VerifyUserEntryPoint
+ import io.element.android.libraries.architecture.BackstackView
+ import io.element.android.libraries.architecture.BaseFlowNode
+ import io.element.android.libraries.architecture.createNode
+@@ -43,6 +44,7 @@ class UserProfileFlowNode @AssistedInject constructor(
+     private val elementCallEntryPoint: ElementCallEntryPoint,
+     private val sessionIdHolder: CurrentSessionIdHolder,
+     private val mediaViewerEntryPoint: MediaViewerEntryPoint,
++    private val verifyUserEntryPoint: VerifyUserEntryPoint,
+ ) : BaseFlowNode<UserProfileFlowNode.NavTarget>(
+     backstack = BackStack(
+         initialElement = NavTarget.Root,
+@@ -57,6 +59,9 @@ class UserProfileFlowNode @AssistedInject constructor(
+ 
+         @Parcelize
+         data class AvatarPreview(val name: String, val avatarUrl: String) : NavTarget
++
++        @Parcelize
++        data class VerifyUser(val userId: io.element.android.libraries.matrix.api.core.UserId) : NavTarget
+     }
+ 
+     override fun resolve(navTarget: NavTarget, buildContext: BuildContext): Node {
+@@ -74,8 +79,14 @@ class UserProfileFlowNode @AssistedInject constructor(
+                     override fun onStartCall(dmRoomId: RoomId) {
+                         elementCallEntryPoint.startCall(CallType.RoomCall(sessionId = sessionIdHolder.current, roomId = dmRoomId))
+                     }
++
++                    override fun openVerifyUser() {
++                        backstack.push(NavTarget.VerifyUser(userId = inputs<UserProfileEntryPoint.Params>().userId))
++                    }
+                 }
+-                val params = UserProfileNode.UserProfileInputs(userId = inputs<UserProfileEntryPoint.Params>().userId)
++                val params = UserProfileNode.UserProfileInputs(
++                    userId = inputs<UserProfileEntryPoint.Params>().userId,
++                )
+                 createNode<UserProfileNode>(buildContext, listOf(callback, params))
+             }
+             is NavTarget.AvatarPreview -> {
+@@ -96,6 +107,16 @@ class UserProfileFlowNode @AssistedInject constructor(
+                     .callback(callback)
+                     .build()
+             }
++            is NavTarget.VerifyUser -> {
++                verifyUserEntryPoint.nodeBuilder(this, buildContext)
++                    .params(VerifyUserEntryPoint.Params(navTarget.userId))
++                    .callback(object : VerifyUserEntryPoint.Callback {
++                        override fun onDone() {
++                            backstack.pop()
++                        }
++                    })
++                    .build()
++            }
+         }
+     }
+ 
+diff --git a/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfileNode.kt b/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfileNode.kt
+index 1b99e84..e4ceed4 100644
+--- a/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfileNode.kt
++++ b/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfileNode.kt
+@@ -18,6 +18,7 @@ import dagger.assisted.Assisted
+ import dagger.assisted.AssistedInject
+ import im.vector.app.features.analytics.plan.MobileScreen
+ import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.userprofile.api.UserProfileEvents
+ import io.element.android.features.userprofile.shared.UserProfileNodeHelper
+ import io.element.android.features.userprofile.shared.UserProfileView
+ import io.element.android.libraries.architecture.NodeInputs
+@@ -74,7 +75,8 @@ class UserProfileNode @AssistedInject constructor(
+             onShareUser = ::onShareUser,
+             onOpenDm = ::onStartDM,
+             onStartCall = callback::onStartCall,
++            onVerifyUser = { state.eventSink(UserProfileEvents.VerifyUser) },
+             openAvatarPreview = callback::openAvatarPreview,
+         )
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfilePresenter.kt b/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfilePresenter.kt
+index 8189f75..1ecce66 100644
+--- a/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfilePresenter.kt
++++ b/features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/root/UserProfilePresenter.kt
+@@ -32,9 +32,11 @@ import io.element.android.libraries.core.bool.orFalse
+ import io.element.android.libraries.matrix.api.MatrixClient
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.UserId
++import io.element.android.libraries.matrix.api.encryption.identity.IdentityState
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.filter
+ import kotlinx.coroutines.flow.launchIn
+ import kotlinx.coroutines.flow.map
+ import kotlinx.coroutines.flow.onEach
+@@ -77,6 +79,8 @@ class UserProfilePresenter @AssistedInject constructor(
+         val startDmActionState: MutableState<AsyncAction<RoomId>> = remember { mutableStateOf(AsyncAction.Uninitialized) }
+         val isBlocked: MutableState<AsyncData<Boolean>> = remember { mutableStateOf(AsyncData.Uninitialized) }
+         val isVerified: MutableState<AsyncData<Boolean>> = remember { mutableStateOf(AsyncData.Uninitialized) }
++        val identityViolation = remember { mutableStateOf(false) }
++        val verificationAvailable = remember { mutableStateOf(false) }
+         val dmRoomId by getDmRoomId()
+         val canCall by getCanCall(dmRoomId)
+         LaunchedEffect(Unit) {
+@@ -94,6 +98,40 @@ class UserProfilePresenter @AssistedInject constructor(
+                 client.encryptionService().isUserVerified(userId).getOrThrow()
+             }.runCatchingUpdatingState(isVerified)
+         }
++        // Determine whether the Verify User action should be offered. The signal is the
++        // SDK returning a real answer rather than failing because the user has no identity yet.
++        LaunchedEffect(userId) {
++            verificationAvailable.value = runCatching {
++                client.encryptionService().isUserVerified(userId).isSuccess
++            }.getOrDefault(false)
++        }
++        // Watch the rooms we are in for identity status changes that affect this user.
++        // For each room, when we see an IdentityStateChange for this user with a violation
++        // state, mark the user profile as in violation. Note: this is in addition to the room
++        // member timeline surface so the user-profile row stays consistent.
++        LaunchedEffect(userId) {
++            client.roomListService.allRooms.summaries
++                .map { summaries -> summaries.map { it.roomId } }
++                .distinctUntilChanged()
++                .onEach { roomIds ->
++                    roomIds.forEach { roomId ->
++                        val room = client.getRoom(roomId) ?: return@forEach
++                        room.identityStateChangesFlow
++                            .map { changes -> changes.firstOrNull { it.userId == userId } }
++                            .filter { it != null }
++                            .distinctUntilChanged()
++                            .onEach { change ->
++                                change ?: return@onEach
++                                identityViolation.value = change.identityState.isViolation()
++                                if (change.identityState == IdentityState.Verified) {
++                                    isVerified.value = AsyncData.Success(true)
++                                }
++                            }
++                            .launchIn(this)
++                    }
++                }
++                .launchIn(this)
++        }
+ 
+         fun handleEvents(event: UserProfileEvents) {
+             when (event) {
+@@ -129,6 +167,14 @@ class UserProfilePresenter @AssistedInject constructor(
+                 UserProfileEvents.ClearStartDMState -> {
+                     startDmActionState.value = AsyncAction.Uninitialized
+                 }
++                UserProfileEvents.VerifyUser -> {
++                    // After the verify flow closes, re-fetch the verification status so the UI
++                    // updates with the new badge / warning.
++                    coroutineScope.launch {
++                        client.encryptionService().isUserVerified(userId)
++                            .onSuccess { isVerified.value = AsyncData.Success(it) }
++                    }
++                }
+             }
+         }
+ 
+@@ -138,6 +184,8 @@ class UserProfilePresenter @AssistedInject constructor(
+             avatarUrl = userProfile?.avatarUrl,
+             isBlocked = isBlocked.value,
+             isVerified = isVerified.value,
++            verificationAvailable = verificationAvailable.value,
++            identityViolation = identityViolation.value,
+             startDmActionState = startDmActionState.value,
+             displayConfirmationDialog = confirmationDialog,
+             isCurrentUser = isCurrentUser,
+@@ -169,3 +217,6 @@ class UserProfilePresenter @AssistedInject constructor(
+         // Note: on success, ignoredUsersFlow will emit new item.
+     }
+ }
++
++private fun IdentityState.isViolation(): Boolean =
++    this == IdentityState.PinViolation || this == IdentityState.VerificationViolation
+\ No newline at end of file
+diff --git a/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileNodeHelper.kt b/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileNodeHelper.kt
+index deb72a5..830df55 100644
+--- a/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileNodeHelper.kt
++++ b/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileNodeHelper.kt
+@@ -24,6 +24,7 @@ class UserProfileNodeHelper(
+         fun openAvatarPreview(username: String, avatarUrl: String)
+         fun onStartDM(roomId: RoomId)
+         fun onStartCall(dmRoomId: RoomId)
++        fun openVerifyUser()
+     }
+ 
+     fun onShareUser(
+@@ -42,4 +43,4 @@ class UserProfileNodeHelper(
+             Timber.e(it)
+         }
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileStateProvider.kt b/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileStateProvider.kt
+index a53f53c..fdf5d5f 100644
+--- a/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileStateProvider.kt
++++ b/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileStateProvider.kt
+@@ -29,6 +29,8 @@ open class UserProfileStateProvider : PreviewParameterProvider<UserProfileState>
+             aUserProfileState(startDmActionState = AsyncAction.Loading),
+             aUserProfileState(canCall = true),
+             aUserProfileState(startDmActionState = ConfirmingStartDmWithMatrixUser(aMatrixUser())),
++            aUserProfileState(verificationAvailable = true, isVerified = AsyncData.Success(false)),
++            aUserProfileState(verificationAvailable = true, isVerified = AsyncData.Success(false), identityViolation = true),
+         )
+ }
+ 
+@@ -38,6 +40,8 @@ fun aUserProfileState(
+     avatarUrl: String? = null,
+     isBlocked: AsyncData<Boolean> = AsyncData.Success(false),
+     isVerified: AsyncData<Boolean> = AsyncData.Success(false),
++    verificationAvailable: Boolean = false,
++    identityViolation: Boolean = false,
+     startDmActionState: AsyncAction<RoomId> = AsyncAction.Uninitialized,
+     displayConfirmationDialog: UserProfileState.ConfirmationDialog? = null,
+     isCurrentUser: Boolean = false,
+@@ -50,10 +54,12 @@ fun aUserProfileState(
+     avatarUrl = avatarUrl,
+     isBlocked = isBlocked,
+     isVerified = isVerified,
++    verificationAvailable = verificationAvailable,
++    identityViolation = identityViolation,
+     startDmActionState = startDmActionState,
+     displayConfirmationDialog = displayConfirmationDialog,
+     isCurrentUser = isCurrentUser,
+     dmRoomId = dmRoomId,
+     canCall = canCall,
+     eventSink = eventSink,
+-)
++)
+\ No newline at end of file
+diff --git a/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileView.kt b/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileView.kt
+index dee4437..367ea3e 100644
+--- a/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileView.kt
++++ b/features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileView.kt
+@@ -48,6 +48,7 @@ fun UserProfileView(
+     onShareUser: () -> Unit,
+     onOpenDm: (RoomId) -> Unit,
+     onStartCall: (RoomId) -> Unit,
++    onVerifyUser: () -> Unit,
+     goBack: () -> Unit,
+     openAvatarPreview: (username: String, url: String) -> Unit,
+     modifier: Modifier = Modifier,
+@@ -82,7 +83,7 @@ fun UserProfileView(
+             )
+             Spacer(modifier = Modifier.height(26.dp))
+             if (!state.isCurrentUser) {
+-                VerifyUserSection(state)
++                VerifyUserSection(state = state, onVerifyUser = onVerifyUser)
+                 BlockUserSection(state)
+                 BlockUserDialogs(state)
+             }
+@@ -116,14 +117,24 @@ fun UserProfileView(
+ }
+ 
+ @Composable
+-private fun VerifyUserSection(state: UserProfileState) {
+-    if (state.isVerified.dataOrNull() == false) {
++private fun VerifyUserSection(state: UserProfileState, onVerifyUser: () -> Unit) {
++    // Show the row only when verification is available. The button is enabled when the user
++    // is either not verified or in a violation state. We intentionally don't surface a
++    // permanent "user is verified" row because that's already conveyed by the avatar badge.
++    if (state.verificationAvailable) {
++        val verified = state.isVerified.dataOrNull()
++        val isClickable = verified == false || state.identityViolation
++        val supportingText = when {
++            state.identityViolation -> stringResource(CommonStrings.crypto_identity_change_profile_pin_violation, state.userName ?: state.userId.value)
++            verified == false -> stringResource(R.string.screen_room_member_details_verify_button_subtitle)
++            else -> return
++        }
+         ListItem(
+             headlineContent = { Text(stringResource(CommonStrings.common_verify_identity)) },
+-            supportingContent = { Text(stringResource(R.string.screen_room_member_details_verify_button_subtitle)) },
++            supportingContent = { Text(supportingText) },
+             leadingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.Lock())),
+-            enabled = false,
+-            onClick = { },
++            enabled = isClickable,
++            onClick = onVerifyUser,
+         )
+     }
+ }
+@@ -139,6 +150,7 @@ internal fun UserProfileViewPreview(
+         goBack = {},
+         onOpenDm = {},
+         onStartCall = {},
++        onVerifyUser = {},
+         openAvatarPreview = { _, _ -> }
+     )
+-}
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/api/build.gradle.kts b/features/verifyuser/api/build.gradle.kts
+new file mode 100644
+index 0000000..2cfc3eb
+--- /dev/null
++++ b/features/verifyuser/api/build.gradle.kts
+@@ -0,0 +1,19 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++plugins {
++    id("io.element.android-library")
++}
++
++android {
++    namespace = "io.element.android.features.verifyuser.api"
++}
++
++dependencies {
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/api/src/main/kotlin/io/element/android/features/verifyuser/api/VerifyUserEntryPoint.kt b/features/verifyuser/api/src/main/kotlin/io/element/android/features/verifyuser/api/VerifyUserEntryPoint.kt
+new file mode 100644
+index 0000000..a808a16
+--- /dev/null
++++ b/features/verifyuser/api/src/main/kotlin/io/element/android/features/verifyuser/api/VerifyUserEntryPoint.kt
+@@ -0,0 +1,38 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.api
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import io.element.android.libraries.architecture.FeatureEntryPoint
++import io.element.android.libraries.architecture.NodeInputs
++import io.element.android.libraries.matrix.api.core.UserId
++
++/**
++ * Entry point for verifying another Matrix user with an interactive SAS challenge.
++ *
++ * Distinct from [VerifySessionEntryPoint] in the verifysession feature, which is for
++ * verifying the user's own session via cross-signing.
++ */
++interface VerifyUserEntryPoint : FeatureEntryPoint {
++    data class Params(val userId: UserId) : NodeInputs
++
++    fun nodeBuilder(parentNode: Node, buildContext: BuildContext): NodeBuilder
++
++    interface NodeBuilder {
++        fun params(params: Params): NodeBuilder
++        fun callback(callback: Callback): NodeBuilder
++        fun build(): Node
++    }
++
++    interface Callback : Plugin {
++        /** The user has been verified, or the flow has ended without marking the user trusted. */
++        fun onDone()
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/build.gradle.kts b/features/verifyuser/impl/build.gradle.kts
+new file mode 100644
+index 0000000..e1b6c8a
+--- /dev/null
++++ b/features/verifyuser/impl/build.gradle.kts
+@@ -0,0 +1,49 @@
++import extension.setupAnvil
++
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++plugins {
++    id("io.element.android-compose-library")
++}
++
++android {
++    namespace = "io.element.android.features.verifyuser.impl"
++    testOptions {
++        unitTests {
++            isIncludeAndroidResources = true
++        }
++    }
++}
++
++setupAnvil()
++
++dependencies {
++    implementation(projects.appconfig)
++    implementation(projects.libraries.androidutils)
++    implementation(projects.libraries.core)
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.dateformatter.api)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.matrixui)
++    implementation(projects.libraries.designsystem)
++    implementation(projects.libraries.uiStrings)
++    api(libs.statemachine)
++    api(projects.features.verifyuser.api)
++
++    testImplementation(libs.test.junit)
++    testImplementation(libs.coroutines.test)
++    testImplementation(libs.molecule.runtime)
++    testImplementation(libs.test.robolectric)
++    testImplementation(libs.test.truth)
++    testImplementation(libs.test.turbine)
++    testImplementation(projects.libraries.dateformatter.test)
++    testImplementation(projects.libraries.matrix.test)
++    testImplementation(projects.tests.testutils)
++    testImplementation(libs.androidx.compose.ui.test.junit)
++    testReleaseImplementation(libs.androidx.compose.ui.test.manifest)
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/DefaultVerifyUserEntryPoint.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/DefaultVerifyUserEntryPoint.kt
+new file mode 100644
+index 0000000..1e0b983
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/DefaultVerifyUserEntryPoint.kt
+@@ -0,0 +1,39 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.features.verifyuser.api.VerifyUserEntryPoint
++import io.element.android.libraries.architecture.createNode
++import io.element.android.libraries.di.AppScope
++import javax.inject.Inject
++
++@ContributesBinding(AppScope::class)
++class DefaultVerifyUserEntryPoint @Inject constructor() : VerifyUserEntryPoint {
++    override fun nodeBuilder(parentNode: Node, buildContext: BuildContext): VerifyUserEntryPoint.NodeBuilder {
++        val plugins = ArrayList<Plugin>()
++        return object : VerifyUserEntryPoint.NodeBuilder {
++            override fun params(params: VerifyUserEntryPoint.Params): VerifyUserEntryPoint.NodeBuilder {
++                plugins += params
++                return this
++            }
++
++            override fun callback(callback: VerifyUserEntryPoint.Callback): VerifyUserEntryPoint.NodeBuilder {
++                plugins += callback
++                return this
++            }
++
++            override fun build(): Node {
++                return parentNode.createNode<VerifyOtherUserNode>(buildContext, plugins)
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserEvent.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserEvent.kt
+new file mode 100644
+index 0000000..2ba8fc5
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserEvent.kt
+@@ -0,0 +1,25 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++sealed interface VerifyOtherUserEvent {
++    /** User confirms they want to start the verification flow. */
++    data object StartVerification : VerifyOtherUserEvent
++
++    /** User accepts the challenge (emojis / decimals match). */
++    data object AcceptChallenge : VerifyOtherUserEvent
++
++    /** User declines the challenge (emojis / decimals don't match). */
++    data object DeclineChallenge : VerifyOtherUserEvent
++
++    /** User cancels an in-flight verification attempt. */
++    data object Cancel : VerifyOtherUserEvent
++
++    /** User acknowledges completion / cancellation / failure and wants to leave. */
++    data object Dismiss : VerifyOtherUserEvent
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserNavigator.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserNavigator.kt
+new file mode 100644
+index 0000000..8130e47
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserNavigator.kt
+@@ -0,0 +1,12 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++fun interface VerifyOtherUserNavigator {
++    fun onDone()
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserNode.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserNode.kt
+new file mode 100644
+index 0000000..4bd17a5
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserNode.kt
+@@ -0,0 +1,49 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.bumble.appyx.core.plugin.plugins
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.verifyuser.api.VerifyUserEntryPoint
++import io.element.android.libraries.architecture.inputs
++import io.element.android.libraries.di.SessionScope
++
++@ContributesNode(SessionScope::class)
++class VerifyOtherUserNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    presenterFactory: VerifyOtherUserPresenter.Factory,
++) : Node(buildContext, plugins = plugins),
++    VerifyOtherUserNavigator {
++    private val params = inputs<VerifyUserEntryPoint.Params>()
++
++    private val presenter = presenterFactory.create(
++        userId = params.userId,
++        navigator = this,
++    )
++
++    override fun onDone() {
++        plugins<VerifyUserEntryPoint.Callback>().forEach { it.onDone() }
++    }
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        val state = presenter.present()
++        VerifyOtherUserView(
++            state = state,
++            modifier = modifier,
++        )
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserPresenter.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserPresenter.kt
+new file mode 100644
+index 0000000..e34aea9
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserPresenter.kt
+@@ -0,0 +1,155 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++@file:OptIn(ExperimentalCoroutinesApi::class)
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.derivedStateOf
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.remember
++import com.freeletics.flowredux.compose.rememberStateAndDispatch
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedFactory
++import dagger.assisted.AssistedInject
++import io.element.android.libraries.architecture.AsyncData
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.matrix.api.core.UserId
++import io.element.android.libraries.matrix.api.verification.UserVerificationFlowState
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import timber.log.Timber
++import io.element.android.features.verifyuser.impl.outgoing.VerifyOtherUserStateMachine.Event as StateMachineEvent
++import io.element.android.features.verifyuser.impl.outgoing.VerifyOtherUserStateMachine.State as StateMachineState
++
++class VerifyOtherUserPresenter @AssistedInject constructor(
++    @Assisted private val userId: UserId,
++    @Assisted private val navigator: VerifyOtherUserNavigator,
++    private val userVerificationServiceFactory: UserVerificationService.Factory,
++    private val stateMachineFactory: VerifyOtherUserStateMachine.Factory,
++) : Presenter<VerifyOtherUserState> {
++    @AssistedFactory
++    interface Factory {
++        fun create(
++            userId: UserId,
++            navigator: VerifyOtherUserNavigator,
++        ): VerifyOtherUserPresenter
++    }
++
++    private val userVerificationService: UserVerificationService by lazy {
++        userVerificationServiceFactory.create(userId)
++    }
++
++    private val stateMachine by lazy { stateMachineFactory.create(userVerificationService) }
++
++    @Composable
++    override fun present(): VerifyOtherUserState {
++        val stateAndDispatch = stateMachine.rememberStateAndDispatch()
++
++        LaunchedEffect(Unit) {
++            // Make sure we start from a clean state every time we enter it.
++            userVerificationService.reset(cancelAnyPendingVerificationAttempt = true)
++        }
++
++        // Forward service events into the state machine.
++        LaunchedEffect(Unit) {
++            observeService()
++        }
++
++        // Automatically close the screen when the flow reaches a terminal state and the user
++        // confirms the dismiss, OR when the service finishes successfully and the user pressed done.
++        LaunchedEffect(stateAndDispatch.state.value) {
++            val current = stateAndDispatch.state.value
++            if (current is StateMachineState.Completed || current is StateMachineState.Canceled || current is StateMachineState.Failed) {
++                // No automatic navigation; the view shows the terminal UI and waits for Dismiss event.
++            }
++        }
++
++        val step by remember {
++            derivedStateOf { stateAndDispatch.state.value.toStep() }
++        }
++
++        fun handleEvent(event: VerifyOtherUserEvent) {
++            Timber.d("VerifyUser event: ${event::class.simpleName}")
++            when (event) {
++                VerifyOtherUserEvent.StartVerification ->
++                    stateAndDispatch.dispatchAction(StateMachineEvent.StartVerification)
++                VerifyOtherUserEvent.AcceptChallenge ->
++                    stateAndDispatch.dispatchAction(StateMachineEvent.AcceptChallenge)
++                VerifyOtherUserEvent.DeclineChallenge ->
++                    stateAndDispatch.dispatchAction(StateMachineEvent.DeclineChallenge)
++                VerifyOtherUserEvent.Cancel ->
++                    stateAndDispatch.dispatchAction(StateMachineEvent.Cancel)
++                VerifyOtherUserEvent.Dismiss -> {
++                    val currentState = stateAndDispatch.state.value
++                    when (currentState) {
++                        StateMachineState.Initial -> navigator.onDone()
++                        StateMachineState.Completed -> {
++                            navigator.onDone()
++                            stateAndDispatch.dispatchAction(StateMachineEvent.Dismiss)
++                        }
++                        StateMachineState.Canceled,
++                        StateMachineState.Failed -> {
++                            navigator.onDone()
++                            stateAndDispatch.dispatchAction(StateMachineEvent.Dismiss)
++                        }
++                        else -> {
++                            stateAndDispatch.dispatchAction(StateMachineEvent.Cancel)
++                        }
++                    }
++                }
++            }
++        }
++
++        return VerifyOtherUserState(
++            userId = userId,
++            step = step,
++            eventSink = ::handleEvent,
++        )
++    }
++
++    private fun StateMachineState?.toStep(): VerifyOtherUserState.Step = when (val state = this) {
++        null, StateMachineState.Initial -> VerifyOtherUserState.Step.Initial
++        StateMachineState.Requesting,
++        StateMachineState.WaitingForAccept,
++        StateMachineState.Canceling -> VerifyOtherUserState.Step.WaitingForOtherUserAcceptance
++        StateMachineState.RequestAccepted -> VerifyOtherUserState.Step.RequestAccepted
++        is StateMachineState.Verifying.ChallengeReceived ->
++            VerifyOtherUserState.Step.Verifying(state.data, AsyncData.Uninitialized)
++        is StateMachineState.Verifying.Replying ->
++            VerifyOtherUserState.Step.Verifying(state.data, AsyncData.Loading())
++        StateMachineState.Completed -> VerifyOtherUserState.Step.Completed
++        StateMachineState.Canceled -> VerifyOtherUserState.Step.Canceled
++        StateMachineState.Failed -> VerifyOtherUserState.Step.Failed
++    }
++
++    private fun CoroutineScope.observeService() {
++        userVerificationService.verificationFlowState
++            .onEach { Timber.d("VerifyUser flow state: ${it::class.simpleName}") }
++            .onEach { sdkState ->
++                val event = when (sdkState) {
++                    UserVerificationFlowState.Initial -> StateMachineEvent.Dismiss
++                    UserVerificationFlowState.DidRequest -> StateMachineEvent.DidRequest
++                    UserVerificationFlowState.DidAcceptVerificationRequest -> StateMachineEvent.DidAccept
++                    UserVerificationFlowState.DidStartSasVerification -> null
++                    is UserVerificationFlowState.DidReceiveVerificationData -> StateMachineEvent.DidReceiveChallenge(sdkState.data)
++                    UserVerificationFlowState.DidFinish -> StateMachineEvent.DidFinish
++                    UserVerificationFlowState.DidCancel -> StateMachineEvent.DidCancel
++                    UserVerificationFlowState.DidFail -> StateMachineEvent.DidFail
++                }
++                if (event != null) {
++                    stateMachine.dispatch(event)
++                }
++            }
++            .launchIn(this)
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserState.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserState.kt
+new file mode 100644
+index 0000000..857f399
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserState.kt
+@@ -0,0 +1,45 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++import androidx.compose.runtime.Immutable
++import androidx.compose.runtime.Stable
++import io.element.android.libraries.architecture.AsyncData
++import io.element.android.libraries.matrix.api.core.UserId
++import io.element.android.libraries.matrix.api.verification.SessionVerificationData
++
++@Immutable
++data class VerifyOtherUserState(
++    val userId: UserId,
++    val step: Step,
++    val eventSink: (VerifyOtherUserEvent) -> Unit,
++) {
++    @Stable
++    sealed interface Step {
++        /** Pre-flight, awaiting the user to confirm starting verification. */
++        data object Initial : Step
++
++        /** The verification request has been sent, awaiting the other user to accept. */
++        data object WaitingForOtherUserAcceptance : Step
++
++        /** The other user has accepted the request. About to start SAS. */
++        data object RequestAccepted : Step
++
++        /** SAS challenge received from the SDK. */
++        data class Verifying(val data: SessionVerificationData, val reply: AsyncData<Unit>) : Step
++
++        /** Verification completed successfully - user is now verified. */
++        data object Completed : Step
++
++        /** Verification was cancelled locally or remotely. */
++        data object Canceled : Step
++
++        /** Verification failed (mismatch, SDK error, etc.). */
++        data object Failed : Step
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserStateMachine.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserStateMachine.kt
+new file mode 100644
+index 0000000..f8a1f08
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserStateMachine.kt
+@@ -0,0 +1,184 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++@file:OptIn(ExperimentalCoroutinesApi::class)
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++import com.freeletics.flowredux.dsl.FlowReduxStateMachine
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedFactory
++import dagger.assisted.AssistedInject
++import io.element.android.features.verifyuser.impl.util.andLogStateChange
++import io.element.android.features.verifyuser.impl.util.logReceivedEvents
++import io.element.android.libraries.matrix.api.verification.SessionVerificationData
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import com.freeletics.flowredux.dsl.State as MachineState
++
++class VerifyOtherUserStateMachine @AssistedInject constructor(
++    @Assisted private val userVerificationService: UserVerificationService,
++) : FlowReduxStateMachine<VerifyOtherUserStateMachine.State, VerifyOtherUserStateMachine.Event>(
++    initialState = State.Initial
++) {
++    @AssistedFactory
++    interface Factory {
++        fun create(userVerificationService: UserVerificationService): VerifyOtherUserStateMachine
++    }
++    init {
++        spec {
++            inState<State.Initial> {
++                on { _: Event.StartVerification, state ->
++                    state.override { State.Requesting.andLogStateChange() }
++                }
++            }
++            inState<State.Requesting> {
++                onEnterEffect {
++                    userVerificationService.requestVerification()
++                }
++                on { _: Event.DidRequest, state ->
++                    state.override { State.WaitingForAccept.andLogStateChange() }
++                }
++                on { _: Event.DidFail, state ->
++                    state.override { State.Failed.andLogStateChange() }
++                }
++            }
++            inState<State.WaitingForAccept> {
++                on { _: Event.DidAccept, state ->
++                    state.override { State.RequestAccepted.andLogStateChange() }
++                }
++                on { _: Event.DidCancel, state ->
++                    state.override { State.Canceled.andLogStateChange() }
++                }
++                on { _: Event.DidFail, state ->
++                    state.override { State.Failed.andLogStateChange() }
++                }
++            }
++            inState<State.RequestAccepted> {
++                onEnterEffect {
++                    userVerificationService.startSasVerification()
++                }
++                on { event: Event.DidReceiveChallenge, state ->
++                    state.override { State.Verifying.ChallengeReceived(event.data).andLogStateChange() }
++                }
++                on { _: Event.DidCancel, state ->
++                    state.override { State.Canceled.andLogStateChange() }
++                }
++            }
++            inState<State.Verifying.ChallengeReceived> {
++                on { _: Event.AcceptChallenge, state ->
++                    state.override { State.Verifying.Replying(state.snapshot.data, accept = true).andLogStateChange() }
++                }
++                on { _: Event.DeclineChallenge, state ->
++                    state.override { State.Verifying.Replying(state.snapshot.data, accept = false).andLogStateChange() }
++                }
++            }
++            inState<State.Verifying.Replying> {
++                onEnterEffect { state ->
++                    if (state.accept) {
++                        userVerificationService.approveVerification()
++                    } else {
++                        userVerificationService.declineVerification()
++                    }
++                }
++                on { _: Event.DidFinish, state ->
++                    // Success: only the accept path can land here. The decline path cancels
++                    // immediately and goes to Canceled.
++                    state.override { State.Completed.andLogStateChange() }
++                }
++                on { _: Event.DidCancel, state ->
++                    state.override { State.Canceled.andLogStateChange() }
++                }
++                on { _: Event.DidFail, state ->
++                    state.override { State.Failed.andLogStateChange() }
++                }
++            }
++            inState<State.Canceling> {
++                onEnterEffect {
++                    userVerificationService.cancelVerification()
++                }
++            }
++            inState<State.Completed> {
++                on { _: Event.Dismiss, state ->
++                    state.override { State.Initial.andLogStateChange() }
++                }
++            }
++            inState<State.Canceled> {
++                on { _: Event.Dismiss, state ->
++                    state.override { State.Initial.andLogStateChange() }
++                }
++            }
++            inState<State.Failed> {
++                on { _: Event.Dismiss, state ->
++                    state.override { State.Initial.andLogStateChange() }
++                }
++            }
++            inState {
++                logReceivedEvents()
++                on { _: Event.Cancel, state: MachineState<State> ->
++                    when (state.snapshot) {
++                        State.Initial, State.Completed, State.Canceled, State.Failed -> state.noChange()
++                        else -> {
++                            userVerificationService.cancelVerification()
++                            state.override { State.Canceling.andLogStateChange() }
++                        }
++                    }
++                }
++                on { _: Event.DidCancel, state: MachineState<State> ->
++                    // Cancellation at any point lands in Canceled - never in a verified state.
++                    when (state.snapshot) {
++                        State.Canceled, State.Completed, State.Failed -> state.noChange()
++                        else -> state.override { State.Canceled.andLogStateChange() }
++                    }
++                }
++                on { _: Event.DidFail, state: MachineState<State> ->
++                    when (state.snapshot) {
++                        State.Completed -> state.noChange()
++                        else -> state.override { State.Failed.andLogStateChange() }
++                    }
++                }
++            }
++        }
++    }
++
++    sealed interface State {
++        data object Initial : State
++
++        /** A request to verify is being sent. */
++        data object Requesting : State
++
++        /** Waiting for the other user to accept the request. */
++        data object WaitingForAccept : State
++
++        /** The other user accepted the request. About to start SAS. */
++        data object RequestAccepted : State
++
++        sealed class Verifying(open val data: SessionVerificationData) : State {
++            data class ChallengeReceived(override val data: SessionVerificationData) : Verifying(data)
++            data class Replying(override val data: SessionVerificationData, val accept: Boolean) : Verifying(data)
++        }
++
++        data object Canceling : State
++        data object Canceled : State
++        data object Completed : State
++        data object Failed : State
++    }
++
++    sealed interface Event {
++        data object StartVerification : Event
++        data object DidRequest : Event
++        data object DidAccept : Event
++        data class DidReceiveChallenge(val data: SessionVerificationData) : Event
++        data object AcceptChallenge : Event
++        data object DeclineChallenge : Event
++        data object DidFinish : Event
++        data object Cancel : Event
++        data object DidCancel : Event
++        data object DidFail : Event
++        data object Dismiss : Event
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserView.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserView.kt
+new file mode 100644
+index 0000000..d115f57
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/outgoing/VerifyOtherUserView.kt
+@@ -0,0 +1,256 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.impl.outgoing
++
++import androidx.activity.compose.BackHandler
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.unit.dp
++import io.element.android.compound.theme.ElementTheme
++import io.element.android.compound.tokens.generated.CompoundIcons
++import io.element.android.features.verifyuser.impl.R
++import io.element.android.features.verifyuser.impl.outgoing.VerifyOtherUserState.Step
++import io.element.android.libraries.architecture.AsyncData
++import io.element.android.libraries.designsystem.atomic.pages.HeaderFooterPage
++import io.element.android.libraries.designsystem.components.BigIcon
++import io.element.android.libraries.designsystem.components.PageTitle
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.InvisibleButton
++import io.element.android.libraries.designsystem.theme.components.Text
++import io.element.android.libraries.designsystem.theme.components.TextButton
++import io.element.android.libraries.designsystem.theme.components.TopAppBar
++import io.element.android.libraries.matrix.api.verification.SessionVerificationData
++import io.element.android.libraries.ui.strings.CommonStrings
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun VerifyOtherUserView(
++    state: VerifyOtherUserState,
++    modifier: Modifier = Modifier,
++) {
++    val step = state.step
++
++    BackHandler {
++        handleBack(state, step)
++    }
++
++    HeaderFooterPage(
++        modifier = modifier,
++        topBar = {
++            TopAppBar(title = {})
++        },
++        header = { VerifyOtherUserHeader(step = step) },
++        footer = { VerifyOtherUserBottomMenu(state = state) },
++    ) {
++        VerifyOtherUserContent(step = step)
++    }
++}
++
++private fun handleBack(state: VerifyOtherUserState, step: Step) {
++    when (step) {
++        Step.Initial -> state.eventSink(VerifyOtherUserEvent.Dismiss)
++        Step.RequestAccepted -> state.eventSink(VerifyOtherUserEvent.Cancel)
++        Step.WaitingForOtherUserAcceptance -> state.eventSink(VerifyOtherUserEvent.Cancel)
++        is Step.Verifying -> {
++            if (step.reply.isLoading()) {
++                // Do nothing, ignore back while we are sending the reply
++            } else {
++                state.eventSink(VerifyOtherUserEvent.DeclineChallenge)
++            }
++        }
++        Step.Completed, Step.Canceled, Step.Failed -> state.eventSink(VerifyOtherUserEvent.Dismiss)
++    }
++}
++
++@Composable
++private fun VerifyOtherUserHeader(step: Step) {
++    val iconStyle = when (step) {
++        Step.Initial -> BigIcon.Style.Default(CompoundIcons.UserProfile())
++        Step.WaitingForOtherUserAcceptance -> BigIcon.Style.Default(CompoundIcons.Devices())
++        Step.RequestAccepted -> BigIcon.Style.Default(CompoundIcons.Reaction())
++        is Step.Verifying -> BigIcon.Style.Default(CompoundIcons.Reaction())
++        Step.Completed -> BigIcon.Style.SuccessSolid
++        Step.Canceled -> BigIcon.Style.AlertSolid
++        Step.Failed -> BigIcon.Style.AlertSolid
++    }
++    val titleRes = when (step) {
++        Step.Initial -> R.string.screen_start_user_verification_title
++        Step.WaitingForOtherUserAcceptance -> R.string.screen_user_verification_waiting_other_user_title
++        Step.RequestAccepted -> R.string.screen_user_verification_ready_title
++        is Step.Verifying -> when (step.data) {
++            is SessionVerificationData.Emojis -> R.string.screen_user_verification_compare_emojis_title
++            is SessionVerificationData.Decimals -> R.string.screen_user_verification_compare_numbers_title
++        }
++        Step.Completed -> R.string.screen_user_verification_complete_title
++        Step.Canceled -> R.string.screen_user_verification_canceled_title
++        Step.Failed -> R.string.screen_user_verification_failed_title
++    }
++    val subtitleRes = when (step) {
++        Step.Initial -> R.string.screen_start_user_verification_subtitle
++        Step.WaitingForOtherUserAcceptance -> R.string.screen_user_verification_waiting_other_user_subtitle
++        Step.RequestAccepted -> R.string.screen_user_verification_ready_subtitle
++        is Step.Verifying -> when (step.data) {
++            is SessionVerificationData.Emojis -> R.string.screen_user_verification_compare_emojis_subtitle
++            is SessionVerificationData.Decimals -> R.string.screen_user_verification_compare_numbers_subtitle
++        }
++        Step.Completed -> R.string.screen_user_verification_complete_subtitle
++        Step.Canceled -> R.string.screen_user_verification_canceled_subtitle
++        Step.Failed -> R.string.screen_user_verification_failed_subtitle
++    }
++    PageTitle(
++        iconStyle = iconStyle,
++        title = stringResource(id = titleRes),
++        subtitle = stringResource(id = subtitleRes),
++    )
++}
++
++@Composable
++private fun VerifyOtherUserContent(step: Step) {
++    when (step) {
++        is Step.Verifying -> VerifyOtherUserChallengeContent(step.data)
++        Step.Initial -> Unit
++        else -> Unit
++    }
++}
++
++@Composable
++private fun VerifyOtherUserChallengeContent(data: SessionVerificationData) {
++    Box(
++        modifier = Modifier.fillMaxSize(),
++        contentAlignment = Alignment.Center,
++    ) {
++        when (data) {
++            is SessionVerificationData.Emojis -> {
++                Column(
++                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
++                    horizontalAlignment = Alignment.CenterHorizontally,
++                    verticalArrangement = Arrangement.spacedBy(8.dp),
++                ) {
++                    data.emojis.forEach { emoji ->
++                        Row(
++                            modifier = Modifier.fillMaxWidth(),
++                            verticalAlignment = Alignment.CenterVertically,
++                            horizontalArrangement = Arrangement.spacedBy(12.dp),
++                        ) {
++                            Text(
++                                text = emoji.emoji,
++                                style = ElementTheme.typography.fontHeadingMdBold,
++                            )
++                            Text(
++                                text = emoji.description,
++                                style = ElementTheme.typography.fontBodyMdRegular,
++                            )
++                        }
++                    }
++                }
++            }
++            is SessionVerificationData.Decimals -> {
++                Column(
++                    modifier = Modifier.fillMaxWidth(),
++                    horizontalAlignment = Alignment.CenterHorizontally,
++                    verticalArrangement = Arrangement.spacedBy(16.dp),
++                ) {
++                    data.decimals.forEachIndexed { index, value ->
++                        Text(
++                            text = "${index + 1}.  $value",
++                            style = ElementTheme.typography.fontHeadingLgBold,
++                        )
++                    }
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun VerifyOtherUserBottomMenu(state: VerifyOtherUserState) {
++    val step = state.step
++    when (step) {
++        Step.Initial -> {
++            Column(modifier = Modifier.fillMaxWidth()) {
++                Button(
++                    modifier = Modifier.fillMaxWidth(),
++                    text = stringResource(R.string.screen_start_user_verification_action),
++                    onClick = { state.eventSink(VerifyOtherUserEvent.StartVerification) },
++                )
++                InvisibleButton()
++            }
++        }
++        Step.WaitingForOtherUserAcceptance -> {
++            Column(modifier = Modifier.fillMaxWidth()) {
++                Button(
++                    modifier = Modifier.fillMaxWidth(),
++                    text = stringResource(CommonStrings.action_cancel),
++                    onClick = { state.eventSink(VerifyOtherUserEvent.Cancel) },
++                )
++                InvisibleButton()
++            }
++        }
++        Step.RequestAccepted -> {
++            Column(modifier = Modifier.fillMaxWidth()) {
++                Button(
++                    modifier = Modifier.fillMaxWidth(),
++                    text = stringResource(CommonStrings.action_cancel),
++                    onClick = { state.eventSink(VerifyOtherUserEvent.Cancel) },
++                )
++                InvisibleButton()
++            }
++        }
++        is Step.Verifying -> {
++            val isReplying = step.reply.isLoading()
++            Column(modifier = Modifier.fillMaxWidth()) {
++                Button(
++                    modifier = Modifier.fillMaxWidth(),
++                    text = if (isReplying) {
++                        stringResource(R.string.screen_user_verification_waiting_to_match)
++                    } else {
++                        stringResource(R.string.screen_user_verification_they_match)
++                    },
++                    enabled = !isReplying,
++                    showProgress = isReplying,
++                    onClick = {
++                        if (!isReplying) {
++                            state.eventSink(VerifyOtherUserEvent.AcceptChallenge)
++                        }
++                    },
++                )
++                if (isReplying) {
++                    InvisibleButton()
++                } else {
++                    TextButton(
++                        modifier = Modifier.fillMaxWidth(),
++                        text = stringResource(R.string.screen_user_verification_they_dont_match),
++                        onClick = { state.eventSink(VerifyOtherUserEvent.DeclineChallenge) },
++                    )
++                }
++            }
++        }
++        Step.Completed,
++        Step.Canceled,
++        Step.Failed -> {
++            Column(modifier = Modifier.fillMaxWidth()) {
++                Button(
++                    modifier = Modifier.fillMaxWidth(),
++                    text = stringResource(CommonStrings.action_done),
++                    onClick = { state.eventSink(VerifyOtherUserEvent.Dismiss) },
++                )
++                InvisibleButton()
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/util/StateMachineUtil.kt b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/util/StateMachineUtil.kt
+new file mode 100644
+index 0000000..bba13cd
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/kotlin/io/element/android/features/verifyuser/impl/util/StateMachineUtil.kt
+@@ -0,0 +1,25 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.verifyuser.impl.util
++
++import com.freeletics.flowredux.dsl.InStateBuilderBlock
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import timber.log.Timber
++import com.freeletics.flowredux.dsl.State as MachineState
++
++internal fun <T : Any> T.andLogStateChange() = also {
++    Timber.w("VerifyUser: state machine state moved to [${this::class.simpleName}]")
++}
++
++@OptIn(ExperimentalCoroutinesApi::class)
++inline fun <State : Any, reified Event : Any> InStateBuilderBlock<State, State, Event>.logReceivedEvents() {
++    on { event: Event, state: MachineState<State> ->
++        Timber.w("VerifyUser in state [${state.snapshot::class.simpleName}] receiving event [${event::class.simpleName}]")
++        state.noChange()
++    }
++}
+\ No newline at end of file
+diff --git a/features/verifyuser/impl/src/main/res/values/localazy.xml b/features/verifyuser/impl/src/main/res/values/localazy.xml
+new file mode 100644
+index 0000000..32cd61a
+--- /dev/null
++++ b/features/verifyuser/impl/src/main/res/values/localazy.xml
+@@ -0,0 +1,39 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++  <!-- Outgoing (initiator) -->
++  <string name="screen_start_user_verification_title">"Verify this user"</string>
++  <string name="screen_start_user_verification_subtitle">"For extra security, verify this user by comparing a set of emojis on your devices. Do this by using a trusted way to communicate."</string>
++  <string name="screen_start_user_verification_action">"Start verification"</string>
++  <string name="screen_start_user_verification_cannot_verify">"Can\'t verify?"</string>
++
++  <!-- Waiting for the other user to accept -->
++  <string name="screen_user_verification_waiting_other_user_title">"Waiting for the other user"</string>
++  <string name="screen_user_verification_waiting_other_user_subtitle">"You should see a prompt on the other user\'s device. Start the verification from there now."</string>
++
++  <!-- Request accepted: ready to start SAS -->
++  <string name="screen_user_verification_ready_title">"Compare emojis"</string>
++  <string name="screen_user_verification_ready_subtitle">"Compare a unique set of emojis to confirm the other user\'s identity."</string>
++
++  <!-- SAS comparing -->
++  <string name="screen_user_verification_compare_emojis_title">"Compare emojis"</string>
++  <string name="screen_user_verification_compare_emojis_subtitle">"Confirm that the emojis below match those shown on the other user\'s device."</string>
++  <string name="screen_user_verification_compare_numbers_title">"Compare numbers"</string>
++  <string name="screen_user_verification_compare_numbers_subtitle">"Confirm that the numbers below match those shown on the other user\'s device."</string>
++
++  <string name="screen_user_verification_they_match">"They match"</string>
++  <string name="screen_user_verification_they_dont_match">"They don\'t match"</string>
++  <string name="screen_user_verification_waiting_to_match">"Waiting to match…"</string>
++
++  <!-- Completion / cancellation / failure -->
++  <string name="screen_user_verification_complete_title">"User verified"</string>
++  <string name="screen_user_verification_complete_subtitle">"Now you can trust the identity of this user when sending or receiving messages."</string>
++  <string name="screen_user_verification_canceled_title">"Verification cancelled"</string>
++  <string name="screen_user_verification_canceled_subtitle">"Something doesn\'t seem right. Either the request timed out or the request was denied."</string>
++  <string name="screen_user_verification_failed_title">"Verification failed"</string>
++  <string name="screen_user_verification_failed_subtitle">"Either the request timed out, the request was denied, or there was a verification mismatch."</string>
++
++  <!-- Incoming (responder) -->
++  <string name="screen_incoming_user_verification_title">"Verification requested"</string>
++  <string name="screen_incoming_user_verification_subtitle">"For extra security, another user wants to verify your identity. You\'ll be shown a set of emojis to compare."</string>
++  <string name="screen_incoming_user_verification_footer">"Only continue if you initiated this verification."</string>
++</resources>
+\ No newline at end of file
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
+index c19793f..9549889 100644
+--- a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
+@@ -36,6 +36,7 @@ import io.element.android.libraries.matrix.api.sync.SyncService
+ import io.element.android.libraries.matrix.api.user.MatrixSearchUserResults
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import io.element.android.libraries.matrix.api.verification.SessionVerificationService
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
+ import kotlinx.collections.immutable.ImmutableList
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.flow.Flow
+@@ -70,6 +71,15 @@ interface MatrixClient : Closeable {
+     suspend fun knockRoom(roomIdOrAlias: RoomIdOrAlias, message: String, serverNames: List<String>): Result<RoomSummary?>
+     fun syncService(): SyncService
+     fun sessionVerificationService(): SessionVerificationService
++
++    /**
++     * Returns a service to drive the verification of the given [UserId].
++     *
++     * The returned service is per-user and is safe to retain for the lifetime
++     * of the verification flow. Calling this multiple times for the same userId
++     * creates independent services.
++     */
++    fun userVerificationService(userId: UserId): UserVerificationService
+     fun pushersService(): PushersService
+     fun notificationService(): NotificationService
+     fun notificationSettingsService(): NotificationSettingsService
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/verification/UserVerificationService.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/verification/UserVerificationService.kt
+new file mode 100644
+index 0000000..9f85cc8
+--- /dev/null
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/verification/UserVerificationService.kt
+@@ -0,0 +1,125 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.matrix.api.verification
++
++import io.element.android.libraries.matrix.api.core.UserId
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.StateFlow
++
++/**
++ * Service for verifying another Matrix user with an interactive challenge.
++ *
++ * Unlike [SessionVerificationService] which deals with self-session cross-signing,
++ * this service targets a specific user and produces a user-scoped [UserVerifiedStatus].
++ *
++ * The underlying transport reuses the same SAS-based mechanism that drives
++ * session verification, but the resulting trust change is recorded against the
++ * target user, not the local session.
++ */
++interface UserVerificationService {
++    /** The user being verified. */
++    val userId: UserId
++
++    /**
++     * State of the current verification flow ([UserVerificationFlowState.Initial] if not started).
++     */
++    val verificationFlowState: StateFlow<UserVerificationFlowState>
++
++    /** The verification status of the target user. */
++    val userVerifiedStatus: StateFlow<UserVerifiedStatus>
++
++    /**
++     * True while there is an active verification attempt that needs attention
++     * (i.e. it is not in [UserVerificationFlowState.Initial]).
++     */
++    val needsUserVerification: Flow<Boolean>
++
++    /**
++     * Request verification of the target user.
++     *
++     * Emits [UserVerificationFlowState.DidRequest] when the request has been sent,
++     * followed by [UserVerificationFlowState.DidAcceptVerificationRequest] when the
++     * other side accepts it (or [UserVerificationFlowState.DidCancel] /
++     * [UserVerificationFlowState.DidFail] on error).
++     */
++    suspend fun requestVerification()
++
++    /** Cancel the in-progress verification attempt. */
++    suspend fun cancelVerification()
++
++    /** Approve the challenge the user has just compared. */
++    suspend fun approveVerification()
++
++    /** Decline the challenge because the user does not trust the other side. */
++    suspend fun declineVerification()
++
++    /** Start the SAS verification phase after both sides have accepted the request. */
++    suspend fun startSasVerification()
++
++    /**
++     * Reset the verification state to [UserVerificationFlowState.Initial].
++     * @param cancelAnyPendingVerificationAttempt If true, also cancels any pending
++     * SDK-level request.
++     */
++    suspend fun reset(cancelAnyPendingVerificationAttempt: Boolean)
++
++    /**
++     * Notify the service that the user is leaving the verification screen so it
++     * can drop any local optimistic state.
++     */
++    suspend fun cancelAny()
++
++    /**
++     * Factory that creates a [UserVerificationService] for a given [UserId].
++     */
++    fun interface Factory {
++        fun create(userId: UserId): UserVerificationService
++    }
++}
++
++/** Verification status of a specific user, from the local device's point of view. */
++sealed interface UserVerifiedStatus {
++    /** The SDK has not (yet) reported a status for this user. */
++    data object Unknown : UserVerifiedStatus
++
++    /** The user is verified. */
++    data object Verified : UserVerifiedStatus
++
++    /** The user is not verified (never was, or verification was withdrawn). */
++    data object NotVerified : UserVerifiedStatus
++
++    /** True if the user is currently [Verified]. */
++    fun isVerified(): Boolean = this is Verified
++}
++
++/** States produced by the [UserVerificationService]. */
++sealed interface UserVerificationFlowState {
++    /** Initial state. */
++    data object Initial : UserVerificationFlowState
++
++    /** Outgoing request was sent to the other user. */
++    data object DidRequest : UserVerificationFlowState
++
++    /** The other user accepted the verification request. */
++    data object DidAcceptVerificationRequest : UserVerificationFlowState
++
++    /** The SAS verification phase started between the two users. */
++    data object DidStartSasVerification : UserVerificationFlowState
++
++    /** Verification data (emojis or decimals) for the SAS verification received. */
++    data class DidReceiveVerificationData(val data: SessionVerificationData) : UserVerificationFlowState
++
++    /** Verification completed successfully. */
++    data object DidFinish : UserVerificationFlowState
++
++    /** Verification was cancelled by either side. */
++    data object DidCancel : UserVerificationFlowState
++
++    /** Verification failed with an error. */
++    data object DidFail : UserVerificationFlowState
++}
+\ No newline at end of file
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
+index 1f08be2..f6068d2 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
+@@ -48,6 +48,7 @@ import io.element.android.libraries.matrix.api.sync.SyncState
+ import io.element.android.libraries.matrix.api.user.MatrixSearchUserResults
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import io.element.android.libraries.matrix.api.verification.SessionVerificationService
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
+ import io.element.android.libraries.matrix.impl.core.toProgressWatcher
+ import io.element.android.libraries.matrix.impl.encryption.RustEncryptionService
+ import io.element.android.libraries.matrix.impl.exception.mapClientException
+@@ -75,6 +76,7 @@ import io.element.android.libraries.matrix.impl.util.SessionPathsProvider
+ import io.element.android.libraries.matrix.impl.util.cancelAndDestroy
+ import io.element.android.libraries.matrix.impl.util.mxCallbackFlow
+ import io.element.android.libraries.matrix.impl.verification.RustSessionVerificationService
++import io.element.android.libraries.matrix.impl.verification.RustUserVerificationService
+ import io.element.android.libraries.sessionstorage.api.SessionStore
+ import io.element.android.services.toolbox.api.systemclock.SystemClock
+ import kotlinx.collections.immutable.ImmutableList
+@@ -465,6 +467,15 @@ class RustMatrixClient(
+ 
+     override fun sessionVerificationService(): SessionVerificationService = verificationService
+ 
++    override fun userVerificationService(userId: UserId): UserVerificationService {
++        return RustUserVerificationService(
++            sessionVerificationService = verificationService,
++            encryptionService = encryptionService,
++            sessionCoroutineScope = sessionCoroutineScope,
++            userId = userId,
++        )
++    }
++
+     override fun pushersService(): PushersService = pushersService
+ 
+     override fun notificationService(): NotificationService = notificationService
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/di/SessionMatrixModule.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/di/SessionMatrixModule.kt
+index 361d1ef..65407d9 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/di/SessionMatrixModule.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/di/SessionMatrixModule.kt
+@@ -21,6 +21,7 @@ import io.element.android.libraries.matrix.api.roomdirectory.RoomDirectoryServic
+ import io.element.android.libraries.matrix.api.roomlist.RoomListService
+ import io.element.android.libraries.matrix.api.sync.SyncService
+ import io.element.android.libraries.matrix.api.verification.SessionVerificationService
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
+ import kotlinx.coroutines.CoroutineScope
+ 
+ @Module
+@@ -31,6 +32,13 @@ object SessionMatrixModule {
+         return matrixClient.sessionVerificationService()
+     }
+ 
++    @Provides
++    fun providesUserVerificationServiceFactory(matrixClient: MatrixClient): UserVerificationService.Factory {
++        return UserVerificationService.Factory { userId ->
++            matrixClient.userVerificationService(userId)
++        }
++    }
++
+     @Provides
+     fun providesNotificationSettingsService(matrixClient: MatrixClient): NotificationSettingsService {
+         return matrixClient.notificationSettingsService()
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/verification/RustUserVerificationService.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/verification/RustUserVerificationService.kt
+new file mode 100644
+index 0000000..3ec5a03
+--- /dev/null
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/verification/RustUserVerificationService.kt
+@@ -0,0 +1,174 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.matrix.impl.verification
++
++import io.element.android.libraries.matrix.api.core.UserId
++import io.element.android.libraries.matrix.api.encryption.EncryptionService
++import io.element.android.libraries.matrix.api.verification.SessionVerificationData
++import io.element.android.libraries.matrix.api.verification.SessionVerificationService
++import io.element.android.libraries.matrix.api.verification.UserVerificationFlowState
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
++import io.element.android.libraries.matrix.api.verification.UserVerifiedStatus
++import io.element.android.libraries.matrix.api.verification.VerificationFlowState
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.NonCancellable
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.map
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++import timber.log.Timber
++
++/**
++ * Implementation of [UserVerificationService] that targets a specific user and
++ * reuses the existing self-session verification controller for the SAS exchange.
++ *
++ * The underlying Rust SDK exposes a single [org.matrix.rustcomponents.sdk.SessionVerificationController]
++ * which already supports user verification (see [RustSessionVerificationService]'s `isOwnVerification`
++ * tracking). For per-user verification requests we drive that same controller and
++ * translate its [VerificationFlowState] to a user-scoped [UserVerificationFlowState].
++ *
++ * Trust changes are recorded against the target user through
++ * [EncryptionService.isUserVerified], which is what powers the identity-violation
++ * surfaces across the app.
++ */
++class RustUserVerificationService(
++    private val sessionVerificationService: SessionVerificationService,
++    private val encryptionService: EncryptionService,
++    private val sessionCoroutineScope: CoroutineScope,
++    override val userId: UserId,
++) : UserVerificationService {
++    private val _verificationFlowState = MutableStateFlow<UserVerificationFlowState>(UserVerificationFlowState.Initial)
++    override val verificationFlowState: StateFlow<UserVerificationFlowState> = _verificationFlowState.asStateFlow()
++
++    private val _userVerifiedStatus = MutableStateFlow<UserVerifiedStatus>(UserVerifiedStatus.Unknown)
++    override val userVerifiedStatus: StateFlow<UserVerifiedStatus> = _userVerifiedStatus.asStateFlow()
++
++    private val verificationMutex = Mutex()
++    private val observedCorrelationId = MutableStateFlow(0L)
++
++    init {
++        // Refresh initial verified status from the SDK.
++        sessionCoroutineScope.launch { refreshVerifiedStatus() }
++
++        // Mirror the underlying session verification state into our user-scoped state.
++        // Only translate events that we drive ourselves; that way concurrent
++        // self-session verifications do not bleed into the user verification UI.
++        sessionCoroutineScope.launch {
++            sessionVerificationService.verificationFlowState.collect { sdkState ->
++                if (isFlowActive()) {
++                    _verificationFlowState.value = mapSdkState(sdkState)
++                }
++                if (sdkState is VerificationFlowState.DidFinish) {
++                    refreshVerifiedStatus()
++                }
++            }
++        }
++    }
++
++    override val needsUserVerification: Flow<Boolean> = verificationFlowState.map { state ->
++        state !is UserVerificationFlowState.Initial
++    }
++
++    override suspend fun requestVerification() = runVerificationAction {
++        verificationMutex.withLock {
++            observedCorrelationId.value = System.currentTimeMillis()
++            // First, ensure the underlying session service is in a clean state.
++            sessionVerificationService.reset(cancelAnyPendingVerificationAttempt = false)
++            // Drive the SDK. The existing SessionVerificationController supports both
++            // self-session and user verification flows.
++            sessionVerificationService.requestVerification()
++            _verificationFlowState.value = UserVerificationFlowState.DidRequest
++        }
++    }
++
++    override suspend fun cancelVerification() = runVerificationAction {
++        verificationMutex.withLock {
++            sessionVerificationService.cancelVerification()
++            _verificationFlowState.value = UserVerificationFlowState.DidCancel
++        }
++    }
++
++    override suspend fun approveVerification() = runVerificationAction {
++        verificationMutex.withLock {
++            sessionVerificationService.approveVerification()
++        }
++    }
++
++    override suspend fun declineVerification() = runVerificationAction {
++        verificationMutex.withLock {
++            sessionVerificationService.declineVerification()
++            // Decline means we definitely don't trust this user; withdraw any
++            // existing verification to make that explicit instead of leaving a
++            // stale "verified" badge.
++            encryptionService.withdrawVerification(userId)
++            _verificationFlowState.value = UserVerificationFlowState.DidCancel
++        }
++    }
++
++    override suspend fun startSasVerification() = runVerificationAction {
++        verificationMutex.withLock {
++            sessionVerificationService.startVerification()
++        }
++    }
++
++    override suspend fun reset(cancelAnyPendingVerificationAttempt: Boolean) {
++        verificationMutex.withLock {
++            if (cancelAnyPendingVerificationAttempt) {
++                runCatching {
++                    sessionVerificationService.cancelVerification()
++                }
++            }
++            _verificationFlowState.value = UserVerificationFlowState.Initial
++        }
++    }
++
++    override suspend fun cancelAny() {
++        // Make sure we never leave the flow in a half-open state when the UI disappears.
++        _verificationFlowState.value = UserVerificationFlowState.Initial
++    }
++
++    private suspend fun refreshVerifiedStatus() {
++        runCatching {
++            encryptionService.isUserVerified(userId).getOrDefault(false)
++        }.onSuccess { verified ->
++            _userVerifiedStatus.value = if (verified) UserVerifiedStatus.Verified else UserVerifiedStatus.NotVerified
++        }.onFailure {
++            Timber.w(it, "Failed to refresh verification status for $userId")
++        }
++    }
++
++    private fun isFlowActive(): Boolean {
++        return _verificationFlowState.value !is UserVerificationFlowState.Initial
++    }
++
++    private fun mapSdkState(sdkState: VerificationFlowState): UserVerificationFlowState = when (sdkState) {
++        VerificationFlowState.Initial -> UserVerificationFlowState.Initial
++        VerificationFlowState.DidAcceptVerificationRequest -> UserVerificationFlowState.DidAcceptVerificationRequest
++        VerificationFlowState.DidStartSasVerification -> UserVerificationFlowState.DidStartSasVerification
++        is VerificationFlowState.DidReceiveVerificationData -> UserVerificationFlowState.DidReceiveVerificationData(sdkState.data)
++        VerificationFlowState.DidFinish -> UserVerificationFlowState.DidFinish
++        VerificationFlowState.DidCancel -> UserVerificationFlowState.DidCancel
++        VerificationFlowState.DidFail -> UserVerificationFlowState.DidFail
++    }
++
++    private suspend fun runVerificationAction(block: suspend () -> Unit) {
++        runCatching {
++            // Make sure the action cannot be cancelled by intermediate flows, otherwise
++            // we might end up with a half-completed SDK call and a stale UI state.
++            withContext(NonCancellable) { block() }
++        }.onFailure {
++            Timber.e(it, "User verification action failed for $userId")
++            _verificationFlowState.value = UserVerificationFlowState.DidFail
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
+index 578de32..03b62fb 100644
+--- a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
+@@ -33,6 +33,7 @@ import io.element.android.libraries.matrix.api.sync.SlidingSyncVersion
+ import io.element.android.libraries.matrix.api.user.MatrixSearchUserResults
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import io.element.android.libraries.matrix.api.verification.SessionVerificationService
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
+ import io.element.android.libraries.matrix.test.encryption.FakeEncryptionService
+ import io.element.android.libraries.matrix.test.media.FakeMatrixMediaLoader
+ import io.element.android.libraries.matrix.test.notification.FakeNotificationService
+@@ -42,6 +43,7 @@ import io.element.android.libraries.matrix.test.roomdirectory.FakeRoomDirectoryS
+ import io.element.android.libraries.matrix.test.roomlist.FakeRoomListService
+ import io.element.android.libraries.matrix.test.sync.FakeSyncService
+ import io.element.android.libraries.matrix.test.verification.FakeSessionVerificationService
++import io.element.android.libraries.matrix.test.verification.FakeUserVerificationService
+ import io.element.android.tests.testutils.lambda.lambdaError
+ import io.element.android.tests.testutils.lambda.lambdaRecorder
+ import io.element.android.tests.testutils.simulateLongTask
+@@ -65,6 +67,7 @@ class FakeMatrixClient(
+     override val roomListService: RoomListService = FakeRoomListService(),
+     override val mediaLoader: MatrixMediaLoader = FakeMatrixMediaLoader(),
+     private val sessionVerificationService: FakeSessionVerificationService = FakeSessionVerificationService(),
++    private val userVerificationServiceResult: (UserId) -> UserVerificationService = { FakeUserVerificationService(it) },
+     private val pushersService: FakePushersService = FakePushersService(),
+     private val notificationService: FakeNotificationService = FakeNotificationService(),
+     private val notificationSettingsService: FakeNotificationSettingsService = FakeNotificationSettingsService(),
+@@ -228,6 +231,8 @@ class FakeMatrixClient(
+ 
+     override fun sessionVerificationService(): SessionVerificationService = sessionVerificationService
+ 
++    override fun userVerificationService(userId: UserId): UserVerificationService = userVerificationServiceResult(userId)
++
+     override fun pushersService(): PushersService = pushersService
+ 
+     override fun notificationService(): NotificationService = notificationService
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/verification/FakeUserVerificationService.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/verification/FakeUserVerificationService.kt
+new file mode 100644
+index 0000000..f5ff377
+--- /dev/null
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/verification/FakeUserVerificationService.kt
+@@ -0,0 +1,78 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.matrix.test.verification
++
++import io.element.android.libraries.matrix.api.core.UserId
++import io.element.android.libraries.matrix.api.verification.SessionVerificationData
++import io.element.android.libraries.matrix.api.verification.UserVerificationFlowState
++import io.element.android.libraries.matrix.api.verification.UserVerificationService
++import io.element.android.libraries.matrix.api.verification.UserVerifiedStatus
++import io.element.android.tests.testutils.lambda.lambdaError
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.map
++
++class FakeUserVerificationService(
++    override val userId: UserId,
++    initialUserVerifiedStatus: UserVerifiedStatus = UserVerifiedStatus.Unknown,
++    private val requestVerificationLambda: () -> Unit = { lambdaError() },
++    private val cancelVerificationLambda: () -> Unit = { lambdaError() },
++    private val approveVerificationLambda: () -> Unit = { lambdaError() },
++    private val declineVerificationLambda: () -> Unit = { lambdaError() },
++    private val startSasVerificationLambda: () -> Unit = { lambdaError() },
++    private val resetLambda: (Boolean) -> Unit = { lambdaError() },
++    private val cancelAnyLambda: () -> Unit = { lambdaError() },
++) : UserVerificationService {
++    private val _verificationFlowState = MutableStateFlow<UserVerificationFlowState>(UserVerificationFlowState.Initial)
++    private val _userVerifiedStatus = MutableStateFlow(initialUserVerifiedStatus)
++
++    override val verificationFlowState: StateFlow<UserVerificationFlowState> = _verificationFlowState
++    override val userVerifiedStatus: StateFlow<UserVerifiedStatus> = _userVerifiedStatus
++    override val needsUserVerification: Flow<Boolean> = _verificationFlowState.map { it !is UserVerificationFlowState.Initial }
++
++    override suspend fun requestVerification() {
++        requestVerificationLambda()
++    }
++
++    override suspend fun cancelVerification() {
++        cancelVerificationLambda()
++    }
++
++    override suspend fun approveVerification() {
++        approveVerificationLambda()
++    }
++
++    override suspend fun declineVerification() {
++        declineVerificationLambda()
++    }
++
++    override suspend fun startSasVerification() {
++        startSasVerificationLambda()
++    }
++
++    override suspend fun reset(cancelAnyPendingVerificationAttempt: Boolean) {
++        resetLambda(cancelAnyPendingVerificationAttempt)
++    }
++
++    override suspend fun cancelAny() {
++        cancelAnyLambda()
++    }
++
++    suspend fun emitVerificationFlowState(state: UserVerificationFlowState) {
++        _verificationFlowState.emit(state)
++    }
++
++    suspend fun emitVerifiedStatus(status: UserVerifiedStatus) {
++        _userVerifiedStatus.emit(status)
++    }
++
++    suspend fun emitChallenge(data: SessionVerificationData) {
++        _verificationFlowState.emit(UserVerificationFlowState.DidReceiveVerificationData(data))
++    }
++}
+\ No newline at end of file

@@ -1,0 +1,1266 @@
+diff --git a/entry/src/main/ets/features/SecureBackupBase.ets b/entry/src/main/ets/features/SecureBackupBase.ets
+index e0a712a..e13beb0 100644
+--- a/entry/src/main/ets/features/SecureBackupBase.ets
++++ b/entry/src/main/ets/features/SecureBackupBase.ets
+@@ -5,6 +5,18 @@ export enum BackupState {
+ }
+ 
+ export class SecureBackupBasePresenter {
++  private static instanceRef: SecureBackupBasePresenter | null = null;
++
++  // Singleton accessor. The Index page and the reset pages must share
++  // the same backup / recovery state, so the production code path goes
++  // through `shared()`.
++  static shared(): SecureBackupBasePresenter {
++    if (!SecureBackupBasePresenter.instanceRef) {
++      SecureBackupBasePresenter.instanceRef = new SecureBackupBasePresenter();
++    }
++    return SecureBackupBasePresenter.instanceRef;
++  }
++
+   backupState: BackupState = BackupState.Disabled;
+   recoveryKey: string = '';
+ 
+@@ -18,4 +30,14 @@ export class SecureBackupBasePresenter {
+       this.backupState = BackupState.Recovering;
+     }
+   }
+-}
++
++  // Successful identity reset leaves the flow and refreshes recovery /
++  // verification state. The reset flow calls this exactly once when
++  // completion is emitted. Cancel and failure paths do NOT call this,
++  // preserving the invariant that cancel/failure never mark recovery as
++  // configured.
++  markRecoveryVerified(): void {
++    this.recoveryKey = '';
++    this.backupState = BackupState.Disabled;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/identityreset/IdentityResetPresenter.ets b/entry/src/main/ets/features/identityreset/IdentityResetPresenter.ets
+new file mode 100644
+index 0000000..a7d87e3
+--- /dev/null
++++ b/entry/src/main/ets/features/identityreset/IdentityResetPresenter.ets
+@@ -0,0 +1,428 @@
++// Orchestrates the identity reset state machine.
++//
++// Implements every transition in
++// _benchmark_inputs/public_transitions.json:
++//   - ir_state_001_continue_requests_confirmation
++//   - ir_state_002_dismiss_confirmation
++//   - ir_state_003_confirm_starts_handle
++//   - ir_state_004_password_handle_routes
++//   - ir_state_005_oidc_handle_routes_and_resets
++//   - ir_state_006_handle_failure_recovers
++//   - ir_state_007_password_submit_calls_handle
++//   - ir_state_008_password_failure_clears_on_edit
++//   - ir_state_009_success_waits_for_verification
++//   - ir_state_010_cancel_cleans_up
++//
++// The presenter owns:
++//   - the confirmation panel visibility,
++//   - the SDK reset handle and its lifecycle,
++//   - the reauthentication state (password form or OIDC return),
++//   - the session verification watcher that gates "completed" emission,
++//   - a single shared reset job so concurrent `confirm_reset` calls
++//     reuse the existing handle instead of starting a second one.
++
++import {
++  AuthenticationType,
++  ResetActionState,
++  ResetError,
++  ResetHandle,
++  ResetHandleState,
++  ResetPhase,
++  SessionVerificationStatus
++} from './IdentityResetTypes';
++import { IdentityResetSdk } from './IdentityResetSdk';
++
++export class IdentityResetPresenter {
++  private static instanceRef: IdentityResetPresenter | null = null;
++
++  static shared(): IdentityResetPresenter {
++    if (!IdentityResetPresenter.instanceRef) {
++      IdentityResetPresenter.instanceRef = new IdentityResetPresenter();
++    }
++    return IdentityResetPresenter.instanceRef;
++  }
++
++  // Observable state ----------------------------------------------------
++  phase: ResetPhase = ResetPhase.Idle;
++  handleState: ResetHandleState = ResetHandleState.Uninitialized;
++  resetAction: ResetActionState = ResetActionState.Uninitialized;
++  confirmationVisible: boolean = false;
++  authenticationType: AuthenticationType = AuthenticationType.Unknown;
++  approvalUrl: string = '';
++  password: string = '';
++  passwordError: string = '';
++  lastError: string = '';
++  sessionVerificationStatus: SessionVerificationStatus = SessionVerificationStatus.Unknown;
++  resetJobActive: boolean = false;
++  completionWatcherActive: boolean = false;
++
++  // Internal state ------------------------------------------------------
++  sdk: IdentityResetSdk = new IdentityResetSdk();
++  private currentHandle: ResetHandle | null = null;
++  private completionPromise: Promise<void> | null = null;
++  private listeners: Array<() => void> = [];
++
++  // Listeners are called after any state mutation so that ArkUI pages
++  // (which subscribe to presenter changes via this.subscriber callback)
++  // can re-read the presenter and refresh @State mirrors.
++  subscribe(listener: () => void): void {
++    if (this.listeners.indexOf(listener) === -1) {
++      this.listeners.push(listener);
++    }
++  }
++
++  unsubscribe(listener: () => void): void {
++    const idx = this.listeners.indexOf(listener);
++    if (idx >= 0) {
++      this.listeners.splice(idx, 1);
++    }
++  }
++
++  private emit(): void {
++    for (const listener of this.listeners) {
++      listener();
++    }
++  }
++
++  // Helpers -------------------------------------------------------------
++  snapshotHandle(): ResetHandle | null {
++    return this.currentHandle;
++  }
++
++  isBusy(): boolean {
++    return this.handleState === ResetHandleState.Loading
++      || this.resetAction === ResetActionState.Loading;
++  }
++
++  isAtConfirmation(): boolean {
++    return this.confirmationVisible;
++  }
++
++  isPasswordScreen(): boolean {
++    return this.phase === ResetPhase.PasswordAuth;
++  }
++
++  isOidcScreen(): boolean {
++    return this.phase === ResetPhase.OidcAuth;
++  }
++
++  canReset(): boolean {
++    return this.phase === ResetPhase.Idle
++      || this.phase === ResetPhase.Failed
++      || this.phase === ResetPhase.Cancelled
++      || this.phase === ResetPhase.Completed;
++  }
++
++  // State transitions ---------------------------------------------------
++
++  // ir_state_001: from a recovered/Idle state, `continue` opens the
++  // destructive-consequence confirmation. No SDK call happens yet.
++  continueToConfirmation(): void {
++    if (!this.canReset()) {
++      return;
++    }
++    this.resetTransientFields();
++    this.confirmationVisible = true;
++    this.phase = ResetPhase.Confirmation;
++    this.emit();
++  }
++
++  // ir_state_002: dismissing the confirmation must not trigger any SDK
++  // call. It just closes the dialog and returns to Idle.
++  dismissConfirmation(): void {
++    this.confirmationVisible = false;
++    this.phase = ResetPhase.Idle;
++    this.handleState = ResetHandleState.Uninitialized;
++    this.resetAction = ResetActionState.Uninitialized;
++    this.authenticationType = AuthenticationType.Unknown;
++    this.approvalUrl = '';
++    this.currentHandle = null;
++    this.emit();
++  }
++
++  // ir_state_003: confirming starts a single SDK reset handle. Concurrent
++  // calls reuse the in-flight handle.
++  async confirmReset(): Promise<void> {
++    if (!this.confirmationVisible) {
++      // Cannot start reset without destructive confirmation.
++      return;
++    }
++    if (this.handleState === ResetHandleState.Loading) {
++      // Reuse the loading handle.
++      return;
++    }
++    if (this.handleState === ResetHandleState.Success
++      && this.currentHandle
++      && !this.currentHandle.isCancelled) {
++      // Reuse the existing successful handle.
++      return;
++    }
++    this.confirmationVisible = false;
++    this.handleState = ResetHandleState.Loading;
++    this.resetAction = ResetActionState.Uninitialized;
++    this.phase = ResetPhase.HandleLoading;
++    this.lastError = '';
++    // Snapshot the phase so we can detect a cancellation that races
++    // with the awaited SDK call.
++    const phaseAtStart = this.phase;
++    this.emit();
++
++    try {
++      const handle = await this.sdk.startIdentityReset();
++      if (this.phase !== phaseAtStart) {
++        // The user cancelled (or otherwise changed the phase) while the
++        // SDK call was in flight. Discard the handle and do not flip
++        // state out of Cancelled/Failed.
++        this.sdk.cancelReset(handle);
++        return;
++      }
++      if (!handle) {
++        // ir_state_006: null handle is failure, not success.
++        this.handleState = ResetHandleState.Failed;
++        this.phase = ResetPhase.Failed;
++        this.lastError = 'unable to start reset';
++        this.emit();
++        return;
++      }
++      this.currentHandle = handle;
++      this.handleState = ResetHandleState.Success;
++      this.authenticationType = handle.authenticationType;
++      this.approvalUrl = handle.approvalUrl;
++      this.phase = handle.authenticationType === AuthenticationType.Oidc
++        ? ResetPhase.OidcAuth
++        : ResetPhase.PasswordAuth;
++      this.resetAction = ResetActionState.Uninitialized;
++      this.emit();
++    } catch (err) {
++      if (this.phase !== phaseAtStart) {
++        // Cancelled while in flight; preserve the cancel state.
++        return;
++      }
++      // ir_state_006: SDK failure is treated as failure, not success.
++      this.handleState = ResetHandleState.Failed;
++      this.phase = ResetPhase.Failed;
++      this.lastError = err instanceof ResetError
++        ? err.message
++        : (err ? String(err) : 'unknown sdk error');
++      this.emit();
++    }
++  }
++
++  // ir_state_004 / ir_state_005: when the handle becomes available the
++  // presenter routes the user to either the password form or the OIDC
++  // reauth page. The same handle is reused on both paths.
++  currentHandleId(): string {
++    return this.currentHandle ? this.currentHandle.handleId : '';
++  }
++
++  // ir_state_007: empty password submissions are rejected outright.
++  async submitPassword(password: string): Promise<void> {
++    const trimmed = password ?? '';
++    this.password = trimmed;
++    this.passwordError = '';
++    if (trimmed.length === 0) {
++      // ir_state_007: empty passwords cannot be submitted.
++      this.passwordError = 'password must not be empty';
++      this.resetAction = ResetActionState.Uninitialized;
++      this.emit();
++      return;
++    }
++    if (!this.currentHandle || this.currentHandle.isCancelled) {
++      this.passwordError = 'reset session unavailable';
++      this.resetAction = ResetActionState.Failed;
++      this.emit();
++      return;
++    }
++    this.resetAction = ResetActionState.Loading;
++    this.emit();
++    const handleRef = this.currentHandle;
++    const phaseAtStart = this.phase;
++    try {
++      await this.sdk.resetWithPassword(handleRef, trimmed);
++      if (this.currentHandle !== handleRef || this.phase !== phaseAtStart) {
++        // Cancelled or replaced mid-flight.
++        return;
++      }
++      this.resetAction = ResetActionState.Success;
++      this.phase = ResetPhase.AwaitingVerification;
++      this.emit();
++      // ir_state_009: completion is emitted only after verified status.
++      this.startCompletionWatcher();
++    } catch (err) {
++      if (this.currentHandle !== handleRef || this.phase !== phaseAtStart) {
++        // Cancelled or replaced mid-flight.
++        return;
++      }
++      // ir_state_008: failed attempt must not destroy the handle.
++      this.resetAction = ResetActionState.Failed;
++      this.passwordError = err instanceof ResetError
++        ? err.message
++        : (err ? String(err) : 'unknown failure');
++      this.emit();
++    }
++  }
++
++  // ir_state_008: editing the password after a failure clears the error
++  // so the user can retry without restarting the flow.
++  onPasswordChanged(next: string): void {
++    this.password = next ?? '';
++    if (this.passwordError.length > 0) {
++      this.passwordError = '';
++      if (this.resetAction === ResetActionState.Failed) {
++        this.resetAction = ResetActionState.Uninitialized;
++      }
++      this.emit();
++    }
++  }
++
++  // ir_state_005: OIDC flow completion. The web page calls this once
++  // the approval redirect returns.
++  async completeOidcFromRedirect(): Promise<void> {
++    if (!this.currentHandle || this.currentHandle.isCancelled) {
++      this.resetAction = ResetActionState.Failed;
++      this.lastError = 'reset session unavailable';
++      this.emit();
++      return;
++    }
++    this.resetAction = ResetActionState.Loading;
++    this.emit();
++    const handleRef = this.currentHandle;
++    const phaseAtStart = this.phase;
++    try {
++      await this.sdk.completeOidcReset(handleRef);
++      if (this.currentHandle !== handleRef || this.phase !== phaseAtStart) {
++        // Cancelled or replaced mid-flight.
++        return;
++      }
++      this.resetAction = ResetActionState.Success;
++      this.phase = ResetPhase.AwaitingVerification;
++      this.emit();
++      this.startCompletionWatcher();
++    } catch (err) {
++      if (this.currentHandle !== handleRef || this.phase !== phaseAtStart) {
++        // Cancelled or replaced mid-flight.
++        return;
++      }
++      this.resetAction = ResetActionState.Failed;
++      this.lastError = err instanceof ResetError
++        ? err.message
++        : (err ? String(err) : 'unknown failure');
++      this.emit();
++    }
++  }
++
++  // ir_state_009: wait until the SDK handle is completed AND session
++  // verification reaches the verified status before flipping to
++  // Completed. This watcher is the same instance used by the OIDC
++  // return path and by node destruction, so cleanup is identical.
++  private startCompletionWatcher(): void {
++    if (this.completionWatcherActive) {
++      return;
++    }
++    this.completionWatcherActive = true;
++    this.resetJobActive = true;
++    this.completionPromise = this.runCompletionWatcher();
++    this.emit();
++  }
++
++  private async runCompletionWatcher(): Promise<void> {
++    const handleRef = this.currentHandle;
++    try {
++      await this.sdk.awaitSessionVerification(handleRef!);
++      if (this.currentHandle !== handleRef || this.phase !== ResetPhase.AwaitingVerification) {
++        // Cancelled or otherwise replaced while verifying.
++        this.resetJobActive = false;
++        this.completionWatcherActive = false;
++        return;
++      }
++      this.phase = ResetPhase.Completed;
++      this.sessionVerificationStatus = SessionVerificationStatus.Verified;
++      this.resetJobActive = false;
++      this.completionWatcherActive = false;
++      this.emit();
++    } catch (err) {
++      this.resetJobActive = false;
++      this.completionWatcherActive = false;
++      if (this.phase === ResetPhase.Cancelled) {
++        // Cancellation supersedes verification failure.
++        return;
++      }
++      if (err instanceof ResetError && err.code === 'cancelled') {
++        // The SDK told us the handle was cancelled.
++        this.phase = ResetPhase.Cancelled;
++        this.emit();
++        return;
++      }
++      this.phase = ResetPhase.Failed;
++      this.lastError = err instanceof ResetError
++        ? err.message
++        : (err ? String(err) : 'verification failed');
++      this.emit();
++    }
++  }
++
++  // ir_state_010: cancel from confirmation or from the auth page closes
++  // the active reset path without reporting success. The same cleanup
++  // is used by the OIDC return and by node destruction.
++  cancel(): void {
++    const handle = this.currentHandle;
++    this.sdk.cancelReset(handle);
++    this.currentHandle = null;
++    this.completionPromise = null;
++    this.phase = ResetPhase.Cancelled;
++    this.confirmationVisible = false;
++    this.handleState = ResetHandleState.Uninitialized;
++    this.resetAction = ResetActionState.Uninitialized;
++    this.authenticationType = AuthenticationType.Unknown;
++    this.approvalUrl = '';
++    this.passwordError = '';
++    this.sessionVerificationStatus = SessionVerificationStatus.Unknown;
++    this.resetJobActive = false;
++    this.completionWatcherActive = false;
++    // Invariant: cancel never marks recovery as configured. The
++    // SecureBackupBase presenter is intentionally not touched here.
++    this.emit();
++  }
++
++  // Called when the page node is torn down. ir_state_010 enforces that
++  // node destruction uses the same cleanup path as the OIDC cancel.
++  onNodeDestroy(): void {
++    this.cancel();
++  }
++
++  // External hooks ------------------------------------------------------
++  refreshRecoveryState(): void {
++    // Successful reset leaves the flow and refreshes recovery/verification
++    // state. The caller is responsible for refreshing the secure backup
++    // presenter. We mirror this here for tests.
++  }
++
++  reset(): void {
++    this.sdk.cancelReset(this.currentHandle);
++    this.currentHandle = null;
++    this.completionPromise = null;
++    this.sdk.resetConfiguration();
++    this.phase = ResetPhase.Idle;
++    this.confirmationVisible = false;
++    this.handleState = ResetHandleState.Uninitialized;
++    this.resetAction = ResetActionState.Uninitialized;
++    this.authenticationType = AuthenticationType.Unknown;
++    this.approvalUrl = '';
++    this.password = '';
++    this.passwordError = '';
++    this.lastError = '';
++    this.sessionVerificationStatus = SessionVerificationStatus.Unknown;
++    this.resetJobActive = false;
++    this.completionWatcherActive = false;
++    this.emit();
++  }
++
++  private resetTransientFields(): void {
++    this.password = '';
++    this.passwordError = '';
++    this.lastError = '';
++    this.authenticationType = AuthenticationType.Unknown;
++    this.approvalUrl = '';
++    this.sessionVerificationStatus = SessionVerificationStatus.Unknown;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/identityreset/IdentityResetRouter.ets b/entry/src/main/ets/features/identityreset/IdentityResetRouter.ets
+new file mode 100644
+index 0000000..96b4326
+--- /dev/null
++++ b/entry/src/main/ets/features/identityreset/IdentityResetRouter.ets
+@@ -0,0 +1,39 @@
++// Centralised routing helpers for the identity reset pages.
++
++import router from '@ohos.router';
++import { IdentityResetPresenter } from './IdentityResetPresenter';
++import { AuthenticationType } from './IdentityResetTypes';
++
++export class IdentityResetRouter {
++  static readonly PASSWORD_PAGE: string = 'pages/ResetIdentityPage';
++  static readonly OIDC_PAGE: string = 'pages/ResetOidcPage';
++  static readonly COMPLETE_PAGE: string = 'pages/ResetCompletePage';
++  static readonly INDEX_PAGE: string = 'pages/Index';
++
++  // Navigates from the index page into the password reset page. The
++  // presenter is already on the Confirmation phase by the time this is
++  // called; the page itself triggers confirmReset() onAppear.
++  static async openResetEntry(): Promise<void> {
++    const presenter = IdentityResetPresenter.shared();
++    presenter.continueToConfirmation();
++    await router.pushUrl({ url: IdentityResetRouter.PASSWORD_PAGE });
++  }
++
++  // Routes the auth step to the appropriate sub-page based on the
++  // handle's authentication type. The caller should invoke this once
++  // the handle has loaded.
++  static async routeForHandle(): Promise<void> {
++    const presenter = IdentityResetPresenter.shared();
++    if (presenter.authenticationType === AuthenticationType.Oidc) {
++      await router.replaceUrl({ url: IdentityResetRouter.OIDC_PAGE });
++    }
++  }
++
++  static async openCompletion(): Promise<void> {
++    await router.replaceUrl({ url: IdentityResetRouter.COMPLETE_PAGE });
++  }
++
++  static async backToIndex(): Promise<void> {
++    await router.replaceUrl({ url: IdentityResetRouter.INDEX_PAGE });
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/identityreset/IdentityResetSdk.ets b/entry/src/main/ets/features/identityreset/IdentityResetSdk.ets
+new file mode 100644
+index 0000000..fdb47ff
+--- /dev/null
++++ b/entry/src/main/ets/features/identityreset/IdentityResetSdk.ets
+@@ -0,0 +1,121 @@
++// Wraps the (simulated) native crypto/identity SDK used by the reset flow.
++// The same shape would apply to a real Matrix Rust SDK binding.
++
++import {
++  AuthenticationType,
++  ResetError,
++  ResetHandle
++} from './IdentityResetTypes';
++
++export interface IdentityResetSdkOptions {
++  // If true, startIdentityReset rejects with an SDK-unavailable error.
++  forceNullHandle?: boolean;
++  // If true, startIdentityReset resolves to an OIDC handle.
++  preferOidc?: boolean;
++  // If true, resetPassword rejects for any password.
++  rejectAllPasswords?: boolean;
++  // If true, awaitSessionVerification never resolves until markSessionVerified
++  // is called.
++  requireManualVerification?: boolean;
++}
++
++export class IdentityResetSdk {
++  private static handleCounter: number = 0;
++  private options: IdentityResetSdkOptions = {};
++  private sessionVerified: boolean = false;
++
++  configure(options: IdentityResetSdkOptions): void {
++    this.options = options;
++  }
++
++  resetConfiguration(): void {
++    this.options = {};
++    this.sessionVerified = false;
++  }
++
++  // Production hook for the session verification module to flip state.
++  markSessionVerified(): void {
++    this.sessionVerified = true;
++  }
++
++  isSessionVerified(): boolean {
++    return this.sessionVerified;
++  }
++
++  // Simulates start_identity_reset. May reject when the SDK is unavailable.
++  async startIdentityReset(): Promise<ResetHandle> {
++    if (this.options.forceNullHandle) {
++      throw ResetError.fromCode('sdk_unavailable', 'identity reset SDK unavailable');
++    }
++    const handle: ResetHandle = new ResetHandle();
++    handle.handleId = `reset-handle-${++IdentityResetSdk.handleCounter}`;
++    handle.authenticationType = this.options.preferOidc
++      ? AuthenticationType.Oidc
++      : AuthenticationType.Password;
++    handle.isPasswordReady = handle.authenticationType === AuthenticationType.Password;
++    handle.approvalUrl = handle.authenticationType === AuthenticationType.Oidc
++      ? 'https://id.example/reset'
++      : '';
++    // Simulate the native SDK taking a moment to produce the handle.
++    await new Promise<void>((resolve) => {
++      setTimeout(() => resolve(), 0);
++    });
++    return handle;
++  }
++
++  async resetWithPassword(handle: ResetHandle, password: string): Promise<void> {
++    if (this.options.rejectAllPasswords) {
++      throw ResetError.fromCode('invalid_credentials', 'wrong password');
++    }
++    if (!handle || handle.isCancelled) {
++      throw ResetError.fromCode('handle_invalid', 'reset handle was destroyed');
++    }
++    if (password.length === 0) {
++      throw ResetError.fromCode('empty_password', 'password must not be empty');
++    }
++    if (password === 'wrong') {
++      throw ResetError.fromCode('invalid_credentials', 'wrong password');
++    }
++    // Simulate native SDK latency.
++    await new Promise<void>((resolve) => {
++      setTimeout(() => resolve(), 0);
++    });
++    handle.isCompleted = true;
++  }
++
++  async completeOidcReset(handle: ResetHandle): Promise<void> {
++    if (!handle || handle.isCancelled) {
++      throw ResetError.fromCode('handle_invalid', 'reset handle was destroyed');
++    }
++    await new Promise<void>((resolve) => {
++      setTimeout(() => resolve(), 0);
++    });
++    handle.isCompleted = true;
++  }
++
++  cancelReset(handle: ResetHandle | null): void {
++    if (!handle) {
++      return;
++    }
++    handle.isCancelled = true;
++    handle.isCompleted = false;
++    handle.emitCompletion();
++  }
++
++  // Resolves once both the SDK reports completion AND session verification
++  // reaches the `verified` state. Mirrors the production rule that
++  // completion is only emitted after cross-signing has stabilised.
++  async awaitSessionVerification(handle: ResetHandle): Promise<void> {
++    while (true) {
++      if (handle.isCancelled) {
++        throw ResetError.fromCode('cancelled', 'reset cancelled');
++      }
++      if (handle.isCompleted && this.sessionVerified) {
++        return;
++      }
++      await new Promise<void>((resolve) => {
++        setTimeout(() => resolve(), 0);
++      });
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/identityreset/IdentityResetTypes.ets b/entry/src/main/ets/features/identityreset/IdentityResetTypes.ets
+new file mode 100644
+index 0000000..75dfc4b
+--- /dev/null
++++ b/entry/src/main/ets/features/identityreset/IdentityResetTypes.ets
+@@ -0,0 +1,91 @@
++// Shared types and enumerations for the identity reset flow.
++// These types model the public state machine described in
++// 16_identity_reset/public_transitions.json.
++
++export enum ResetPhase {
++  Idle = 'idle',
++  Confirmation = 'confirmation',
++  HandleLoading = 'handle_loading',
++  PasswordAuth = 'password_auth',
++  OidcAuth = 'oidc_auth',
++  AwaitingVerification = 'awaiting_verification',
++  Completed = 'completed',
++  Failed = 'failed',
++  Cancelled = 'cancelled'
++}
++
++export enum AuthenticationType {
++  Password = 'password',
++  Oidc = 'oidc',
++  Unknown = 'unknown'
++}
++
++export enum SessionVerificationStatus {
++  NotVerified = 'not_verified',
++  Verified = 'verified',
++  Unknown = 'unknown'
++}
++
++// Matches the `handleState` field in the public transitions.
++export enum ResetHandleState {
++  Uninitialized = 'uninitialized',
++  Loading = 'loading',
++  Success = 'success',
++  Failed = 'failed'
++}
++
++// Matches the `resetAction` field in the public transitions.
++export enum ResetActionState {
++  Uninitialized = 'uninitialized',
++  Loading = 'loading',
++  Success = 'success',
++  Failed = 'failed'
++}
++
++// SDK handle object. It is created by startIdentityReset() and lives
++// across the password/OIDC reauthentication steps until completion
++// or cancellation.
++export class ResetHandle {
++  handleId: string = '';
++  authenticationType: AuthenticationType = AuthenticationType.Unknown;
++  approvalUrl: string = '';
++  isPasswordReady: boolean = false;
++  isCancelled: boolean = false;
++  isCompleted: boolean = false;
++  sessionVerificationStatus: SessionVerificationStatus = SessionVerificationStatus.Unknown;
++  completionWatchers: Array<() => void> = [];
++
++  reset(): void {
++    this.handleId = '';
++    this.authenticationType = AuthenticationType.Unknown;
++    this.approvalUrl = '';
++    this.isPasswordReady = false;
++    this.isCancelled = false;
++    this.isCompleted = false;
++    this.sessionVerificationStatus = SessionVerificationStatus.Unknown;
++    this.completionWatchers = [];
++  }
++
++  emitCompletion(): void {
++    for (const watcher of this.completionWatchers) {
++      watcher();
++    }
++    this.completionWatchers = [];
++  }
++}
++
++// Typed error class. Extends Error so it can be used in throw
++// statements (ArkTS only allows throwing Error subclasses).
++export class ResetError extends Error {
++  code: string = '';
++
++  constructor(code: string, message: string) {
++    super(message);
++    this.code = code;
++    this.name = 'ResetError';
++  }
++
++  static fromCode(code: string, message: string): ResetError {
++    return new ResetError(code, message);
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index d00e19e..f44c33d 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,11 +1,41 @@
++import router from '@ohos.router';
+ import { BackupState, SecureBackupBasePresenter } from '../features/SecureBackupBase';
++import { IdentityResetPresenter } from '../features/identityreset/IdentityResetPresenter';
++import { ResetPhase } from '../features/identityreset/IdentityResetTypes';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: SecureBackupBasePresenter = new SecureBackupBasePresenter();
++  private presenter: SecureBackupBasePresenter = SecureBackupBasePresenter.shared();
++  private resetPresenter: IdentityResetPresenter = IdentityResetPresenter.shared();
+   @State private recoveryKey: string = '';
+-  @State private backupState: BackupState = BackupState.Disabled;
++  @State private backupState: BackupState = this.presenter.backupState;
++  @State private resetStatus: string = '';
++
++  aboutToAppear(): void {
++    this.resetPresenter.subscribe(this.onResetChange);
++    this.backupState = this.presenter.backupState;
++  }
++
++  aboutToDisappear(): void {
++    this.resetPresenter.unsubscribe(this.onResetChange);
++  }
++
++  private onResetChange = (): void => {
++    if (this.resetPresenter.phase === ResetPhase.Completed) {
++      this.presenter.markRecoveryVerified();
++      this.backupState = this.presenter.backupState;
++      this.resetStatus = 'reset completed';
++      this.resetPresenter.reset();
++    } else if (this.resetPresenter.phase === ResetPhase.Cancelled) {
++      this.resetStatus = 'reset cancelled';
++      this.resetPresenter.reset();
++    } else if (this.resetPresenter.phase === ResetPhase.Failed) {
++      this.resetStatus = `reset failed: ${this.resetPresenter.lastError}`;
++    } else if (this.resetPresenter.phase === ResetPhase.Idle) {
++      this.resetStatus = '';
++    }
++  };
+ 
+   build() {
+     Column() {
+@@ -31,6 +61,20 @@ struct Index {
+           this.presenter.recoverWithKey(this.recoveryKey);
+           this.backupState = this.presenter.backupState;
+         })
++        // The reset option is only meaningful from a recovery state
++        // where normal recovery has failed. It must explain the
++        // destructive consequence before starting, which is handled on
++        // the dedicated ResetIdentityPage.
++        if (this.backupState === BackupState.Recovering) {
++          Button('Reset identity').width('100%').backgroundColor('#FEE2E2').fontColor('#991B1B')
++            .onClick(() => {
++              this.resetPresenter.continueToConfirmation();
++              void router.pushUrl({ url: 'pages/ResetIdentityPage' });
++            })
++        }
++        if (this.resetStatus.length > 0) {
++          Text(this.resetStatus).fontSize(12).fontColor('#1F2937').width('100%')
++        }
+       }
+       .padding(20)
+       .width('100%')
+@@ -40,4 +84,4 @@ struct Index {
+     .backgroundColor('#F4F6F8')
+   }
+ 
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/ResetCompletePage.ets b/entry/src/main/ets/pages/ResetCompletePage.ets
+new file mode 100644
+index 0000000..c693a13
+--- /dev/null
++++ b/entry/src/main/ets/pages/ResetCompletePage.ets
+@@ -0,0 +1,60 @@
++// ResetCompletePage confirms to the user that the reset finished and
++// returns to the index.
++
++import router from '@ohos.router';
++import { IdentityResetPresenter } from '../features/identityreset/IdentityResetPresenter';
++
++@Entry
++@Component
++struct ResetCompletePage {
++  private presenter: IdentityResetPresenter = IdentityResetPresenter.shared();
++  @State private refreshTick: number = 0;
++
++  aboutToAppear(): void {
++    this.presenter.subscribe(this.onPresenterChange);
++  }
++
++  aboutToDisappear(): void {
++    this.presenter.unsubscribe(this.onPresenterChange);
++  }
++
++  private onPresenterChange = (): void => {
++    this.refreshTick++;
++  };
++
++  private onDone = (): void => {
++    this.presenter.reset();
++    setTimeout(() => {
++      void router.replaceUrl({ url: 'pages/Index' });
++    }, 0);
++  };
++
++  build() {
++    Column() {
++      Column({ space: 4 }) {
++        Text('Identity reset complete').fontSize(22).fontWeight(FontWeight.Bold)
++        Text('Your encryption keys have been replaced').fontSize(13).fontColor('#64748B')
++      }
++      .alignItems(HorizontalAlign.Start)
++      .padding({ left: 20, right: 20, top: 24, bottom: 12 })
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++
++      Column({ space: 14 }) {
++        Text('The reset finished successfully. Other sessions have been signed out and your recovery state has been refreshed.')
++          .fontSize(14)
++          .fontColor('#1F2937')
++          .lineHeight(20)
++          .width('100%')
++        Button('Done').width('100%').onClick(() => this.onDone())
++        Text(`tick=${this.refreshTick}`).fontSize(10).fontColor('#9CA3AF').width('100%')
++      }
++      .padding(20)
++      .width('100%')
++      .alignItems(HorizontalAlign.Start)
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor('#F4F6F8')
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/ResetIdentityPage.ets b/entry/src/main/ets/pages/ResetIdentityPage.ets
+new file mode 100644
+index 0000000..184fd83
+--- /dev/null
++++ b/entry/src/main/ets/pages/ResetIdentityPage.ets
+@@ -0,0 +1,220 @@
++// ResetIdentityPage is the orchestrator of the reset flow.
++// It renders the destructive-consequence confirmation and the password
++// reauthentication step based on the presenter's phase.
++//
++// OIDC reauthentication lives in ResetOidcPage (a separate page that
++// owns the Web component for the approvalUrl).
++
++import router from '@ohos.router';
++import { IdentityResetPresenter } from '../features/identityreset/IdentityResetPresenter';
++import { IdentityResetRouter } from '../features/identityreset/IdentityResetRouter';
++import {
++  AuthenticationType,
++  ResetActionState,
++  ResetHandleState,
++  ResetPhase
++} from '../features/identityreset/IdentityResetTypes';
++import { SecureBackupBasePresenter } from '../features/SecureBackupBase';
++
++@Entry
++@Component
++struct ResetIdentityPage {
++  private presenter: IdentityResetPresenter = IdentityResetPresenter.shared();
++  private backup: SecureBackupBasePresenter = SecureBackupBasePresenter.shared();
++  @State private refreshTick: number = 0;
++
++  aboutToAppear(): void {
++    this.presenter.subscribe(this.onPresenterChange);
++    if (this.presenter.phase === ResetPhase.Idle) {
++      this.presenter.continueToConfirmation();
++    }
++    this.refreshTick++;
++  }
++
++  aboutToDisappear(): void {
++    // Note: this page may be replaced by ResetOidcPage via
++    // router.replaceUrl when the SDK handle arrives as OIDC. We
++    // intentionally do NOT call onNodeDestroy() here because the
++    // reset flow is still active. The cleanup path is invoked from
++    // the explicit Cancel button / onBackPress path instead.
++    this.presenter.unsubscribe(this.onPresenterChange);
++  }
++
++  onBackPress(): boolean {
++    // Cancel the reset flow and let the router handle the navigation.
++    this.presenter.cancel();
++    return false;
++  }
++
++  onPageShow(): void {
++    if (this.presenter.phase === ResetPhase.HandleLoading) {
++      void this.presenter.confirmReset();
++    }
++  }
++
++  private onPresenterChange = (): void => {
++    this.refreshTick++;
++    if (this.presenter.phase === ResetPhase.OidcAuth
++      && this.presenter.authenticationType === AuthenticationType.Oidc) {
++      setTimeout(() => {
++        if (this.presenter.phase === ResetPhase.OidcAuth) {
++          void IdentityResetRouter.routeForHandle();
++        }
++      }, 0);
++    } else if (this.presenter.phase === ResetPhase.Completed) {
++      this.backup.markRecoveryVerified();
++      setTimeout(() => {
++        void IdentityResetRouter.openCompletion();
++      }, 0);
++    } else if (this.presenter.phase === ResetPhase.Cancelled) {
++      setTimeout(() => {
++        if (this.presenter.phase === ResetPhase.Cancelled) {
++          void IdentityResetRouter.backToIndex();
++        }
++      }, 0);
++    }
++    // Failed stays on the password screen: a failed attempt must not
++    // destroy the handle and the user must be able to retry without
++    // restarting the entire flow (ir_state_008).
++  };
++
++  private onConfirm = (): void => {
++    void this.presenter.confirmReset();
++  };
++
++  private onDismiss = (): void => {
++    this.presenter.dismissConfirmation();
++    setTimeout(() => {
++      void router.back();
++    }, 0);
++  };
++
++  private onCancel = (): void => {
++    this.presenter.cancel();
++    setTimeout(() => {
++      void router.back();
++    }, 0);
++  };
++
++  private onSubmitPassword = (): void => {
++    void this.presenter.submitPassword(this.presenter.password);
++  };
++
++  private onPasswordEdit = (value: string): void => {
++    this.presenter.onPasswordChanged(value);
++  };
++
++  private isConfirmationStage(): boolean {
++    return this.presenter.phase === ResetPhase.Confirmation
++      || (this.presenter.confirmationVisible
++        && this.presenter.handleState !== ResetHandleState.Success);
++  }
++
++  private isOidcFlow(): boolean {
++    return this.presenter.authenticationType === AuthenticationType.Oidc
++      && this.presenter.handleState === ResetHandleState.Success;
++  }
++
++  build() {
++    Column() {
++      this.renderHeader()
++      if (this.isConfirmationStage()) {
++        this.renderConfirmation()
++      } else if (this.isOidcFlow()) {
++        this.renderOidcPlaceholder()
++      } else {
++        this.renderPasswordStep()
++      }
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  @Builder
++  private renderHeader() {
++    Column({ space: 4 }) {
++      Text('Reset identity').fontSize(22).fontWeight(FontWeight.Bold)
++      Text('Clear your cryptographic keys and start fresh').fontSize(13).fontColor('#64748B')
++    }
++    .alignItems(HorizontalAlign.Start)
++    .padding({ left: 20, right: 20, top: 24, bottom: 12 })
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++  }
++
++  @Builder
++  private renderConfirmation() {
++    Column({ space: 14 }) {
++      Text('This action is destructive').fontSize(16).fontWeight(FontWeight.Bold)
++        .width('100%')
++      Text(
++        'Resetting your identity will erase your existing encryption keys, ' +
++        'sign you out of all other sessions, and require you to re-verify this ' +
++        'device once the reset completes. Make sure you still have access to ' +
++        'another session or to your account password before continuing.'
++      )
++        .fontSize(14)
++        .fontColor('#1F2937')
++        .lineHeight(20)
++        .width('100%')
++      Button('Reset my identity').width('100%').onClick(() => this.onConfirm())
++      Button('Keep my identity').width('100%').backgroundColor('#E5E7EB')
++        .fontColor('#111827').onClick(() => this.onDismiss())
++    }
++    .padding(20)
++    .width('100%')
++    .alignItems(HorizontalAlign.Start)
++  }
++
++  @Builder
++  private renderOidcPlaceholder() {
++    Column({ space: 14 }) {
++      Text('Opening delegated reauthentication…').fontSize(14)
++        .fontColor('#1F2937').width('100%')
++      Button('Cancel').width('100%').backgroundColor('#E5E7EB')
++        .fontColor('#111827').onClick(() => this.onCancel())
++    }
++    .padding(20)
++    .width('100%')
++    .alignItems(HorizontalAlign.Start)
++  }
++
++  @Builder
++  private renderPasswordStep() {
++    Column({ space: 14 }) {
++      if (this.presenter.handleState === ResetHandleState.Loading) {
++        Text('Preparing reset session…').fontSize(14).fontColor('#1F2937').width('100%')
++      } else if (this.presenter.phase === ResetPhase.Completed) {
++        Text('Identity reset complete').fontSize(16).fontWeight(FontWeight.Bold).width('100%')
++      } else {
++        Text('Confirm your password to finish the reset.')
++          .fontSize(14).fontColor('#1F2937').width('100%')
++        TextInput({
++          text: this.presenter.password,
++          placeholder: 'Account password'
++        })
++          .type(InputType.Password)
++          .onChange((value: string) => this.onPasswordEdit(value))
++        if (this.presenter.passwordError.length > 0) {
++          Text(this.presenter.passwordError).fontSize(12).fontColor('#B91C1C').width('100%')
++        }
++        Button('Verify password and reset')
++          .width('100%')
++          .enabled(this.presenter.resetAction !== ResetActionState.Loading
++            && this.presenter.password.length > 0)
++          .onClick(() => this.onSubmitPassword())
++        Button('Cancel').width('100%').backgroundColor('#E5E7EB')
++          .fontColor('#111827').onClick(() => this.onCancel())
++      }
++      if (this.presenter.lastError.length > 0) {
++        Text(this.presenter.lastError).fontSize(12).fontColor('#B91C1C').width('100%')
++      }
++      Text(`phase=${this.presenter.phase} handle=${this.presenter.handleState}`).width('100%')
++        .fontSize(10).fontColor('#9CA3AF')
++    }
++    .padding(20)
++    .width('100%')
++    .alignItems(HorizontalAlign.Start)
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/ResetOidcPage.ets b/entry/src/main/ets/pages/ResetOidcPage.ets
+new file mode 100644
+index 0000000..8ada20d
+--- /dev/null
++++ b/entry/src/main/ets/pages/ResetOidcPage.ets
+@@ -0,0 +1,126 @@
++// ResetOidcPage renders the delegated reauthentication step.
++//
++// Production behaviour (mirrored here):
++//   - The SDK exposes an approvalUrl that the user must visit in a
++//     browser / custom tab.
++//   - When the user returns from the IdP, the redirect is captured
++//     and the same handle is marked complete.
++//   - If no custom tab is available (we surface this as a manual
++//     fallback below) the user confirms the redirect themselves.
++//   - Cancel uses the same cleanup path as the password page.
++
++import router from '@ohos.router';
++import { IdentityResetPresenter } from '../features/identityreset/IdentityResetPresenter';
++import {
++  AuthenticationType,
++  ResetPhase
++} from '../features/identityreset/IdentityResetTypes';
++import { SecureBackupBasePresenter } from '../features/SecureBackupBase';
++
++@Entry
++@Component
++struct ResetOidcPage {
++  private presenter: IdentityResetPresenter = IdentityResetPresenter.shared();
++  private backup: SecureBackupBasePresenter = SecureBackupBasePresenter.shared();
++  @State private refreshTick: number = 0;
++
++  aboutToAppear(): void {
++    this.presenter.subscribe(this.onPresenterChange);
++  }
++
++  aboutToDisappear(): void {
++    this.presenter.unsubscribe(this.onPresenterChange);
++  }
++
++  onBackPress(): boolean {
++    this.presenter.cancel();
++    return false;
++  }
++
++  private onPresenterChange = (): void => {
++    this.refreshTick++;
++    if (this.presenter.phase === ResetPhase.Completed) {
++      this.backup.markRecoveryVerified();
++      setTimeout(() => {
++        if (this.presenter.phase === ResetPhase.Completed) {
++          void router.replaceUrl({ url: 'pages/ResetCompletePage' });
++        }
++      }, 0);
++    } else if (this.presenter.phase === ResetPhase.Cancelled) {
++      setTimeout(() => {
++        if (this.presenter.phase === ResetPhase.Cancelled) {
++          void router.replaceUrl({ url: 'pages/Index' });
++        }
++      }, 0);
++    }
++  };
++
++  private onCancel = (): void => {
++    this.presenter.cancel();
++    setTimeout(() => {
++      void router.back();
++    }, 0);
++  };
++
++  private onManualComplete = (): void => {
++    void this.presenter.completeOidcFromRedirect();
++  };
++
++  build() {
++    Column() {
++      Column({ space: 4 }) {
++        Text('Verify with your identity provider').fontSize(22).fontWeight(FontWeight.Bold)
++        Text('Complete the redirect to finish the reset').fontSize(13).fontColor('#64748B')
++      }
++      .alignItems(HorizontalAlign.Start)
++      .padding({ left: 20, right: 20, top: 24, bottom: 12 })
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++
++      Column({ space: 14 }) {
++        Text(
++          'A delegated reauthentication is required. The approval URL ' +
++          'below points at your identity provider. Open it, confirm the ' +
++          'reset, and return to this screen.'
++        )
++          .fontSize(14)
++          .fontColor('#1F2937')
++          .lineHeight(20)
++          .width('100%')
++
++        Column({ space: 4 }) {
++          Text('Approval URL').fontSize(12).fontColor('#64748B').width('100%')
++          Text(this.presenter.approvalUrl.length > 0
++            ? this.presenter.approvalUrl
++            : 'https://id.example/reset')
++            .fontSize(13)
++            .fontColor('#0F172A')
++            .width('100%')
++        }
++
++        // Fallback path: when no custom tab is available the user
++        // confirms completion manually. Both this path and the
++        // programmatic one route through completeOidcFromRedirect.
++        Button('I returned from the identity provider').width('100%')
++          .onClick(() => this.onManualComplete())
++
++        Button('Cancel').width('100%').backgroundColor('#E5E7EB')
++          .fontColor('#111827').onClick(() => this.onCancel())
++
++        if (this.presenter.lastError.length > 0) {
++          Text(this.presenter.lastError).fontSize(12).fontColor('#B91C1C').width('100%')
++        }
++        Text(`handle=${this.presenter.currentHandleId()} phase=${this.presenter.phase}`)
++          .fontSize(10)
++          .fontColor('#9CA3AF')
++          .width('100%')
++      }
++      .padding(20)
++      .width('100%')
++      .alignItems(HorizontalAlign.Start)
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor('#F4F6F8')
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 1898d94..82d5f30 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,5 +1,8 @@
+ {
+   "src": [
+-    "pages/Index"
++    "pages/Index",
++    "pages/ResetIdentityPage",
++    "pages/ResetOidcPage",
++    "pages/ResetCompletePage"
+   ]
+-}
++}
+\ No newline at end of file

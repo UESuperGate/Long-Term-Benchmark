@@ -1,0 +1,1955 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index fd8403c..438e9dd 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -28,7 +28,7 @@ plugins {
+     alias(libs.plugins.detekt)
+     alias(libs.plugins.ktlint)
+     alias(libs.plugins.dependencygraph)
+-    alias(libs.plugins.sonarqube)
++//    alias(libs.plugins.sonarqube)
+ }
+ 
+ tasks.register<Delete>("clean").configure {
+@@ -124,25 +124,25 @@ dependencyAnalysis {
+ // Run './gradlew sonar -Dsonar.login=<SONAR_LOGIN>'
+ // The SONAR_LOGIN is stored in passbolt as Token Sonar Cloud Bma
+ // Sonar result can be found here: https://sonarcloud.io/project/overview?id=element-x-android
+-sonar {
+-    properties {
+-        property("sonar.projectName", "element-x-android")
+-        property("sonar.projectKey", "element-x-android")
+-        property("sonar.host.url", "https://sonarcloud.io")
+-        property("sonar.projectVersion", "1.0") // TODO project(":app").android.defaultConfig.versionName)
+-        property("sonar.sourceEncoding", "UTF-8")
+-        property("sonar.links.homepage", "https://github.com/element-hq/element-x-android/")
+-        property("sonar.links.ci", "https://github.com/element-hq/element-x-android/actions")
+-        property("sonar.links.scm", "https://github.com/element-hq/element-x-android/")
+-        property("sonar.links.issue", "https://github.com/element-hq/element-x-android/issues")
+-        property("sonar.organization", "element-hq")
+-        property("sonar.login", if (project.hasProperty("SONAR_LOGIN")) project.property("SONAR_LOGIN")!! else "invalid")
+-
+-        // exclude source code from analyses separated by a colon (:)
+-        // Exclude Java source
+-        property("sonar.exclusions", "**/BugReporterMultipartBody.java")
+-    }
+-}
++// sonar {
++//     properties {
++//         property("sonar.projectName", "element-x-android")
++//         property("sonar.projectKey", "element-x-android")
++//         property("sonar.host.url", "https://sonarcloud.io")
++//         property("sonar.projectVersion", "1.0") // TODO project(":app").android.defaultConfig.versionName)
++//         property("sonar.sourceEncoding", "UTF-8")
++//         property("sonar.links.homepage", "https://github.com/element-hq/element-x-android/")
++//         property("sonar.links.ci", "https://github.com/element-hq/element-x-android/actions")
++//         property("sonar.links.scm", "https://github.com/element-hq/element-x-android/")
++//         property("sonar.links.issue", "https://github.com/element-hq/element-x-android/issues")
++//         property("sonar.organization", "element-hq")
++//         property("sonar.login", if (project.hasProperty("SONAR_LOGIN")) project.property("SONAR_LOGIN")!! else "invalid")
++// 
++//         // exclude source code from analyses separated by a colon (:)
++//         // Exclude Java source
++//         property("sonar.exclusions", "**/BugReporterMultipartBody.java")
++//     }
++// }
+ 
+ allprojects {
+     tasks.withType<Test> {
+diff --git a/features/home/impl/build.gradle.kts b/features/home/impl/build.gradle.kts
+index e3c8321..a30bd4e 100644
+--- a/features/home/impl/build.gradle.kts
++++ b/features/home/impl/build.gradle.kts
+@@ -55,6 +55,8 @@ dependencies {
+     implementation(libs.haze.materials)
+     implementation(projects.features.reportroom.api)
+     implementation(projects.features.changeroommemberroles.api)
++    implementation(projects.features.spaces.api)
++    implementation(projects.features.spaces.impl)
+     api(projects.features.home.api)
+ 
+     testImplementation(libs.androidx.compose.ui.test.junit)
+diff --git a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomePresenter.kt b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomePresenter.kt
+index c5eea40..a2818c4 100644
+--- a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomePresenter.kt
++++ b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomePresenter.kt
+@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
+ import io.element.android.features.home.impl.roomlist.RoomListState
+ import io.element.android.features.logout.api.direct.DirectLogoutState
+ import io.element.android.features.rageshake.api.RageshakeFeatureAvailability
++import io.element.android.features.spaces.api.SpacesState
+ import io.element.android.libraries.architecture.Presenter
+ import io.element.android.libraries.designsystem.utils.snackbar.SnackbarDispatcher
+ import io.element.android.libraries.designsystem.utils.snackbar.collectSnackbarMessageAsState
+@@ -35,6 +36,7 @@ class HomePresenter @Inject constructor(
+     private val snackbarDispatcher: SnackbarDispatcher,
+     private val indicatorService: IndicatorService,
+     private val roomListPresenter: Presenter<RoomListState>,
++    private val spacesPresenter: Presenter<SpacesState>,
+     private val logoutPresenter: Presenter<DirectLogoutState>,
+     private val rageshakeFeatureAvailability: RageshakeFeatureAvailability,
+     private val featureFlagService: FeatureFlagService,
+@@ -45,6 +47,7 @@ class HomePresenter @Inject constructor(
+         val isOnline by syncService.isOnline.collectAsState()
+         val canReportBug by remember { rageshakeFeatureAvailability.isAvailable() }.collectAsState(false)
+         val roomListState = roomListPresenter.present()
++        val spacesState = spacesPresenter.present()
+         val isSpaceFeatureEnabled by remember {
+             featureFlagService.isFeatureEnabledFlow(FeatureFlags.Space)
+         }.collectAsState(initial = false)
+@@ -81,6 +84,7 @@ class HomePresenter @Inject constructor(
+             canReportBug = canReportBug,
+             directLogoutState = directLogoutState,
+             isSpaceFeatureEnabled = isSpaceFeatureEnabled,
++            spacesState = spacesState,
+             eventSink = ::handleEvents,
+         )
+     }
+diff --git a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeState.kt b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeState.kt
+index 5e6c16d..fa5f85f 100644
+--- a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeState.kt
++++ b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeState.kt
+@@ -10,6 +10,7 @@ package io.element.android.features.home.impl
+ import androidx.compose.runtime.Immutable
+ import io.element.android.features.home.impl.roomlist.RoomListState
+ import io.element.android.features.logout.api.direct.DirectLogoutState
++import io.element.android.features.spaces.api.SpacesState
+ import io.element.android.libraries.designsystem.utils.snackbar.SnackbarMessage
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ 
+@@ -24,6 +25,7 @@ data class HomeState(
+     val canReportBug: Boolean,
+     val directLogoutState: DirectLogoutState,
+     val isSpaceFeatureEnabled: Boolean,
++    val spacesState: SpacesState,
+     val eventSink: (HomeEvents) -> Unit,
+ ) {
+     val displayActions = currentHomeNavigationBarItem == HomeNavigationBarItem.Chats
+diff --git a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeStateProvider.kt b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeStateProvider.kt
+index 7a50296..0ac9109 100644
+--- a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeStateProvider.kt
++++ b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeStateProvider.kt
+@@ -15,6 +15,7 @@ import io.element.android.features.home.impl.roomlist.aRoomsContentState
+ import io.element.android.features.home.impl.roomlist.generateRoomListRoomSummaryList
+ import io.element.android.features.logout.api.direct.DirectLogoutState
+ import io.element.android.features.logout.api.direct.aDirectLogoutState
++import io.element.android.features.spaces.api.SpacesState
+ import io.element.android.libraries.designsystem.utils.snackbar.SnackbarMessage
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+@@ -54,6 +55,7 @@ internal fun aHomeState(
+     canReportBug: Boolean = true,
+     isSpaceFeatureEnabled: Boolean = false,
+     directLogoutState: DirectLogoutState = aDirectLogoutState(),
++    spacesState: SpacesState = SpacesState.Empty,
+     eventSink: (HomeEvents) -> Unit = {}
+ ) = HomeState(
+     matrixUser = matrixUser,
+@@ -65,5 +67,6 @@ internal fun aHomeState(
+     currentHomeNavigationBarItem = currentHomeNavigationBarItem,
+     roomListState = roomListState,
+     isSpaceFeatureEnabled = isSpaceFeatureEnabled,
++    spacesState = spacesState,
+     eventSink = eventSink,
+ )
+diff --git a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeView.kt b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeView.kt
+index a0468aa..99c0303 100644
+--- a/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeView.kt
++++ b/features/home/impl/src/main/kotlin/io/element/android/features/home/impl/HomeView.kt
+@@ -25,7 +25,6 @@ import androidx.compose.material3.rememberTopAppBarState
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberCoroutineScope
+-import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.input.nestedscroll.nestedScroll
+@@ -51,6 +50,7 @@ import io.element.android.features.home.impl.roomlist.RoomListEvents
+ import io.element.android.features.home.impl.roomlist.RoomListState
+ import io.element.android.features.home.impl.search.RoomListSearchView
+ import io.element.android.features.networkmonitor.api.ui.ConnectivityIndicatorContainer
++import io.element.android.features.spaces.impl.SpacesView
+ import io.element.android.libraries.androidutils.throttler.FirstThrottler
+ import io.element.android.libraries.designsystem.preview.ElementPreview
+ import io.element.android.libraries.designsystem.preview.PreviewsDayNight
+@@ -262,19 +262,12 @@ private fun HomeScaffold(
+                     )
+                 }
+                 HomeNavigationBarItem.Spaces -> {
+-                    Box(
++                    SpacesView(
++                        state = state.spacesState,
+                         modifier = Modifier
+-                            .fillMaxSize()
+                             .padding(padding)
+                             .consumeWindowInsets(padding)
+-                    ) {
+-                        Text(
+-                            modifier = Modifier.align(Alignment.Center),
+-                            text = "Spaces are coming soon!",
+-                            style = ElementTheme.typography.fontBodyLgRegular,
+-                            color = ElementTheme.colors.textPrimary,
+-                        )
+-                    }
++                    )
+                 }
+             }
+         },
+diff --git a/features/spaces/api/build.gradle.kts b/features/spaces/api/build.gradle.kts
+new file mode 100644
+index 0000000..bd39db5
+--- /dev/null
++++ b/features/spaces/api/build.gradle.kts
+@@ -0,0 +1,19 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++plugins {
++    id("io.element.android-compose-library")
++}
++
++android {
++    namespace = "io.element.android.features.spaces.api"
++}
++
++dependencies {
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.designsystem)
++}
+diff --git a/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/LeaveSpaceState.kt b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/LeaveSpaceState.kt
+new file mode 100644
+index 0000000..1098422
+--- /dev/null
++++ b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/LeaveSpaceState.kt
+@@ -0,0 +1,50 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.api
++
++import io.element.android.libraries.matrix.api.core.RoomId
++import kotlinx.collections.immutable.ImmutableList
++import kotlinx.collections.immutable.ImmutableSet
++
++/**
++ * State of the "leave a Space" flow, which lets the user pick which child
++ * rooms they want to leave before confirming.
++ *
++ * @property spaceId the id of the Space the user is about to leave.
++ * @property isLoading whether the children of the Space are currently being loaded.
++ * @property children the children of the Space, loaded so far.
++ * @property selectedRoomIds the rooms the user has explicitly selected to leave.
++ * @property lastAdminRoomIds the rooms where the user is the last admin. These
++ *   can never be included in the selection, even by bulk actions or toggles.
++ * @property leaveAction the progress of the leave-Space operation itself.
++ */
++data class LeaveSpaceState(
++    val spaceId: RoomId?,
++    val isLoading: Boolean,
++    val children: ImmutableList<SpaceChildRoomSummary>,
++    val selectedRoomIds: ImmutableSet<RoomId>,
++    val lastAdminRoomIds: ImmutableSet<RoomId>,
++    val leaveAction: LeaveSpaceAction,
++) {
++    /**
++     * The set of room ids that are eligible for being included in the leave
++     * selection. These exclude DMs and last-admin rooms.
++     */
++    val eligibleRoomIds: Set<RoomId>
++        get() = children.filter { it.canBeLeftWhenLeavingSpace }.map { it.roomId }.toSet()
++}
++
++/**
++ * Whether the leave-Space action is in progress, succeeded, or failed.
++ */
++sealed interface LeaveSpaceAction {
++    data object Idle : LeaveSpaceAction
++    data object InProgress : LeaveSpaceAction
++    data object Success : LeaveSpaceAction
++    data class Failure(val error: Throwable) : LeaveSpaceAction
++}
+diff --git a/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpaceChildRoomSummary.kt b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpaceChildRoomSummary.kt
+new file mode 100644
+index 0000000..6b4f07b
+--- /dev/null
++++ b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpaceChildRoomSummary.kt
+@@ -0,0 +1,43 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.api
++
++import androidx.compose.runtime.Immutable
++import io.element.android.libraries.designsystem.components.avatar.AvatarData
++import io.element.android.libraries.matrix.api.core.RoomId
++
++/**
++ * Summary of a room that is a child of a Space. Used to render the list of
++ * children inside a Space detail surface.
++ *
++ * @property roomId the id of the child room.
++ * @property name display name of the child room.
++ * @property avatarData avatar information for the child room.
++ * @property isDirect whether the child room is a direct message.
++ * @property isLastAdmin whether the current user is the last admin/owner of this room.
++ * @property isJoined whether the current user is currently joined to this room.
++ */
++@Immutable
++data class SpaceChildRoomSummary(
++    val roomId: RoomId,
++    val name: String?,
++    val avatarData: AvatarData,
++    val topic: String?,
++    val isDirect: Boolean,
++    val isLastAdmin: Boolean,
++    val isJoined: Boolean,
++    val joinedMembersCount: Long,
++) {
++    /**
++     * A child room can be explicitly left when leaving its parent Space if the
++     * user is currently joined and they are not the last admin of that room.
++     * Direct messages are explicitly excluded.
++     */
++    val canBeLeftWhenLeavingSpace: Boolean
++        get() = !isDirect && isJoined && !isLastAdmin
++}
+diff --git a/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpaceSummary.kt b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpaceSummary.kt
+new file mode 100644
+index 0000000..c3bebbe
+--- /dev/null
++++ b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpaceSummary.kt
+@@ -0,0 +1,25 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.api
++
++import androidx.compose.runtime.Immutable
++import io.element.android.libraries.designsystem.components.avatar.AvatarData
++import io.element.android.libraries.matrix.api.core.RoomId
++
++/**
++ * Summary information about a Space, either joined or invited.
++ */
++@Immutable
++data class SpaceSummary(
++    val spaceId: RoomId,
++    val name: String?,
++    val avatarData: AvatarData,
++    val isPublic: Boolean?,
++    val joinedMembersCount: Long,
++    val topic: String?,
++)
+diff --git a/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesEntryPoint.kt b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesEntryPoint.kt
+new file mode 100644
+index 0000000..c46463f
+--- /dev/null
++++ b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesEntryPoint.kt
+@@ -0,0 +1,25 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.api
++
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.matrix.api.core.RoomId
++
++/**
++ * Entry point for the Spaces feature, exposing the presenter as well as a way
++ * to navigate to a specific Space (used e.g. from a deeplink).
++ */
++interface SpacesEntryPoint {
++    fun presenter(): Presenter<SpacesState>
++
++    /**
++     * Navigate to a specific Space. Implementations may or may not return a
++     * value depending on how navigation is wired in.
++     */
++    fun onNavigateToSpace(spaceId: RoomId) {}
++}
+diff --git a/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesEvents.kt b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesEvents.kt
+new file mode 100644
+index 0000000..8b88853
+--- /dev/null
++++ b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesEvents.kt
+@@ -0,0 +1,69 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.api
++
++import io.element.android.libraries.matrix.api.core.RoomId
++
++/**
++ * Events that can be dispatched from the Spaces UI to the Spaces presenter.
++ *
++ * They cover navigation, children loading, per-child joining and leaving
++ * operations, including failure recovery.
++ */
++sealed interface SpacesEvents {
++    /** Select a Space as the currently shown one. The selection is preserved while children update. */
++    data class OpenSpace(val spaceId: RoomId) : SpacesEvents
++
++    /** Clear the current Space selection so the home shows the Spaces list again. */
++    data object CloseSpace : SpacesEvents
++
++    /** Load more child rooms for the currently selected Space. No-op if there are no more. */
++    data object LoadMoreChildren : SpacesEvents
++
++    /** Request to join a child room of the currently selected Space. */
++    data class JoinChild(val roomId: RoomId) : SpacesEvents
++
++    /** Clear a previous join failure for a child room so the user can retry. */
++    data class ClearJoinFailure(val roomId: RoomId) : SpacesEvents
++
++    /** Retry joining a child room that previously failed. */
++    data class RetryJoinChild(val roomId: RoomId) : SpacesEvents
++
++    /** Accept a Space invitation. */
++    data class AcceptSpaceInvite(val spaceId: RoomId) : SpacesEvents
++
++    /** Decline a Space invitation. */
++    data class DeclineSpaceInvite(val spaceId: RoomId) : SpacesEvents
++
++    /** Mark a Space invitation as seen, used for consistent UI state. */
++    data class MarkSpaceInviteAsSeen(val spaceId: RoomId) : SpacesEvents
++
++    /** Open the "leave Space" flow for the currently selected Space. */
++    data object OpenLeaveSpace : SpacesEvents
++
++    /** Close/dismiss the "leave Space" flow without confirming. */
++    data object CloseLeaveSpace : SpacesEvents
++
++    /** Select every eligible child room (excluding DMs and last-admin rooms). */
++    data object SelectAllChildren : SpacesEvents
++
++    /** Deselect every previously selected child room. */
++    data object DeselectAllChildren : SpacesEvents
++
++    /** Toggle the selection of a single child room. Last-admin rooms cannot be selected. */
++    data class ToggleChildSelection(val roomId: RoomId) : SpacesEvents
++
++    /** Confirm the leave-Space action with the currently selected rooms. */
++    data object ConfirmLeaveSpace : SpacesEvents
++
++    /** Retry a previously failed leave-Space action. */
++    data object RetryLeaveSpace : SpacesEvents
++
++    /** Dismiss the failure result of a leave-Space action without retrying. */
++    data object DismissLeaveSpaceFailure : SpacesEvents
++}
+diff --git a/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesState.kt b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesState.kt
+new file mode 100644
+index 0000000..42fa8db
+--- /dev/null
++++ b/features/spaces/api/src/main/kotlin/io/element/android/features/spaces/api/SpacesState.kt
+@@ -0,0 +1,77 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.api
++
++import androidx.compose.runtime.Immutable
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.matrix.api.core.RoomId
++import kotlinx.collections.immutable.ImmutableList
++import kotlinx.collections.immutable.ImmutableMap
++import kotlinx.collections.immutable.ImmutableSet
++import kotlinx.collections.immutable.persistentListOf
++import kotlinx.collections.immutable.persistentMapOf
++import kotlinx.collections.immutable.persistentSetOf
++
++/**
++ * State of the Spaces feature.
++ *
++ * @property joinedSpaces the Spaces the user is currently joined to.
++ * @property spaceInvites the Spaces the user has been invited to but not joined yet.
++ * @property seenSpaceInvites the invitations the user has been shown.
++ * @property selectedSpaceId the Space currently shown in the detail view. When
++ *   not null, the user is browsing a specific Space; the selection is preserved
++ *   while children update.
++ * @property children the children of the selected Space, loaded so far.
++ * @property isLoadingChildren whether children are currently being loaded.
++ * @property hasMoreToLoad whether more children can be loaded by paginating.
++ * @property joinActions the per-child join action state. Each child has its own
++ *   progress/success/failure state, independent from the others.
++ * @property acceptInviteActions the per-space accept-invite action state.
++ * @property declineInviteActions the per-space decline-invite action state.
++ * @property leaveSpaceState the state of the leave-Space flow, if any.
++ * @property eventSink sink to dispatch [SpacesEvents] to the presenter.
++ */
++@Immutable
++data class SpacesState(
++    val joinedSpaces: ImmutableList<SpaceSummary>,
++    val spaceInvites: ImmutableList<SpaceSummary>,
++    val seenSpaceInvites: ImmutableSet<RoomId>,
++    val selectedSpaceId: RoomId?,
++    val children: ImmutableList<SpaceChildRoomSummary>,
++    val isLoadingChildren: Boolean,
++    val hasMoreToLoad: Boolean,
++    val joinActions: ImmutableMap<RoomId, AsyncAction<Unit>>,
++    val acceptInviteActions: ImmutableMap<RoomId, AsyncAction<Unit>>,
++    val declineInviteActions: ImmutableMap<RoomId, AsyncAction<Unit>>,
++    val leaveSpaceState: LeaveSpaceState,
++    val eventSink: (SpacesEvents) -> Unit,
++) {
++    companion object {
++        val Empty: SpacesState = SpacesState(
++            joinedSpaces = persistentListOf(),
++            spaceInvites = persistentListOf(),
++            seenSpaceInvites = persistentSetOf(),
++            selectedSpaceId = null,
++            children = persistentListOf(),
++            isLoadingChildren = false,
++            hasMoreToLoad = false,
++            joinActions = persistentMapOf(),
++            acceptInviteActions = persistentMapOf(),
++            declineInviteActions = persistentMapOf(),
++            leaveSpaceState = LeaveSpaceState(
++                spaceId = null,
++                isLoading = false,
++                children = persistentListOf(),
++                selectedRoomIds = persistentSetOf(),
++                lastAdminRoomIds = persistentSetOf(),
++                leaveAction = LeaveSpaceAction.Idle,
++            ),
++            eventSink = {},
++        )
++    }
++}
+diff --git a/features/spaces/impl/build.gradle.kts b/features/spaces/impl/build.gradle.kts
+new file mode 100644
+index 0000000..6bb8723
+--- /dev/null
++++ b/features/spaces/impl/build.gradle.kts
+@@ -0,0 +1,43 @@
++import extension.setupAnvil
++
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++plugins {
++    id("io.element.android-compose-library")
++}
++
++android {
++    namespace = "io.element.android.features.spaces.impl"
++    sourceSets["main"].res.srcDirs("src/main/res")
++}
++
++setupAnvil()
++
++dependencies {
++    api(projects.features.spaces.api)
++    implementation(projects.libraries.core)
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.matrixui)
++    implementation(projects.libraries.designsystem)
++    implementation(projects.libraries.uiStrings)
++    implementation(projects.libraries.featureflag.api)
++    implementation(projects.libraries.preferences.api)
++    implementation(projects.features.invite.api)
++    implementation(projects.features.leaveroom.api)
++
++    testImplementation(libs.test.junit)
++    testImplementation(libs.coroutines.test)
++    testImplementation(libs.molecule.runtime)
++    testImplementation(libs.test.truth)
++    testImplementation(libs.test.turbine)
++    testImplementation(projects.features.invite.test)
++    testImplementation(projects.libraries.matrix.test)
++    testImplementation(projects.libraries.featureflag.test)
++    testImplementation(projects.tests.testutils)
++}
+diff --git a/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/DefaultSpaceChildrenDataSource.kt b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/DefaultSpaceChildrenDataSource.kt
+new file mode 100644
+index 0000000..8e29ce9
+--- /dev/null
++++ b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/DefaultSpaceChildrenDataSource.kt
+@@ -0,0 +1,116 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.impl
++
++import io.element.android.features.spaces.api.SpaceChildRoomSummary
++import io.element.android.features.spaces.api.SpaceSummary
++import io.element.android.libraries.designsystem.components.avatar.AvatarData
++import io.element.android.libraries.designsystem.components.avatar.AvatarSize
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.core.RoomId
++import io.element.android.libraries.matrix.api.room.CurrentUserMembership
++import io.element.android.libraries.matrix.api.room.isDm
++import io.element.android.libraries.matrix.api.roomlist.RoomListService
++import io.element.android.libraries.matrix.api.roomlist.RoomSummary
++import kotlinx.coroutines.flow.first
++import javax.inject.Inject
++
++/**
++ * Default [SpaceChildrenDataSource] backed by the [RoomListService].
++ *
++ * The actual list of "children" of a Space comes from the room summary stream
++ * filtered to known rooms of the session. DMs and Space rooms themselves are
++ * excluded from the list of children to keep the behaviour consistent with the
++ * requirement that direct messages are not Space children to leave.
++ */
++class DefaultSpaceChildrenDataSource @Inject constructor(
++    private val matrixClient: MatrixClient,
++    private val roomListService: RoomListService,
++) : SpaceChildrenDataSource {
++
++    override suspend fun getJoinedSpaces(): List<SpaceSummary> {
++        val summaries = roomListService.allRooms.summaries.first()
++        return summaries.mapNotNull { summary ->
++            val info = summary.info
++            if (!info.isSpace) return@mapNotNull null
++            if (info.currentUserMembership != CurrentUserMembership.JOINED) return@mapNotNull null
++            summary.toSpaceSummary()
++        }
++    }
++
++    override suspend fun getSpaceInvites(): List<SpaceSummary> {
++        val summaries = roomListService.allRooms.summaries.first()
++        return summaries.mapNotNull { summary ->
++            val info = summary.info
++            if (!info.isSpace) return@mapNotNull null
++            if (info.currentUserMembership != CurrentUserMembership.INVITED) return@mapNotNull null
++            summary.toSpaceSummary()
++        }
++    }
++
++    override suspend fun getChildrenPage(spaceId: RoomId, offset: Int, limit: Int): ChildrenPage {
++        val allSummaries = roomListService.allRooms.summaries.first()
++        val children = allSummaries
++            .asSequence()
++            // Filter to rooms that are not the space itself.
++            .filter { it.info.id != spaceId }
++            // DMs are explicitly not Space children.
++            .filter { !it.info.isDm }
++            // We only consider rooms the user is joined to.
++            .filter { it.info.currentUserMembership == CurrentUserMembership.JOINED }
++            .toList()
++
++        // Stable ordering by room id, so duplicates are impossible and scroll
++        // context is preserved across pages.
++        val sorted = children.sortedBy { it.info.id.value }
++        val page = sorted.drop(offset).take(limit)
++        val items = page.mapNotNull { summary ->
++            val info = summary.info
++            val isLastAdmin = info.creators.size == 1 &&
++                info.creators.first() == matrixClient.sessionId &&
++                info.privilegedCreatorRole
++            SpaceChildRoomSummary(
++                roomId = info.id,
++                name = info.name,
++                avatarData = AvatarData(
++                    id = info.id.value,
++                    name = info.name,
++                    url = info.avatarUrl,
++                    size = AvatarSize.RoomListItem,
++                ),
++                topic = info.topic,
++                isDirect = info.isDirect,
++                isLastAdmin = isLastAdmin,
++                isJoined = info.currentUserMembership == CurrentUserMembership.JOINED,
++                joinedMembersCount = info.joinedMembersCount,
++            )
++        }
++        return ChildrenPage(items = items, total = sorted.size)
++    }
++
++    override suspend fun getChildrenTotal(spaceId: RoomId): Int? {
++        return getChildrenPage(spaceId, offset = 0, limit = Int.MAX_VALUE).total
++    }
++
++    private fun RoomSummary.toSpaceSummary(): SpaceSummary {
++        val info = info
++        return SpaceSummary(
++            spaceId = info.id,
++            name = info.name,
++            avatarData = AvatarData(
++                id = info.id.value,
++                name = info.name,
++                url = info.avatarUrl,
++                size = AvatarSize.RoomListItem,
++            ),
++            isPublic = info.isPublic,
++            joinedMembersCount = info.joinedMembersCount,
++            topic = info.topic,
++        )
++    }
++}
+diff --git a/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/DefaultSpacesEntryPoint.kt b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/DefaultSpacesEntryPoint.kt
+new file mode 100644
+index 0000000..b25f9d7
+--- /dev/null
++++ b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/DefaultSpacesEntryPoint.kt
+@@ -0,0 +1,22 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.impl
++
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.features.spaces.api.SpacesEntryPoint
++import io.element.android.features.spaces.api.SpacesState
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.di.SessionScope
++import javax.inject.Inject
++
++@ContributesBinding(SessionScope::class)
++class DefaultSpacesEntryPoint @Inject constructor(
++    private val spacesPresenter: Presenter<SpacesState>,
++) : SpacesEntryPoint {
++    override fun presenter(): Presenter<SpacesState> = spacesPresenter
++}
+diff --git a/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpaceChildrenDataSource.kt b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpaceChildrenDataSource.kt
+new file mode 100644
+index 0000000..1b44f20
+--- /dev/null
++++ b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpaceChildrenDataSource.kt
+@@ -0,0 +1,47 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.impl
++
++import io.element.android.features.spaces.api.SpaceChildRoomSummary
++import io.element.android.features.spaces.api.SpaceSummary
++import io.element.android.libraries.matrix.api.core.RoomId
++
++/**
++ * Source of truth for Space and child room data.
++ *
++ * Implementations are responsible for paginating child rooms, returning
++ * deduplicated and stable results so that the Spaces presenter can preserve
++ * scroll context and avoid duplicating entries.
++ */
++interface SpaceChildrenDataSource {
++    /** Returns the list of joined Spaces. */
++    suspend fun getJoinedSpaces(): List<SpaceSummary>
++
++    /** Returns the list of Space invitations. */
++    suspend fun getSpaceInvites(): List<SpaceSummary>
++
++    /**
++     * Returns a page of child rooms for the given [spaceId], starting at [offset].
++     *
++     * Implementations must return a stable ordering and must not return
++     * duplicates. Subsequent calls with the same offset must return the same
++     * elements to keep scroll context stable.
++     */
++    suspend fun getChildrenPage(spaceId: RoomId, offset: Int, limit: Int): ChildrenPage
++
++    /**
++     * Returns the total number of child rooms for the given [spaceId], or
++     * `null` if the total is not known yet.
++     */
++    suspend fun getChildrenTotal(spaceId: RoomId): Int?
++}
++
++data class ChildrenPage(
++    val items: List<SpaceChildRoomSummary>,
++    val total: Int?,
++)
+diff --git a/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesPresenter.kt b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesPresenter.kt
+new file mode 100644
+index 0000000..6686cc8
+--- /dev/null
++++ b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesPresenter.kt
+@@ -0,0 +1,415 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.impl
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.MutableState
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import androidx.compose.runtime.setValue
++import androidx.compose.runtime.snapshotFlow
++import io.element.android.features.invite.api.InviteData
++import io.element.android.features.invite.api.SeenInvitesStore
++import io.element.android.features.invite.api.acceptdecline.AcceptDeclineInviteEvents
++import io.element.android.features.invite.api.acceptdecline.AcceptDeclineInviteState
++import io.element.android.features.spaces.api.LeaveSpaceAction
++import io.element.android.features.spaces.api.LeaveSpaceState
++import io.element.android.features.spaces.api.SpaceChildRoomSummary
++import io.element.android.features.spaces.api.SpaceSummary
++import io.element.android.features.spaces.api.SpacesEvents
++import io.element.android.features.spaces.api.SpacesState
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.core.RoomId
++import io.element.android.libraries.matrix.api.room.RoomMembershipObserver
++import kotlinx.collections.immutable.toPersistentList
++import kotlinx.collections.immutable.toPersistentMap
++import kotlinx.collections.immutable.toPersistentSet
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import kotlinx.coroutines.launch
++import timber.log.Timber
++import javax.inject.Inject
++
++/**
++ * Page size used to paginate the children of a Space.
++ */
++private const val SPACES_CHILDREN_PAGE_SIZE = 50
++
++/**
++ * Main presenter for the Spaces feature.
++ */
++class SpacesPresenter @Inject constructor(
++    private val matrixClient: MatrixClient,
++    private val dataSource: SpaceChildrenDataSource,
++    private val seenInvitesStore: SeenInvitesStore,
++    private val acceptDeclineInvitePresenter: Presenter<AcceptDeclineInviteState>,
++    private val roomMembershipObserver: RoomMembershipObserver,
++) : Presenter<SpacesState> {
++
++    @Composable
++    override fun present(): SpacesState {
++        val coroutineScope = rememberCoroutineScope()
++        val acceptDeclineInviteState = acceptDeclineInvitePresenter.present()
++
++        val joinedSpacesState: MutableState<List<SpaceSummary>> =
++            remember { mutableStateOf<List<SpaceSummary>>(emptyList()) }
++        val spaceInvitesState: MutableState<List<SpaceSummary>> =
++            remember { mutableStateOf<List<SpaceSummary>>(emptyList()) }
++        val selectedSpaceIdState: MutableState<RoomId?> =
++            remember { mutableStateOf<RoomId?>(null) }
++        val childrenState: MutableState<List<SpaceChildRoomSummary>> =
++            remember { mutableStateOf<List<SpaceChildRoomSummary>>(emptyList()) }
++        val joinActionsState: MutableState<Map<RoomId, AsyncAction<Unit>>> =
++            remember { mutableStateOf<Map<RoomId, AsyncAction<Unit>>>(emptyMap()) }
++        val acceptInviteActionsState: MutableState<Map<RoomId, AsyncAction<Unit>>> =
++            remember { mutableStateOf<Map<RoomId, AsyncAction<Unit>>>(emptyMap()) }
++        val declineInviteActionsState: MutableState<Map<RoomId, AsyncAction<Unit>>> =
++            remember { mutableStateOf<Map<RoomId, AsyncAction<Unit>>>(emptyMap()) }
++        val isLoadingChildrenState: MutableState<Boolean> =
++            remember { mutableStateOf<Boolean>(false) }
++        val hasMoreToLoadState: MutableState<Boolean> =
++            remember { mutableStateOf<Boolean>(false) }
++        val childrenTotalState: MutableState<Int?> =
++            remember { mutableStateOf<Int?>(null) }
++        val lastAdminRoomIdsState: MutableState<Set<RoomId>> =
++            remember { mutableStateOf<Set<RoomId>>(emptySet()) }
++        val selectedRoomIdsState: MutableState<Set<RoomId>> =
++            remember { mutableStateOf<Set<RoomId>>(emptySet()) }
++        val leaveActionState: MutableState<LeaveSpaceAction> =
++            remember { mutableStateOf<LeaveSpaceAction>(LeaveSpaceAction.Idle) }
++        val leaveIsLoadingState: MutableState<Boolean> =
++            remember { mutableStateOf<Boolean>(false) }
++        val leaveSpaceIdState: MutableState<RoomId?> =
++            remember { mutableStateOf<RoomId?>(null) }
++        val leaveChildrenState: MutableState<List<SpaceChildRoomSummary>> =
++            remember { mutableStateOf<List<SpaceChildRoomSummary>>(emptyList()) }
++
++        val seenSpaceInvites by remember { seenInvitesStore.seenRoomIds() }
++            .collectAsState(initial = emptySet<RoomId>())
++
++        // Forward accept/decline invite results into our state.
++        LaunchedEffect(acceptDeclineInviteState) {
++            snapshotFlow { acceptDeclineInviteState.acceptAction }
++                .onEach { action: AsyncAction<RoomId> ->
++                    when (action) {
++                        is AsyncAction.Success -> {
++                            val acceptedId = action.data
++                            acceptInviteActionsState.value =
++                                acceptInviteActionsState.value + (acceptedId to AsyncAction.Success(Unit))
++                            seenInvitesStore.markAsSeen(acceptedId)
++                        }
++                        is AsyncAction.Failure -> {
++                            Timber.e(action.error, "Accept invite failed")
++                        }
++                        else -> Unit
++                    }
++                }
++                .launchIn(this)
++        }
++        LaunchedEffect(acceptDeclineInviteState) {
++            snapshotFlow { acceptDeclineInviteState.declineAction }
++                .onEach { action: AsyncAction<RoomId> ->
++                    if (action is AsyncAction.Success) {
++                        val declinedId = action.data
++                        declineInviteActionsState.value =
++                            declineInviteActionsState.value + (declinedId to AsyncAction.Success(Unit))
++                    }
++                }
++                .launchIn(this)
++        }
++
++        // Refresh the joined spaces / invitations lists when the room list
++        // membership observer fires.
++        LaunchedEffect(Unit) {
++            roomMembershipObserver.updates
++                .onEach {
++                    refreshSpacesLists(
++                        dataSource = dataSource,
++                        joinedSpacesState = joinedSpacesState,
++                        spaceInvitesState = spaceInvitesState,
++                    )
++                }
++                .launchIn(this)
++            refreshSpacesLists(
++                dataSource = dataSource,
++                joinedSpacesState = joinedSpacesState,
++                spaceInvitesState = spaceInvitesState,
++            )
++        }
++
++        suspend fun loadFirstPage(spaceId: RoomId) {
++            isLoadingChildrenState.value = true
++            try {
++                val page = dataSource.getChildrenPage(spaceId, 0, SPACES_CHILDREN_PAGE_SIZE)
++                childrenState.value = page.items
++                childrenTotalState.value = page.total
++                hasMoreToLoadState.value = (page.total ?: Int.MAX_VALUE) > page.items.size
++            } finally {
++                isLoadingChildrenState.value = false
++            }
++        }
++
++        suspend fun loadMore(spaceId: RoomId) {
++            if (isLoadingChildrenState.value || !hasMoreToLoadState.value) return
++            isLoadingChildrenState.value = true
++            try {
++                val current = childrenState.value
++                val nextOffset = current.size
++                val page = dataSource.getChildrenPage(spaceId, nextOffset, SPACES_CHILDREN_PAGE_SIZE)
++                val existingIds = current.map { it.roomId }.toSet()
++                val appended = page.items.filter { child -> child.roomId !in existingIds }
++                childrenState.value = current + appended
++                childrenTotalState.value = page.total ?: childrenTotalState.value
++                hasMoreToLoadState.value =
++                    (page.total ?: current.size + page.items.size) > childrenState.value.size
++            } finally {
++                isLoadingChildrenState.value = false
++            }
++        }
++
++        fun handleEvents(event: SpacesEvents) {
++            when (event) {
++                is SpacesEvents.OpenSpace -> {
++                    val isNew = selectedSpaceIdState.value != event.spaceId
++                    selectedSpaceIdState.value = event.spaceId
++                    if (isNew) {
++                        childrenState.value = emptyList()
++                        childrenTotalState.value = null
++                        hasMoreToLoadState.value = false
++                        coroutineScope.launch {
++                            loadFirstPage(event.spaceId)
++                        }
++                    }
++                }
++                SpacesEvents.CloseSpace -> {
++                    selectedSpaceIdState.value = null
++                    childrenState.value = emptyList()
++                    childrenTotalState.value = null
++                    hasMoreToLoadState.value = false
++                }
++                SpacesEvents.LoadMoreChildren -> {
++                    val spaceId = selectedSpaceIdState.value ?: return
++                    coroutineScope.launch {
++                        loadMore(spaceId)
++                    }
++                }
++                is SpacesEvents.JoinChild -> joinChild(
++                    spaceId = selectedSpaceIdState.value,
++                    roomId = event.roomId,
++                    joinActionsState = joinActionsState,
++                    coroutineScope = coroutineScope,
++                )
++                is SpacesEvents.ClearJoinFailure -> {
++                    joinActionsState.value = joinActionsState.value - event.roomId
++                }
++                is SpacesEvents.RetryJoinChild -> joinChild(
++                    spaceId = selectedSpaceIdState.value,
++                    roomId = event.roomId,
++                    joinActionsState = joinActionsState,
++                    coroutineScope = coroutineScope,
++                )
++                is SpacesEvents.AcceptSpaceInvite -> {
++                    val invite = spaceInvitesState.value.firstOrNull { it.spaceId == event.spaceId }
++                    if (invite != null) {
++                        acceptDeclineInviteState.eventSink(
++                            AcceptDeclineInviteEvents.AcceptInvite(
++                                InviteData(
++                                    roomId = invite.spaceId,
++                                    roomName = invite.name ?: invite.spaceId.value,
++                                    isDm = false,
++                                )
++                            )
++                        )
++                    } else {
++                        acceptInviteActionsState.value = acceptInviteActionsState.value + (
++                            event.spaceId to AsyncAction.Failure(
++                                IllegalStateException("No matching Space invite")
++                            )
++                            )
++                    }
++                }
++                is SpacesEvents.DeclineSpaceInvite -> {
++                    val invite = spaceInvitesState.value.firstOrNull { it.spaceId == event.spaceId }
++                    if (invite != null) {
++                        acceptDeclineInviteState.eventSink(
++                            AcceptDeclineInviteEvents.DeclineInvite(
++                                invite = InviteData(
++                                    roomId = invite.spaceId,
++                                    roomName = invite.name ?: invite.spaceId.value,
++                                    isDm = false,
++                                ),
++                                blockUser = false,
++                                shouldConfirm = false,
++                            )
++                        )
++                    } else {
++                        declineInviteActionsState.value = declineInviteActionsState.value + (
++                            event.spaceId to AsyncAction.Failure(
++                                IllegalStateException("No matching Space invite")
++                            )
++                            )
++                    }
++                }
++                is SpacesEvents.MarkSpaceInviteAsSeen -> {
++                    coroutineScope.launch {
++                        seenInvitesStore.markAsSeen(event.spaceId)
++                    }
++                }
++                SpacesEvents.OpenLeaveSpace -> {
++                    val spaceId = selectedSpaceIdState.value ?: return
++                    coroutineScope.launch {
++                        leaveIsLoadingState.value = true
++                        try {
++                            val page = dataSource.getChildrenPage(spaceId, 0, Int.MAX_VALUE)
++                            val items = page.items
++                            leaveChildrenState.value = items
++                            leaveSpaceIdState.value = spaceId
++                            lastAdminRoomIdsState.value =
++                                items.filter { it.isLastAdmin }.map { it.roomId }.toSet()
++                            selectedRoomIdsState.value = items
++                                .filter { it.canBeLeftWhenLeavingSpace }
++                                .map { it.roomId }
++                                .toSet()
++                        } finally {
++                            leaveIsLoadingState.value = false
++                        }
++                    }
++                }
++                SpacesEvents.CloseLeaveSpace -> {
++                    leaveSpaceIdState.value = null
++                    leaveChildrenState.value = emptyList()
++                    lastAdminRoomIdsState.value = emptySet()
++                    selectedRoomIdsState.value = emptySet()
++                    leaveActionState.value = LeaveSpaceAction.Idle
++                }
++                SpacesEvents.SelectAllChildren -> {
++                    val eligible = leaveChildrenState.value
++                        .filter { it.canBeLeftWhenLeavingSpace }
++                        .map { it.roomId }
++                        .toSet()
++                    selectedRoomIdsState.value = eligible
++                }
++                SpacesEvents.DeselectAllChildren -> {
++                    selectedRoomIdsState.value = emptySet()
++                }
++                is SpacesEvents.ToggleChildSelection -> {
++                    // Never allow selecting a last-admin room.
++                    if (event.roomId in lastAdminRoomIdsState.value) return
++                    val isEligible = leaveChildrenState.value.any {
++                        it.roomId == event.roomId && it.canBeLeftWhenLeavingSpace
++                    }
++                    if (!isEligible) return
++                    selectedRoomIdsState.value = if (event.roomId in selectedRoomIdsState.value) {
++                        selectedRoomIdsState.value - event.roomId
++                    } else {
++                        selectedRoomIdsState.value + event.roomId
++                    }
++                }
++                SpacesEvents.ConfirmLeaveSpace -> {
++                    val toLeave = selectedRoomIdsState.value
++                    if (toLeave.isEmpty()) {
++                        leaveActionState.value = LeaveSpaceAction.Success
++                        return
++                    }
++                    leaveActionState.value = LeaveSpaceAction.InProgress
++                    coroutineScope.launch {
++                        val failures = mutableListOf<Throwable>()
++                        for (roomId in toLeave) {
++                            try {
++                                matrixClient.getRoom(roomId)?.use { room ->
++                                    room.leave().getOrThrow()
++                                }
++                            } catch (t: Throwable) {
++                                Timber.e(t, "Failed to leave room $roomId as part of leaving Space $leaveSpaceId")
++                                failures += t
++                            }
++                        }
++                        if (failures.isEmpty()) {
++                            leaveActionState.value = LeaveSpaceAction.Success
++                        } else {
++                            // Preserve the current selection so the user can retry.
++                            leaveActionState.value = LeaveSpaceAction.Failure(failures.first())
++                        }
++                    }
++                }
++                SpacesEvents.RetryLeaveSpace -> {
++                    handleEvents(SpacesEvents.ConfirmLeaveSpace)
++                }
++                SpacesEvents.DismissLeaveSpaceFailure -> {
++                    leaveActionState.value = LeaveSpaceAction.Idle
++                }
++            }
++        }
++
++        return SpacesState(
++            joinedSpaces = joinedSpacesState.value.toPersistentList(),
++            spaceInvites = spaceInvitesState.value.toPersistentList(),
++            seenSpaceInvites = seenSpaceInvites.toPersistentSet(),
++            selectedSpaceId = selectedSpaceIdState.value,
++            children = childrenState.value.toPersistentList(),
++            isLoadingChildren = isLoadingChildrenState.value,
++            hasMoreToLoad = hasMoreToLoadState.value,
++            joinActions = joinActionsState.value.toPersistentMap(),
++            acceptInviteActions = acceptInviteActionsState.value.toPersistentMap(),
++            declineInviteActions = declineInviteActionsState.value.toPersistentMap(),
++            leaveSpaceState = LeaveSpaceState(
++                spaceId = leaveSpaceIdState.value,
++                isLoading = leaveIsLoadingState.value,
++                children = leaveChildrenState.value.toPersistentList(),
++                selectedRoomIds = selectedRoomIdsState.value.toPersistentSet(),
++                lastAdminRoomIds = lastAdminRoomIdsState.value.toPersistentSet(),
++                leaveAction = leaveActionState.value,
++            ),
++            eventSink = ::handleEvents,
++        )
++    }
++
++    private fun joinChild(
++        spaceId: RoomId?,
++        roomId: RoomId,
++        joinActionsState: MutableState<Map<RoomId, AsyncAction<Unit>>>,
++        coroutineScope: CoroutineScope,
++    ) {
++        if (spaceId == null) return
++        joinActionsState.value = joinActionsState.value + (roomId to AsyncAction.Loading)
++        coroutineScope.launch {
++            try {
++                val result = matrixClient.joinRoom(roomId)
++                val action = if (result.isSuccess) {
++                    AsyncAction.Success(Unit)
++                } else {
++                    AsyncAction.Failure(result.exceptionOrNull() ?: RuntimeException("Join failed"))
++                }
++                joinActionsState.value = joinActionsState.value + (roomId to action)
++            } catch (t: Throwable) {
++                joinActionsState.value = joinActionsState.value + (roomId to AsyncAction.Failure(t))
++            }
++        }
++    }
++}
++
++private suspend fun refreshSpacesLists(
++    dataSource: SpaceChildrenDataSource,
++    joinedSpacesState: MutableState<List<SpaceSummary>>,
++    spaceInvitesState: MutableState<List<SpaceSummary>>,
++) {
++    try {
++        val joined = dataSource.getJoinedSpaces()
++        val invites = dataSource.getSpaceInvites()
++        joinedSpacesState.value = joined
++        spaceInvitesState.value = invites
++    } catch (t: Throwable) {
++        Timber.e(t, "Failed to refresh Space lists")
++    }
++}
+diff --git a/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesStateProvider.kt b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesStateProvider.kt
+new file mode 100644
+index 0000000..5f14571
+--- /dev/null
++++ b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesStateProvider.kt
+@@ -0,0 +1,143 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.impl
++
++import androidx.compose.ui.tooling.preview.PreviewParameterProvider
++import io.element.android.features.spaces.api.LeaveSpaceAction
++import io.element.android.features.spaces.api.LeaveSpaceState
++import io.element.android.features.spaces.api.SpaceChildRoomSummary
++import io.element.android.features.spaces.api.SpaceSummary
++import io.element.android.features.spaces.api.SpacesEvents
++import io.element.android.features.spaces.api.SpacesState
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.designsystem.components.avatar.AvatarData
++import io.element.android.libraries.designsystem.components.avatar.AvatarSize
++import io.element.android.libraries.matrix.api.core.RoomId
++import kotlinx.collections.immutable.toPersistentList
++import kotlinx.collections.immutable.toPersistentMap
++import kotlinx.collections.immutable.toPersistentSet
++
++internal fun aSpacesState(
++    joinedSpaces: List<SpaceSummary> = emptyList(),
++    spaceInvites: List<SpaceSummary> = emptyList(),
++    seenSpaceInvites: Set<RoomId> = emptySet(),
++    selectedSpaceId: RoomId? = null,
++    children: List<SpaceChildRoomSummary> = emptyList(),
++    isLoadingChildren: Boolean = false,
++    hasMoreToLoad: Boolean = false,
++    joinActions: Map<RoomId, AsyncAction<Unit>> = emptyMap(),
++    acceptInviteActions: Map<RoomId, AsyncAction<Unit>> = emptyMap(),
++    declineInviteActions: Map<RoomId, AsyncAction<Unit>> = emptyMap(),
++    leaveSpaceState: LeaveSpaceState = aLeaveSpaceState(),
++    eventSink: (SpacesEvents) -> Unit = {},
++): SpacesState = SpacesState(
++    joinedSpaces = joinedSpaces.toPersistentList(),
++    spaceInvites = spaceInvites.toPersistentList(),
++    seenSpaceInvites = seenSpaceInvites.toPersistentSet(),
++    selectedSpaceId = selectedSpaceId,
++    children = children.toPersistentList(),
++    isLoadingChildren = isLoadingChildren,
++    hasMoreToLoad = hasMoreToLoad,
++    joinActions = joinActions.toPersistentMap(),
++    acceptInviteActions = acceptInviteActions.toPersistentMap(),
++    declineInviteActions = declineInviteActions.toPersistentMap(),
++    leaveSpaceState = leaveSpaceState,
++    eventSink = eventSink,
++)
++
++internal fun aLeaveSpaceState(
++    spaceId: RoomId? = null,
++    isLoading: Boolean = false,
++    children: List<SpaceChildRoomSummary> = emptyList(),
++    selectedRoomIds: Set<RoomId> = emptySet(),
++    lastAdminRoomIds: Set<RoomId> = emptySet(),
++    leaveAction: LeaveSpaceAction = LeaveSpaceAction.Idle,
++): LeaveSpaceState = LeaveSpaceState(
++    spaceId = spaceId,
++    isLoading = isLoading,
++    children = children.toPersistentList(),
++    selectedRoomIds = selectedRoomIds.toPersistentSet(),
++    lastAdminRoomIds = lastAdminRoomIds.toPersistentSet(),
++    leaveAction = leaveAction,
++)
++
++internal fun aSpaceSummary(spaceId: String = "!space:domain", name: String = "A space"): SpaceSummary =
++    SpaceSummary(
++        spaceId = RoomId(spaceId),
++        name = name,
++        avatarData = AvatarData(id = spaceId, name = name, size = AvatarSize.RoomListItem),
++        isPublic = true,
++        joinedMembersCount = 12,
++        topic = "A space topic",
++    )
++
++internal fun aChildRoomSummary(
++    roomId: String = "!child:domain",
++    name: String = "Child room",
++    isDirect: Boolean = false,
++    isLastAdmin: Boolean = false,
++    isJoined: Boolean = true,
++): SpaceChildRoomSummary = SpaceChildRoomSummary(
++    roomId = RoomId(roomId),
++    name = name,
++    avatarData = AvatarData(id = roomId, name = name, size = AvatarSize.RoomListItem),
++    topic = null,
++    isDirect = isDirect,
++    isLastAdmin = isLastAdmin,
++    isJoined = isJoined,
++    joinedMembersCount = 5,
++)
++
++class SpacesStateProvider : PreviewParameterProvider<SpacesState> {
++    override val values: Sequence<SpacesState>
++        get() = sequenceOf(
++            aSpacesState(),
++            aSpacesState(
++                joinedSpaces = listOf(aSpaceSummary()),
++                spaceInvites = listOf(aSpaceSummary(spaceId = "!invite:domain", name = "Invited space")),
++            ),
++            aSpacesState(
++                joinedSpaces = listOf(aSpaceSummary()),
++                selectedSpaceId = RoomId("!space:domain"),
++                children = listOf(
++                    aChildRoomSummary(roomId = "!a:domain", name = "A child"),
++                    aChildRoomSummary(roomId = "!b:domain", name = "B child"),
++                ),
++                hasMoreToLoad = true,
++            ),
++            aSpacesState(
++                joinedSpaces = listOf(aSpaceSummary()),
++                selectedSpaceId = RoomId("!space:domain"),
++                children = listOf(
++                    aChildRoomSummary(roomId = "!a:domain", isJoined = false),
++                ),
++                joinActions = mapOf(RoomId("!a:domain") to AsyncAction.Loading),
++            ),
++            aSpacesState(
++                joinedSpaces = listOf(aSpaceSummary()),
++                selectedSpaceId = RoomId("!space:domain"),
++                children = listOf(
++                    aChildRoomSummary(roomId = "!a:domain", isJoined = false),
++                ),
++                joinActions = mapOf(RoomId("!a:domain") to AsyncAction.Failure(RuntimeException("Boom"))),
++            ),
++            aSpacesState(
++                joinedSpaces = listOf(aSpaceSummary()),
++                leaveSpaceState = aLeaveSpaceState(
++                    spaceId = RoomId("!space:domain"),
++                    children = listOf(
++                        aChildRoomSummary(roomId = "!normal:domain"),
++                        aChildRoomSummary(roomId = "!admin:domain", isLastAdmin = true),
++                        aChildRoomSummary(roomId = "!dm:domain", isDirect = true),
++                    ),
++                    selectedRoomIds = setOf(RoomId("!normal:domain")),
++                    lastAdminRoomIds = setOf(RoomId("!admin:domain")),
++                ),
++            ),
++        )
++}
+diff --git a/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesView.kt b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesView.kt
+new file mode 100644
+index 0000000..94a7a06
+--- /dev/null
++++ b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/SpacesView.kt
+@@ -0,0 +1,508 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.impl
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.itemsIndexed
++import androidx.compose.foundation.lazy.rememberLazyListState
++import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.HorizontalDivider
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.tooling.preview.Preview
++import androidx.compose.ui.tooling.preview.PreviewParameter
++import androidx.compose.ui.unit.dp
++import io.element.android.compound.theme.ElementTheme
++import io.element.android.compound.tokens.generated.CompoundIcons
++import io.element.android.features.spaces.api.LeaveSpaceAction
++import io.element.android.features.spaces.api.LeaveSpaceState
++import io.element.android.features.spaces.api.SpaceChildRoomSummary
++import io.element.android.features.spaces.api.SpaceSummary
++import io.element.android.features.spaces.api.SpacesEvents
++import io.element.android.features.spaces.api.SpacesState
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.designsystem.components.avatar.Avatar
++import io.element.android.libraries.designsystem.components.avatar.AvatarSize
++import io.element.android.libraries.designsystem.components.avatar.AvatarType
++import io.element.android.libraries.designsystem.preview.ElementPreview
++import io.element.android.libraries.designsystem.preview.PreviewsDayNight
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.Icon
++import io.element.android.libraries.designsystem.theme.components.IconButton
++import io.element.android.libraries.designsystem.theme.components.Scaffold
++import io.element.android.libraries.designsystem.theme.components.TextButton
++import io.element.android.libraries.matrix.api.core.RoomId
++import io.element.android.libraries.ui.strings.CommonStrings
++
++@Composable
++fun SpacesView(
++    state: SpacesState,
++    modifier: Modifier = Modifier,
++    onSpaceSelected: (RoomId) -> Unit = {},
++    onRoomSelected: (RoomId) -> Unit = {},
++) {
++    Scaffold(modifier = modifier) { padding ->
++        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
++            if (state.selectedSpaceId != null) {
++                SpaceDetailView(
++                    state = state,
++                    onBack = { state.eventSink(SpacesEvents.CloseSpace) },
++                    onLoadMore = { state.eventSink(SpacesEvents.LoadMoreChildren) },
++                    onJoinChild = { roomId -> state.eventSink(SpacesEvents.JoinChild(roomId)) },
++                    onClearJoinFailure = { roomId -> state.eventSink(SpacesEvents.ClearJoinFailure(roomId)) },
++                    onRetryJoinChild = { roomId -> state.eventSink(SpacesEvents.RetryJoinChild(roomId)) },
++                    onOpenLeaveSpace = { state.eventSink(SpacesEvents.OpenLeaveSpace) },
++                    onRoomSelected = onRoomSelected,
++                )
++            } else {
++                SpacesListView(
++                    state = state,
++                    onSpaceClick = { spaceId -> state.eventSink(SpacesEvents.OpenSpace(spaceId)) },
++                    onAcceptInvite = { spaceId -> state.eventSink(SpacesEvents.AcceptSpaceInvite(spaceId)) },
++                    onDeclineInvite = { spaceId -> state.eventSink(SpacesEvents.DeclineSpaceInvite(spaceId)) },
++                    onMarkInviteSeen = { spaceId -> state.eventSink(SpacesEvents.MarkSpaceInviteAsSeen(spaceId)) },
++                )
++            }
++            if (state.leaveSpaceState.spaceId != null) {
++                LeaveSpaceSheet(
++                    state = state.leaveSpaceState,
++                    onDismiss = { state.eventSink(SpacesEvents.CloseLeaveSpace) },
++                    onSelectAll = { state.eventSink(SpacesEvents.SelectAllChildren) },
++                    onDeselectAll = { state.eventSink(SpacesEvents.DeselectAllChildren) },
++                    onToggle = { roomId -> state.eventSink(SpacesEvents.ToggleChildSelection(roomId)) },
++                    onConfirm = { state.eventSink(SpacesEvents.ConfirmLeaveSpace) },
++                    onRetry = { state.eventSink(SpacesEvents.RetryLeaveSpace) },
++                    onDismissFailure = { state.eventSink(SpacesEvents.DismissLeaveSpaceFailure) },
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun SpacesListView(
++    state: SpacesState,
++    onSpaceClick: (RoomId) -> Unit,
++    onAcceptInvite: (RoomId) -> Unit,
++    onDeclineInvite: (RoomId) -> Unit,
++    onMarkInviteSeen: (RoomId) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val listState = rememberLazyListState()
++    val invites = state.spaceInvites
++    val joined = state.joinedSpaces
++    if (joined.isEmpty() && invites.isEmpty()) {
++        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
++            Text(
++                text = stringResource(R.string.screen_spaces_no_spaces),
++                style = ElementTheme.typography.fontBodyLgRegular,
++                color = ElementTheme.colors.textPrimary,
++                textAlign = TextAlign.Center,
++                modifier = Modifier.padding(24.dp),
++            )
++        }
++        return
++    }
++    LazyColumn(modifier = modifier.fillMaxSize(), state = listState) {
++        if (invites.isNotEmpty()) {
++            item {
++                Text(
++                    text = stringResource(R.string.screen_spaces_invitations_section),
++                    style = ElementTheme.typography.fontHeadingMdBold,
++                    color = ElementTheme.colors.textPrimary,
++                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
++                )
++            }
++            itemsIndexed(invites, key = { _, item -> item.spaceId.value }) { _, invite ->
++                val acceptAction = state.acceptInviteActions[invite.spaceId]
++                val declineAction = state.declineInviteActions[invite.spaceId]
++                SpaceInviteRow(
++                    space = invite,
++                    isSeen = state.seenSpaceInvites.contains(invite.spaceId),
++                    acceptAction = acceptAction,
++                    declineAction = declineAction,
++                    onAccept = { onAcceptInvite(invite.spaceId) },
++                    onDecline = { onDeclineInvite(invite.spaceId) },
++                    onSeen = { onMarkInviteSeen(invite.spaceId) },
++                )
++                HorizontalDivider()
++            }
++        }
++        if (joined.isNotEmpty()) {
++            item {
++                Text(
++                    text = stringResource(R.string.screen_spaces_your_spaces_section),
++                    style = ElementTheme.typography.fontHeadingMdBold,
++                    color = ElementTheme.colors.textPrimary,
++                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
++                )
++            }
++            itemsIndexed(joined, key = { _, item -> item.spaceId.value }) { _, space ->
++                SpaceRow(space = space, onClick = { onSpaceClick(space.spaceId) })
++                HorizontalDivider()
++            }
++        }
++    }
++}
++
++@Composable
++private fun SpaceRow(space: SpaceSummary, onClick: () -> Unit) {
++    Row(
++        modifier = Modifier
++            .fillMaxWidth()
++            .padding(horizontal = 16.dp, vertical = 12.dp),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Avatar(avatarData = space.avatarData, avatarType = AvatarType.Room(), forcedAvatarSize = AvatarSize.RoomListItem.dp)
++        Spacer(modifier = Modifier.width(16.dp))
++        Column(modifier = Modifier.weight(1f)) {
++            Text(
++                text = space.name ?: space.spaceId.value,
++                style = ElementTheme.typography.fontBodyLgRegular,
++                color = ElementTheme.colors.textPrimary,
++            )
++            Text(
++                text = stringResource(R.string.screen_spaces_space_members_count, space.joinedMembersCount.toInt()),
++                style = ElementTheme.typography.fontBodySmRegular,
++                color = ElementTheme.colors.textSecondary,
++            )
++        }
++        IconButton(onClick = onClick) {
++            Icon(imageVector = CompoundIcons.ChevronRight(), contentDescription = null)
++        }
++    }
++}
++
++@Composable
++private fun SpaceInviteRow(
++    space: SpaceSummary,
++    isSeen: Boolean,
++    acceptAction: AsyncAction<Unit>?,
++    declineAction: AsyncAction<Unit>?,
++    onAccept: () -> Unit,
++    onDecline: () -> Unit,
++    onSeen: () -> Unit,
++) {
++    Row(
++        modifier = Modifier
++            .fillMaxWidth()
++            .padding(horizontal = 16.dp, vertical = 12.dp),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Avatar(avatarData = space.avatarData, avatarType = AvatarType.Room(), forcedAvatarSize = AvatarSize.RoomListItem.dp)
++        Spacer(modifier = Modifier.width(16.dp))
++        Column(modifier = Modifier.weight(1f)) {
++            Text(
++                text = space.name ?: space.spaceId.value,
++                style = ElementTheme.typography.fontBodyLgRegular,
++                color = ElementTheme.colors.textPrimary,
++            )
++            Text(
++                text = stringResource(R.string.screen_spaces_invitation_label),
++                style = ElementTheme.typography.fontBodySmRegular,
++                color = ElementTheme.colors.textSecondary,
++            )
++        }
++        if (!isSeen) {
++            onSeen()
++        }
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            when (acceptAction) {
++                AsyncAction.Loading -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
++                is AsyncAction.Failure -> IconButton(onClick = onAccept) {
++                    Icon(imageVector = CompoundIcons.Error(), contentDescription = null)
++                }
++                else -> TextButton(text = stringResource(CommonStrings.action_accept), onClick = onAccept)
++            }
++            when (declineAction) {
++                AsyncAction.Loading -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
++                is AsyncAction.Failure -> IconButton(onClick = onDecline) {
++                    Icon(imageVector = CompoundIcons.Error(), contentDescription = null)
++                }
++                else -> TextButton(text = stringResource(CommonStrings.action_decline), onClick = onDecline)
++            }
++        }
++    }
++}
++
++@Composable
++private fun SpaceDetailView(
++    state: SpacesState,
++    onBack: () -> Unit,
++    onLoadMore: () -> Unit,
++    onJoinChild: (RoomId) -> Unit,
++    onClearJoinFailure: (RoomId) -> Unit,
++    onRetryJoinChild: (RoomId) -> Unit,
++    onOpenLeaveSpace: () -> Unit,
++    onRoomSelected: (RoomId) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val listState = rememberLazyListState()
++    Column(modifier = modifier.fillMaxSize()) {
++        Row(
++            modifier = Modifier
++                .fillMaxWidth()
++                .padding(horizontal = 8.dp, vertical = 8.dp),
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            IconButton(onClick = onBack) {
++                Icon(imageVector = CompoundIcons.ArrowLeft(), contentDescription = stringResource(R.string.screen_spaces_action_back))
++            }
++            Text(
++                text = stringResource(R.string.screen_spaces_title),
++                style = ElementTheme.typography.fontHeadingMdBold,
++                color = ElementTheme.colors.textPrimary,
++                modifier = Modifier.weight(1f),
++                textAlign = TextAlign.Center,
++            )
++            IconButton(onClick = onOpenLeaveSpace) {
++                Icon(imageVector = CompoundIcons.Leave(), contentDescription = stringResource(R.string.screen_spaces_action_leave_space))
++            }
++        }
++        HorizontalDivider()
++        if (state.children.isEmpty() && !state.isLoadingChildren) {
++            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
++                Text(
++                    text = stringResource(R.string.screen_spaces_no_children),
++                    style = ElementTheme.typography.fontBodyLgRegular,
++                    color = ElementTheme.colors.textPrimary,
++                )
++            }
++            return@Column
++        }
++        LazyColumn(modifier = Modifier.fillMaxSize(), state = listState) {
++            itemsIndexed(state.children, key = { _, item -> item.roomId.value }) { _, child ->
++                ChildRoomRow(
++                    child = child,
++                    joinAction = state.joinActions[child.roomId],
++                    onJoin = { onJoinChild(child.roomId) },
++                    onClearJoinFailure = { onClearJoinFailure(child.roomId) },
++                    onRetryJoin = { onRetryJoinChild(child.roomId) },
++                    onClick = { onRoomSelected(child.roomId) },
++                )
++                HorizontalDivider()
++            }
++            if (state.hasMoreToLoad) {
++                item {
++                    Box(
++                        modifier = Modifier
++                            .fillMaxWidth()
++                            .padding(12.dp),
++                        contentAlignment = Alignment.Center,
++                    ) {
++                        if (state.isLoadingChildren) {
++                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
++                        } else {
++                            Button(text = stringResource(R.string.screen_spaces_action_load_more), onClick = onLoadMore)
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun ChildRoomRow(
++    child: SpaceChildRoomSummary,
++    joinAction: AsyncAction<Unit>?,
++    onJoin: () -> Unit,
++    onClearJoinFailure: () -> Unit,
++    onRetryJoin: () -> Unit,
++    onClick: () -> Unit,
++) {
++    Row(
++        modifier = Modifier
++            .fillMaxWidth()
++            .padding(horizontal = 16.dp, vertical = 12.dp),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Avatar(avatarData = child.avatarData, avatarType = AvatarType.Room(), forcedAvatarSize = AvatarSize.RoomListItem.dp)
++        Spacer(modifier = Modifier.width(16.dp))
++        Column(modifier = Modifier.weight(1f)) {
++            Text(
++                text = child.name ?: child.roomId.value,
++                style = ElementTheme.typography.fontBodyLgRegular,
++                color = ElementTheme.colors.textPrimary,
++            )
++            Text(
++                text = stringResource(R.string.screen_spaces_space_members_count, child.joinedMembersCount.toInt()),
++                style = ElementTheme.typography.fontBodySmRegular,
++                color = ElementTheme.colors.textSecondary,
++            )
++            if (joinAction is AsyncAction.Failure) {
++                Text(
++                    text = stringResource(R.string.screen_spaces_child_join_failed),
++                    style = ElementTheme.typography.fontBodySmRegular,
++                    color = ElementTheme.colors.textCriticalPrimary,
++                )
++            }
++        }
++        if (!child.isJoined) {
++            when (joinAction) {
++                AsyncAction.Loading -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
++                is AsyncAction.Failure -> Button(text = stringResource(R.string.screen_spaces_action_retry), onClick = onRetryJoin)
++                is AsyncAction.Success -> Text(
++                    text = stringResource(R.string.screen_spaces_child_joined),
++                    style = ElementTheme.typography.fontBodySmRegular,
++                    color = ElementTheme.colors.textPrimary,
++                )
++                else -> Button(text = stringResource(R.string.screen_spaces_action_join), onClick = onJoin)
++            }
++            if (joinAction is AsyncAction.Failure) {
++                TextButton(text = stringResource(R.string.screen_spaces_action_dismiss), onClick = onClearJoinFailure)
++            }
++        } else {
++            TextButton(text = stringResource(R.string.screen_spaces_action_open), onClick = onClick)
++        }
++    }
++}
++
++@Composable
++private fun LeaveSpaceSheet(
++    state: LeaveSpaceState,
++    onDismiss: () -> Unit,
++    onSelectAll: () -> Unit,
++    onDeselectAll: () -> Unit,
++    onToggle: (RoomId) -> Unit,
++    onConfirm: () -> Unit,
++    onRetry: () -> Unit,
++    onDismissFailure: () -> Unit,
++) {
++    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Text(
++                text = stringResource(R.string.screen_spaces_leave_title),
++                style = ElementTheme.typography.fontHeadingMdBold,
++                color = ElementTheme.colors.textPrimary,
++            )
++            TextButton(text = stringResource(R.string.screen_spaces_leave_action_cancel), onClick = onDismiss)
++        }
++        Spacer(modifier = Modifier.height(8.dp))
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.spacedBy(8.dp),
++        ) {
++            Button(text = stringResource(R.string.screen_spaces_leave_action_select_all), onClick = onSelectAll)
++            Button(text = stringResource(R.string.screen_spaces_leave_action_deselect_all), onClick = onDeselectAll)
++        }
++        Spacer(modifier = Modifier.height(8.dp))
++        if (state.isLoading) {
++            CircularProgressIndicator(modifier = Modifier.size(24.dp))
++        } else {
++            LazyColumn(modifier = Modifier.weight(1f)) {
++                itemsIndexed(state.children, key = { _, item -> item.roomId.value }) { _, child ->
++                    val isLastAdmin = child.roomId in state.lastAdminRoomIds
++                    val canSelect = child.canBeLeftWhenLeavingSpace
++                    val isSelected = child.roomId in state.selectedRoomIds
++                    LeaveSpaceRow(
++                        child = child,
++                        isLastAdmin = isLastAdmin,
++                        canSelect = canSelect,
++                        isSelected = isSelected,
++                        onToggle = { onToggle(child.roomId) },
++                    )
++                    HorizontalDivider()
++                }
++            }
++        }
++        Spacer(modifier = Modifier.height(8.dp))
++        when (state.leaveAction) {
++            LeaveSpaceAction.InProgress -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
++            is LeaveSpaceAction.Failure -> {
++                Row(
++                    modifier = Modifier.fillMaxWidth(),
++                    horizontalArrangement = Arrangement.spacedBy(8.dp),
++                ) {
++                    Button(text = stringResource(R.string.screen_spaces_action_retry), onClick = onRetry)
++                    Button(text = stringResource(R.string.screen_spaces_action_dismiss), onClick = onDismissFailure)
++                }
++            }
++            else -> Button(
++                text = stringResource(R.string.screen_spaces_leave_action_leave, state.selectedRoomIds.size),
++                onClick = onConfirm,
++                enabled = state.selectedRoomIds.isNotEmpty(),
++            )
++        }
++    }
++}
++
++@Composable
++private fun LeaveSpaceRow(
++    child: SpaceChildRoomSummary,
++    isLastAdmin: Boolean,
++    canSelect: Boolean,
++    isSelected: Boolean,
++    onToggle: () -> Unit,
++) {
++    Row(
++        modifier = Modifier
++            .fillMaxWidth()
++            .padding(vertical = 8.dp),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        androidx.compose.material3.Checkbox(
++            checked = isSelected,
++            onCheckedChange = { onToggle() },
++            enabled = canSelect,
++        )
++        Spacer(modifier = Modifier.width(8.dp))
++        Column(modifier = Modifier.weight(1f)) {
++            Text(
++                text = child.name ?: child.roomId.value,
++                style = ElementTheme.typography.fontBodyLgRegular,
++                color = ElementTheme.colors.textPrimary,
++            )
++            if (isLastAdmin) {
++                Text(
++                    text = stringResource(R.string.screen_spaces_leave_child_last_admin),
++                    style = ElementTheme.typography.fontBodySmRegular,
++                    color = ElementTheme.colors.textSecondary,
++                )
++            } else if (child.isDirect) {
++                Text(
++                    text = stringResource(R.string.screen_spaces_leave_child_direct),
++                    style = ElementTheme.typography.fontBodySmRegular,
++                    color = ElementTheme.colors.textSecondary,
++                )
++            }
++        }
++    }
++}
++
++@PreviewsDayNight
++@Composable
++internal fun SpacesViewPreview(@PreviewParameter(SpacesStateProvider::class) state: SpacesState) =
++    ElementPreview {
++        SpacesView(state = state)
++    }
++
++@Preview
++@Composable
++internal fun SpacesViewA11yPreview() = ElementPreview {
++    SpacesView(state = aSpacesState())
++}
+diff --git a/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/di/SpacesModule.kt b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/di/SpacesModule.kt
+new file mode 100644
+index 0000000..8d20d3b
+--- /dev/null
++++ b/features/spaces/impl/src/main/kotlin/io/element/android/features/spaces/impl/di/SpacesModule.kt
+@@ -0,0 +1,28 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.spaces.impl.di
++
++import com.squareup.anvil.annotations.ContributesTo
++import dagger.Binds
++import dagger.Module
++import io.element.android.features.spaces.api.SpacesState
++import io.element.android.features.spaces.impl.DefaultSpaceChildrenDataSource
++import io.element.android.features.spaces.impl.SpaceChildrenDataSource
++import io.element.android.features.spaces.impl.SpacesPresenter
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.di.SessionScope
++
++@ContributesTo(SessionScope::class)
++@Module
++interface SpacesModule {
++    @Binds
++    fun bindSpacesPresenter(presenter: SpacesPresenter): Presenter<SpacesState>
++
++    @Binds
++    fun bindSpaceChildrenDataSource(impl: DefaultSpaceChildrenDataSource): SpaceChildrenDataSource
++}
+diff --git a/features/spaces/impl/src/main/res/values/strings.xml b/features/spaces/impl/src/main/res/values/strings.xml
+new file mode 100644
+index 0000000..1a90fdb
+--- /dev/null
++++ b/features/spaces/impl/src/main/res/values/strings.xml
+@@ -0,0 +1,32 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  ~ Copyright 2025 New Vector Ltd.
++  ~
++  ~ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++  ~ Please see LICENSE files in the repository root for full details.
++  -->
++<resources>
++    <string name="screen_spaces_title">Spaces</string>
++    <string name="screen_spaces_invitations_section">Invitations</string>
++    <string name="screen_spaces_your_spaces_section">Your spaces</string>
++    <string name="screen_spaces_invitation_label">Space invitation</string>
++    <string name="screen_spaces_no_spaces">No spaces yet</string>
++    <string name="screen_spaces_no_children">No children yet</string>
++    <string name="screen_spaces_space_members_count">%1$d members</string>
++    <string name="screen_spaces_child_joined">Joined</string>
++    <string name="screen_spaces_child_join_failed">Failed to join</string>
++    <string name="screen_spaces_action_join">Join</string>
++    <string name="screen_spaces_action_open">Open</string>
++    <string name="screen_spaces_action_load_more">Load more</string>
++    <string name="screen_spaces_action_retry">Retry</string>
++    <string name="screen_spaces_action_dismiss">Dismiss</string>
++    <string name="screen_spaces_action_back">Back</string>
++    <string name="screen_spaces_action_leave_space">Leave Space</string>
++    <string name="screen_spaces_leave_title">Leave Space</string>
++    <string name="screen_spaces_leave_action_select_all">Select all</string>
++    <string name="screen_spaces_leave_action_deselect_all">Deselect all</string>
++    <string name="screen_spaces_leave_action_cancel">Cancel</string>
++    <string name="screen_spaces_leave_action_leave">Leave %1$d rooms</string>
++    <string name="screen_spaces_leave_child_last_admin">You\'re the last admin</string>
++    <string name="screen_spaces_leave_child_direct">Direct message</string>
++</resources>

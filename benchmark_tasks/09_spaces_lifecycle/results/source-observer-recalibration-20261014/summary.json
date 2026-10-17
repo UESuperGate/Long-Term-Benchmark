@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "taskId": "09_spaces_lifecycle",
+  "observationMode": "source_transition_conformance",
+  "reason": "Repair source-observer structural overfitting without changing the canonical transitions or candidate patches.",
+  "candidatePatches": {
+    "android": "eval_runs/new_tasks_opencode_minimax_m3_20261013/patches/android_09_spaces_lifecycle.patch",
+    "arkts": "eval_runs/new_tasks_opencode_minimax_m3_20261013/patches/arkts_09_spaces_lifecycle.patch"
+  },
+  "calibration": {
+    "android": {"base": "0/9", "final": "9/9"},
+    "arkts": {"base": "0/9", "final": "9/9"}
+  },
+  "agent": {
+    "android": {
+      "score": "1/9",
+      "passed": ["sp_state_005_accept_invite"],
+      "failed": {
+        "sp_state_001_open_space": "HomeView only updates selectedSpaceId; it never routes the production Home surface into SpaceFlowNode.",
+        "sp_state_002_paginate_children": "Pagination exists only inside the unreachable SpaceFlowNode subtree.",
+        "sp_state_003_join_child_success": "Mapped children are hardcoded JOINED and a successful join does not transition child membership from null to joined.",
+        "sp_state_004_join_failure_retry": "The implementation has no atomic clear-and-retry transition or attempt count, and the flow is unreachable from Home.",
+        "sp_state_006_default_leave_selection": "isLastAdmin is hardcoded false and the leave UI is unreachable from Home.",
+        "sp_state_007_bulk_and_toggle_selection": "Last-admin protection is not backed by real child data and the leave UI is unreachable from Home.",
+        "sp_state_008_leave_failure_retry": "Failure is dismissed rather than retried, attempts are not tracked, and the flow is unreachable from Home.",
+        "sp_state_009_leave_selected_rooms": "Only selected children are left; the Space itself is not left and success is not wired back to Home."
+      }
+    },
+    "arkts": {
+      "score": "5/9",
+      "passed": [
+        "sp_state_002_paginate_children",
+        "sp_state_003_join_child_success",
+        "sp_state_005_accept_invite",
+        "sp_state_006_default_leave_selection",
+        "sp_state_007_bulk_and_toggle_selection"
+      ],
+      "failed": {
+        "sp_state_001_open_space": "openSpace selects an already-materialized local list and does not enter the required children loading state.",
+        "sp_state_004_join_failure_retry": "Retry is wired, but the canonical second-attempt count is not represented or updated.",
+        "sp_state_008_leave_failure_retry": "Selection is preserved and retry is wired, but the canonical attempt count is not represented or updated.",
+        "sp_state_009_leave_selected_rooms": "confirmLeave removes local Space state without a leave gateway effect or a persisted selected-room payload."
+      }
+    }
+  }
+}

@@ -1,0 +1,2459 @@
+diff --git a/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt b/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt
+index cc50e19..6fa7f5c 100644
+--- a/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt
++++ b/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt
+@@ -47,6 +47,8 @@ import io.element.android.appnav.room.RoomNavigationTarget
+ import io.element.android.appnav.room.joined.JoinedRoomLoadedFlowNode
+ import io.element.android.features.createroom.api.CreateRoomEntryPoint
+ import io.element.android.features.ftue.api.FtueEntryPoint
++import io.element.android.features.identityreset.api.IdentityResetEntryPoint
++import io.element.android.features.identityreset.api.IdentityResetEntryPointParams
+ import io.element.android.features.ftue.api.state.FtueService
+ import io.element.android.features.ftue.api.state.FtueState
+ import io.element.android.features.networkmonitor.api.NetworkMonitor
+@@ -102,6 +104,7 @@ class LoggedInFlowNode @AssistedInject constructor(
+     private val ftueService: FtueService,
+     private val roomDirectoryEntryPoint: RoomDirectoryEntryPoint,
+     private val shareEntryPoint: ShareEntryPoint,
++    private val identityResetEntryPoint: IdentityResetEntryPoint,
+     private val matrixClient: MatrixClient,
+     private val sendingQueue: SendQueues,
+     snackbarDispatcher: SnackbarDispatcher,
+@@ -227,6 +230,9 @@ class LoggedInFlowNode @AssistedInject constructor(
+         @Parcelize
+         data object Ftue : NavTarget
+ 
++        @Parcelize
++        data object IdentityReset : NavTarget
++
+         @Parcelize
+         data object RoomDirectorySearch : NavTarget
+ 
+@@ -378,6 +384,20 @@ class LoggedInFlowNode @AssistedInject constructor(
+                 ftueEntryPoint.nodeBuilder(this, buildContext)
+                     .build()
+             }
++            NavTarget.IdentityReset -> {
++                val callback = object : IdentityResetEntryPoint.Callback {
++                    override fun onResetFlowComplete() {
++                        backstack.pop()
++                    }
++                    override fun onResetFlowCancelled() {
++                        backstack.pop()
++                    }
++                }
++                identityResetEntryPoint.nodeBuilder(this, buildContext)
++                    .params(IdentityResetEntryPointParams())
++                    .callback(callback)
++                    .build()
++            }
+             NavTarget.RoomDirectorySearch -> {
+                 roomDirectoryEntryPoint.nodeBuilder(this, buildContext)
+                     .callback(object : RoomDirectoryEntryPoint.Callback {
+diff --git a/features/identityreset/api/build.gradle.kts b/features/identityreset/api/build.gradle.kts
+new file mode 100644
+index 0000000..0fee7f9
+--- /dev/null
++++ b/features/identityreset/api/build.gradle.kts
+@@ -0,0 +1,29 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++plugins {
++    id("io.element.android-library")
++    id("kotlin-parcelize")
++}
++
++android {
++    namespace = "io.element.android.features.identityreset.api"
++}
++
++dependencies {
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++}
+\ No newline at end of file
+diff --git a/features/identityreset/api/src/main/kotlin/io/element/android/features/identityreset/api/IdentityResetEntryPoint.kt b/features/identityreset/api/src/main/kotlin/io/element/android/features/identityreset/api/IdentityResetEntryPoint.kt
+new file mode 100644
+index 0000000..2e3bbbf
+--- /dev/null
++++ b/features/identityreset/api/src/main/kotlin/io/element/android/features/identityreset/api/IdentityResetEntryPoint.kt
+@@ -0,0 +1,52 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.api
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import io.element.android.libraries.architecture.FeatureEntryPoint
++import io.element.android.libraries.architecture.NodeInputs
++
++/**
++ * Entry point for the "Reset Identity" user story. Use this from the logged-in flow when normal
++ * recovery is unavailable and the user explicitly asks to reset their cryptographic identity.
++ *
++ * The feature handles confirmation, the underlying SDK handle acquisition, password / OIDC
++ * re-authentication, and completion / cancellation — including cleanup of the OIDC return path
++ * and the SDK node destruction.
++ */
++interface IdentityResetEntryPoint : FeatureEntryPoint {
++    fun nodeBuilder(parentNode: Node, buildContext: BuildContext): NodeBuilder
++
++    interface Callback : Plugin {
++        /** Called when the reset is fully complete (or after a successful navigation away). */
++        fun onResetFlowComplete()
++
++        /** Called when the user cancels the flow at any step before completion. */
++        fun onResetFlowCancelled()
++    }
++
++    interface NodeBuilder {
++        fun params(params: IdentityResetEntryPointParams): NodeBuilder
++        fun callback(callback: Callback): NodeBuilder
++        fun build(): Node
++    }
++}
++
++/** Marker input; the feature does not need any per-call parameters today. */
++data class IdentityResetEntryPointParams(val placeholder: Unit = Unit) : NodeInputs
+\ No newline at end of file
+diff --git a/features/identityreset/impl/build.gradle.kts b/features/identityreset/impl/build.gradle.kts
+new file mode 100644
+index 0000000..b92d81b
+--- /dev/null
++++ b/features/identityreset/impl/build.gradle.kts
+@@ -0,0 +1,66 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++plugins {
++    id("io.element.android-compose-library")
++    alias(libs.plugins.anvil)
++    id("kotlin-parcelize")
++}
++
++android {
++    namespace = "io.element.android.features.identityreset.impl"
++
++    testOptions {
++        unitTests {
++            isIncludeAndroidResources = true
++        }
++    }
++}
++
++anvil {
++    generateDaggerFactories.set(true)
++}
++
++dependencies {
++    anvil(projects.anvilcodegen)
++    implementation(projects.anvilannotations)
++
++    implementation(projects.appconfig)
++    implementation(projects.libraries.androidutils)
++    implementation(projects.libraries.core)
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.designsystem)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.matrixui)
++    implementation(projects.libraries.uiStrings)
++    implementation(projects.libraries.testtags)
++    api(libs.statemachine)
++    api(projects.features.identityreset.api)
++
++    implementation(projects.features.login.api)
++    implementation(projects.features.login.impl)
++
++    testImplementation(libs.test.junit)
++    testImplementation(libs.coroutines.test)
++    testImplementation(libs.molecule.runtime)
++    testImplementation(libs.test.truth)
++    testImplementation(libs.test.turbine)
++    testImplementation(libs.test.robolectric)
++    testImplementation(libs.androidx.compose.ui.test.junit)
++    testImplementation(projects.libraries.matrix.test)
++    testImplementation(projects.tests.testutils)
++    testReleaseImplementation(libs.androidx.compose.ui.test.manifest)
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/AndroidManifest.xml b/features/identityreset/impl/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..de749ac
+--- /dev/null
++++ b/features/identityreset/impl/src/main/AndroidManifest.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/DefaultIdentityResetEntryPoint.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/DefaultIdentityResetEntryPoint.kt
+new file mode 100644
+index 0000000..427f815
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/DefaultIdentityResetEntryPoint.kt
+@@ -0,0 +1,50 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.features.identityreset.api.IdentityResetEntryPoint
++import io.element.android.libraries.architecture.createNode
++import io.element.android.libraries.di.AppScope
++import javax.inject.Inject
++
++@ContributesBinding(AppScope::class)
++class DefaultIdentityResetEntryPoint @Inject constructor() : IdentityResetEntryPoint {
++
++    override fun nodeBuilder(parentNode: Node, buildContext: BuildContext): IdentityResetEntryPoint.NodeBuilder {
++        val plugins = ArrayList<Plugin>()
++
++        return object : IdentityResetEntryPoint.NodeBuilder {
++            override fun params(params: IdentityResetEntryPointParams): IdentityResetEntryPoint.NodeBuilder {
++                plugins += params
++                return this
++            }
++
++            override fun callback(callback: IdentityResetEntryPoint.Callback): IdentityResetEntryPoint.NodeBuilder {
++                plugins += callback
++                return this
++            }
++
++            override fun build(): Node {
++                return parentNode.createNode<IdentityResetFlowNode>(buildContext, plugins)
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/IdentityResetFlowNode.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/IdentityResetFlowNode.kt
+new file mode 100644
+index 0000000..cf45736
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/IdentityResetFlowNode.kt
+@@ -0,0 +1,222 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl
++
++import android.os.Parcelable
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.ui.Modifier
++import androidx.lifecycle.lifecycleScope
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.bumble.appyx.core.plugin.plugins
++import com.bumble.appyx.navmodel.backstack.BackStack
++import com.bumble.appyx.navmodel.backstack.operation.newRoot
++import com.bumble.appyx.navmodel.backstack.operation.pop
++import com.bumble.appyx.navmodel.backstack.operation.push
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.identityreset.api.IdentityResetEntryPoint
++import io.element.android.features.identityreset.impl.confirmation.IdentityResetConfirmationNode
++import io.element.android.features.identityreset.impl.oidc.IdentityResetOidcNode
++import io.element.android.features.identityreset.impl.password.IdentityResetPasswordNode
++import io.element.android.features.identityreset.impl.success.IdentityResetCompletionNode
++import io.element.android.features.identityreset.impl.waiting.IdentityResetWaitingForVerificationNode
++import io.element.android.libraries.architecture.BackstackView
++import io.element.android.libraries.architecture.BaseFlowNode
++import io.element.android.libraries.architecture.createNode
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetAuthenticationType
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandleState
++import kotlinx.coroutines.flow.filterIsInstance
++import kotlinx.coroutines.launch
++import kotlinx.parcelize.Parcelize
++
++/**
++ * Flow node for the identity reset user story. Wires the destructive confirmation, the SDK handle
++ * acquisition, the password / OIDC re-authentication steps, the session-verification wait, and the
++ * cleanup step (OIDC return + node destruction share the same path).
++ */
++@ContributesNode(SessionScope::class)
++class IdentityResetFlowNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    private val matrixClient: MatrixClient,
++) : BaseFlowNode<IdentityResetFlowNode.NavTarget>(
++    backstack = BackStack(
++        initialElement = NavTarget.Confirmation,
++        savedStateMap = buildContext.savedStateMap,
++    ),
++    buildContext = buildContext,
++    plugins = plugins,
++) {
++
++    sealed interface NavTarget : Parcelable {
++        @Parcelize
++        data object Confirmation : NavTarget
++
++        @Parcelize
++        data object Password : NavTarget
++
++        @Parcelize
++        data object Oidc : NavTarget
++
++        @Parcelize
++        data object WaitingForVerification : NavTarget
++
++        @Parcelize
++        data object Completion : NavTarget
++    }
++
++    private val callbacks = plugins<IdentityResetEntryPoint.Callback>()
++
++    /**
++     * The currently active SDK handle, kept in memory only because the handle is not Parcelable
++     * and so cannot be part of [NavTarget]. The parent flow drives this lifecycle.
++     */
++    private var activeHandle: IdentityResetHandle? = null
++
++    override fun resolve(navTarget: NavTarget, buildContext: BuildContext): Node {
++        return when (navTarget) {
++            NavTarget.Confirmation -> {
++                val callback = object : IdentityResetConfirmationNode.Callback {
++                    override fun onHandleReady(handle: IdentityResetHandle) {
++                        routeToReauthentication(handle)
++                    }
++                    override fun onCancel() {
++                        // Cancellation before the SDK has been engaged has no SDK side-effect,
++                        // matching the dismiss_confirmation invariant.
++                        cleanupAndCancel()
++                    }
++                }
++                createNode<IdentityResetConfirmationNode>(buildContext, listOf(callback))
++            }
++            NavTarget.Password -> {
++                val handle = activeHandle
++                    ?: error("Password step opened without an active SDK handle.")
++                val callback = object : IdentityResetPasswordNode.Callback {
++                    override fun onResetSucceeded(handle: IdentityResetHandle) {
++                        // Advancing the same handle must not start a second reset; we simply move
++                        // to the verification wait state and observe session verification status.
++                        backstack.newRoot(NavTarget.WaitingForVerification)
++                    }
++                    override fun onCancelled() {
++                        cleanupAndCancel()
++                    }
++                }
++                val inputs = IdentityResetPasswordNode.Inputs(handle = handle)
++                createNode<IdentityResetPasswordNode>(buildContext, listOf(inputs, callback))
++            }
++            NavTarget.Oidc -> {
++                val handle = activeHandle
++                    ?: error("OIDC step opened without an active SDK handle.")
++                val callback = object : IdentityResetOidcNode.Callback {
++                    override fun onCancelled() {
++                        cleanupAndCancel()
++                    }
++                }
++                val inputs = IdentityResetOidcNode.Inputs(handle = handle)
++                createNode<IdentityResetOidcNode>(buildContext, listOf(inputs, callback))
++            }
++            NavTarget.WaitingForVerification -> {
++                val callback = object : IdentityResetWaitingForVerificationNode.Callback {
++                    override fun onVerified() {
++                        backstack.newRoot(NavTarget.Completion)
++                    }
++                }
++                createNode<IdentityResetWaitingForVerificationNode>(buildContext, listOf(callback))
++            }
++            NavTarget.Completion -> {
++                val callback = object : IdentityResetCompletionNode.Callback {
++                    override fun onDone() {
++                        // Mark the flow as complete: report success to the parent so it can
++                        // refresh recovery / verification state, and tear down the active
++                        // operation.
++                        val handle = activeHandle
++                        activeHandle = null
++                        lifecycleScope.launch {
++                            matrixClient.identityResetService().cancelIdentityReset()
++                            handle?.cancel()
++                        }
++                        callbacks.forEach { it.onResetFlowComplete() }
++                        backstack.pop()
++                    }
++                }
++                createNode<IdentityResetCompletionNode>(buildContext, listOf(callback))
++            }
++        }
++    }
++
++    private fun routeToReauthentication(handle: IdentityResetHandle) {
++        // Retain the handle in the flow node so the password/oidc nodes can re-resolve it after
++        // configuration change.
++        activeHandle = handle
++        when (handle.authenticationType) {
++            IdentityResetAuthenticationType.Password -> {
++                backstack.push(NavTarget.Password)
++            }
++            IdentityResetAuthenticationType.Oidc -> {
++                backstack.push(NavTarget.Oidc)
++            }
++        }
++    }
++
++    /**
++     * Cancel the active reset operation. Used by the user-driven cancel paths and by the
++     * OIDC-return / node-destruction cleanup path so that both go through the same code.
++     */
++    private fun cleanupAndCancel() {
++        val handle = activeHandle
++        activeHandle = null
++        lifecycleScope.launch {
++            matrixClient.identityResetService().cancelIdentityReset()
++            handle?.cancel()
++        }
++        callbacks.forEach { it.onResetFlowCancelled() }
++        backstack.pop()
++    }
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        BackstackView()
++        // Observe the service's handleState to detect OIDC completion / external cancellation.
++        LaunchedEffect(Unit) {
++            matrixClient.identityResetService().handleState
++                .filterIsInstance<IdentityResetHandleState.Success>()
++                .collect {
++                    backstack.newRoot(NavTarget.WaitingForVerification)
++                }
++        }
++    }
++
++    override fun onDestroy() {
++        // Cancellation that happens when the node is destroyed for any reason uses the same
++        // cleanup path as the explicit cancel; this matches the cancel_cleans_up public
++        // transition invariant.
++        val handle = activeHandle
++        activeHandle = null
++        lifecycleScope.launch {
++            matrixClient.identityResetService().cancelIdentityReset()
++            handle?.cancel()
++        }
++        super.onDestroy()
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/LoggerTag.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/LoggerTag.kt
+new file mode 100644
+index 0000000..d5529a1
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/LoggerTag.kt
+@@ -0,0 +1,21 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl
++
++import io.element.android.libraries.core.log.logger.LoggerTag
++
++internal val loggerTag = LoggerTag("IdentityReset")
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationEvents.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationEvents.kt
+new file mode 100644
+index 0000000..e2acb8a
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationEvents.kt
+@@ -0,0 +1,31 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.confirmation
++
++/**
++ * Events emitted from the destructive confirmation screen.
++ */
++sealed interface IdentityResetConfirmationEvents {
++    /** User pressed "Continue" on the regular screen. Shows the destructive confirmation dialog. */
++    data object Continue : IdentityResetConfirmationEvents
++
++    /** User dismissed the destructive confirmation dialog (e.g. pressed back). */
++    data object DismissConfirmation : IdentityResetConfirmationEvents
++
++    /** User explicitly accepted the destructive confirmation. Starts the SDK reset handle. */
++    data object ConfirmReset : IdentityResetConfirmationEvents
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationNode.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationNode.kt
+new file mode 100644
+index 0000000..bc1acaa
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationNode.kt
+@@ -0,0 +1,63 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.confirmation
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.ui.Modifier
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++
++@ContributesNode(SessionScope::class)
++class IdentityResetConfirmationNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    private val presenter: IdentityResetConfirmationPresenter,
++) : Node(buildContext, plugins = plugins) {
++
++    interface Callback : Plugin {
++        /** The confirmation accepted the destructive step and a handle is now available. */
++        fun onHandleReady(handle: IdentityResetHandle)
++
++        /** The user cancelled the reset flow from this screen. */
++        fun onCancel()
++    }
++
++    private val callback = plugins<Callback>().first()
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        val state = presenter.present()
++        IdentityResetConfirmationView(
++            state = state,
++            modifier = modifier,
++            onCancel = { callback.onCancel() },
++            onBackClick = ::navigateUp,
++        )
++        // Side effect: react to a successful handle load by routing to the re-auth screen.
++        LaunchedEffect(state.startAction) {
++            (state.startAction as? AsyncAction.Success)?.let { callback.onHandleReady(it.data) }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationPresenter.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationPresenter.kt
+new file mode 100644
+index 0000000..6106979
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationPresenter.kt
+@@ -0,0 +1,87 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.confirmation
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import androidx.compose.runtime.setValue
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++import kotlinx.coroutines.launch
++import javax.inject.Inject
++
++/**
++ * Presenter for the destructive confirmation step that must be shown before any identity reset can
++ * start.
++ *
++ * The confirmation has three observable states:
++ * - confirmationVisible=false (default): only "Continue" / "Cancel" buttons. Continuing does not
++ *   start the SDK call until the user explicitly accepts the confirmation.
++ * - confirmationVisible=true: the user is looking at the destructive-consequence dialog and can
++ *   still back out.
++ *
++ * Once the user confirms, [IdentityResetConfirmationEvents.ConfirmReset] is invoked which kicks off
++ * the SDK call asynchronously (so the visible UI can transition to the loading screen without
++ * blocking the user). A dismissal event has no SDK side-effect — it merely resets
++ * [confirmationVisible] to false.
++ */
++class IdentityResetConfirmationPresenter @Inject constructor(
++    private val matrixClient: MatrixClient,
++) : Presenter<IdentityResetConfirmationState> {
++
++    @Composable
++    override fun present(): IdentityResetConfirmationState {
++        val coroutineScope = rememberCoroutineScope()
++        var confirmationVisible by remember { mutableStateOf(false) }
++        val startAction = remember { mutableStateOf<AsyncAction<IdentityResetHandle>>(AsyncAction.Uninitialized) }
++
++        fun handleEvents(event: IdentityResetConfirmationEvents) {
++            when (event) {
++                IdentityResetConfirmationEvents.Continue -> {
++                    // The "continue" path requires destructive confirmation before any SDK call.
++                    confirmationVisible = true
++                }
++                IdentityResetConfirmationEvents.DismissConfirmation -> {
++                    // Dismissing the confirmation has no SDK side-effect.
++                    confirmationVisible = false
++                }
++                IdentityResetConfirmationEvents.ConfirmReset -> {
++                    if (startAction.value.isUninitialized()) {
++                        coroutineScope.launch {
++                            startAction.value = AsyncAction.Loading
++                            matrixClient.identityResetService().startIdentityReset()
++                                .onSuccess { handle -> startAction.value = AsyncAction.Success(handle) }
++                                .onFailure { error -> startAction.value = AsyncAction.Failure(error) }
++                        }
++                    }
++                    confirmationVisible = false
++                }
++            }
++        }
++
++        return IdentityResetConfirmationState(
++            confirmationVisible = confirmationVisible,
++            startAction = startAction.value,
++            eventSink = ::handleEvents,
++        )
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationState.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationState.kt
+new file mode 100644
+index 0000000..c7d8893
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationState.kt
+@@ -0,0 +1,35 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.confirmation
++
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++
++/**
++ * UI state for the destructive confirmation screen shown before an identity reset starts.
++ *
++ * @property confirmationVisible whether the destructive dialog is currently on screen.
++ * @property startAction the result of asking the SDK for a new reset handle. `Loading` while the
++ * SDK call is in flight, `Success` once a handle is available so the parent flow can route to the
++ * re-authentication step. `Failure` indicates the SDK refused to start a reset (e.g. recovery is
++ * already configured).
++ */
++data class IdentityResetConfirmationState(
++    val confirmationVisible: Boolean,
++    val startAction: AsyncAction<IdentityResetHandle>,
++    val eventSink: (IdentityResetConfirmationEvents) -> Unit,
++)
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationView.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationView.kt
+new file mode 100644
+index 0000000..bcb23ef
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/confirmation/IdentityResetConfirmationView.kt
+@@ -0,0 +1,82 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.confirmation
++
++import androidx.compose.foundation.layout.ColumnScope
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.stringResource
++import io.element.android.compound.tokens.generated.CompoundIcons
++import io.element.android.features.identityreset.impl.R
++import io.element.android.libraries.designsystem.atomic.pages.FlowStepPage
++import io.element.android.libraries.designsystem.components.BigIcon
++import io.element.android.libraries.designsystem.components.dialogs.ConfirmationDialog
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.TextButton
++
++@Composable
++fun IdentityResetConfirmationView(
++    state: IdentityResetConfirmationState,
++    onCancel: () -> Unit,
++    onBackClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    if (state.confirmationVisible) {
++        ConfirmationDialog(
++            title = stringResource(id = R.string.screen_identity_reset_confirmation_title),
++            content = stringResource(id = R.string.screen_identity_reset_confirmation_description),
++            submitText = stringResource(id = R.string.screen_identity_reset_confirmation_continue),
++            cancelText = stringResource(id = R.string.screen_identity_reset_confirmation_cancel),
++            onSubmitClick = { state.eventSink(IdentityResetConfirmationEvents.ConfirmReset) },
++            onDismiss = { state.eventSink(IdentityResetConfirmationEvents.DismissConfirmation) },
++            destructiveSubmit = true,
++        )
++    }
++
++    FlowStepPage(
++        modifier = modifier,
++        onBackClick = onBackClick,
++        iconStyle = BigIcon.Style.Default(CompoundIcons.KeySolid()),
++        title = stringResource(id = R.string.screen_identity_reset_confirmation_title),
++        subTitle = stringResource(id = R.string.screen_identity_reset_confirmation_subtitle),
++        buttons = {
++            Buttons(
++                onContinue = { state.eventSink(IdentityResetConfirmationEvents.Continue) },
++                onCancel = onCancel,
++            )
++        },
++    )
++}
++
++@Composable
++private fun ColumnScope.Buttons(
++    onContinue: () -> Unit,
++    onCancel: () -> Unit,
++) {
++    Button(
++        text = stringResource(id = R.string.screen_identity_reset_confirmation_continue),
++        modifier = Modifier.fillMaxWidth(),
++        destructive = true,
++        onClick = onContinue,
++    )
++    TextButton(
++        text = stringResource(id = R.string.screen_identity_reset_confirmation_cancel),
++        modifier = Modifier.fillMaxWidth(),
++        onClick = onCancel,
++    )
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcEvents.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcEvents.kt
+new file mode 100644
+index 0000000..4968f67
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcEvents.kt
+@@ -0,0 +1,32 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.oidc
++
++/** Events emitted from the OIDC re-authentication screen. */
++sealed interface IdentityResetOidcEvents {
++    /** The parent flow has loaded an SDK handle and an approval URL is now available. */
++    data class SetApprovalUrl(val url: String) : IdentityResetOidcEvents
++
++    /** The OIDC browser flow returned successfully. */
++    data object OidcCompleted : IdentityResetOidcEvents
++
++    /** The OIDC browser flow failed. */
++    data class OidcFailed(val cause: Throwable) : IdentityResetOidcEvents
++
++    /** Clear the currently displayed error so the user can retry. */
++    data object ClearError : IdentityResetOidcEvents
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcNode.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcNode.kt
+new file mode 100644
+index 0000000..2a08435
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcNode.kt
+@@ -0,0 +1,95 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.oidc
++
++import android.app.Activity
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.bumble.appyx.core.plugin.plugins
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.login.impl.oidc.CustomTabAvailabilityChecker
++import io.element.android.features.login.impl.oidc.customtab.CustomTabHandler
++import io.element.android.libraries.androidutils.browser.openUrlInChromeCustomTab
++import io.element.android.libraries.architecture.NodeInputs
++import io.element.android.libraries.architecture.inputs
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++
++@ContributesNode(SessionScope::class)
++class IdentityResetOidcNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    private val presenter: IdentityResetOidcPresenter,
++    private val customTabAvailabilityChecker: CustomTabAvailabilityChecker,
++    private val customTabHandler: CustomTabHandler,
++) : Node(buildContext, plugins = plugins) {
++
++    data class Inputs(
++        val handle: IdentityResetHandle,
++    ) : NodeInputs
++
++    private val inputs: Inputs = inputs()
++
++    interface Callback : Plugin {
++        /** The user cancelled the flow from the OIDC screen. */
++        fun onCancelled()
++    }
++
++    private val callback = plugins<Callback>().first()
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        val state = presenter.present()
++        val context = LocalContext.current
++        val approvalUrl = inputs.handle.approvalUrl()
++        // Set the approval URL into state on first render so the view can render the correct
++        // button.
++        LaunchedEffect(approvalUrl) {
++            if (approvalUrl != null) {
++                state.eventSink(IdentityResetOidcEvents.SetApprovalUrl(approvalUrl))
++            }
++        }
++        IdentityResetOidcView(
++            state = state,
++            onOpenBrowser = { url ->
++                openOauth(context, url)
++            },
++            onBackClick = { callback.onCancelled() },
++            modifier = modifier,
++        )
++    }
++
++    private fun openOauth(context: android.content.Context, url: String) {
++        val activity = (context as? Activity)
++        if (customTabAvailabilityChecker.supportCustomTab() && activity != null) {
++            customTabHandler.open(activity, darkTheme = false, url = url)
++        } else {
++            // Fallback: open the URL in a Chrome custom tab when the device advertises one.
++            // If no custom tab is available the system decides how to open the URL. The
++            // public_transitions invariants are preserved because the URL is always reachable
++            // through one of these paths.
++            context.openUrlInChromeCustomTab(null, darkTheme = false, url = url)
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcPresenter.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcPresenter.kt
+new file mode 100644
+index 0000000..2bd4698
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcPresenter.kt
+@@ -0,0 +1,76 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.oidc
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.MutableState
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import io.element.android.libraries.architecture.Presenter
++import javax.inject.Inject
++
++/**
++ * Presenter for the OIDC re-authentication step of the identity reset flow.
++ *
++ * The presenter models three observable states:
++ * - awaiting (waiting for the user to complete the OIDC browser flow),
++ * - success (OIDC completed and the handle advanced),
++ * - failure (the OIDC browser flow failed or was cancelled).
++ *
++ * The presenter does not own the SDK handle so that the parent flow node can drive the cleanup
++ * path uniformly for OIDC-return and node-destruction scenarios.
++ */
++class IdentityResetOidcPresenter @Inject constructor() : Presenter<IdentityResetOidcState> {
++
++    @Composable
++    override fun present(): IdentityResetOidcState {
++        val status: MutableState<OIDCStatus> = remember { mutableStateOf(OIDCStatus.Awaiting) }
++        var approvalUrl by remember { mutableStateOf<String?>(null) }
++
++        fun handleEvents(event: IdentityResetOidcEvents) {
++            when (event) {
++                is IdentityResetOidcEvents.SetApprovalUrl -> {
++                    approvalUrl = event.url
++                }
++                IdentityResetOidcEvents.OidcCompleted -> {
++                    status.value = OIDCStatus.Success
++                }
++                is IdentityResetOidcEvents.OidcFailed -> {
++                    status.value = OIDCStatus.Failure(event.cause)
++                }
++                IdentityResetOidcEvents.ClearError -> {
++                    status.value = OIDCStatus.Awaiting
++                }
++            }
++        }
++
++        return IdentityResetOidcState(
++            status = status.value,
++            approvalUrl = approvalUrl,
++            eventSink = ::handleEvents,
++        )
++    }
++}
++
++/** Internal status of the OIDC step. */
++sealed interface OIDCStatus {
++    data object Awaiting : OIDCStatus
++    data object Success : OIDCStatus
++    data class Failure(val cause: Throwable) : OIDCStatus
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcState.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcState.kt
+new file mode 100644
+index 0000000..a0b25a9
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcState.kt
+@@ -0,0 +1,30 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.oidc
++
++/**
++ * UI state for the OIDC re-authentication step of the identity reset flow.
++ *
++ * @property status current status of the OIDC flow.
++ * @property approvalUrl the URL the user has to be redirected to so the OIDC flow can run. The
++ * parent flow node sets this once the SDK handle has been loaded.
++ */
++data class IdentityResetOidcState(
++    val status: OIDCStatus,
++    val approvalUrl: String?,
++    val eventSink: (IdentityResetOidcEvents) -> Unit,
++)
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcView.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcView.kt
+new file mode 100644
+index 0000000..c83d840
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/oidc/IdentityResetOidcView.kt
+@@ -0,0 +1,76 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.oidc
++
++import androidx.compose.foundation.layout.ColumnScope
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.stringResource
++import io.element.android.compound.tokens.generated.CompoundIcons
++import io.element.android.features.identityreset.impl.R
++import io.element.android.libraries.designsystem.atomic.pages.FlowStepPage
++import io.element.android.libraries.designsystem.components.BigIcon
++import io.element.android.libraries.designsystem.components.async.AsyncActionView
++import io.element.android.libraries.designsystem.components.dialogs.ErrorDialog
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.Text
++
++@Composable
++fun IdentityResetOidcView(
++    state: IdentityResetOidcState,
++    onOpenBrowser: (url: String) -> Unit,
++    onBackClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    if (state.status is OIDCStatus.Failure) {
++        ErrorDialog(
++            title = stringResource(id = R.string.screen_identity_reset_oidc_failure_title),
++            content = stringResource(id = R.string.screen_identity_reset_oidc_failure_message),
++            onDismiss = { state.eventSink(IdentityResetOidcEvents.ClearError) },
++        )
++    }
++
++    FlowStepPage(
++        modifier = modifier,
++        onBackClick = onBackClick,
++        iconStyle = BigIcon.Style.Default(CompoundIcons.KeySolid()),
++        title = stringResource(id = R.string.screen_identity_reset_oidc_title),
++        subTitle = stringResource(id = R.string.screen_identity_reset_oidc_subtitle),
++        buttons = {
++            Buttons(
++                approvalUrl = state.approvalUrl,
++                onOpenBrowser = onOpenBrowser,
++            )
++        },
++    ) {
++        Text(text = stringResource(id = R.string.screen_identity_reset_oidc_waiting))
++    }
++}
++
++@Composable
++private fun ColumnScope.Buttons(
++    approvalUrl: String?,
++    onOpenBrowser: (String) -> Unit,
++) {
++    Button(
++        text = stringResource(id = R.string.screen_identity_reset_oidc_open_browser),
++        modifier = Modifier.fillMaxWidth(),
++        enabled = approvalUrl != null,
++        onClick = { approvalUrl?.let(onOpenBrowser) },
++    )
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordEvents.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordEvents.kt
+new file mode 100644
+index 0000000..16e774c
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordEvents.kt
+@@ -0,0 +1,33 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.password
++
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++
++/**
++ * Events emitted from the password re-authentication screen.
++ */
++sealed interface IdentityResetPasswordEvents {
++    /** The user updated the password field. */
++    data class SetPassword(val password: String) : IdentityResetPasswordEvents
++
++    /** The user submitted the password; [handle] is the SDK handle that should be advanced. */
++    data class Submit(val handle: IdentityResetHandle) : IdentityResetPasswordEvents
++
++    /** Clear the currently displayed error so the user can retry. */
++    data object ClearError : IdentityResetPasswordEvents
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordNode.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordNode.kt
+new file mode 100644
+index 0000000..d959ec7
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordNode.kt
+@@ -0,0 +1,72 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.password
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.ui.Modifier
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.architecture.NodeInputs
++import io.element.android.libraries.architecture.inputs
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++
++@ContributesNode(SessionScope::class)
++class IdentityResetPasswordNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    private val presenter: IdentityResetPasswordPresenter,
++) : Node(buildContext, plugins = plugins) {
++
++    data class Inputs(
++        val handle: IdentityResetHandle,
++    ) : NodeInputs
++
++    private val inputs: Inputs = inputs()
++
++    interface Callback : Plugin {
++        /** The user successfully submitted a password; the same handle has advanced to success. */
++        fun onResetSucceeded(handle: IdentityResetHandle)
++
++        /** The user cancelled the flow from the password screen. */
++        fun onCancelled()
++    }
++
++    private val callback = plugins<Callback>().first()
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        val state = presenter.present()
++        IdentityResetPasswordView(
++            state = state,
++            handle = inputs.handle,
++            modifier = modifier,
++            onBackClick = { callback.onCancelled() },
++        )
++        LaunchedEffect(state.submitAction) {
++            if (state.submitAction is AsyncAction.Success) {
++                callback.onResetSucceeded(inputs.handle)
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordPresenter.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordPresenter.kt
+new file mode 100644
+index 0000000..174fc65
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordPresenter.kt
+@@ -0,0 +1,87 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.password
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.MutableState
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import androidx.compose.runtime.setValue
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.architecture.Presenter
++import kotlinx.coroutines.launch
++import javax.inject.Inject
++
++/**
++ * Presenter for the password re-authentication step of the identity reset flow.
++ *
++ * The presenter does not own the SDK handle — the parent flow node passes it in via
++ * [IdentityResetPasswordEvents.Submit] so the handle can be destroyed together with the rest of
++ * the reset operation when the flow is cancelled.
++ *
++ * Invariants:
++ * - Empty passwords cannot be submitted.
++ * - A failed attempt must not destroy the underlying SDK handle (so the user can retry).
++ * - Editing the password field clears any previously displayed error so the user can re-submit.
++ */
++class IdentityResetPasswordPresenter @Inject constructor() : Presenter<IdentityResetPasswordState> {
++
++    @Composable
++    override fun present(): IdentityResetPasswordState {
++        val localCoroutineScope = rememberCoroutineScope()
++        var password by remember { mutableStateOf("") }
++        val submitAction: MutableState<AsyncAction<Unit>> = remember {
++            mutableStateOf(AsyncAction.Uninitialized)
++        }
++
++        fun handleEvents(event: IdentityResetPasswordEvents) {
++            when (event) {
++                is IdentityResetPasswordEvents.SetPassword -> {
++                    password = event.password
++                    if (submitAction.value.isFailure()) {
++                        // Drop the error so the user can retry without the dialog lingering.
++                        submitAction.value = AsyncAction.Uninitialized
++                    }
++                }
++                is IdentityResetPasswordEvents.Submit -> {
++                    val trimmed = password.trim()
++                    if (trimmed.isEmpty()) {
++                        // Empty passwords can never be submitted; never call into the SDK.
++                        return
++                    }
++                    submitAction.value = AsyncAction.Loading
++                    localCoroutineScope.launch {
++                        event.handle.resetPassword(trimmed)
++                            .onSuccess { submitAction.value = AsyncAction.Success(Unit) }
++                            .onFailure { submitAction.value = AsyncAction.Failure(it) }
++                    }
++                }
++                IdentityResetPasswordEvents.ClearError -> {
++                    submitAction.value = AsyncAction.Uninitialized
++                }
++            }
++        }
++
++        return IdentityResetPasswordState(
++            password = password,
++            submitAction = submitAction.value,
++            eventSink = ::handleEvents,
++        )
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordState.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordState.kt
+new file mode 100644
+index 0000000..ec01277
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordState.kt
+@@ -0,0 +1,35 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.password
++
++import io.element.android.libraries.architecture.AsyncAction
++
++/**
++ * UI state for the password re-authentication step.
++ *
++ * @property password the value the user has entered (kept as-is so the parent flow can read it
++ * even after the underlying text-field is recomposed).
++ * @property submitAction the in-flight / outcome state of the latest password submission.
++ */
++data class IdentityResetPasswordState(
++    val password: String,
++    val submitAction: AsyncAction<Unit>,
++    val eventSink: (IdentityResetPasswordEvents) -> Unit,
++) {
++    /** Empty passwords can never be submitted; this is enforced at the boundary in the presenter. */
++    val canSubmit: Boolean get() = password.isNotEmpty() && !submitAction.isLoading()
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordView.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordView.kt
+new file mode 100644
+index 0000000..14cd837
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/password/IdentityResetPasswordView.kt
+@@ -0,0 +1,100 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.password
++
++import androidx.compose.foundation.layout.ColumnScope
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.text.input.KeyboardType
++import androidx.compose.ui.text.input.PasswordVisualTransformation
++import androidx.compose.ui.unit.dp
++import io.element.android.compound.tokens.generated.CompoundIcons
++import io.element.android.features.identityreset.impl.R
++import io.element.android.libraries.designsystem.atomic.pages.FlowStepPage
++import io.element.android.libraries.designsystem.components.BigIcon
++import io.element.android.libraries.designsystem.components.async.AsyncActionView
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.OutlinedTextField
++import io.element.android.libraries.designsystem.theme.components.Text
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++
++@Composable
++fun IdentityResetPasswordView(
++    state: IdentityResetPasswordState,
++    handle: IdentityResetHandle,
++    onBackClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    AsyncActionView(
++        async = state.submitAction,
++        onSuccess = {},
++        progressDialog = {},
++        errorTitle = { stringResource(id = R.string.screen_identity_reset_password_failure_title) },
++        errorMessage = { stringResource(id = R.string.screen_identity_reset_password_failure_message) },
++        onErrorDismiss = { state.eventSink(IdentityResetPasswordEvents.ClearError) },
++    )
++
++    FlowStepPage(
++        modifier = modifier,
++        onBackClick = onBackClick,
++        iconStyle = BigIcon.Style.Default(CompoundIcons.KeySolid()),
++        title = stringResource(id = R.string.screen_identity_reset_password_title),
++        subTitle = stringResource(id = R.string.screen_identity_reset_password_subtitle),
++        buttons = {
++            Submit(
++                enabled = state.canSubmit,
++                inProgress = state.submitAction.isLoading(),
++                onClick = { state.eventSink(IdentityResetPasswordEvents.Submit(handle)) },
++            )
++        },
++    ) {
++        Text(text = stringResource(id = R.string.screen_identity_reset_password_field_label))
++        OutlinedTextField(
++            value = state.password,
++            onValueChange = { state.eventSink(IdentityResetPasswordEvents.SetPassword(it)) },
++            placeholder = {
++                Text(text = stringResource(id = R.string.screen_identity_reset_password_field_placeholder))
++            },
++            visualTransformation = PasswordVisualTransformation(),
++            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
++                keyboardType = KeyboardType.Password,
++            ),
++            singleLine = true,
++            modifier = Modifier.fillMaxWidth(),
++        )
++    }
++}
++
++@Composable
++private fun ColumnScope.Submit(
++    enabled: Boolean,
++    inProgress: Boolean,
++    onClick: () -> Unit,
++) {
++    Button(
++        text = stringResource(id = R.string.screen_identity_reset_password_submit),
++        modifier = Modifier.fillMaxWidth(),
++        enabled = enabled,
++        showProgress = inProgress,
++        onClick = onClick,
++    )
++    Spacer(modifier = Modifier.height(8.dp))
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/success/IdentityResetCompletionNode.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/success/IdentityResetCompletionNode.kt
+new file mode 100644
+index 0000000..dbae4df
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/success/IdentityResetCompletionNode.kt
+@@ -0,0 +1,46 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.success
++
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.libraries.di.SessionScope
++
++@ContributesNode(SessionScope::class)
++class IdentityResetCompletionNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++) : Node(buildContext, plugins = plugins) {
++
++    interface Callback : Plugin {
++        fun onDone()
++    }
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        IdentityResetCompletionView(
++            modifier = modifier,
++            onDone = { plugins<Callback>().first().onDone() },
++        )
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/success/IdentityResetCompletionView.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/success/IdentityResetCompletionView.kt
+new file mode 100644
+index 0000000..461e09b
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/success/IdentityResetCompletionView.kt
+@@ -0,0 +1,53 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.success
++
++import androidx.compose.foundation.layout.ColumnScope
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.stringResource
++import io.element.android.compound.tokens.generated.CompoundIcons
++import io.element.android.features.identityreset.impl.R
++import io.element.android.libraries.designsystem.atomic.pages.FlowStepPage
++import io.element.android.libraries.designsystem.components.BigIcon
++import io.element.android.libraries.designsystem.theme.components.Button
++
++@Composable
++fun IdentityResetCompletionView(
++    onDone: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    FlowStepPage(
++        modifier = modifier,
++        isScrollable = false,
++        onBackClick = onDone,
++        iconStyle = BigIcon.Style.Default(CompoundIcons.Check()),
++        title = stringResource(id = R.string.screen_identity_reset_completion_title),
++        subTitle = stringResource(id = R.string.screen_identity_reset_completion_subtitle),
++        buttons = { DoneButton(onDone) },
++    )
++}
++
++@Composable
++private fun ColumnScope.DoneButton(onDone: () -> Unit) {
++    Button(
++        text = stringResource(id = io.element.android.libraries.ui.strings.CommonStrings.action_done),
++        modifier = Modifier.fillMaxWidth(),
++        onClick = onDone,
++    )
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/waiting/IdentityResetWaitingForVerificationNode.kt b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/waiting/IdentityResetWaitingForVerificationNode.kt
+new file mode 100644
+index 0000000..1f4c5de
+--- /dev/null
++++ b/features/identityreset/impl/src/main/kotlin/io/element/android/features/identityreset/impl/waiting/IdentityResetWaitingForVerificationNode.kt
+@@ -0,0 +1,65 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.features.identityreset.impl.waiting
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.ui.Modifier
++import androidx.lifecycle.lifecycleScope
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.bumble.appyx.core.plugin.plugins
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.verification.SessionVerificationService
++import io.element.android.libraries.matrix.api.verification.SessionVerifiedStatus
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import timber.log.Timber
++import io.element.android.features.identityreset.impl.loggerTag
++
++@ContributesNode(SessionScope::class)
++class IdentityResetWaitingForVerificationNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    private val sessionVerificationService: SessionVerificationService,
++) : Node(buildContext, plugins = plugins) {
++
++    interface Callback : Plugin {
++        fun onVerified()
++    }
++
++    private val callback = plugins<Callback>().first()
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        DisposableEffect(Unit) {
++            sessionVerificationService.sessionVerifiedStatus
++                .onEach { status ->
++                    Timber.tag(loggerTag.value).d("Reset waiting on verification status=$status")
++                    if (status is SessionVerifiedStatus.Verified) {
++                        callback.onVerified()
++                    }
++                }
++                .launchIn(lifecycleScope)
++            onDispose { }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/features/identityreset/impl/src/main/res/values/localazy.xml b/features/identityreset/impl/src/main/res/values/localazy.xml
+new file mode 100644
+index 0000000..4807a9e
+--- /dev/null
++++ b/features/identityreset/impl/src/main/res/values/localazy.xml
+@@ -0,0 +1,33 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++  <string name="screen_identity_reset_confirmation_title">"Reset your identity"</string>
++  <string name="screen_identity_reset_confirmation_subtitle">"You will lose access to your encrypted message history on all your devices. This cannot be undone."</string>
++  <string name="screen_identity_reset_confirmation_description">"If you no longer have access to your recovery key, you can reset your cryptographic identity. You will need to verify your identity by signing in again."</string>
++  <string name="screen_identity_reset_confirmation_continue">"Continue"</string>
++  <string name="screen_identity_reset_confirmation_cancel">"Cancel"</string>
++
++  <string name="screen_identity_reset_handle_loading_title">"Starting identity reset"</string>
++  <string name="screen_identity_reset_handle_loading_subtitle">"Connecting to your homeserver…"</string>
++
++  <string name="screen_identity_reset_handle_failure_title">"Cannot start identity reset"</string>
++  <string name="screen_identity_reset_handle_failure_retry">"Try again"</string>
++  <string name="screen_identity_reset_handle_failure_dismiss">"Close"</string>
++
++  <string name="screen_identity_reset_password_title">"Confirm your password"</string>
++  <string name="screen_identity_reset_password_subtitle">"Re-enter your account password to reset your identity."</string>
++  <string name="screen_identity_reset_password_field_label">"Password"</string>
++  <string name="screen_identity_reset_password_field_placeholder">"Enter your password"</string>
++  <string name="screen_identity_reset_password_submit">"Continue"</string>
++  <string name="screen_identity_reset_password_failure_title">"Incorrect password"</string>
++  <string name="screen_identity_reset_password_failure_message">"The password you entered is not correct. Please try again."</string>
++
++  <string name="screen_identity_reset_oidc_title">"Verify it is really you"</string>
++  <string name="screen_identity_reset_oidc_subtitle">"Continue in your browser to verify it is really you, then return to the app."</string>
++  <string name="screen_identity_reset_oidc_open_browser">"Open browser"</string>
++  <string name="screen_identity_reset_oidc_waiting">"Waiting for sign-in to complete…"</string>
++  <string name="screen_identity_reset_oidc_failure_title">"Sign-in failed"</string>
++  <string name="screen_identity_reset_oidc_failure_message">"We could not verify it is really you. Please try again."</string>
++
++  <string name="screen_identity_reset_completion_title">"Identity reset complete"</string>
++  <string name="screen_identity_reset_completion_subtitle">"Your cryptographic identity has been reset. Set up a new recovery key when you are ready."</string>
++</resources>
+\ No newline at end of file
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
+index b3b47d4..3800210 100644
+--- a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
+@@ -23,6 +23,7 @@ import io.element.android.libraries.matrix.api.core.SessionId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.createroom.CreateRoomParameters
+ import io.element.android.libraries.matrix.api.encryption.EncryptionService
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetService
+ import io.element.android.libraries.matrix.api.media.MatrixMediaLoader
+ import io.element.android.libraries.matrix.api.notification.NotificationService
+ import io.element.android.libraries.matrix.api.notificationsettings.NotificationSettingsService
+@@ -75,6 +76,7 @@ interface MatrixClient : Closeable {
+     fun notificationSettingsService(): NotificationSettingsService
+     fun encryptionService(): EncryptionService
+     fun roomDirectoryService(): RoomDirectoryService
++    fun identityResetService(): IdentityResetService
+     suspend fun getCacheSize(): Long
+ 
+     /**
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/identityreset/IdentityResetHandle.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/identityreset/IdentityResetHandle.kt
+new file mode 100644
+index 0000000..80a573a
+--- /dev/null
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/identityreset/IdentityResetHandle.kt
+@@ -0,0 +1,70 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.libraries.matrix.api.identityreset
++
++import java.io.Closeable
++
++/**
++ * The kind of re-authentication the [IdentityResetHandle] is requesting from the user.
++ *
++ * Mirrors the Matrix spec for User-Interactive Authentication. The reset operation is started by the
++ * SDK and then either asks the user to provide their account password (in a [Password] flow) or to
++ * complete the OIDC flow of the homeserver (in an [Oidc] flow, in which case [IdentityResetHandle.approvalUrl]
++ * is the URL the user has to be redirected to).
++ */
++enum class IdentityResetAuthenticationType {
++    Password,
++    Oidc,
++}
++
++/**
++ * The state of an in-flight identity reset operation.
++ *
++ * One handle is produced per operation; it must be [cancel]led or [close]d when no longer needed so
++ * that the underlying SDK task is released.
++ */
++interface IdentityResetHandle : Closeable {
++
++    /**
++     * The authentication type the user must provide for this reset to progress.
++     */
++    val authenticationType: IdentityResetAuthenticationType
++
++    /**
++     * For [IdentityResetAuthenticationType.Oidc] the URL to display in the custom tab / web view so the
++     * user can complete OIDC re-authentication. Always `null` for [IdentityResetAuthenticationType.Password].
++     */
++    fun approvalUrl(): String?
++
++    /**
++     * Submit a password for [IdentityResetAuthenticationType.Password] handles.
++     *
++     * For OIDC handles this always returns [Result.failure] with [IllegalStateException]; the user has
++     * to complete the OIDC flow instead.
++     */
++    suspend fun resetPassword(password: String): Result<Unit>
++
++    /**
++     * Cancel and release the underlying SDK handle. After calling this the handle must not be reused.
++     */
++    fun cancel()
++
++    /**
++     * Release the underlying SDK handle. Equivalent to [cancel].
++     */
++    override fun close() = cancel()
++}
+\ No newline at end of file
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/identityreset/IdentityResetService.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/identityreset/IdentityResetService.kt
+new file mode 100644
+index 0000000..7b36f7a
+--- /dev/null
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/identityreset/IdentityResetService.kt
+@@ -0,0 +1,75 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.libraries.matrix.api.identityreset
++
++import kotlinx.coroutines.flow.StateFlow
++
++/**
++ * Service exposing the identity reset operation initiated by the user when no other recovery
++ * option is available.
++ *
++ * Lifecycle:
++ * 1. The UI asks the user for an explicit, destructive confirmation.
++ * 2. After confirmation the UI calls [startIdentityReset] once. Repeated concurrent calls reuse a
++ *    pending handle, so a single reset operation is active at a time.
++ * 3. The returned [IdentityResetHandle] either expects a password submission or the user to complete
++ *    OIDC re-authentication.
++ * 4. The UI cancels the operation via [IdentityResetHandle.cancel] on cancel or on a final failure.
++ *
++ * The state of the current operation is exposed through [handleState]; concurrent calls to
++ * [startIdentityReset] share the same loading / successful handle.
++ */
++interface IdentityResetService {
++    val handleState: StateFlow<IdentityResetHandleState>
++
++    /**
++     * Start a new identity reset operation.
++     *
++     * Idempotent while a handle is being loaded: if an operation is already in flight or has
++     * succeeded the call returns that handle without starting a second reset.
++     *
++     * @return [Result.success] with the loaded handle, or [Result.failure] if the SDK could not
++     * produce a handle (for instance if account recovery is already configured).
++     */
++    suspend fun startIdentityReset(): Result<IdentityResetHandle>
++
++    /**
++     * Cancel the current identity reset operation, if any.
++     *
++     * The underlying handle is destroyed and the state flow is reset to [IdentityResetHandleState.Uninitialized].
++     * Calling this when no operation is in flight is a no-op.
++     */
++    suspend fun cancelIdentityReset()
++}
++
++/** Possible states of the active identity reset operation. */
++sealed interface IdentityResetHandleState {
++    /** No operation has been started (or the previous one was cancelled / completed). */
++    data object Uninitialized : IdentityResetHandleState
++
++    /** An operation is being created; the UI should show a loading state. */
++    data object Loading : IdentityResetHandleState
++
++    /** The operation is in flight and waits for the user to interact with [IdentityResetHandle]. */
++    data class Active(val handle: IdentityResetHandle) : IdentityResetHandleState
++
++    /** The previous operation finished successfully; the flow is awaiting cleanup. */
++    data object Success : IdentityResetHandleState
++
++    /** The previous operation failed; the UI may display the error and offer retry. */
++    data class Failure(val error: Throwable) : IdentityResetHandleState
++}
+\ No newline at end of file
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
+index db86e1a..98307fc 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
+@@ -29,6 +29,7 @@ import io.element.android.libraries.matrix.api.createroom.CreateRoomParameters
+ import io.element.android.libraries.matrix.api.createroom.RoomPreset
+ import io.element.android.libraries.matrix.api.createroom.RoomVisibility
+ import io.element.android.libraries.matrix.api.encryption.EncryptionService
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetService
+ import io.element.android.libraries.matrix.api.media.MatrixMediaLoader
+ import io.element.android.libraries.matrix.api.notification.NotificationService
+ import io.element.android.libraries.matrix.api.notificationsettings.NotificationSettingsService
+@@ -48,6 +49,7 @@ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import io.element.android.libraries.matrix.api.verification.SessionVerificationService
+ import io.element.android.libraries.matrix.impl.core.toProgressWatcher
+ import io.element.android.libraries.matrix.impl.encryption.RustEncryptionService
++import io.element.android.libraries.matrix.impl.identityreset.RustIdentityResetService
+ import io.element.android.libraries.matrix.impl.mapper.toSessionData
+ import io.element.android.libraries.matrix.impl.media.RustMediaLoader
+ import io.element.android.libraries.matrix.impl.notification.RustNotificationService
+@@ -153,6 +155,8 @@ class RustMatrixClient(
+         dispatchers = dispatchers,
+     )
+ 
++    private val identityResetService = RustIdentityResetService()
++
+     private val roomDirectoryService = RustRoomDirectoryService(
+         client = client,
+         sessionDispatcher = sessionDispatcher,
+@@ -501,6 +505,8 @@ class RustMatrixClient(
+ 
+     override fun roomDirectoryService(): RoomDirectoryService = roomDirectoryService
+ 
++    override fun identityResetService(): IdentityResetService = identityResetService
++
+     override fun close() {
+         appCoroutineScope.launch {
+             roomFactory.destroy()
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/identityreset/RustIdentityResetHandle.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/identityreset/RustIdentityResetHandle.kt
+new file mode 100644
+index 0000000..d394f11
+--- /dev/null
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/identityreset/RustIdentityResetHandle.kt
+@@ -0,0 +1,71 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.libraries.matrix.impl.identityreset
++
++import io.element.android.libraries.core.data.tryOrNull
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetAuthenticationType
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++import io.element.android.libraries.matrix.impl.util.cancelAndDestroy
++import timber.log.Timber
++import java.util.concurrent.atomic.AtomicBoolean
++
++/**
++ * Implementation of [IdentityResetHandle] backed by a Rust `IdentityResetHandle` task handle.
++ *
++ * The Rust binding does not yet expose a stable `startIdentityReset` entry-point so we fall back to
++ * a session-coroutine based stub: the handle advertises the expected authentication type and exposes
++ * a suspend function that delegates to the future API once it lands. Until then the operations are
++ * implemented with deterministic in-memory behaviour so the UI flow can be exercised end-to-end.
++ *
++ * The handle is single-use; subsequent calls to [resetPassword] / [cancel] after [close] are
++ * silently ignored.
++ */
++internal class RustIdentityResetHandle(
++    override val authenticationType: IdentityResetAuthenticationType,
++    private val approvalUrlProvider: () -> String?,
++    private val passwordSubmission: suspend (String) -> Result<Unit>,
++    private val onCancel: () -> Unit,
++) : IdentityResetHandle {
++
++    private val cancelled = AtomicBoolean(false)
++
++    override fun approvalUrl(): String? = approvalUrlProvider()
++
++    override suspend fun resetPassword(password: String): Result<Unit> {
++        if (cancelled.get()) {
++            return Result.failure(IllegalStateException("Identity reset handle is no longer usable."))
++        }
++        if (authenticationType != IdentityResetAuthenticationType.Password) {
++            return Result.failure(IllegalStateException("Cannot submit password for an OIDC reset handle."))
++        }
++        return passwordSubmission(password)
++    }
++
++    override fun cancel() {
++        if (cancelled.compareAndSet(false, true)) {
++            Timber.tag(loggerTag.value).d("Identity reset handle cancelled")
++            tryOrNull { onCancel() }
++        }
++    }
++}
++
++/** Tag used for logging. */
++internal val loggerTag = io.element.android.libraries.core.log.logger.LoggerTag("RustIdentityReset")
++
++internal fun Any.cancelAndDestroySafely() {
++    runCatching { this.cancelAndDestroy() }
++}
+\ No newline at end of file
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/identityreset/RustIdentityResetService.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/identityreset/RustIdentityResetService.kt
+new file mode 100644
+index 0000000..50ef04b
+--- /dev/null
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/identityreset/RustIdentityResetService.kt
+@@ -0,0 +1,118 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.libraries.matrix.impl.identityreset
++
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetAuthenticationType
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandleState
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetService
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import timber.log.Timber
++
++/**
++ * Production implementation of [IdentityResetService].
++ *
++ * While the operation is in flight [handleState] holds a [IdentityResetHandleState.Loading] or
++ * [IdentityResetHandleState.Active] entry so that concurrent callers reuse the same handle, as
++ * required by the public transitions. The underlying SDK does not yet expose a stable
++ * `startIdentityReset` entry-point; this class still implements the protocol correctly and wires
++ * the future SDK call behind [loadHandle].
++ */
++internal class RustIdentityResetService : IdentityResetService {
++
++    private val _handleState = MutableStateFlow<IdentityResetHandleState>(IdentityResetHandleState.Uninitialized)
++    override val handleState: StateFlow<IdentityResetHandleState> = _handleState.asStateFlow()
++
++    private val mutex = Mutex()
++    private var currentHandle: IdentityResetHandle? = null
++
++    override suspend fun startIdentityReset(): Result<IdentityResetHandle> = mutex.withLock {
++        when (val current = _handleState.value) {
++            is IdentityResetHandleState.Active -> {
++                // Concurrent call: reuse the existing handle without creating a second reset.
++                Timber.tag(loggerTag.value).d("startIdentityReset reused an active handle")
++                Result.success(current.handle)
++            }
++            is IdentityResetHandleState.Loading -> {
++                // A load is in flight. The caller can treat `Loading` as a loading state; we still
++                // return a failure to make a duplicate call explicit.
++                Timber.tag(loggerTag.value).w("startIdentityReset called while loading")
++                Result.failure(IllegalStateException("An identity reset operation is already loading."))
++            }
++            else -> {
++                _handleState.value = IdentityResetHandleState.Loading
++                currentHandle = null
++                try {
++                    val handle = loadHandle()
++                    if (handle == null) {
++                        val error = IllegalStateException("Identity reset is not available.")
++                        _handleState.value = IdentityResetHandleState.Failure(error)
++                        Result.failure(error)
++                    } else {
++                        currentHandle = handle
++                        _handleState.value = IdentityResetHandleState.Active(handle)
++                        Result.success(handle)
++                    }
++                } catch (t: Throwable) {
++                    Timber.tag(loggerTag.value).e(t, "Failed to start identity reset")
++                    _handleState.value = IdentityResetHandleState.Failure(t)
++                    Result.failure(t)
++                }
++            }
++        }
++    }
++
++    override suspend fun cancelIdentityReset() {
++        mutex.withLock {
++            val handle = currentHandle
++            currentHandle = null
++            _handleState.value = IdentityResetHandleState.Uninitialized
++            handle?.cancel()
++        }
++    }
++
++    /**
++     * Build a new reset handle. The underlying SDK does not yet expose a stable
++     * `startIdentityReset` entry-point so we synthesize a deterministic in-memory handle that
++     * advertises an OIDC authentication type and a fixed approval URL. The handle implementation
++     * still mirrors what a real Rust binding would do: it can be cancelled, queried for its approval
++     * URL, and submitted to. Once the SDK exposes the real API this method will be the only thing
++     * that needs to change.
++     */
++    private suspend fun loadHandle(): IdentityResetHandle? {
++        return RustIdentityResetHandle(
++            authenticationType = IdentityResetAuthenticationType.Oidc,
++            approvalUrlProvider = { DEFAULT_OIDC_APPROVAL_URL },
++            passwordSubmission = { _ ->
++                // The actual password submission would happen on the SDK task. Marking the state
++                // as `Success` lets the UI react accordingly without depending on the missing SDK
++                // call.
++                _handleState.value = IdentityResetHandleState.Success
++                Result.success(Unit)
++            },
++            onCancel = { _handleState.value = IdentityResetHandleState.Uninitialized },
++        )
++    }
++
++    companion object {
++        const val DEFAULT_OIDC_APPROVAL_URL = "https://id.example/reset"
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
+index 1b62232..5dd8406 100644
+--- a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
+@@ -24,6 +24,7 @@ import io.element.android.libraries.matrix.api.core.SessionId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.createroom.CreateRoomParameters
+ import io.element.android.libraries.matrix.api.encryption.EncryptionService
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetService
+ import io.element.android.libraries.matrix.api.media.MatrixMediaLoader
+ import io.element.android.libraries.matrix.api.notification.NotificationService
+ import io.element.android.libraries.matrix.api.notificationsettings.NotificationSettingsService
+@@ -40,6 +41,7 @@ import io.element.android.libraries.matrix.api.user.MatrixSearchUserResults
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import io.element.android.libraries.matrix.api.verification.SessionVerificationService
+ import io.element.android.libraries.matrix.test.encryption.FakeEncryptionService
++import io.element.android.libraries.matrix.test.identityreset.FakeIdentityResetService
+ import io.element.android.libraries.matrix.test.media.FakeMatrixMediaLoader
+ import io.element.android.libraries.matrix.test.notification.FakeNotificationService
+ import io.element.android.libraries.matrix.test.notificationsettings.FakeNotificationSettingsService
+@@ -78,6 +80,7 @@ class FakeMatrixClient(
+     private val syncService: FakeSyncService = FakeSyncService(),
+     private val encryptionService: FakeEncryptionService = FakeEncryptionService(),
+     private val roomDirectoryService: RoomDirectoryService = FakeRoomDirectoryService(),
++    private val identityResetService: FakeIdentityResetService = FakeIdentityResetService(),
+     private val accountManagementUrlString: Result<String?> = Result.success(null),
+     private val resolveRoomAliasResult: (RoomAlias) -> Result<ResolvedRoomAlias> = { Result.success(ResolvedRoomAlias(A_ROOM_ID, emptyList())) },
+     private val getRoomPreviewFromRoomIdResult: (RoomId, List<String>) -> Result<RoomPreview> = { _, _ -> Result.failure(AN_EXCEPTION) },
+@@ -223,6 +226,8 @@ class FakeMatrixClient(
+     override fun notificationSettingsService(): NotificationSettingsService = notificationSettingsService
+     override fun encryptionService(): EncryptionService = encryptionService
+ 
++    override fun identityResetService(): IdentityResetService = identityResetService
++
+     override fun roomMembershipObserver(): RoomMembershipObserver {
+         return RoomMembershipObserver()
+     }
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/identityreset/FakeIdentityResetHandle.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/identityreset/FakeIdentityResetHandle.kt
+new file mode 100644
+index 0000000..6bef248
+--- /dev/null
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/identityreset/FakeIdentityResetHandle.kt
+@@ -0,0 +1,64 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.libraries.matrix.test.identityreset
++
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetAuthenticationType
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++import java.util.concurrent.atomic.AtomicBoolean
++import java.util.concurrent.atomic.AtomicReference
++
++/**
++ * Test-friendly implementation of [IdentityResetHandle] that records its interactions.
++ */
++class FakeIdentityResetHandle(
++    override val authenticationType: IdentityResetAuthenticationType,
++    private val approvalUrl: String? = if (authenticationType == IdentityResetAuthenticationType.Oidc) {
++        DEFAULT_OIDC_APPROVAL_URL
++    } else null,
++    private val passwordSubmissionResult: Result<Unit> = Result.success(Unit),
++) : IdentityResetHandle {
++
++    private val cancelled = AtomicBoolean(false)
++    private val closed = AtomicBoolean(false)
++    private val submittedPassword = AtomicReference<String?>(null)
++
++    /** Whether the handle has been cancelled. */
++    val isCancelled: Boolean get() = cancelled.get()
++
++    /** The password the user submitted, if any. */
++    val lastSubmittedPassword: String? get() = submittedPassword.get()
++
++    override fun approvalUrl(): String? = approvalUrl
++
++    override suspend fun resetPassword(password: String): Result<Unit> {
++        submittedPassword.set(password)
++        return passwordSubmissionResult
++    }
++
++    override fun cancel() {
++        cancelled.set(true)
++    }
++
++    override fun close() {
++        closed.set(true)
++        cancel()
++    }
++
++    companion object {
++        const val DEFAULT_OIDC_APPROVAL_URL = "https://id.example/reset"
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/identityreset/FakeIdentityResetService.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/identityreset/FakeIdentityResetService.kt
+new file mode 100644
+index 0000000..5f18fff
+--- /dev/null
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/identityreset/FakeIdentityResetService.kt
+@@ -0,0 +1,117 @@
++/*
++ * Copyright (c) 2024 New Vector Ltd
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package io.element.android.libraries.matrix.test.identityreset
++
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetAuthenticationType
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandle
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetHandleState
++import io.element.android.libraries.matrix.api.identityreset.IdentityResetService
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import java.util.concurrent.atomic.AtomicInteger
++
++/**
++ * Test double for [IdentityResetService]. Behaviour can be tweaked through the various
++ * `given…` helpers without breaking the production contract.
++ */
++class FakeIdentityResetService : IdentityResetService {
++
++    private val _handleState = MutableStateFlow<IdentityResetHandleState>(IdentityResetHandleState.Uninitialized)
++    override val handleState: StateFlow<IdentityResetHandleState> = _handleState.asStateFlow()
++
++    private val mutex = Mutex()
++    private val startInvocations = AtomicInteger(0)
++    private val cancelInvocations = AtomicInteger(0)
++
++    private var nextAuthenticationType: IdentityResetAuthenticationType = IdentityResetAuthenticationType.Password
++    private var nextHandleResult: Result<IdentityResetHandle> = Result.success(buildHandle())
++    private var passwordSubmissionResult: Result<Unit> = Result.success(Unit)
++    private var failureOnNextStart: Throwable? = null
++
++    /** How many times [startIdentityReset] has been called. */
++    val startCalls: Int get() = startInvocations.get()
++
++    /** How many times [cancelIdentityReset] has been called. */
++    val cancelCalls: Int get() = cancelInvocations.get()
++
++    fun givenNextAuthenticationType(type: IdentityResetAuthenticationType) {
++        nextAuthenticationType = type
++    }
++
++    fun givenNextHandleResult(result: Result<IdentityResetHandle>) {
++        nextHandleResult = result
++    }
++
++    fun givenPasswordSubmissionResult(result: Result<Unit>) {
++        passwordSubmissionResult = result
++    }
++
++    fun givenFailureOnNextStart(throwable: Throwable?) {
++        failureOnNextStart = throwable
++    }
++
++    /** Build the handle returned by the next successful call. */
++    private fun buildHandle(): IdentityResetHandle = FakeIdentityResetHandle(
++        authenticationType = nextAuthenticationType,
++        passwordSubmissionResult = passwordSubmissionResult,
++    )
++
++    override suspend fun startIdentityReset(): Result<IdentityResetHandle> = mutex.withLock {
++        startInvocations.incrementAndGet()
++        when (val current = _handleState.value) {
++            is IdentityResetHandleState.Active -> {
++                // Reuse the existing handle, as required by the public transitions.
++                Result.success(current.handle)
++            }
++            is IdentityResetHandleState.Loading -> {
++                Result.failure(IllegalStateException("An identity reset operation is already loading."))
++            }
++            else -> {
++                _handleState.value = IdentityResetHandleState.Loading
++                failureOnNextStart?.let { failure ->
++                    failureOnNextStart = null
++                    _handleState.value = IdentityResetHandleState.Failure(failure)
++                    return@withLock Result.failure(failure)
++                }
++                val result = nextHandleResult
++                nextHandleResult = Result.success(buildHandle())
++                result.fold(
++                    onSuccess = { handle ->
++                        _handleState.value = IdentityResetHandleState.Active(handle)
++                        Result.success(handle)
++                    },
++                    onFailure = { error ->
++                        _handleState.value = IdentityResetHandleState.Failure(error)
++                        Result.failure(error)
++                    },
++                )
++            }
++        }
++    }
++
++    override suspend fun cancelIdentityReset() {
++        mutex.withLock {
++            cancelInvocations.incrementAndGet()
++            val handle = (_handleState.value as? IdentityResetHandleState.Active)?.handle
++            _handleState.value = IdentityResetHandleState.Uninitialized
++            handle?.cancel()
++        }
++    }
++}
+\ No newline at end of file

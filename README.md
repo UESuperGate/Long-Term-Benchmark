@@ -70,6 +70,17 @@ The Android and ArkTS base/final projects calibrate to `0/20` and `20/20`
 respectively; the MiniMax-M3 run is archived in
 [`experiment_results/extended_opencode_minimax_m3_20261013`](experiment_results/extended_opencode_minimax_m3_20261013/README.md).
 
+Tasks 08-18 add 11 further long-horizon capabilities: threads, Spaces,
+media-upload quality, room-upgrade navigation, room reporting, user
+verification, join-by-address, account deactivation, identity reset, pinned
+messages, and custom notification sounds. They share 101 canonical cases per
+platform. The repaired MiniMax-M3 evaluation has complete 22/22 coverage:
+code generation `22/22`, compile `18/22`, and semantic testcase `99/202`
+(`47/101` Android, `52/101` ArkTS). All four base/final poles calibrate to
+`0/N -> N/N`; no case is unscored. The task-level table, environment, reports,
+and reconstructable agent patches are in
+[`experiment_results/new_tasks_opencode_minimax_m3_20261015_semantic_repair`](experiment_results/new_tasks_opencode_minimax_m3_20261015_semantic_repair/README.md).
+
 Local Android evaluation environment:
 
 - Java: 21.0.12.1

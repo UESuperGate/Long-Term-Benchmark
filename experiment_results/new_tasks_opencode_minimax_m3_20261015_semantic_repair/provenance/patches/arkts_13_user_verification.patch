@@ -1,0 +1,943 @@
+diff --git a/entry/src/main/ets/features/IdentityFeature.ets b/entry/src/main/ets/features/IdentityFeature.ets
+new file mode 100644
+index 0000000..e743e08
+--- /dev/null
++++ b/entry/src/main/ets/features/IdentityFeature.ets
+@@ -0,0 +1,108 @@
++// IdentityFeature: tracks identity state for users across multiple surfaces
++// (timeline, room members, room detail, user profile). The verification
++// surface clears the violation badge via this service when a user
++// verification completes successfully; cancellation or failure does not.
++
++import { IdentityState } from './VerificationFeature';
++
++export class MemberIdentity {
++  userId: string;
++  displayName: string;
++  roomId: string;
++  identityState: IdentityState = IdentityState.Unknown;
++  lastChangedAt: number;
++
++  constructor(userId: string, displayName: string, roomId: string) {
++    this.userId = userId;
++    this.displayName = displayName;
++    this.roomId = roomId;
++    this.lastChangedAt = Date.now();
++  }
++}
++
++export type IdentityListener = (userId: string, roomId: string, state: IdentityState) => void;
++
++export class IdentityService {
++  members: Map<string, MemberIdentity> = new Map();
++  private listeners: IdentityListener[] = [];
++
++  private keyFor(userId: string, roomId: string): string {
++    return `${roomId}::${userId}`;
++  }
++
++  subscribe(listener: IdentityListener): void {
++    this.listeners.push(listener);
++  }
++
++  unsubscribe(listener: IdentityListener): void {
++    const idx = this.listeners.indexOf(listener);
++    if (idx >= 0) {
++      this.listeners.splice(idx, 1);
++    }
++  }
++
++  // Get-or-create a member identity row. Newly created rows default to
++  // Unknown so unrelated members never inherit another member's state.
++  getMember(userId: string, displayName: string, roomId: string): MemberIdentity {
++    const key = this.keyFor(userId, roomId);
++    const existing = this.members.get(key);
++    if (existing !== undefined) {
++      return existing;
++    }
++    const member = new MemberIdentity(userId, displayName, roomId);
++    this.members.set(key, member);
++    return member;
++  }
++
++  getIdentityState(userId: string, roomId: string): IdentityState {
++    const member = this.members.get(this.keyFor(userId, roomId));
++    if (member === undefined) {
++      return IdentityState.Unknown;
++    }
++    return member.identityState;
++  }
++
++  hasViolation(userId: string, roomId: string): boolean {
++    return this.getIdentityState(userId, roomId) === IdentityState.VerificationViolation;
++  }
++
++  isTrusted(userId: string, roomId: string): boolean {
++    return this.getIdentityState(userId, roomId) === IdentityState.Trusted;
++  }
++
++  // Apply an observed identity change. Only the targeted user's row is
++  // mutated, so unrelated members remain untouched.
++  observeIdentityChange(userId: string, displayName: string, roomId: string, newState: IdentityState): MemberIdentity {
++    const key = this.keyFor(userId, roomId);
++    let member = this.members.get(key);
++    if (member === undefined) {
++      member = new MemberIdentity(userId, displayName, roomId);
++    }
++    member.displayName = displayName;
++    member.identityState = newState;
++    member.lastChangedAt = Date.now();
++    this.members.set(key, member);
++    this.notify(userId, roomId, newState);
++    return member;
++  }
++
++  // Mark a user as trusted. Used by the verification success path to
++  // clear any outstanding violation badge. Cancellation or failure
++  // paths must not call this.
++  markTrusted(userId: string, displayName: string, roomId: string): MemberIdentity {
++    return this.observeIdentityChange(userId, displayName, roomId, IdentityState.Trusted);
++  }
++
++  // Raise an identity violation. Used by SDK observation when a
++  // signature stops matching for an encrypted room member.
++  raiseViolation(userId: string, displayName: string, roomId: string): MemberIdentity {
++    return this.observeIdentityChange(userId, displayName, roomId, IdentityState.VerificationViolation);
++  }
++
++  private notify(userId: string, roomId: string, state: IdentityState): void {
++    const snapshot: IdentityListener[] = this.listeners.slice();
++    for (let i = 0; i < snapshot.length; i++) {
++      snapshot[i](userId, roomId, state);
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/UserProfileFeature.ets b/entry/src/main/ets/features/UserProfileFeature.ets
+index f2fe804..c3e6679 100644
+--- a/entry/src/main/ets/features/UserProfileFeature.ets
++++ b/entry/src/main/ets/features/UserProfileFeature.ets
+@@ -1,6 +1,39 @@
++// UserProfileFeature: the user (and member) profile surface. Hosts the
++// entry point for starting a cross-user verification request and reflects
++// identity verification state (warning / cleared) without breaking the
++// existing direct-message and block behaviour.
++
++import { IdentityService, MemberIdentity } from './IdentityFeature';
++import {
++  SasChallenge,
++  VerificationFailure,
++  VerificationRequestType,
++  VerificationService,
++  VerificationSession,
++  VerificationState
++} from './VerificationFeature';
++
+ export class UserProfileGateway {
+   dmStarts: number = 0;
+   blocked: boolean = false;
++  // Counter for cross-user verification requests triggered from profile.
++  userVerificationsStarted: number = 0;
++  // Counter for self-session verification requests triggered (e.g. from
++  // session manager). Distinct from the user verification counter so a
++  // profile action cannot accidentally start a self-session request.
++  selfSessionVerificationsStarted: number = 0;
++  // Counter for SAS challenge accept responses dispatched to the SDK.
++  sasApprovesDispatched: number = 0;
++  // Counter for SAS challenge decline responses dispatched to the SDK.
++  sasDeclinesDispatched: number = 0;
++  // Counter for local cancellations dispatched to the SDK.
++  cancellationsDispatched: number = 0;
++  // Counter for resets dispatched to the SDK.
++  resetsDispatched: number = 0;
++  // Counter for "finish" notifications received from the SDK.
++  completionsObserved: number = 0;
++  // Counter for SDK-failure callbacks routed into the activity state.
++  sdkFailuresObserved: number = 0;
+ 
+   startDirectMessage(): void {
+     this.dmStarts += 1;
+@@ -9,16 +42,60 @@ export class UserProfileGateway {
+   setBlocked(blocked: boolean): void {
+     this.blocked = blocked;
+   }
++
++  startUserVerification(userId: string): void {
++    this.userVerificationsStarted += 1;
++  }
++
++  startSelfSessionVerification(): void {
++    this.selfSessionVerificationsStarted += 1;
++  }
++
++  dispatchSasApprove(): void {
++    this.sasApprovesDispatched += 1;
++  }
++
++  dispatchSasDecline(): void {
++    this.sasDeclinesDispatched += 1;
++  }
++
++  dispatchCancel(): void {
++    this.cancellationsDispatched += 1;
++  }
++
++  dispatchReset(): void {
++    this.resetsDispatched += 1;
++  }
++
++  onVerificationFinished(): void {
++    this.completionsObserved += 1;
++  }
++
++  onSdkFailure(): void {
++    this.sdkFailuresObserved += 1;
++  }
+ }
+ 
+ export class UserProfilePresenter {
+   readonly gateway: UserProfileGateway;
+   readonly userId: string = '@alice:example.org';
+   readonly displayName: string = 'Alice';
++  readonly isCurrentUser: boolean = false;
++  readonly verificationAvailable: boolean = true;
++  readonly encryptedRoomId: string = '!room:example.org';
+   blocked: boolean = false;
+ 
+-  constructor(gateway: UserProfileGateway) {
++  private readonly verificationService: VerificationService;
++  private readonly identityService: IdentityService;
++
++  constructor(
++    gateway: UserProfileGateway,
++    verificationService: VerificationService,
++    identityService: IdentityService
++  ) {
+     this.gateway = gateway;
++    this.verificationService = verificationService;
++    this.identityService = identityService;
+   }
+ 
+   startDirectMessage(): void {
+@@ -29,4 +106,148 @@ export class UserProfilePresenter {
+     this.blocked = !this.blocked;
+     this.gateway.setBlocked(this.blocked);
+   }
++
++  // Begin verification of the visible profile user. The request targets
++  // the profile user, not the current session, and is only allowed when
++  // the SDK reports verification as available for this account.
++  startUserVerification(): VerificationSession | null {
++    if (this.isCurrentUser) {
++      return null;
++    }
++    if (!this.verificationAvailable) {
++      return null;
++    }
++    this.gateway.startUserVerification(this.userId);
++    const session = this.verificationService.createUserVerification(this.userId);
++    session.requestVerification();
++    return session;
++  }
++
++  // Drive the live verification session from the profile. The profile is
++  // allowed to feed in remote-acceptance / challenge events, send the
++  // single accept or decline response, cancel the request, or reset
++  // after a recoverable failure.
++  driveSessionFromProfile(eventName: string, payload?: Object): VerificationSession | null {
++    const session = this.verificationService.getSessionForUser(this.userId);
++    if (session === null) {
++      return null;
++    }
++    this.applyEvent(session, eventName, payload);
++    return session;
++  }
++
++  applyEvent(session: VerificationSession, eventName: string, payload?: Object): void {
++    if (eventName === 'mark_accepted') {
++      session.markAccepted();
++      return;
++    }
++    if (eventName === 'start_sas_verification') {
++      const seed = (payload === undefined || payload === null)
++        ? new SasChallenge(['Dog', 'Tree', 'Rocket'], [1, 2, 3], session.targetUserId)
++        : this.challengeFromPayload(payload);
++      session.startSas(seed);
++      return;
++    }
++    if (eventName === 'receive_challenge') {
++      const seed = (payload === undefined || payload === null)
++        ? new SasChallenge(['Dog', 'Tree', 'Rocket'], [1, 2, 3], session.targetUserId)
++        : this.challengeFromPayload(payload);
++      session.receiveChallenge(seed);
++      return;
++    }
++    if (eventName === 'accept_challenge') {
++      if (session.acceptChallenge()) {
++        this.gateway.dispatchSasApprove();
++      }
++      return;
++    }
++    if (eventName === 'decline_challenge') {
++      if (session.declineChallenge()) {
++        this.gateway.dispatchSasDecline();
++      }
++      return;
++    }
++    if (eventName === 'cancel') {
++      if (session.cancel()) {
++        this.gateway.dispatchCancel();
++      }
++      return;
++    }
++    if (eventName === 'reset') {
++      if (session.reset()) {
++        this.gateway.dispatchReset();
++      }
++      return;
++    }
++    if (eventName === 'verification_finished') {
++      if (session.finish()) {
++        this.gateway.onVerificationFinished();
++        // Successful completion clears the corresponding warning badge
++        // across profile, room-member, room-detail and timeline surfaces.
++        this.identityService.markTrusted(this.userId, this.displayName, this.encryptedRoomId);
++        this.identityService.markTrusted(this.userId, this.displayName, '');
++      }
++      return;
++    }
++    if (eventName === 'sdk_failure') {
++      if (session.fail(VerificationFailure.SdkFailure)) {
++        this.gateway.onSdkFailure();
++      }
++      return;
++    }
++  }
++
++  private challengeFromPayload(payload: Object): SasChallenge {
++    // Payload is expected to be a record-like object with optional
++    // `emojis` / `numbers` / `otherDeviceId`. Falls back to a default
++    // three-word challenge when fields are missing.
++    const emojisRaw: string[] = [];
++    const numbersRaw: number[] = [];
++    let deviceId: string = 'other-device';
++    const src = payload as Record<string, Object>;
++    if (src !== undefined && src !== null) {
++      const e = src['emojis'];
++      if (Array.isArray(e)) {
++        for (let i = 0; i < e.length; i++) {
++          emojisRaw.push(String(e[i]));
++        }
++      }
++      const n = src['numbers'];
++      if (Array.isArray(n)) {
++        for (let i = 0; i < n.length; i++) {
++          numbersRaw.push(Number(n[i]));
++        }
++      }
++      const d = src['otherDeviceId'];
++      if (typeof d === 'string') {
++        deviceId = d;
++      }
++    }
++    if (emojisRaw.length === 0) {
++      emojisRaw.push('Dog', 'Tree', 'Rocket');
++    }
++    if (numbersRaw.length === 0) {
++      numbersRaw.push(1, 2, 3);
++    }
++    return new SasChallenge(emojisRaw, numbersRaw, deviceId);
++  }
++
++  // Convenience accessor used by the page to render the current state.
++  activeSessionForProfile(): VerificationSession | null {
++    return this.verificationService.getSessionForUser(this.userId);
++  }
++
++  identityForProfile(): MemberIdentity {
++    return this.identityService.getMember(this.userId, this.displayName, this.encryptedRoomId);
++  }
+ }
++
++export {
++  VerificationFailure,
++  VerificationRequestType,
++  VerificationState,
++  VerificationService,
++  VerificationSession,
++  SasChallenge,
++  IdentityService
++};
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/VerificationFeature.ets b/entry/src/main/ets/features/VerificationFeature.ets
+new file mode 100644
+index 0000000..f5c3a3c
+--- /dev/null
++++ b/entry/src/main/ets/features/VerificationFeature.ets
+@@ -0,0 +1,354 @@
++// VerificationFeature: user (cross-user) and self-session verification state machine.
++//
++// The Matrix ecosystem allows one device to interactively verify the identity of
++// either the user's own other devices (self-session verification) or another
++// remote Matrix user (user verification). Both flows are routed through the
++// same underlying state machine but use distinct request types so that a user
++// profile never accidentally triggers a self-session flow and a self-session
++// flow never accidentally targets a remote user.
++
++export enum VerificationRequestType {
++  User = 'user',
++  SelfSession = 'self_session'
++}
++
++export enum VerificationState {
++  Idle = 'idle',
++  Initial = 'initial',
++  Ready = 'ready',
++  AwaitingOtherDeviceResponse = 'awaiting_other_device_response',
++  Verifying = 'verifying',
++  Completed = 'completed',
++  Canceled = 'canceled',
++  Failed = 'failed'
++}
++
++export enum VerificationFailure {
++  None = 'none',
++  SdkFailure = 'sdk_failure',
++  Network = 'network',
++  Timeout = 'timeout',
++  UserDeclined = 'user_declined',
++  RemoteCanceled = 'remote_canceled'
++}
++
++export enum IdentityState {
++  Unknown = 'unknown',
++  Trusted = 'trusted',
++  VerificationViolation = 'verification_violation'
++}
++
++export class SasChallenge {
++  emojis: string[];
++  numbers: number[];
++  otherDeviceId: string;
++  receivedAt: number;
++
++  constructor(emojis: string[], numbers: number[], otherDeviceId: string) {
++    this.emojis = emojis.slice();
++    this.numbers = numbers.slice();
++    this.otherDeviceId = otherDeviceId;
++    this.receivedAt = Date.now();
++  }
++
++  equals(other: SasChallenge | null): boolean {
++    if (other === null) {
++      return false;
++    }
++    if (this.emojis.length !== other.emojis.length) {
++      return false;
++    }
++    for (let i = 0; i < this.emojis.length; i++) {
++      if (this.emojis[i] !== other.emojis[i]) {
++        return false;
++      }
++    }
++    if (this.numbers.length !== other.numbers.length) {
++      return false;
++    }
++    for (let i = 0; i < this.numbers.length; i++) {
++      if (this.numbers[i] !== other.numbers[i]) {
++        return false;
++      }
++    }
++    if (this.otherDeviceId !== other.otherDeviceId) {
++      return false;
++    }
++    return true;
++  }
++}
++
++export type VerificationListener = (session: VerificationSession) => void;
++
++export class VerificationSession {
++  requestId: string;
++  requestType: VerificationRequestType;
++  targetUserId: string;
++  state: VerificationState = VerificationState.Idle;
++  sas: SasChallenge | null = null;
++  failure: VerificationFailure = VerificationFailure.None;
++  identityState: IdentityState = IdentityState.Unknown;
++  approveCalls: number = 0;
++  declineCalls: number = 0;
++  cancelCalls: number = 0;
++  resetCalls: number = 0;
++  createdAt: number;
++  completedAt: number | null = null;
++  private listeners: VerificationListener[] = [];
++
++  constructor(requestId: string, requestType: VerificationRequestType, targetUserId: string) {
++    this.requestId = requestId;
++    this.requestType = requestType;
++    this.targetUserId = targetUserId;
++    this.createdAt = Date.now();
++  }
++
++  subscribe(listener: VerificationListener): void {
++    this.listeners.push(listener);
++  }
++
++  unsubscribe(listener: VerificationListener): void {
++    const idx = this.listeners.indexOf(listener);
++    if (idx >= 0) {
++      this.listeners.splice(idx, 1);
++    }
++  }
++
++  private notify(): void {
++    const snapshot: VerificationListener[] = this.listeners.slice();
++    for (let i = 0; i < snapshot.length; i++) {
++      snapshot[i](this);
++    }
++  }
++
++  isActive(): boolean {
++    return this.state === VerificationState.Initial ||
++      this.state === VerificationState.Ready ||
++      this.state === VerificationState.AwaitingOtherDeviceResponse ||
++      this.state === VerificationState.Verifying;
++  }
++
++  isTerminal(): boolean {
++    return this.state === VerificationState.Completed ||
++      this.state === VerificationState.Canceled ||
++      this.state === VerificationState.Failed;
++  }
++
++  hasResponse(): boolean {
++    return this.approveCalls > 0 || this.declineCalls > 0;
++  }
++
++  // Idle -> Initial: create the request and emit it to the remote party.
++  requestVerification(): boolean {
++    if (this.state !== VerificationState.Idle) {
++      return false;
++    }
++    this.state = VerificationState.Initial;
++    this.notify();
++    return true;
++  }
++
++  // Initial -> Ready: the remote party accepted the request.
++  markAccepted(): boolean {
++    if (this.state !== VerificationState.Initial) {
++      return false;
++    }
++    this.state = VerificationState.Ready;
++    this.notify();
++    return true;
++  }
++
++  // Ready -> AwaitingOtherDeviceResponse: the SAS challenge materialised.
++  startSas(challenge: SasChallenge): boolean {
++    if (this.state !== VerificationState.Ready) {
++      return false;
++    }
++    this.sas = challenge;
++    this.state = VerificationState.AwaitingOtherDeviceResponse;
++    this.notify();
++    return true;
++  }
++
++  // AwaitingOtherDeviceResponse: store the challenge data the first time it
++  // arrives. Once a challenge is materialised and before any response is
++  // recorded, the SAS data must remain stable so the user can compare it
++  // across re-renders and additional SDK events.
++  receiveChallenge(challenge: SasChallenge): boolean {
++    if (this.state !== VerificationState.AwaitingOtherDeviceResponse) {
++      return false;
++    }
++    if (this.hasResponse()) {
++      return false;
++    }
++    if (this.sas === null) {
++      this.sas = challenge;
++      this.notify();
++    }
++    return true;
++  }
++
++  // Local accept: exactly one accept is sent, the SAS data is unchanged.
++  acceptChallenge(): boolean {
++    if (this.state !== VerificationState.AwaitingOtherDeviceResponse) {
++      return false;
++    }
++    if (this.hasResponse()) {
++      return false;
++    }
++    this.approveCalls += 1;
++    this.state = VerificationState.Verifying;
++    this.notify();
++    return true;
++  }
++
++  // Local decline: exactly one decline is sent; the user is not marked
++  // trusted by the verifier, regardless of any other state.
++  declineChallenge(): boolean {
++    if (this.state !== VerificationState.AwaitingOtherDeviceResponse) {
++      return false;
++    }
++    if (this.hasResponse()) {
++      return false;
++    }
++    this.declineCalls += 1;
++    this.state = VerificationState.Verifying;
++    this.notify();
++    return true;
++  }
++
++  // Verifying -> Completed: remote party confirmed the SAS matches. Only
++  // this path marks the user trusted and clears an outstanding verification
++  // violation badge.
++  finish(): boolean {
++    if (this.state !== VerificationState.Verifying) {
++      return false;
++    }
++    this.state = VerificationState.Completed;
++    this.completedAt = Date.now();
++    this.failure = VerificationFailure.None;
++    this.identityState = IdentityState.Trusted;
++    this.notify();
++    return true;
++  }
++
++  // Active -> Canceled: cancellation from either side ends the active
++  // request but never marks the user trusted.
++  cancel(): boolean {
++    if (!this.isActive()) {
++      return false;
++    }
++    this.cancelCalls += 1;
++    this.state = VerificationState.Canceled;
++    this.completedAt = Date.now();
++    this.notify();
++    return true;
++  }
++
++  // Active -> Failed: an SDK or transport failure ended the request. The
++  // failure is recoverable and never marks the user trusted.
++  fail(failure: VerificationFailure): boolean {
++    if (!this.isActive()) {
++      return false;
++    }
++    this.failure = failure;
++    this.state = VerificationState.Failed;
++    this.completedAt = Date.now();
++    this.notify();
++    return true;
++  }
++
++  // Canceled/Failed -> Failed (clean reset for retry). Never reaches
++  // Completed via this path; the user is not marked trusted.
++  reset(): boolean {
++    if (this.state !== VerificationState.Canceled && this.state !== VerificationState.Failed) {
++      return false;
++    }
++    this.resetCalls += 1;
++    this.state = VerificationState.Failed;
++    this.failure = VerificationFailure.None;
++    this.completedAt = null;
++    this.approveCalls = 0;
++    this.declineCalls = 0;
++    this.notify();
++    return true;
++  }
++}
++
++export type ServiceListener = (active: VerificationSession | null) => void;
++
++export class VerificationService {
++  private sessions: Map<string, VerificationSession> = new Map();
++  private userSessions: Map<string, string> = new Map();
++  private activeSessionId: string | null = null;
++  private serviceListeners: ServiceListener[] = [];
++
++  // Create a user (cross-user) verification request. Only one active
++  // user verification request can be live at a time. A self-session
++  // verification request is intentionally not created here so that
++  // profile flows never accidentally trigger it.
++  createUserVerification(targetUserId: string): VerificationSession {
++    const requestId: string = `user-${Date.now().toString(36)}-${Math.floor(Math.random() * 100000).toString(36)}`;
++    const session = new VerificationSession(requestId, VerificationRequestType.User, targetUserId);
++    this.sessions.set(requestId, session);
++    this.userSessions.set(targetUserId, requestId);
++    this.activeSessionId = requestId;
++    this.notify();
++    return session;
++  }
++
++  // Create a self-session verification request. Stored but never
++  // assigned as the active session so user verification continues to
++  // work independently.
++  createSelfSessionVerification(): VerificationSession {
++    const requestId: string = `self-${Date.now().toString(36)}-${Math.floor(Math.random() * 100000).toString(36)}`;
++    const session = new VerificationSession(requestId, VerificationRequestType.SelfSession, '');
++    this.sessions.set(requestId, session);
++    return session;
++  }
++
++  getActiveSession(): VerificationSession | null {
++    if (this.activeSessionId === null) {
++      return null;
++    }
++    const session = this.sessions.get(this.activeSessionId);
++    return session === undefined ? null : session;
++  }
++
++  getSessionForUser(targetUserId: string): VerificationSession | null {
++    const requestId = this.userSessions.get(targetUserId);
++    if (requestId === undefined) {
++      return null;
++    }
++    const session = this.sessions.get(requestId);
++    return session === undefined ? null : session;
++  }
++
++  setActive(session: VerificationSession): void {
++    this.activeSessionId = session.requestId;
++    this.notify();
++  }
++
++  clearActive(): void {
++    this.activeSessionId = null;
++    this.notify();
++  }
++
++  subscribe(listener: ServiceListener): void {
++    this.serviceListeners.push(listener);
++  }
++
++  unsubscribe(listener: ServiceListener): void {
++    const idx = this.serviceListeners.indexOf(listener);
++    if (idx >= 0) {
++      this.serviceListeners.splice(idx, 1);
++    }
++  }
++
++  private notify(): void {
++    const active: VerificationSession | null = this.getActiveSession();
++    const snapshot: ServiceListener[] = this.serviceListeners.slice();
++    for (let i = 0; i < snapshot.length; i++) {
++      snapshot[i](active);
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 1501fef..b4b8585 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,27 +1,128 @@
+-import { UserProfileGateway, UserProfilePresenter } from '../features/UserProfileFeature';
++import { IdentityService } from '../features/IdentityFeature';
++import {
++  IdentityState,
++  SasChallenge,
++  VerificationRequestType,
++  VerificationService,
++  VerificationState
++} from '../features/VerificationFeature';
++import {
++  UserProfileGateway,
++  UserProfilePresenter
++} from '../features/UserProfileFeature';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: UserProfilePresenter = new UserProfilePresenter(new UserProfileGateway());
++  private gateway: UserProfileGateway = new UserProfileGateway();
++  private verificationService: VerificationService = new VerificationService();
++  private identityService: IdentityService = new IdentityService();
++  private presenter: UserProfilePresenter = new UserProfilePresenter(
++    this.gateway,
++    this.verificationService,
++    this.identityService
++  );
++
+   @State private blocked: boolean = false;
+   @State private statusText: string = 'User profile';
++  @State private verificationState: string = VerificationState.Idle;
++  @State private sasText: string = '';
++  @State private identityBadge: string = '';
++  @State private showChallengeControls: boolean = false;
++  @State private showResetControls: boolean = false;
++  @State private sessionKind: string = '';
++
++  aboutToAppear(): void {
++    this.verificationService.subscribe((session) => {
++      if (session === null) {
++        this.verificationState = VerificationState.Idle;
++        this.sasText = '';
++        this.showChallengeControls = false;
++        this.showResetControls = false;
++        this.sessionKind = '';
++        return;
++      }
++      this.verificationState = session.state;
++      this.sessionKind = session.requestType === VerificationRequestType.User
++        ? 'user verification'
++        : 'self-session verification';
++      if (session.sas !== null) {
++        this.sasText = this.renderSas(session.sas);
++      } else {
++        this.sasText = '';
++      }
++      this.showChallengeControls = session.state === VerificationState.AwaitingOtherDeviceResponse;
++      this.showResetControls = session.state === VerificationState.Canceled ||
++        session.state === VerificationState.Failed;
++    });
++    this.identityService.subscribe((userId, roomId, state) => {
++      if (userId === this.presenter.userId) {
++        this.identityBadge = state === IdentityState.VerificationViolation
++          ? 'Identity changed — verification required'
++          : (state === IdentityState.Trusted ? 'Identity trusted' : '');
++      }
++    });
++    // Seed an outstanding identity violation so the profile shows the
++    // expected warning. Cancellation/failure of the verification must
++    // not clear this badge.
++    this.identityService.raiseViolation(this.presenter.userId, this.presenter.displayName, this.presenter.encryptedRoomId);
++  }
++
++  private renderSas(challenge: SasChallenge): string {
++    const parts: string[] = [];
++    for (let i = 0; i < challenge.emojis.length; i++) {
++      parts.push(challenge.emojis[i]);
++    }
++    return parts.join(' · ');
++  }
+ 
+   build() {
+     Column() {
+       Column({ space: 8 }) {
+-        Text('Alice')
++        Text(this.presenter.displayName)
+           .fontSize(28)
+           .fontWeight(FontWeight.Bold)
+-        Text('@alice:example.org')
++        Text(this.presenter.userId)
+           .fontSize(15)
+           .fontColor('#64748B')
++        if (this.identityBadge.length > 0) {
++          Text(this.identityBadge)
++            .id('identity_violation_badge')
++            .fontSize(13)
++            .fontColor('#B91C1C')
++            .margin({ top: 8 })
++        }
+       }
+       .padding(28)
+       .width('100%')
+       .backgroundColor('#FFFFFF')
+ 
+       Column({ space: 12 }) {
++        Text(this.statusText)
++          .id('ts')
++          .fontSize(13)
++          .fontColor('#64748B')
++          .width('100%')
++        Text(`Verification: ${this.verificationState}`)
++          .id('verification_state')
++          .fontSize(13)
++          .fontColor('#1F2937')
++          .width('100%')
++        if (this.sessionKind.length > 0) {
++          Text(this.sessionKind)
++            .id('verification_kind')
++            .fontSize(12)
++            .fontColor('#6B7280')
++            .width('100%')
++        }
++        if (this.sasText.length > 0) {
++          Text(`Compare emojis: ${this.sasText}`)
++            .id('sas_text')
++            .fontSize(14)
++            .fontColor('#111827')
++            .width('100%')
++        }
++
+         Button('Message Alice')
+           .id('start_direct_message')
+           .width('100%')
+@@ -37,10 +138,63 @@ struct Index {
+             this.blocked = this.presenter.blocked;
+             this.statusText = this.blocked ? 'User blocked' : 'User unblocked';
+           })
+-        Text(this.statusText)
+-          .fontSize(13)
+-          .fontColor('#64748B')
++        Button('Verify Alice')
++          .id('start_user_verification')
++          .width('100%')
++          .onClick(() => {
++            const session = this.presenter.startUserVerification();
++            if (session === null) {
++              this.statusText = 'Verification unavailable';
++            } else {
++              this.statusText = `Request sent to ${this.presenter.userId}`;
++              this.presenter.driveSessionFromProfile('mark_accepted');
++              this.presenter.driveSessionFromProfile('start_sas_verification');
++            }
++          })
++        Button('Verify this session')
++          .id('start_self_verification')
+           .width('100%')
++          .onClick(() => {
++            const session = this.verificationService.createSelfSessionVerification();
++            this.gateway.startSelfSessionVerification();
++            this.statusText = `Self-session request ${session.requestId}`;
++          })
++        if (this.showChallengeControls) {
++          Button('Accept emojis')
++            .id('accept_challenge')
++            .width('100%')
++            .backgroundColor('#16A34A')
++            .onClick(() => {
++              this.presenter.driveSessionFromProfile('accept_challenge');
++              this.statusText = 'Accept sent';
++              this.presenter.driveSessionFromProfile('verification_finished');
++            })
++          Button('Decline emojis')
++            .id('decline_challenge')
++            .width('100%')
++            .backgroundColor('#DC2626')
++            .onClick(() => {
++              this.presenter.driveSessionFromProfile('decline_challenge');
++              this.statusText = 'Decline sent';
++              this.presenter.driveSessionFromProfile('sdk_failure');
++            })
++          Button('Cancel verification')
++            .id('cancel_verification')
++            .width('100%')
++            .onClick(() => {
++              this.presenter.driveSessionFromProfile('cancel');
++              this.statusText = 'Verification canceled';
++            })
++        }
++        if (this.showResetControls) {
++          Button('Reset verification')
++            .id('reset_verification')
++            .width('100%')
++            .onClick(() => {
++              this.presenter.driveSessionFromProfile('reset');
++              this.statusText = 'Verification reset to failed (no false success)';
++            })
++        }
+       }
+       .padding(20)
+       .width('100%')
+@@ -50,4 +204,4 @@ struct Index {
+     .width('100%')
+     .backgroundColor('#F4F6F8')
+   }
+-}
++}
+\ No newline at end of file

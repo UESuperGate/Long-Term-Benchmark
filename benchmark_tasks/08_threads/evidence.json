@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "08_threads",
+  "releaseEvidence": ["CHANGES.md v25.08.4: Threads - first iteration", "CHANGES.md v25.08.4: Allow replying to any remote message in a thread"],
+  "implementationEvidence": {
+    "symbols": ["ThreadedMessagesNode", "CreateTimelineParams.Threaded", "ThreadSummary", "TimelineEvents.FocusOnEvent", "MessageComposerMode.Reply"],
+    "productionPaths": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/threads", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline", "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/timeline"],
+    "testPaths": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/MessagesPresenterTest.kt", "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/TimelineControllerTest.kt", "libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/timeline/RustTimelineTest.kt"]
+  },
+  "baseFailureEvidence": ["The base has no ThreadedMessagesNode or threaded timeline creation path.", "The base cannot open a thread root and keep reply, voice, location, poll, and attachment actions scoped to that thread.", "The base cannot reply to an arbitrary remote thread event."],
+  "longHorizonSignals": ["The change touches navigation, timeline construction, composer modes, media/location/poll send paths, and SDK timeline adapters.", "The thread must preserve focus and reply targets while handling remote events and send failures.", "The implementation commit changes 119 files and includes 38 test files."],
+  "rawEvidence": "raw_release_evidence.json"
+}

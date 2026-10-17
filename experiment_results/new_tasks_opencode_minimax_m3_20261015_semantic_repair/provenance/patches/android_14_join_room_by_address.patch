@@ -1,0 +1,1082 @@
+diff --git a/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt b/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt
+index ced5d00..e886383 100644
+--- a/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt
++++ b/appnav/src/main/kotlin/io/element/android/appnav/LoggedInFlowNode.kt
+@@ -51,6 +51,7 @@ import io.element.android.features.createroom.api.CreateRoomEntryPoint
+ import io.element.android.features.ftue.api.FtueEntryPoint
+ import io.element.android.features.ftue.api.state.FtueService
+ import io.element.android.features.ftue.api.state.FtueState
++import io.element.android.features.joinroombyaddress.api.JoinRoomByAddressEntryPoint
+ import io.element.android.features.logout.api.LogoutEntryPoint
+ import io.element.android.features.networkmonitor.api.NetworkMonitor
+ import io.element.android.features.networkmonitor.api.NetworkStatus
+@@ -72,6 +73,7 @@ import io.element.android.libraries.di.SessionScope
+ import io.element.android.libraries.matrix.api.MatrixClient
+ import io.element.android.libraries.matrix.api.core.EventId
+ import io.element.android.libraries.matrix.api.core.MAIN_SPACE
++import io.element.android.libraries.matrix.api.core.RoomAlias
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.RoomIdOrAlias
+ import io.element.android.libraries.matrix.api.core.UserId
+@@ -111,6 +113,7 @@ class LoggedInFlowNode @AssistedInject constructor(
+     private val ftueService: FtueService,
+     private val roomDirectoryEntryPoint: RoomDirectoryEntryPoint,
+     private val shareEntryPoint: ShareEntryPoint,
++    private val joinRoomByAddressEntryPoint: JoinRoomByAddressEntryPoint,
+     private val matrixClient: MatrixClient,
+     private val sendingQueue: SendQueues,
+     private val logoutEntryPoint: LogoutEntryPoint,
+@@ -255,6 +258,9 @@ class LoggedInFlowNode @AssistedInject constructor(
+         @Parcelize
+         data object RoomDirectorySearch : NavTarget
+ 
++        @Parcelize
++        data object JoinRoomByAddress : NavTarget
++
+         @Parcelize
+         data class IncomingShare(val intent: Intent) : NavTarget
+ 
+@@ -404,6 +410,14 @@ class LoggedInFlowNode @AssistedInject constructor(
+                     override fun onSuccess(roomId: RoomId) {
+                         backstack.replace(NavTarget.Room(roomId.toRoomIdOrAlias()))
+                     }
++
++                    override fun onJoinByAddressClick() {
++                        // The "Join by address" surface lives inside the
++                        // CreateRoom flow but it represents an entirely
++                        // separate entry point: opening it must not leave the
++                        // CreateRoom screen on the back stack.
++                        backstack.replace(NavTarget.JoinRoomByAddress)
++                    }
+                 }
+ 
+                 createRoomEntryPoint
+@@ -411,6 +425,32 @@ class LoggedInFlowNode @AssistedInject constructor(
+                     .callback(callback)
+                     .build()
+             }
++            NavTarget.JoinRoomByAddress -> {
++                val callback = object : JoinRoomByAddressEntryPoint.Callback {
++                    override fun onJoinExistingRoom(roomAlias: RoomAlias, roomId: RoomId, serverNames: List<String>) {
++                        // Hand the resolved identity to the existing
++                        // preview/join flow. We pass the resolved roomId
++                        // directly so the alias is not re-resolved.
++                        backstack.replace(
++                            NavTarget.Room(
++                                roomIdOrAlias = roomId.toRoomIdOrAlias(),
++                                serverNames = serverNames,
++                                trigger = JoinedRoom.Trigger.MobilePermalink,
++                            )
++                        )
++                    }
++
++                    override fun onCancel() {
++                        // Dismiss must never navigate into a room. We just
++                        // return to the Start chat surface.
++                        backstack.replace(NavTarget.CreateRoom)
++                    }
++                }
++                joinRoomByAddressEntryPoint
++                    .nodeBuilder(this, buildContext)
++                    .callback(callback)
++                    .build()
++            }
+             is NavTarget.SecureBackup -> {
+                 secureBackupEntryPoint.nodeBuilder(this, buildContext)
+                     .params(SecureBackupEntryPoint.Params(initialElement = navTarget.initialElement))
+diff --git a/features/createroom/api/src/main/kotlin/io/element/android/features/createroom/api/CreateRoomEntryPoint.kt b/features/createroom/api/src/main/kotlin/io/element/android/features/createroom/api/CreateRoomEntryPoint.kt
+index b37c804..c482222 100644
+--- a/features/createroom/api/src/main/kotlin/io/element/android/features/createroom/api/CreateRoomEntryPoint.kt
++++ b/features/createroom/api/src/main/kotlin/io/element/android/features/createroom/api/CreateRoomEntryPoint.kt
+@@ -22,5 +22,11 @@ interface CreateRoomEntryPoint : FeatureEntryPoint {
+ 
+     interface Callback : Plugin {
+         fun onSuccess(roomId: RoomId)
++        /**
++         * Invoked when the user picks the "Join by address" action from the
++         * Start chat surface. The parent navigation is expected to open the
++         * dedicated join-by-address flow.
++         */
++        fun onJoinByAddressClick()
+     }
+ }
+diff --git a/features/createroom/impl/build.gradle.kts b/features/createroom/impl/build.gradle.kts
+index 769f7b5..6286b9a 100644
+--- a/features/createroom/impl/build.gradle.kts
++++ b/features/createroom/impl/build.gradle.kts
+@@ -42,6 +42,7 @@ dependencies {
+     implementation(libs.coil.compose)
+     implementation(projects.libraries.featureflag.api)
+     api(projects.features.createroom.api)
++    implementation(projects.features.joinroombyaddress.impl)
+ 
+     testImplementation(libs.test.junit)
+     testImplementation(libs.test.mockk)
+diff --git a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/CreateRoomFlowNode.kt b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/CreateRoomFlowNode.kt
+index 9e06bf6..446b3bd 100644
+--- a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/CreateRoomFlowNode.kt
++++ b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/CreateRoomFlowNode.kt
+@@ -60,6 +60,10 @@ class CreateRoomFlowNode @AssistedInject constructor(
+                     override fun onStartChatSuccess(roomId: RoomId) {
+                         plugins<CreateRoomEntryPoint.Callback>().forEach { it.onSuccess(roomId) }
+                     }
++
++                    override fun onJoinByAddressClick() {
++                        plugins<CreateRoomEntryPoint.Callback>().forEach { it.onJoinByAddressClick() }
++                    }
+                 }
+                 createNode<CreateRoomRootNode>(buildContext = buildContext, plugins = listOf(callback))
+             }
+diff --git a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootNode.kt b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootNode.kt
+index aef27b9..20ba61a 100644
+--- a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootNode.kt
++++ b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootNode.kt
+@@ -36,6 +36,7 @@ class CreateRoomRootNode @AssistedInject constructor(
+     interface Callback : Plugin {
+         fun onCreateNewRoom()
+         fun onStartChatSuccess(roomId: RoomId)
++        fun onJoinByAddressClick()
+     }
+ 
+     private fun onCreateNewRoom() {
+@@ -46,6 +47,10 @@ class CreateRoomRootNode @AssistedInject constructor(
+         plugins<Callback>().forEach { it.onStartChatSuccess(roomId) }
+     }
+ 
++    private fun onJoinByAddressClick() {
++        plugins<Callback>().forEach { it.onJoinByAddressClick() }
++    }
++
+     init {
+         lifecycle.subscribe(
+             onResume = { analyticsService.screen(MobileScreen(screenName = MobileScreen.ScreenName.StartChat)) }
+@@ -62,7 +67,8 @@ class CreateRoomRootNode @AssistedInject constructor(
+             onCloseClick = this::navigateUp,
+             onNewRoomClick = ::onCreateNewRoom,
+             onOpenDM = ::onStartChatSuccess,
+-            onInviteFriendsClick = { invitePeople(activity) }
++            onInviteFriendsClick = { invitePeople(activity) },
++            onJoinByAddressClick = ::onJoinByAddressClick,
+         )
+     }
+ 
+diff --git a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootView.kt b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootView.kt
+index 0e33cf8..5e0b9e7 100644
+--- a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootView.kt
++++ b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootView.kt
+@@ -54,6 +54,7 @@ fun CreateRoomRootView(
+     onNewRoomClick: () -> Unit,
+     onOpenDM: (RoomId) -> Unit,
+     onInviteFriendsClick: () -> Unit,
++    onJoinByAddressClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     Scaffold(
+@@ -89,6 +90,7 @@ fun CreateRoomRootView(
+                     onNewRoomClick = onNewRoomClick,
+                     onInvitePeopleClick = onInviteFriendsClick,
+                     onDmClick = onOpenDM,
++                    onJoinByAddressClick = onJoinByAddressClick,
+                 )
+             }
+         }
+@@ -140,6 +142,7 @@ private fun CreateRoomActionButtonsList(
+     onNewRoomClick: () -> Unit,
+     onInvitePeopleClick: () -> Unit,
+     onDmClick: (RoomId) -> Unit,
++    onJoinByAddressClick: () -> Unit,
+ ) {
+     LazyColumn {
+         item {
+@@ -156,6 +159,13 @@ private fun CreateRoomActionButtonsList(
+                 onClick = onInvitePeopleClick,
+             )
+         }
++        item {
++            CreateRoomActionButton(
++                iconRes = CompoundDrawables.ic_compound_link,
++                text = stringResource(id = io.element.android.features.joinroombyaddress.impl.R.string.screen_join_room_by_address_title),
++                onClick = onJoinByAddressClick,
++            )
++        }
+         if (state.userListState.recentDirectRooms.isNotEmpty()) {
+             item {
+                 ListSectionHeader(
+@@ -217,5 +227,6 @@ internal fun CreateRoomRootViewPreview(@PreviewParameter(CreateRoomRootStateProv
+             onNewRoomClick = {},
+             onOpenDM = {},
+             onInviteFriendsClick = {},
++            onJoinByAddressClick = {},
+         )
+     }
+diff --git a/features/joinroombyaddress/api/build.gradle.kts b/features/joinroombyaddress/api/build.gradle.kts
+new file mode 100644
+index 0000000..1f008bd
+--- /dev/null
++++ b/features/joinroombyaddress/api/build.gradle.kts
+@@ -0,0 +1,19 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++plugins {
++    id("io.element.android-library")
++}
++
++android {
++    namespace = "io.element.android.features.joinroombyaddress.api"
++}
++
++dependencies {
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++}
+diff --git a/features/joinroombyaddress/api/src/main/kotlin/io/element/android/features/joinroombyaddress/api/JoinRoomByAddressEntryPoint.kt b/features/joinroombyaddress/api/src/main/kotlin/io/element/android/features/joinroombyaddress/api/JoinRoomByAddressEntryPoint.kt
+new file mode 100644
+index 0000000..c81eb0f
+--- /dev/null
++++ b/features/joinroombyaddress/api/src/main/kotlin/io/element/android/features/joinroombyaddress/api/JoinRoomByAddressEntryPoint.kt
+@@ -0,0 +1,38 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.api
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import io.element.android.libraries.architecture.FeatureEntryPoint
++import io.element.android.libraries.matrix.api.core.RoomAlias
++import io.element.android.libraries.matrix.api.core.RoomId
++
++interface JoinRoomByAddressEntryPoint : FeatureEntryPoint {
++    fun nodeBuilder(parentNode: Node, buildContext: BuildContext): NodeBuilder
++
++    interface NodeBuilder {
++        fun callback(callback: Callback): NodeBuilder
++        fun build(): Node
++    }
++
++    interface Callback : Plugin {
++        /**
++         * The alias the user typed resolved to a real room. The parent
++         * navigation should advance into the existing preview/join flow
++         * using this resolved identity.
++         *
++         * @param roomAlias the alias the user typed.
++         * @param roomId the roomId that the alias resolved to.
++         * @param serverNames the list of servers returned by the resolver.
++         */
++        fun onJoinExistingRoom(roomAlias: RoomAlias, roomId: RoomId, serverNames: List<String>)
++        fun onCancel()
++    }
++}
+diff --git a/features/joinroombyaddress/impl/build.gradle.kts b/features/joinroombyaddress/impl/build.gradle.kts
+new file mode 100644
+index 0000000..dfccda7
+--- /dev/null
++++ b/features/joinroombyaddress/impl/build.gradle.kts
+@@ -0,0 +1,46 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++import extension.setupAnvil
++
++plugins {
++    id("io.element.android-compose-library")
++    id("kotlin-parcelize")
++}
++
++android {
++    namespace = "io.element.android.features.joinroombyaddress.impl"
++    testOptions {
++        unitTests {
++            isIncludeAndroidResources = true
++        }
++    }
++}
++
++setupAnvil()
++
++dependencies {
++    api(projects.features.joinroombyaddress.api)
++    implementation(projects.libraries.core)
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.androidutils)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.matrixui)
++    implementation(projects.libraries.designsystem)
++    implementation(projects.libraries.uiStrings)
++
++    testImplementation(libs.test.junit)
++    testImplementation(libs.coroutines.test)
++    testImplementation(libs.molecule.runtime)
++    testImplementation(libs.test.robolectric)
++    testImplementation(libs.test.truth)
++    testImplementation(libs.test.turbine)
++    testImplementation(projects.libraries.matrix.test)
++    testImplementation(projects.tests.testutils)
++    testImplementation(libs.androidx.compose.ui.test.junit)
++    testReleaseImplementation(libs.androidx.compose.ui.test.manifest)
++}
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/DefaultJoinRoomByAddressEntryPoint.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/DefaultJoinRoomByAddressEntryPoint.kt
+new file mode 100644
+index 0000000..2582f95
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/DefaultJoinRoomByAddressEntryPoint.kt
+@@ -0,0 +1,35 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.features.joinroombyaddress.api.JoinRoomByAddressEntryPoint
++import io.element.android.libraries.architecture.createNode
++import io.element.android.libraries.di.AppScope
++import javax.inject.Inject
++
++@ContributesBinding(AppScope::class)
++class DefaultJoinRoomByAddressEntryPoint @Inject constructor() : JoinRoomByAddressEntryPoint {
++    override fun nodeBuilder(parentNode: Node, buildContext: BuildContext): JoinRoomByAddressEntryPoint.NodeBuilder {
++        val plugins = ArrayList<Plugin>()
++
++        return object : JoinRoomByAddressEntryPoint.NodeBuilder {
++            override fun callback(callback: JoinRoomByAddressEntryPoint.Callback): JoinRoomByAddressEntryPoint.NodeBuilder {
++                plugins += callback
++                return this
++            }
++
++            override fun build(): Node {
++                return parentNode.createNode<JoinRoomByAddressNode>(buildContext, plugins)
++            }
++        }
++    }
++}
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressEvents.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressEvents.kt
+new file mode 100644
+index 0000000..9368ef2
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressEvents.kt
+@@ -0,0 +1,14 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl
++
++sealed interface JoinRoomByAddressEvents {
++    data class SetAddress(val address: String) : JoinRoomByAddressEvents
++    data object Continue : JoinRoomByAddressEvents
++    data object Retry : JoinRoomByAddressEvents
++}
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressNode.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressNode.kt
+new file mode 100644
+index 0000000..1f51b4c
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressNode.kt
+@@ -0,0 +1,57 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl
++
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.bumble.appyx.core.plugin.plugins
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.joinroombyaddress.api.JoinRoomByAddressEntryPoint
++import io.element.android.libraries.di.SessionScope
++
++@ContributesNode(SessionScope::class)
++class JoinRoomByAddressNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    presenterFactory: JoinRoomByAddressPresenter.Factory,
++) : Node(buildContext, plugins = plugins) {
++
++    private val presenter = presenterFactory.create(
++        onResolved = { roomAlias, resolvedRoomAlias ->
++            // Surface the dismiss callback before navigating away so the
++            // parent can drop any pending flow state (jr_state_009).
++            plugins<JoinRoomByAddressEntryPoint.Callback>().forEach {
++                it.onJoinExistingRoom(
++                    roomAlias = roomAlias,
++                    roomId = resolvedRoomAlias.roomId,
++                    serverNames = resolvedRoomAlias.servers,
++                )
++            }
++        }
++    )
++
++    private fun onDismiss() {
++        plugins<JoinRoomByAddressEntryPoint.Callback>().forEach { it.onCancel() }
++    }
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        val state = presenter.present()
++        JoinRoomByAddressView(
++            state = state,
++            onBackClick = ::navigateUp,
++            onDismissClick = ::onDismiss,
++            modifier = modifier,
++        )
++    }
++}
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressPresenter.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressPresenter.kt
+new file mode 100644
+index 0000000..11da380
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressPresenter.kt
+@@ -0,0 +1,212 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.derivedStateOf
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.saveable.Saver
++import androidx.compose.runtime.saveable.rememberSaveable
++import androidx.compose.runtime.setValue
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.core.MatrixPatterns
++import io.element.android.libraries.matrix.api.core.RoomAlias
++import io.element.android.libraries.matrix.api.core.RoomId
++import io.element.android.libraries.matrix.api.room.alias.ResolvedRoomAlias
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.withTimeoutOrNull
++import kotlin.time.Duration.Companion.milliseconds
++import kotlin.time.Duration.Companion.seconds
++
++private const val RESOLVE_DEBOUNCE_MS = 300L
++private val RESOLVE_TIMEOUT = 10.seconds
++
++/**
++ * Presenter for the "Join by address" screen.
++ *
++ * Manages:
++ *  - syntax validation against the Matrix room-alias grammar,
++ *  - debounced + cancellable resolution through [MatrixClient.resolveRoomAlias],
++ *  - a 10 second resolution timeout so the UI cannot be left loading forever,
++ *  - the "Continue while resolving" handshake: pressing Continue while a
++ *    resolution is in flight waits for it, then advances only if the same
++ *    address resolves successfully, and
++ *  - guarding the state against stale responses so a slow resolution for an
++ *    older typed address never overwrites the visible state for the new one.
++ */
++class JoinRoomByAddressPresenter @AssistedInject constructor(
++    @Assisted private val onResolved: (RoomAlias, ResolvedRoomAlias) -> Unit,
++    private val matrixClient: MatrixClient,
++) : Presenter<JoinRoomByAddressState> {
++
++    interface Factory {
++        fun create(
++            onResolved: (RoomAlias, ResolvedRoomAlias) -> Unit,
++        ): JoinRoomByAddressPresenter
++    }
++
++    @Composable
++    override fun present(): JoinRoomByAddressState {
++        var address by rememberSaveable { mutableStateOf("") }
++        var addressState by rememberSaveable(stateSaver = AddressStateSaver) {
++            mutableStateOf<AddressState>(AddressState.Unknown)
++        }
++        var hasContinueBeenPressed by rememberSaveable { mutableStateOf(false) }
++
++        // The trimmed alias whose resolution result should currently be
++        // displayed. It only changes when (a) the typed address becomes a
++        // valid alias, or (b) the resolution completes. Resolution results
++        // that don't match the currently-tracked alias are dropped.
++        var resolvingAddress by remember { mutableStateOf<String?>(null) }
++
++        // Drive the resolution lifecycle off the typed address so editing the
++        // field cancels any in-flight request and prevents stale responses.
++        LaunchedEffect(address) {
++            // Editing the field always clears previously-shown validation
++            // and the continue-acknowledgement so that feedback doesn't
++            // bleed across unrelated edits.
++            if (hasContinueBeenPressed) {
++                hasContinueBeenPressed = false
++            }
++            val trimmed = address.trim()
++            when {
++                trimmed.isEmpty() -> {
++                    addressState = AddressState.Unknown
++                }
++                !MatrixPatterns.isRoomAlias(trimmed) -> {
++                    addressState = AddressState.Invalid
++                }
++                else -> {
++                    // Valid syntax: debounce, then resolve. Cancellation of
++                    // the LaunchedEffect on the next address edit makes this
++                    // safe to re-trigger on every keystroke.
++                    addressState = AddressState.Resolving
++                    delay(RESOLVE_DEBOUNCE_MS.milliseconds)
++                    // The user may have cleared the field during the debounce,
++                    // in which case there is nothing to resolve.
++                    if (address.trim() != trimmed) return@LaunchedEffect
++                    resolvingAddress = trimmed
++                    val resolved = withTimeoutOrNull(RESOLVE_TIMEOUT) {
++                        matrixClient.resolveRoomAlias(RoomAlias(trimmed))
++                    }
++                    // Drop stale responses that came back for an older address.
++                    if (resolvingAddress != trimmed) return@LaunchedEffect
++                    if (resolved == null) {
++                        addressState = AddressState.Failure
++                        return@LaunchedEffect
++                    }
++                    resolved.fold(
++                        onSuccess = { optional ->
++                            addressState = if (optional.isPresent) {
++                                AddressState.Found(optional.get())
++                            } else {
++                                AddressState.NotFound
++                            }
++                        },
++                        onFailure = {
++                            addressState = AddressState.Failure
++                        }
++                    )
++                }
++            }
++        }
++
++        // When the user has pressed Continue and we end up in the Found state
++        // for the address currently in the field, automatically advance into
++        // the existing preview/join flow. We use `derivedStateOf` so this only
++        // fires on transitions from non-Found -> Found for the same address.
++        val pendingAdvance by remember {
++            derivedStateOf {
++                val state = addressState
++                hasContinueBeenPressed &&
++                    state is AddressState.Found &&
++                    address.trim() == resolvingAddress
++            }
++        }
++        LaunchedEffect(pendingAdvance) {
++            if (pendingAdvance) {
++                val found = addressState as? AddressState.Found ?: return@LaunchedEffect
++                onResolved(RoomAlias(address.trim()), found.resolvedRoomAlias)
++            }
++        }
++
++        fun handleEvents(event: JoinRoomByAddressEvents) {
++            when (event) {
++                is JoinRoomByAddressEvents.SetAddress -> {
++                    address = event.address
++                }
++                JoinRoomByAddressEvents.Continue -> {
++                    // The actual "advance when found" handshake is performed
++                    // by the `pendingAdvance` derived state below, so that
++                    // Continue-while-resolving (jr_state_006) is handled the
++                    // same way as Continue-after-resolved.
++                    hasContinueBeenPressed = true
++                }
++                JoinRoomByAddressEvents.Retry -> {
++                    // Forcing the address to its current value retriggers the
++                    // LaunchedEffect, which will re-attempt the resolution.
++                    val current = address
++                    address = ""
++                    address = current
++                    hasContinueBeenPressed = false
++                }
++            }
++        }
++
++        return JoinRoomByAddressState(
++            address = address,
++            addressState = addressState,
++            hasContinueBeenPressed = hasContinueBeenPressed,
++            eventSink = ::handleEvents,
++        )
++    }
++}
++
++/**
++ * Saver for [AddressState] so the current phase survives process death. Found
++ * results are reconstructed from the resolved roomId/servers pair so that
++ * retry-after-recompose continues to work.
++ */
++private val AddressStateSaver: Saver<AddressState, Any> = Saver(
++    save = { value ->
++        when (value) {
++            AddressState.Unknown -> "unknown"
++            AddressState.Invalid -> "invalid"
++            AddressState.Resolving -> "resolving"
++            AddressState.NotFound -> "not_found"
++            AddressState.Failure -> "failure"
++            is AddressState.Found ->
++                "found:${value.resolvedRoomAlias.roomId.value}|${value.resolvedRoomAlias.servers.joinToString(",")}"
++        }
++    },
++    restore = { saved ->
++        when (saved) {
++            "unknown" -> AddressState.Unknown
++            "invalid" -> AddressState.Invalid
++            "resolving" -> AddressState.Resolving
++            "not_found" -> AddressState.NotFound
++            "failure" -> AddressState.Failure
++            else -> {
++                val raw = (saved as String).removePrefix("found:")
++                val parts = raw.split("|", limit = 2)
++                val roomId = RoomId(parts[0])
++                val servers = parts.getOrNull(1).orEmpty()
++                    .takeIf { it.isNotEmpty() }
++                    ?.split(",")
++                    ?: emptyList()
++                AddressState.Found(ResolvedRoomAlias(roomId = roomId, servers = servers))
++            }
++        }
++    }
++)
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressState.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressState.kt
+new file mode 100644
+index 0000000..3fe18d2
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressState.kt
+@@ -0,0 +1,56 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl
++
++import androidx.compose.runtime.Immutable
++import io.element.android.libraries.matrix.api.room.alias.ResolvedRoomAlias
++
++/**
++ * Represents the user-visible state of the address entry / resolution flow.
++ *
++ * The [addressState] tracks the current phase of resolution for [address]. Stale
++ * resolution responses for an older [address] never replace the visible state,
++ * see [JoinRoomByAddressPresenter].
++ *
++ * [hasContinueBeenPressed] controls whether feedback for negative terminal
++ * states ([AddressState.Invalid], [AddressState.NotFound], [AddressState.Failure])
++ * is shown. It is reset on every address change so that simply editing the field
++ * clears stale validation, and set when the user explicitly presses Continue.
++ */
++@Immutable
++data class JoinRoomByAddressState(
++    val address: String,
++    val addressState: AddressState,
++    val hasContinueBeenPressed: Boolean,
++    val eventSink: (JoinRoomByAddressEvents) -> Unit,
++) {
++    val isResolving: Boolean get() = addressState is AddressState.Resolving
++    val isFound: Boolean get() = addressState is AddressState.Found
++    val isContinueEnabled: Boolean get() = addressState is AddressState.Found
++}
++
++@Immutable
++sealed interface AddressState {
++    /** No input has been provided yet (or it has been cleared). */
++    data object Unknown : AddressState
++
++    /** Input is non-empty but does not match the Matrix room alias syntax. */
++    data object Invalid : AddressState
++
++    /** Input is a syntactically valid alias and a resolution request is in flight. */
++    data object Resolving : AddressState
++
++    /** Resolution succeeded but the alias does not point to any known room. */
++    data object NotFound : AddressState
++
++    /** Resolution succeeded and returned a room. */
++    data class Found(val resolvedRoomAlias: ResolvedRoomAlias) : AddressState
++
++    /** Resolution could not complete because of a network/transport error or timeout. */
++    data object Failure : AddressState
++}
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressStateProvider.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressStateProvider.kt
+new file mode 100644
+index 0000000..16b0e9f
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressStateProvider.kt
+@@ -0,0 +1,61 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl
++
++import androidx.compose.ui.tooling.preview.PreviewParameterProvider
++import io.element.android.libraries.matrix.api.core.RoomId
++import io.element.android.libraries.matrix.api.room.alias.ResolvedRoomAlias
++
++open class JoinRoomByAddressStateProvider : PreviewParameterProvider<JoinRoomByAddressState> {
++    override val values: Sequence<JoinRoomByAddressState>
++        get() = sequenceOf(
++            aJoinRoomByAddressState(),
++            aJoinRoomByAddressState(
++                address = "#team:example.org",
++                addressState = AddressState.Resolving,
++                hasContinueBeenPressed = true,
++            ),
++            aJoinRoomByAddressState(
++                address = "not-a-room",
++                addressState = AddressState.Invalid,
++                hasContinueBeenPressed = true,
++            ),
++            aJoinRoomByAddressState(
++                address = "#missing:example.org",
++                addressState = AddressState.NotFound,
++                hasContinueBeenPressed = true,
++            ),
++            aJoinRoomByAddressState(
++                address = "#slow:example.org",
++                addressState = AddressState.Failure,
++                hasContinueBeenPressed = true,
++            ),
++            aJoinRoomByAddressState(
++                address = "#team:example.org",
++                addressState = AddressState.Found(
++                    ResolvedRoomAlias(
++                        roomId = RoomId("!team:example.org"),
++                        servers = listOf("example.org"),
++                    )
++                ),
++                hasContinueBeenPressed = false,
++            ),
++        )
++}
++
++fun aJoinRoomByAddressState(
++    address: String = "",
++    addressState: AddressState = AddressState.Unknown,
++    hasContinueBeenPressed: Boolean = false,
++    eventSink: (JoinRoomByAddressEvents) -> Unit = {},
++) = JoinRoomByAddressState(
++    address = address,
++    addressState = addressState,
++    hasContinueBeenPressed = hasContinueBeenPressed,
++    eventSink = eventSink,
++)
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressView.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressView.kt
+new file mode 100644
+index 0000000..6a7de0f
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/JoinRoomByAddressView.kt
+@@ -0,0 +1,215 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.imePadding
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.text.KeyboardActions
++import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.rememberUpdatedState
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.text.input.ImeAction
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.tooling.preview.PreviewParameter
++import androidx.compose.ui.unit.dp
++import io.element.android.compound.theme.ElementTheme
++import io.element.android.libraries.designsystem.components.button.BackButton
++import io.element.android.libraries.designsystem.preview.ElementPreview
++import io.element.android.libraries.designsystem.preview.PreviewsDayNight
++import io.element.android.libraries.designsystem.theme.aliasScreenTitle
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.ButtonSize
++import io.element.android.libraries.designsystem.theme.components.CircularProgressIndicator
++import io.element.android.libraries.designsystem.theme.components.Scaffold
++import io.element.android.libraries.designsystem.theme.components.Text
++import io.element.android.libraries.designsystem.theme.components.TextField
++import io.element.android.libraries.designsystem.theme.components.TopAppBar
++import io.element.android.libraries.ui.strings.CommonStrings
++
++@Composable
++fun JoinRoomByAddressView(
++    state: JoinRoomByAddressState,
++    onBackClick: () -> Unit,
++    onDismissClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val latestOnBackClick by rememberUpdatedState(onBackClick)
++    val latestOnDismissClick by rememberUpdatedState(onDismissClick)
++    Scaffold(
++        modifier = modifier.fillMaxSize(),
++        topBar = {
++            JoinRoomByAddressTopBar(
++                onBackClick = {
++                    // The "dismiss" invariant (jr_state_009) requires that
++                    // closing this screen never joins a room. We surface a
++                    // dismiss callback so the parent can clean up any state,
++                    // then defer to the regular back navigation.
++                    latestOnDismissClick()
++                    latestOnBackClick()
++                }
++            )
++        },
++    ) { padding ->
++        Column(
++            modifier = Modifier
++                .fillMaxSize()
++                .padding(padding)
++                .imePadding()
++                .padding(horizontal = 16.dp, vertical = 16.dp),
++            verticalArrangement = Arrangement.spacedBy(16.dp),
++        ) {
++            AddressTextField(state = state)
++            AddressFeedback(state = state)
++            Spacer(modifier = Modifier.size(8.dp))
++            ActionFooter(
++                state = state,
++                onContinueClick = { state.eventSink(JoinRoomByAddressEvents.Continue) },
++                onRetryClick = { state.eventSink(JoinRoomByAddressEvents.Retry) },
++            )
++        }
++    }
++}
++
++@Composable
++private fun AddressTextField(state: JoinRoomByAddressState) {
++    val focusManager = LocalFocusManager.current
++    TextField(
++        value = state.address,
++        onValueChange = { newValue ->
++            state.eventSink(JoinRoomByAddressEvents.SetAddress(newValue))
++        },
++        modifier = Modifier.fillMaxWidth(),
++        label = stringResource(R.string.screen_join_room_by_address_address_label),
++        placeholder = stringResource(R.string.screen_join_room_by_address_address_hint),
++        singleLine = true,
++        // Surface the "invalid" feedback on the field only after the user has
++        // explicitly acknowledged by pressing Continue (jr_state_003).
++        isError = state.hasContinueBeenPressed && state.addressState is AddressState.Invalid,
++        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
++        keyboardActions = KeyboardActions(
++            onDone = {
++                focusManager.clearFocus()
++                state.eventSink(JoinRoomByAddressEvents.Continue)
++            }
++        ),
++    )
++}
++
++@Composable
++private fun AddressFeedback(state: JoinRoomByAddressState) {
++    val message = feedbackMessage(state)
++    if (message != null) {
++        Text(
++            text = message,
++            modifier = Modifier.fillMaxWidth(),
++            color = MaterialTheme.colorScheme.error,
++            textAlign = TextAlign.Start,
++        )
++    }
++}
++
++@Composable
++private fun feedbackMessage(state: JoinRoomByAddressState): String? {
++    // Until the user has pressed Continue, no negative terminal feedback is
++    // surfaced (jr_state_003).
++    if (!state.hasContinueBeenPressed) return null
++    return when (state.addressState) {
++        AddressState.Invalid -> stringResource(R.string.screen_join_room_by_address_invalid_address)
++        AddressState.NotFound -> stringResource(R.string.screen_join_room_by_address_resolve_failure)
++        AddressState.Failure -> stringResource(R.string.screen_join_room_by_address_resolve_timeout)
++        AddressState.Unknown,
++        AddressState.Resolving,
++        is AddressState.Found -> null
++    }
++}
++
++@Composable
++private fun ActionFooter(
++    state: JoinRoomByAddressState,
++    onContinueClick: () -> Unit,
++    onRetryClick: () -> Unit,
++) {
++    when (state.addressState) {
++        AddressState.NotFound,
++        AddressState.Failure -> {
++            Button(
++                modifier = Modifier.fillMaxWidth(),
++                text = stringResource(CommonStrings.action_retry),
++                size = ButtonSize.Large,
++                onClick = onRetryClick,
++            )
++        }
++        AddressState.Resolving -> {
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                horizontalArrangement = Arrangement.Center,
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                CircularProgressIndicator(
++                    modifier = Modifier.size(24.dp),
++                )
++            }
++        }
++        else -> {
++            Button(
++                modifier = Modifier.fillMaxWidth(),
++                text = stringResource(CommonStrings.action_continue),
++                size = ButtonSize.Large,
++                // Continue is only effective when a Found result is currently
++                // visible for the typed address; the presenter still owns the
++                // "wait for resolution" handshake (jr_state_006).
++                enabled = state.isContinueEnabled,
++                onClick = onContinueClick,
++            )
++        }
++    }
++}
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++private fun JoinRoomByAddressTopBar(
++    onBackClick: () -> Unit,
++) {
++    TopAppBar(
++        navigationIcon = {
++            BackButton(onClick = onBackClick)
++        },
++        title = {
++            Text(
++                text = stringResource(R.string.screen_join_room_by_address_title),
++                style = ElementTheme.typography.aliasScreenTitle,
++            )
++        },
++    )
++}
++
++@PreviewsDayNight
++@Composable
++internal fun JoinRoomByAddressViewPreview(
++    @PreviewParameter(JoinRoomByAddressStateProvider::class) state: JoinRoomByAddressState
++) = ElementPreview {
++    JoinRoomByAddressView(
++        state = state,
++        onBackClick = {},
++        onDismissClick = {},
++    )
++}
+diff --git a/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/di/JoinRoomByAddressModule.kt b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/di/JoinRoomByAddressModule.kt
+new file mode 100644
+index 0000000..4a39147
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/kotlin/io/element/android/features/joinroombyaddress/impl/di/JoinRoomByAddressModule.kt
+@@ -0,0 +1,37 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.joinroombyaddress.impl.di
++
++import com.squareup.anvil.annotations.ContributesTo
++import dagger.Module
++import dagger.Provides
++import io.element.android.features.joinroombyaddress.impl.JoinRoomByAddressPresenter
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.core.RoomAlias
++import io.element.android.libraries.matrix.api.room.alias.ResolvedRoomAlias
++
++@Module
++@ContributesTo(SessionScope::class)
++object JoinRoomByAddressModule {
++    @Provides
++    fun providesJoinRoomByAddressPresenterFactory(
++        matrixClient: MatrixClient,
++    ): JoinRoomByAddressPresenter.Factory {
++        return object : JoinRoomByAddressPresenter.Factory {
++            override fun create(
++                onResolved: (RoomAlias, ResolvedRoomAlias) -> Unit,
++            ): JoinRoomByAddressPresenter {
++                return JoinRoomByAddressPresenter(
++                    onResolved = onResolved,
++                    matrixClient = matrixClient,
++                )
++            }
++        }
++    }
++}
+diff --git a/features/joinroombyaddress/impl/src/main/res/values/localazy.xml b/features/joinroombyaddress/impl/src/main/res/values/localazy.xml
+new file mode 100644
+index 0000000..4956211
+--- /dev/null
++++ b/features/joinroombyaddress/impl/src/main/res/values/localazy.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++  <string name="screen_join_room_by_address_title">"Join by address"</string>
++  <string name="screen_join_room_by_address_address_hint">"Enter a room address like #room-alias:domain"</string>
++  <string name="screen_join_room_by_address_address_label">"Room address"</string>
++  <string name="screen_join_room_by_address_invalid_address">"This doesn\'t look like a valid room address. Example: #room-alias:domain."</string>
++  <string name="screen_join_room_by_address_resolve_failure">"Couldn\'t find this room address. Check the address and try again."</string>
++  <string name="screen_join_room_by_address_resolve_timeout">"Looking up the room took too long. Try again in a moment."</string>
++</resources>

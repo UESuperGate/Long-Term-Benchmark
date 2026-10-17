@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "taskId": "16_identity_reset",
+  "title": "Reset a cryptographic identity when recovery is unavailable",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v0.5.0",
+    "baseCommit": "5a2d19f7f25f470dc0b2a80b1aca2f2f8700f7a6",
+    "finalRef": "v0.5.1",
+    "finalCommit": "4ecc9f46b6627f89184d66b758094a7c4a24c258"
+  },
+  "arkts": {
+    "basePath": "16_identity_reset_base_0_5_0",
+    "finalPath": "final_dev_nodes/16_identity_reset_final_0_5_1",
+    "baseVersion": "0.5.0-base",
+    "finalVersion": "0.5.1-final",
+    "runtimeOS": "OpenHarmony",
+    "sdkApi": 23,
+    "toolchain": {"hvigor": "6.24.5", "node": "18.20.1", "jdk": "21.0.8"},
+    "baseBundleName": "com.qingyu.elementx.identityreset.base",
+    "finalBundleName": "com.qingyu.elementx.identityreset.final"
+  },
+  "releaseNotes": [{"text": "Feature: identity reset", "source": "CHANGES.md v0.5.1 / PR #3298"}],
+  "functionalAreas": ["reset_eligibility", "confirmation", "password_reauthentication", "sdk_reset_handle", "success_routing", "failure_and_cancel"],
+  "stateSurfaces": ["ResetIdentityRootState", "ResetIdentityPasswordState", "ResetIdentityFlowManager", "IdentityResetHandle"],
+  "eventEntrypoints": ["Continue", "Cancel", "ConfirmReset", "SetPassword", "SubmitPassword", "Retry"],
+  "evidence": {
+    "productionPaths": ["features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset", "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/encryption"],
+    "testPaths": ["features/securebackup/impl/src/test/kotlin/io/element/android/features/securebackup/impl/reset", "libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/encryption"],
+    "commits": ["b62348f39b30f67e67d597ae14ac0d52d585edc1"]
+  },
+  "nonGoals": ["Normal recovery-key verification", "Changing cross-signing cryptography", "Resetting another user's identity"],
+  "handoff": {"requirement": "requirement.md", "evidence": "evidence.json", "transitions": "transitions.json", "observerRules": "observer_rules.json"}
+}

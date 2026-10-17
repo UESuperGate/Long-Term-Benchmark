@@ -20,3 +20,5 @@ Published metrics:
 3. Semantic testcase pass rate: passed canonical cases / scored canonical cases.
 
 Provider errors, timeout, adapter failure, transport failure, integrity failure, and unscored cases are diagnostics and validity annotations, not substitute benchmark metrics.
+
+The published evidence bundle includes the run manifest, calibration and rescore summaries, normalized reports, and a binary-safe patch for every scored candidate. Verify that base plus patch reconstructs the scored candidate, including newly created files. Large local logs may stay outside Git, but publish their SHA-256 and byte length so each retained score remains bound to an immutable local archive.

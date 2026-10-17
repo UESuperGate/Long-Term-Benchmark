@@ -1,0 +1,106 @@
+{
+  "taskId": "15_account_deactivation",
+  "description": "Shared Android/ArkTS semantics for capability-gated account deactivation with confirmation and retry",
+  "cases": [
+    {
+      "caseId": "ad_state_001_capability_gates_entry",
+      "key": "capability_gates_entry",
+      "functionalArea": "settings_entry",
+      "given": {"serverCanDeactivateAccount": true, "surface": "settings"},
+      "event": {"name": "load_settings"},
+      "expected": {"deactivateEntryVisible": true, "entryStyle": "destructive"},
+      "invariants": ["the entry is hidden when the server reports unsupported"],
+      "evidence": {"androidProduction": ["features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootPresenter.kt", "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootView.kt"]}
+    },
+    {
+      "caseId": "ad_state_002_default_form_blocks_submit",
+      "key": "default_form_blocks_submit",
+      "functionalArea": "password_form",
+      "given": {"password": "", "eraseData": false, "action": "uninitialized"},
+      "event": {"name": "open_deactivation"},
+      "expected": {"password": "", "eraseData": false, "submitEnabled": false},
+      "invariants": ["no deactivation request is sent on entry"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationState.kt"]}
+    },
+    {
+      "caseId": "ad_state_003_password_enables_submit",
+      "key": "password_enables_submit",
+      "functionalArea": "password_form",
+      "given": {"password": "", "action": "uninitialized"},
+      "event": {"name": "set_password", "value": "secret\n"},
+      "expected": {"password": "secret", "submitEnabled": true},
+      "invariants": ["pasted newline characters are removed"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationView.kt", "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt"]}
+    },
+    {
+      "caseId": "ad_state_004_erase_data_option",
+      "key": "erase_data_option",
+      "functionalArea": "erase_data_option",
+      "given": {"eraseData": false, "action": "uninitialized"},
+      "event": {"name": "set_erase_data", "value": true},
+      "expected": {"eraseData": true},
+      "invariants": ["the password is unchanged"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt", "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationView.kt"]}
+    },
+    {
+      "caseId": "ad_state_005_first_submit_confirms",
+      "key": "first_submit_confirms",
+      "functionalArea": "confirmation",
+      "given": {"password": "secret", "eraseData": true, "action": "uninitialized"},
+      "event": {"name": "deactivate_account", "isRetry": false},
+      "expected": {"action": "confirming", "requestCount": 0, "confirmationVisible": true},
+      "invariants": ["a destructive request is never sent before confirmation"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt", "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/ui/AccountDeactivationConfirmationDialog.kt"]}
+    },
+    {
+      "caseId": "ad_state_006_confirm_sends_payload",
+      "key": "confirm_sends_payload",
+      "functionalArea": "deactivation_request",
+      "given": {"password": "secret", "eraseData": true, "action": "confirming"},
+      "event": {"name": "deactivate_account", "isRetry": false},
+      "expected": {"action": "loading", "effect": "deactivate_account", "payload": {"password": "secret", "eraseData": true}},
+      "invariants": ["form controls are disabled while loading"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt", "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt"]}
+    },
+    {
+      "caseId": "ad_state_007_success_completes",
+      "key": "success_completes",
+      "functionalArea": "retry_and_completion",
+      "given": {"action": "loading", "requestCount": 1},
+      "event": {"name": "deactivation_succeeds"},
+      "expected": {"action": "success", "requestCount": 1},
+      "invariants": ["the request is not duplicated"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt", "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/ui/AccountDeactivationActionDialog.kt"]}
+    },
+    {
+      "caseId": "ad_state_008_failure_preserves_form",
+      "key": "failure_preserves_form",
+      "functionalArea": "retry_and_completion",
+      "given": {"password": "secret", "eraseData": true, "action": "loading"},
+      "event": {"name": "deactivation_fails"},
+      "expected": {"action": "failure", "password": "secret", "eraseData": true, "retryEnabled": true},
+      "invariants": ["failure does not report completion"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt", "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/ui/AccountDeactivationActionDialog.kt"]}
+    },
+    {
+      "caseId": "ad_state_009_retry_bypasses_confirmation",
+      "key": "retry_bypasses_confirmation",
+      "functionalArea": "retry_and_completion",
+      "given": {"password": "secret", "eraseData": true, "action": "failure", "requestCount": 1},
+      "event": {"name": "deactivate_account", "isRetry": true},
+      "expected": {"action": "loading", "requestCount": 2, "confirmationVisible": false},
+      "invariants": ["retry reuses the preserved form payload"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt", "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationView.kt"]}
+    },
+    {
+      "caseId": "ad_state_010_close_dialog_resets_action",
+      "key": "close_dialog_resets_action",
+      "functionalArea": "failure_recovery",
+      "given": {"action": "failure", "password": "secret", "eraseData": true},
+      "event": {"name": "close_dialogs"},
+      "expected": {"action": "uninitialized", "password": "secret", "eraseData": true},
+      "invariants": ["dismissing an error does not submit again"],
+      "evidence": {"androidProduction": ["features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt"]}
+    }
+  ]
+}

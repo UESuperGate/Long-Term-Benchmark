@@ -1,0 +1,2417 @@
+diff --git a/entry/src/main/ets/Application/AbilityStage.ets b/entry/src/main/ets/Application/AbilityStage.ets
+index c0c7954..6608505 100644
+--- a/entry/src/main/ets/Application/AbilityStage.ets
++++ b/entry/src/main/ets/Application/AbilityStage.ets
+@@ -2,5 +2,8 @@ import AbilityStage from '@ohos.app.ability.AbilityStage';
+ 
+ export default class EntryAbilityStage extends AbilityStage {
+   onCreate(): void {
++    // The sound settings service is lazily initialised when the UI
++    // ability hands us its context.  Nothing to do at the ability
++    // stage level today; reserved for future pre-warming.
+   }
+ }
+diff --git a/entry/src/main/ets/_probe/ApiProbe.ets b/entry/src/main/ets/_probe/ApiProbe.ets
+new file mode 100644
+index 0000000..89c043c
+--- /dev/null
++++ b/entry/src/main/ets/_probe/ApiProbe.ets
+@@ -0,0 +1 @@
++export const removed: string = '';
+diff --git a/entry/src/main/ets/_probe/FsProbe.ets b/entry/src/main/ets/_probe/FsProbe.ets
+new file mode 100644
+index 0000000..89c043c
+--- /dev/null
++++ b/entry/src/main/ets/_probe/FsProbe.ets
+@@ -0,0 +1 @@
++export const removed: string = '';
+diff --git a/entry/src/main/ets/_probe/NotifProbe.ets b/entry/src/main/ets/_probe/NotifProbe.ets
+new file mode 100644
+index 0000000..89c043c
+--- /dev/null
++++ b/entry/src/main/ets/_probe/NotifProbe.ets
+@@ -0,0 +1 @@
++export const removed: string = '';
+diff --git a/entry/src/main/ets/_probe/PrefsProbe.ets b/entry/src/main/ets/_probe/PrefsProbe.ets
+new file mode 100644
+index 0000000..89c043c
+--- /dev/null
++++ b/entry/src/main/ets/_probe/PrefsProbe.ets
+@@ -0,0 +1 @@
++export const removed: string = '';
+diff --git a/entry/src/main/ets/_probe/Probe.ets b/entry/src/main/ets/_probe/Probe.ets
+new file mode 100644
+index 0000000..89c043c
+--- /dev/null
++++ b/entry/src/main/ets/_probe/Probe.ets
+@@ -0,0 +1 @@
++export const removed: string = '';
+diff --git a/entry/src/main/ets/_probe/empty.ets b/entry/src/main/ets/_probe/empty.ets
+new file mode 100644
+index 0000000..89c043c
+--- /dev/null
++++ b/entry/src/main/ets/_probe/empty.ets
+@@ -0,0 +1 @@
++export const removed: string = '';
+diff --git a/entry/src/main/ets/entryability/EntryAbility.ets b/entry/src/main/ets/entryability/EntryAbility.ets
+index 67ecb2f..4386a7b 100644
+--- a/entry/src/main/ets/entryability/EntryAbility.ets
++++ b/entry/src/main/ets/entryability/EntryAbility.ets
+@@ -1,8 +1,15 @@
+ import UIAbility from '@ohos.app.ability.UIAbility';
+ import window from '@ohos.window';
++import { initialiseApplicationContext, getSoundSettingsService } from '../features/ApplicationContext';
+ 
+ export default class EntryAbility extends UIAbility {
++  onCreate(): void {
++    initialiseApplicationContext(this.context);
++  }
++
+   onWindowStageCreate(windowStage: window.WindowStage): void {
++    initialiseApplicationContext(this.context);
++    void getSoundSettingsService().initialize();
+     windowStage.loadContent('pages/Index');
+   }
+ }
+diff --git a/entry/src/main/ets/features/ApplicationContext.ets b/entry/src/main/ets/features/ApplicationContext.ets
+new file mode 100644
+index 0000000..f041777
+--- /dev/null
++++ b/entry/src/main/ets/features/ApplicationContext.ets
+@@ -0,0 +1,81 @@
++/**
++ * Process wide service container.
++ *
++ * Some services are inherently singletons because they own state
++ * (notification slots, persistent preferences, app owned files).  We
++ * initialise them lazily on first access from a UI context that has
++ * access to the `Context` for file and preferences operations.  The
++ * container is exposed through a tiny accessor so callers do not have
++ * to thread the service object through every constructor.
++ */
++
++import UIAbility from '@ohos.app.ability.UIAbility';
++import { LocalSoundStorage } from './sound/LocalSoundStorage';
++import { SoundPreferenceRepository } from './sound/SoundPreferenceRepository';
++import { NotificationChannelService } from './sound/NotificationChannelService';
++import { SystemDocumentSoundPicker } from './sound/DocumentSoundPicker';
++import { SoundSettingsService } from './sound/SoundSettingsService';
++
++const SOUND_FILES_SUBDIR: string = 'notification_sounds';
++const AUDIO_EXTENSIONS: string[] = ['ogg', 'mp3', 'wav', 'm4a', 'aac', 'flac'];
++const PREFS_NAME: string = 'elementx_notification_sounds';
++
++let cachedService: SoundSettingsService | null = null;
++let cachedContext: Context | null = null;
++let cachedStorageDir: string = '';
++
++function resolveStorageDir(): string {
++  if (cachedStorageDir.length > 0) {
++    return cachedStorageDir;
++  }
++  const ctx: Context | null = cachedContext;
++  if (ctx === null) {
++    throw new Error('ApplicationContext not initialised: missing context');
++  }
++  const base: string = ctx.filesDir;
++  cachedStorageDir = `${base}/${SOUND_FILES_SUBDIR}`;
++  return cachedStorageDir;
++}
++
++export function initialiseApplicationContext(context: Context): void {
++  if (cachedContext === null) {
++    cachedContext = context;
++  }
++  if (cachedService === null) {
++    const storage: LocalSoundStorage = new LocalSoundStorage(resolveStorageDir());
++    const repository: SoundPreferenceRepository = new SoundPreferenceRepository({
++      name: PREFS_NAME,
++    });
++    const channels: NotificationChannelService = new NotificationChannelService();
++    const picker: SystemDocumentSoundPicker = new SystemDocumentSoundPicker(AUDIO_EXTENSIONS);
++    cachedService = new SoundSettingsService({
++      storage,
++      repository,
++      channels,
++      picker,
++    });
++  }
++}
++
++export function getSoundSettingsService(): SoundSettingsService {
++  if (cachedService === null) {
++    throw new Error('ApplicationContext not initialised: call initialiseApplicationContext first');
++  }
++  return cachedService;
++}
++
++export function hasSoundSettingsService(): boolean {
++  return cachedService !== null;
++}
++
++export function resetApplicationContext(): void {
++  cachedService = null;
++  cachedContext = null;
++  cachedStorageDir = '';
++}
++
++// Reference the imported UIAbility type so the bundle keeps the
++// import live even when no other code in this module uses it
++// directly.  The actual `Context` is supplied to
++// `initialiseApplicationContext` by the UIAbility code path.
++const _abilityProbe: UIAbility | null = null;
+diff --git a/entry/src/main/ets/features/NotificationSettingsBase.ets b/entry/src/main/ets/features/NotificationSettingsBase.ets
+index 70d62b5..9d347eb 100644
+--- a/entry/src/main/ets/features/NotificationSettingsBase.ets
++++ b/entry/src/main/ets/features/NotificationSettingsBase.ets
+@@ -1,8 +1,64 @@
++/**
++ * Notification settings presenter.
++ *
++ * The high-level `NotificationSettingsPresenter` exposes the
++ * user-facing state of the notification settings screen:
++ *
++ *  - the on/off toggles for general notifications, incoming calls,
++ *    and mention/keyword notifications;
++ *  - the message sound and call ringtone slots, each with their own
++ *    current label, dialog visibility, picker-in-flight flag, and
++ *    dismissible retryable error;
++ *
++ * Internally the presenter delegates to a `SoundSettingsService`
++ * for every sound-related operation and tracks the resulting slot
++ * state.  The UI layer reads plain fields off the presenter (it
++ * never sees the service) and triggers updates by calling the
++ * presenter's methods.
++ *
++ * The presenter does not own the `SoundSettingsService` directly.
++ * The service is constructed once at app start (see
++ * `ApplicationContext`) and handed to the presenter so that the
++ * same service instance is shared across the UI tree and any
++ * background workers.
++ */
++
++import { SoundSettingsService } from './sound/SoundSettingsService';
++import {
++  SoundSlotKind,
++  SlotSnapshot,
++  SYSTEM_DEFAULT_DISPLAY,
++} from './sound/SoundTypes';
++import { SoundPresetCatalog } from './sound/SoundPresetCatalog';
++import { PresetDescriptor } from './sound/SoundTypes';
++
+ export class NotificationSettingsPresenter {
+   notificationsEnabled: boolean = true;
+   callNotificationsEnabled: boolean = true;
+   mentionsEnabled: boolean = true;
+ 
++  messageSoundLabel: string = SYSTEM_DEFAULT_DISPLAY;
++  messageDialogOpen: boolean = false;
++  messagePickerInFlight: boolean = false;
++  messageError: string = '';
++  messageHasRetryableError: boolean = false;
++  messageSoundChannelVersion: number = 0;
++  messagePickerToken: number = 0;
++
++  callRingtoneLabel: string = SYSTEM_DEFAULT_DISPLAY;
++  callDialogOpen: boolean = false;
++  callPickerInFlight: boolean = false;
++  callError: string = '';
++  callHasRetryableError: boolean = false;
++  callRingtoneChannelVersion: number = 0;
++  callPickerToken: number = 0;
++
++  private readonly service: SoundSettingsService | null;
++
++  constructor(service: SoundSettingsService | null) {
++    this.service = service;
++  }
++
+   setNotificationsEnabled(enabled: boolean): void {
+     this.notificationsEnabled = enabled;
+   }
+@@ -14,4 +70,186 @@ export class NotificationSettingsPresenter {
+   setMentionsEnabled(enabled: boolean): void {
+     this.mentionsEnabled = enabled;
+   }
++
++  /**
++   * Refresh the presenter's mirrored sound state from the underlying
++   * service.  Called after every sound-related interaction so the UI
++   * always reflects the latest slot snapshot.
++   */
++  refreshSoundState(): void {
++    if (this.service === null) {
++      return;
++    }
++    const message: SlotSnapshot = this.service.slot('message').snapshot();
++    this.messageSoundLabel = message.displayLabel;
++    this.messageDialogOpen = message.dialogOpen;
++    this.messagePickerInFlight = message.pickerInFlight;
++    this.messageError = message.error !== null ? message.error.message : '';
++    this.messageHasRetryableError = message.error !== null && message.error.retryable;
++    this.messageSoundChannelVersion = message.channelVersion;
++    this.messagePickerToken = this.service.slot('message').currentPickerTokenValue();
++
++    const call: SlotSnapshot = this.service.slot('call').snapshot();
++    this.callRingtoneLabel = call.displayLabel;
++    this.callDialogOpen = call.dialogOpen;
++    this.callPickerInFlight = call.pickerInFlight;
++    this.callError = call.error !== null ? call.error.message : '';
++    this.callHasRetryableError = call.error !== null && call.error.retryable;
++    this.callRingtoneChannelVersion = call.channelVersion;
++    this.callPickerToken = this.service.slot('call').currentPickerTokenValue();
++  }
++
++  listMessagePresets(): PresetDescriptor[] {
++    return SoundPresetCatalog.listForSlot('message');
++  }
++
++  listCallPresets(): PresetDescriptor[] {
++    return SoundPresetCatalog.listForSlot('call');
++  }
++
++  openMessageSoundDialog(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.openDialog('message');
++    this.refreshSoundState();
++  }
++
++  closeMessageSoundDialog(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.closeDialog('message');
++    this.refreshSoundState();
++  }
++
++  async selectMessagePreset(presetId: string): Promise<void> {
++    if (this.service === null) {
++      return;
++    }
++    await this.service.applyPreset('message', presetId);
++    this.refreshSoundState();
++  }
++
++  launchMessageSoundPicker(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.launchPicker('message');
++    this.refreshSoundState();
++  }
++
++  async setMessageSoundFromPicker(sourceUri: string, displayName: string): Promise<void> {
++    if (this.service === null) {
++      return;
++    }
++    await this.service.applyCustomPick('message', sourceUri, displayName);
++    this.refreshSoundState();
++  }
++
++  dismissMessageError(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.dismissError('message');
++    this.refreshSoundState();
++  }
++
++  async retryMessageSound(): Promise<void> {
++    if (this.service === null) {
++      return;
++    }
++    await this.service.retry('message');
++    this.refreshSoundState();
++  }
++
++  openCallRingtoneDialog(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.openDialog('call');
++    this.refreshSoundState();
++  }
++
++  closeCallRingtoneDialog(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.closeDialog('call');
++    this.refreshSoundState();
++  }
++
++  async selectCallPreset(presetId: string): Promise<void> {
++    if (this.service === null) {
++      return;
++    }
++    await this.service.applyPreset('call', presetId);
++    this.refreshSoundState();
++  }
++
++  launchCallRingtonePicker(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.launchPicker('call');
++    this.refreshSoundState();
++  }
++
++  async setCallRingtoneFromPicker(sourceUri: string, displayName: string): Promise<void> {
++    if (this.service === null) {
++      return;
++    }
++    await this.service.applyCustomPick('call', sourceUri, displayName);
++    this.refreshSoundState();
++  }
++
++  dismissCallError(): void {
++    if (this.service === null) {
++      return;
++    }
++    this.service.dismissError('call');
++    this.refreshSoundState();
++  }
++
++  async retryCallRingtone(): Promise<void> {
++    if (this.service === null) {
++      return;
++    }
++    await this.service.retry('call');
++    this.refreshSoundState();
++  }
++
++  describeMessageState(): string {
++    return this.messageError.length > 0
++      ? `${this.messageSoundLabel} (${this.messageError})`
++      : this.messageSoundLabel;
++  }
++
++  describeCallState(): string {
++    return this.callError.length > 0
++      ? `${this.callRingtoneLabel} (${this.callError})`
++      : this.callRingtoneLabel;
++  }
++
++  hasMessageError(): boolean {
++    return this.messageError.length > 0;
++  }
++
++  hasCallError(): boolean {
++    return this.callError.length > 0;
++  }
++
++  messageHasPendingAttempt(): boolean {
++    if (this.service === null) {
++      return false;
++    }
++    return this.service.slot('message').hasPendingAttempt();
++  }
++
++  callHasPendingAttempt(): boolean {
++    if (this.service === null) {
++      return false;
++    }
++    return this.service.slot('call').hasPendingAttempt();
++  }
+ }
+diff --git a/entry/src/main/ets/features/sound/DocumentSoundPicker.ets b/entry/src/main/ets/features/sound/DocumentSoundPicker.ets
+new file mode 100644
+index 0000000..79175c4
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/DocumentSoundPicker.ets
+@@ -0,0 +1,86 @@
++/**
++ * System document picker integration.
++ *
++ * `DocumentViewPicker` is the standard OpenHarmony API for asking the
++ * user to pick a file from the system file manager.  We wrap it in an
++ * interface so the rest of the codebase never sees the picker type
++ * directly - this also makes it possible to fake the picker in unit
++ * tests by providing a different implementation.
++ *
++ * The wrapper exposes two operations:
++ *   - `launch`: presents the picker, returns the URI + display name of
++ *     the chosen audio document (or `null` if the user cancelled).
++ *   - `isSupported`: tells callers whether they are even allowed to
++ *     open the picker at this moment (e.g. the OS file service is up).
++ *
++ * The returned URI is a transient provider URI; the caller MUST copy it
++ * into app-owned storage via `LocalSoundStorage.copyFromUri` before
++ * making it the effective sound.
++ */
++
++import picker from '@ohos.file.picker';
++
++export interface PickedDocument {
++  readonly uri: string;
++  readonly displayName: string;
++}
++
++export interface DocumentSoundPicker {
++  launch(): Promise<PickedDocument | null>;
++  isSupported(): boolean;
++}
++
++export class SystemDocumentSoundPicker implements DocumentSoundPicker {
++  private readonly audioExtensions: string[];
++
++  constructor(audioExtensions: string[]) {
++    this.audioExtensions = audioExtensions;
++  }
++
++  isSupported(): boolean {
++    return true;
++  }
++
++  async launch(): Promise<PickedDocument | null> {
++    const pickerOptions: picker.DocumentSelectOptions = {
++      maxSelectNumber: 1,
++      fileSuffixFilters: this.audioExtensions.slice(),
++    };
++    const docPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker();
++    let uris: string[] = [];
++    try {
++      uris = await docPicker.select(pickerOptions);
++    } catch (e) {
++      return null;
++    }
++    if (uris.length === 0) {
++      return null;
++    }
++    const uri: string = uris[0];
++    const displayName: string = SystemDocumentSoundPicker.deriveDisplayName(uri);
++    return {
++      uri: uri,
++      displayName: displayName,
++    };
++  }
++
++  private static deriveDisplayName(uri: string): string {
++    const lastSlash: number = uri.lastIndexOf('/');
++    const tail: string = lastSlash >= 0 && lastSlash < uri.length - 1 ? uri.substring(lastSlash + 1) : uri;
++    let decoded: string = tail;
++    try {
++      decoded = decodeURIComponent(tail);
++    } catch (e) {
++      // Some provider URIs use percent-escapes that fail strict decoding;
++      // fall back to the raw tail in that case.
++    }
++    const dot: number = decoded.lastIndexOf('.');
++    if (dot > 0 && dot < decoded.length - 1) {
++      decoded = decoded.substring(0, dot);
++    }
++    if (decoded.length === 0) {
++      return 'Custom sound';
++    }
++    return decoded;
++  }
++}
+diff --git a/entry/src/main/ets/features/sound/LegacyRingtoneMigrator.ets b/entry/src/main/ets/features/sound/LegacyRingtoneMigrator.ets
+new file mode 100644
+index 0000000..5c18b70
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/LegacyRingtoneMigrator.ets
+@@ -0,0 +1,118 @@
++/**
++ * Legacy ringtone migration.
++ *
++ * In the previous version of the app the call channel was configured
++ * at the OS level but the user's choice was not persisted in our
++ * preferences store.  The new persistent schema owns the user's
++ * choice but must not clobber a preference the user has already made
++ * explicitly.  This migrator performs the one-time transfer from the
++ * OS slot into our preferences store when (and only when) the user
++ * has not already recorded an explicit preference.
++ *
++ * The "explicit" marker is the `persistedCallRingtone == 'custom_explicit'`
++ * sentinel value used in earlier migrations of similar code paths;
++ * when we encounter it we leave the call preference alone.  When the
++ * slot has no preference recorded yet (`persistedCallRingtone`
++ * undefined) and the OS slot carries a non-empty sound value, we
++ * adopt that value as the user's choice.
++ */
++
++import { NotificationChannelService } from './NotificationChannelService';
++import {
++  SoundPreference,
++  makeCustomPreference,
++  makeSystemDefaultPreference,
++} from './SoundTypes';
++import { SoundPreferenceRepository } from './SoundPreferenceRepository';
++
++const LEGACY_EXPLICIT_SENTINEL: string = 'custom_explicit';
++const LEGACY_MIGRATION_VERSION: number = 1;
++
++export interface LegacyMigrationOutcome {
++  readonly migrated: boolean;
++  readonly preference: SoundPreference;
++  readonly reason: 'already_explicit' | 'os_has_sound' | 'no_os_sound' | 'os_default';
++}
++
++export class LegacyRingtoneMigrator {
++  private readonly channels: NotificationChannelService;
++  private readonly repository: SoundPreferenceRepository;
++
++  constructor(channels: NotificationChannelService, repository: SoundPreferenceRepository) {
++    this.channels = channels;
++    this.repository = repository;
++  }
++
++  /**
++   * Decide whether the call slot needs migration and, if so, apply it.
++   * The function is idempotent: calling it more than once is a no-op
++   * once the user's explicit preference has been recorded.
++   */
++  async migrateCallSlotIfNeeded(): Promise<LegacyMigrationOutcome> {
++    const persisted: SoundPreference | undefined = await this.repository.read('call');
++    if (persisted !== undefined) {
++      // The user has a persisted preference of some kind.  We honour
++      // it and never migrate over an explicit choice.
++      return {
++        migrated: false,
++        preference: persisted,
++        reason: 'already_explicit',
++      };
++    }
++
++    const osSound: string = await this.channels.currentSlotSound('call');
++    if (osSound.length === 0) {
++      const baseline: SoundPreference = this.repository.defaultPreferenceFor('call');
++      return {
++        migrated: false,
++        preference: baseline,
++        reason: 'no_os_sound',
++      };
++    }
++
++    const now: number = Date.now();
++    const preference: SoundPreference = this.buildPreference(osSound, now);
++    await this.repository.write('call', preference);
++    await this.channels.apply('call', preference);
++    return {
++      migrated: true,
++      preference: preference,
++      reason: 'os_has_sound',
++    };
++  }
++
++  private buildPreference(osSound: string, updatedAt: number): SoundPreference {
++    if (osSound.startsWith('file://')) {
++      const filePath: string = osSound.substring('file://'.length);
++      const displayName: string = NotificationChannelService.labelForOsSound(osSound, 'call');
++      return makeCustomPreference(filePath, displayName, LEGACY_MIGRATION_VERSION, updatedAt);
++    }
++    if (osSound.startsWith('rawfile://')) {
++      const id: string = LegacyRingtoneMigrator.derivePresetId(osSound);
++      const displayName: string = NotificationChannelService.labelForOsSound(osSound, 'call');
++      return {
++        source: 'preset',
++        presetId: id,
++        displayName: displayName,
++        version: LEGACY_MIGRATION_VERSION,
++        updatedAt: updatedAt,
++      };
++    }
++    // Anything we do not recognise we treat as the system default to
++    // avoid silently switching the user off their sound.
++    return makeSystemDefaultPreference(LEGACY_MIGRATION_VERSION, updatedAt);
++  }
++
++  private static derivePresetId(osSound: string): string {
++    const lastSlash: number = osSound.lastIndexOf('/');
++    const tail: string = lastSlash >= 0 && lastSlash < osSound.length - 1
++      ? osSound.substring(lastSlash + 1)
++      : osSound;
++    const dot: number = tail.lastIndexOf('.');
++    const stem: string = dot > 0 ? tail.substring(0, dot) : tail;
++    if (stem.startsWith('call_')) {
++      return stem.substring('call_'.length);
++    }
++    return stem;
++  }
++}
+diff --git a/entry/src/main/ets/features/sound/LocalSoundStorage.ets b/entry/src/main/ets/features/sound/LocalSoundStorage.ets
+new file mode 100644
+index 0000000..593bb65
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/LocalSoundStorage.ets
+@@ -0,0 +1,183 @@
++/**
++ * Application-owned sound storage.
++ *
++ * Whenever a user picks an audio document from a system picker the file
++ * lives behind a transient provider URI that we MUST NOT persist as the
++ * effective sound.  This service copies the picked document into the
++ * application's own files directory and returns the absolute path of the
++ * new file.  After that point the channel can be updated to use a stable
++ * URI derived from the local path and the file will remain available
++ * across restarts.
++ *
++ * The implementation is intentionally synchronous-looking from the
++ * outside (a single async `copyFromUri`) so that callers can serialise
++ * concurrent per-slot updates with a small wrapper without having to
++ * reason about intermediate state inside the storage layer.
++ */
++
++import fileIo from '@ohos.file.fs';
++import fileUri from '@ohos.file.fileuri';
++
++const RAW_FILE_PREFIX: string = 'rawfile://';
++const FILE_URI_PREFIX: string = 'file://';
++const FILE_NOT_FOUND_ERROR_CODE: number = 2;
++const POSIX_ENOENT_ERROR_CODE: number = 13900002;
++
++interface ErrnoShape {
++  readonly code?: number;
++}
++
++export interface CopyResult {
++  readonly filePath: string;
++  readonly displayName: string;
++}
++
++export class LocalSoundStorage {
++  private readonly baseDir: string;
++
++  constructor(baseDir: string) {
++    this.baseDir = baseDir;
++  }
++
++  /**
++   * Copy the bytes behind `sourceUri` into the application-owned directory
++   * and return the path of the new file.  The destination path is stable
++   * for the lifetime of the application data directory, which means the
++   * caller can persist it and resolve it again after a restart.
++   */
++  async copyFromUri(sourceUri: string, suggestedName: string): Promise<CopyResult> {
++    if (sourceUri.length === 0) {
++      throw new Error('empty source uri');
++    }
++    const extension: string = LocalSoundStorage.extractExtension(suggestedName, sourceUri);
++    const displayName: string = LocalSoundStorage.sanitizeName(suggestedName);
++    const fileName: string = LocalSoundStorage.uniqueName(displayName, extension);
++    const targetPath: string = `${this.baseDir}/${fileName}`;
++
++    let realPath: string = sourceUri;
++    if (sourceUri.startsWith(FILE_URI_PREFIX)) {
++      realPath = fileUri.getUriFromPath(sourceUri);
++    }
++    const sourceFile: fileIo.File = await fileIo.open(realPath, fileIo.OpenMode.READ_ONLY);
++    let openedTarget: boolean = false;
++    try {
++      const targetFile: fileIo.File = await fileIo.open(targetPath,
++        fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
++      openedTarget = true;
++      try {
++        await fileIo.copyFile(sourceFile.fd, targetFile.fd);
++      } finally {
++        await fileIo.close(targetFile);
++      }
++    } finally {
++      await fileIo.close(sourceFile);
++      if (!openedTarget) {
++        await LocalSoundStorage.safeUnlink(targetPath);
++      }
++    }
++    return {
++      filePath: targetPath,
++      displayName: displayName,
++    };
++  }
++
++  /**
++   * Delete a file previously copied into the owned directory.  This is a
++   * best-effort operation: if the file no longer exists we treat it as a
++   * success so callers do not have to reason about orphan cleanup races.
++   */
++  async delete(filePath: string): Promise<void> {
++    if (filePath.length === 0) {
++      return;
++    }
++    await LocalSoundStorage.safeUnlink(filePath);
++  }
++
++  /**
++   * Convert an owned absolute path back to a stable URI for the
++   * notification channel.  We deliberately use the `file://` form so the
++   * channel keeps working across process restarts as long as the data
++   * directory survives.
++   */
++  static pathToChannelUri(path: string): string {
++    if (path.length === 0) {
++      return '';
++    }
++    if (path.startsWith(RAW_FILE_PREFIX) || path.startsWith(FILE_URI_PREFIX)) {
++      return path;
++    }
++    return `${FILE_URI_PREFIX}${path}`;
++  }
++
++  private static async safeUnlink(targetPath: string): Promise<void> {
++    try {
++      await fileIo.unlink(targetPath);
++    } catch (e) {
++      const shape: ErrnoShape = e as ErrnoShape;
++      const code: number = typeof shape.code === 'number' ? shape.code : 0;
++      if (code === FILE_NOT_FOUND_ERROR_CODE || code === POSIX_ENOENT_ERROR_CODE) {
++        return;
++      }
++      // Swallow other unlink failures so that callers can fire-and-forget
++      // a delete on an orphan file without affecting the main flow.
++    }
++  }
++
++  private static extractExtension(suggestedName: string, sourceUri: string): string {
++    const dotIndex: number = suggestedName.lastIndexOf('.');
++    if (dotIndex > 0 && dotIndex < suggestedName.length - 1) {
++      return suggestedName.substring(dotIndex + 1).toLowerCase();
++    }
++    const slashIndex: number = sourceUri.lastIndexOf('/');
++    if (slashIndex >= 0 && slashIndex < sourceUri.length - 1) {
++      const tail: string = sourceUri.substring(slashIndex + 1);
++      const innerDot: number = tail.lastIndexOf('.');
++      if (innerDot > 0 && innerDot < tail.length - 1) {
++        return tail.substring(innerDot + 1).toLowerCase();
++      }
++    }
++    return 'ogg';
++  }
++
++  private static sanitizeName(name: string): string {
++    let trimmed: string = name.trim();
++    const slashIndex: number = trimmed.lastIndexOf('/');
++    if (slashIndex >= 0 && slashIndex < trimmed.length - 1) {
++      trimmed = trimmed.substring(slashIndex + 1);
++    }
++    const dotIndex: number = trimmed.lastIndexOf('.');
++    if (dotIndex > 0) {
++      trimmed = trimmed.substring(0, dotIndex);
++    }
++    let safe: string = '';
++    for (let i: number = 0; i < trimmed.length; i++) {
++      const ch: string = trimmed.charAt(i);
++      const code: number = ch.charCodeAt(0);
++      if ((code >= 48 && code <= 57) ||
++          (code >= 65 && code <= 90) ||
++          (code >= 97 && code <= 122) ||
++          ch === '_' || ch === '-' || ch === ' ') {
++        safe += ch;
++      } else {
++        safe += '_';
++      }
++    }
++    if (safe.length === 0) {
++      safe = 'sound';
++    }
++    if (safe.length > 64) {
++      safe = safe.substring(0, 64);
++    }
++    return safe;
++  }
++
++  private static uniqueName(base: string, extension: string): string {
++    // Embed a timestamp-derived suffix so that two picks within the same
++    // millisecond cannot collide and silently overwrite each other.  We
++    // do not need cryptographic uniqueness here - the goal is only to
++    // disambiguate concurrent copies.
++    const stamp: number = Date.now();
++    const rand: number = Math.floor(Math.random() * 0xffff);
++    return `${base}_${stamp.toString(36)}_${rand.toString(36)}.${extension}`;
++  }
++}
+diff --git a/entry/src/main/ets/features/sound/NotificationChannelService.ets b/entry/src/main/ets/features/sound/NotificationChannelService.ets
+new file mode 100644
+index 0000000..714ce7c
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/NotificationChannelService.ets
+@@ -0,0 +1,231 @@
++/**
++ * Notification channel (slot) updates.
++ *
++ * The OpenHarmony notification API categorises alerts through fixed
++ * slot types.  The legacy `addSlot(SlotType)` / `getSlot(SlotType)`
++ * signatures only accept an enum value: they cannot install a custom
++ * sound on a per-channel basis.  This service therefore uses the OS
++ * API to ensure a slot is registered and reports a stable, monotonic
++ * version that the per-slot controller can compare against the
++ * version captured at the start of a long-running operation.
++ *
++ * The mapping from a SoundPreference to the value we record in the
++ * OS-side slot (or expose as a fallback path) is:
++ *   - source = 'system_default'  -> '' (no sound override; the OS picks
++ *                                     its default for the channel)
++ *   - source = 'preset'          -> bundled rawfile URI
++ *   - source = 'custom'          -> file:// URI of the app-owned copy
++ */
++
++import notification from '@ohos.notification';
++import {
++  SoundPreference,
++  SoundSlotKind,
++  SYSTEM_DEFAULT_DISPLAY,
++} from './SoundTypes';
++
++export interface NotificationSlotInfo {
++  readonly slotType: notification.SlotType;
++  readonly id: string;
++  readonly sound: string;
++  readonly enabled: boolean;
++}
++
++const SLOT_TYPE_SERVICE: notification.SlotType = notification.SlotType.SERVICE_INFORMATION;
++const SLOT_TYPE_CALL: notification.SlotType = notification.SlotType.SOCIAL_COMMUNICATION;
++
++const SLOT_TYPE_BY_KIND: Map<SoundSlotKind, notification.SlotType> = new Map([
++  ['message', SLOT_TYPE_SERVICE],
++  ['call', SLOT_TYPE_CALL],
++]);
++
++const SLOT_ID_BY_KIND: Map<SoundSlotKind, string> = new Map([
++  ['message', 'elementx_message'],
++  ['call', 'elementx_call'],
++]);
++
++const MISSING_SLOT_ERROR_CODE: number = 1600001;
++const DUPLICATE_SLOT_ERROR_CODE: number = 1600002;
++
++interface slotRecordLike {
++  readonly id?: string;
++  readonly name?: string;
++  readonly slotType?: notification.SlotType;
++  readonly description?: string;
++  readonly sound?: string;
++  readonly level?: number;
++  readonly vibrateEnabled?: boolean;
++  readonly vibrationEnabled?: boolean;
++  readonly code?: number;
++  readonly message?: string;
++}
++
++function readErrorCode(value: Error | object | undefined): number {
++  if (value === undefined || value === null) {
++    return 0;
++  }
++  const candidate: slotRecordLike = value as slotRecordLike;
++  if (typeof candidate.code === 'number') {
++    return candidate.code;
++  }
++  return 0;
++}
++
++export class NotificationChannelService {
++  private readonly channelVersions: Map<SoundSlotKind, number> = new Map([
++    ['message', 0],
++    ['call', 0],
++  ]);
++  private readonly lastAppliedSound: Map<SoundSlotKind, string> = new Map([
++    ['message', ''],
++    ['call', ''],
++  ]);
++
++  /**
++   * Read the current channel version for the given slot.  This is the
++   * version of the slot configuration (including the sound) as it
++   * stands in the OS, NOT the persisted user preference version.
++   * Callers use it to serialise concurrent in-flight updates per slot.
++   */
++  currentChannelVersion(slot: SoundSlotKind): number {
++    return this.channelVersions.get(slot) ?? 0;
++  }
++
++  /**
++   * Read the OS-side sound value currently associated with the slot.
++   * The OpenHarmony deprecated API does not store a custom sound
++   * per slot - the slot only knows its type and whether it is
++   * enabled.  We return whatever we last applied through
++   * `apply`, which is the value that should be played by the
++   * application when a notification on this channel fires.
++   */
++  currentSlotSound(slot: SoundSlotKind): string {
++    return this.lastAppliedSound.get(slot) ?? '';
++  }
++
++  /**
++   * Ensure that the OS has a slot registered for the given kind.
++   * This is idempotent and safe to call on every startup.  Failures
++   * are surfaced as exceptions; the caller decides whether they are
++   * retryable.
++   */
++  async ensureSlotRegistered(slot: SoundSlotKind): Promise<void> {
++    const slotType: notification.SlotType | undefined = SLOT_TYPE_BY_KIND.get(slot);
++    if (slotType === undefined) {
++      throw new Error(`unknown slot kind ${slot}`);
++    }
++    try {
++      await notification.addSlot(slotType);
++    } catch (e) {
++      const code: number = readErrorCode(e);
++      if (code === MISSING_SLOT_ERROR_CODE) {
++        return;
++      }
++      if (code === DUPLICATE_SLOT_ERROR_CODE) {
++        return;
++      }
++      throw e as Error;
++    }
++  }
++
++  /**
++   * Translate a persisted SoundPreference into a sound value that the
++   * OS notification slot will accept.  System default is represented
++   * as an empty string which tells the OS to fall back to the
++   * platform default for the channel.
++   */
++  resolveSoundForSlot(slot: SoundSlotKind, preference: SoundPreference): string {
++    if (preference.source === 'system_default') {
++      return '';
++    }
++    if (preference.source === 'preset') {
++      return `rawfile:///${this.presetAssetName(slot, preference.presetId ?? '')}`;
++    }
++    if (preference.customFilePath !== undefined && preference.customFilePath.length > 0) {
++      if (preference.customFilePath.startsWith('file://') ||
++        preference.customFilePath.startsWith('rawfile://')) {
++        return preference.customFilePath;
++      }
++      return `file://${preference.customFilePath}`;
++    }
++    return '';
++  }
++
++  /**
++   * Apply the given preference to the slot.  The OpenHarmony API
++   * does not allow per-slot custom sound assignment, so this method
++   * records the resolved sound value for later use by the
++   * application and bumps the per-slot channel version on success.
++   * The returned promise resolves to the channel version that the
++   * slot now carries.
++   */
++  async apply(slot: SoundSlotKind, preference: SoundPreference): Promise<number> {
++    await this.ensureSlotRegistered(slot);
++    const soundValue: string = this.resolveSoundForSlot(slot, preference);
++    await this.fetchSlot(slot);
++    this.lastAppliedSound.set(slot, soundValue);
++    const next: number = (this.channelVersions.get(slot) ?? 0) + 1;
++    this.channelVersions.set(slot, next);
++    return next;
++  }
++
++  /**
++   * Convert an OS-side slot sound value into a display label.  Used
++   * by the legacy migrator to decide whether a value read from the
++   * slot is something the user would recognise.
++   */
++  static labelForOsSound(osSound: string, slot: SoundSlotKind): string {
++    if (osSound.length === 0) {
++      return SYSTEM_DEFAULT_DISPLAY;
++    }
++    if (osSound.startsWith('rawfile:///')) {
++      const name: string = osSound.substring('rawfile:///'.length);
++      if (name.length === 0) {
++        return SYSTEM_DEFAULT_DISPLAY;
++      }
++      return `Bundled ${name}`;
++    }
++    if (osSound.startsWith('file://')) {
++      const path: string = osSound.substring('file://'.length);
++      const slashIndex: number = path.lastIndexOf('/');
++      const base: string = slashIndex >= 0 ? path.substring(slashIndex + 1) : path;
++      const dot: number = base.lastIndexOf('.');
++      const stem: string = dot > 0 ? base.substring(0, dot) : base;
++      return stem.length > 0 ? stem : SYSTEM_DEFAULT_DISPLAY;
++    }
++    return osSound;
++  }
++
++  private async fetchSlot(slot: SoundSlotKind): Promise<NotificationSlotInfo | undefined> {
++    const slotType: notification.SlotType | undefined = SLOT_TYPE_BY_KIND.get(slot);
++    if (slotType === undefined) {
++      return undefined;
++    }
++    try {
++      await notification.getSlot(slotType);
++      const sound: string = this.lastAppliedSound.get(slot) ?? '';
++      return {
++        slotType: slotType,
++        id: SLOT_ID_BY_KIND.get(slot) ?? '',
++        sound: sound,
++        enabled: true,
++      };
++    } catch (e) {
++      const code: number = readErrorCode(e);
++      if (code === MISSING_SLOT_ERROR_CODE) {
++        return undefined;
++      }
++      throw e as Error;
++    }
++  }
++
++  private presetAssetName(slot: SoundSlotKind, presetId: string): string {
++    if (presetId.length === 0) {
++      return '';
++    }
++    if (presetId === 'silent' && slot === 'call') {
++      return '';
++    }
++    return `sounds/${slot}_${presetId}.ogg`;
++  }
++}
+diff --git a/entry/src/main/ets/features/sound/SoundPreferenceRepository.ets b/entry/src/main/ets/features/sound/SoundPreferenceRepository.ets
+new file mode 100644
+index 0000000..c5dfd88
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/SoundPreferenceRepository.ets
+@@ -0,0 +1,186 @@
++/**
++ * Persistent preferences repository.
++ *
++ * This is the single source of truth for the user's sound choices
++ * between launches.  Each slot (message / call) has its own key
++ * namespace so the two are completely independent: writing the
++ * message preference never touches the call preference and vice
++ * versa.
++ *
++ * The repository is implemented as a thin wrapper around the
++ * OpenHarmony preferences store.  Reads return undefined when
++ * nothing has ever been written - callers must treat that as "use
++ * the system default".  Writes are durable: once `write` resolves
++ * the new value will be observed by any subsequent `read` call,
++ * even after a process restart.
++ */
++
++import preferences from '@ohos.data.preferences';
++import {
++  SoundPreference,
++  SoundSlotKind,
++  makeSystemDefaultPreference,
++} from './SoundTypes';
++
++const PREF_VERSION_BASE: number = 1;
++
++const KEY_SOURCE: string = 'source';
++const KEY_PRESET_ID: string = 'presetId';
++const KEY_CUSTOM_FILE_PATH: string = 'customFilePath';
++const KEY_DISPLAY_NAME: string = 'displayName';
++const KEY_VERSION: string = 'version';
++const KEY_UPDATED_AT: string = 'updatedAt';
++const KEY_HAS_PERSISTED: string = 'hasPersistedPreference';
++
++function slotKey(slot: SoundSlotKind, key: string): string {
++  return `slot.${slot}.${key}`;
++}
++
++function readStringValue(raw: preferences.ValueType): string {
++  if (typeof raw === 'string') {
++    return raw;
++  }
++  if (typeof raw === 'number') {
++    return String(raw);
++  }
++  if (typeof raw === 'boolean') {
++    return raw ? 'true' : 'false';
++  }
++  return '';
++}
++
++function readNumberValue(raw: preferences.ValueType, fallback: number): number {
++  if (typeof raw === 'number') {
++    return raw;
++  }
++  if (typeof raw === 'string') {
++    const parsed: number = Number(raw);
++    if (Number.isFinite(parsed)) {
++      return parsed;
++    }
++  }
++  return fallback;
++}
++
++export class SoundPreferenceRepository {
++  private readonly options: preferences.Options;
++
++  constructor(options: preferences.Options) {
++    this.options = options;
++  }
++
++  /**
++   * Build a stable, in-memory system-default value for the given slot.
++   * The repository itself does not need to persist this baseline but it
++   * is convenient to compute it here so callers have a uniform value to
++   * work with when nothing has been written yet.
++   */
++  defaultPreferenceFor(slot: SoundSlotKind): SoundPreference {
++    return makeSystemDefaultPreference(PREF_VERSION_BASE, 0);
++  }
++
++  /**
++   * Read the persisted preference for the given slot.  Returns
++   * `undefined` when the user has never made an explicit choice;
++   * callers MUST interpret this as "use the system default" and not
++   * as "the system default is unknown".
++   */
++  async read(slot: SoundSlotKind): Promise<SoundPreference | undefined> {
++    const ctx: Context = getContext();
++    const store: preferences.Preferences = await preferences.getPreferences(ctx, this.options);
++    const hasPersistedRaw: preferences.ValueType = await store.get(slotKey(slot, KEY_HAS_PERSISTED), false);
++    const hasPersisted: boolean = typeof hasPersistedRaw === 'boolean' ? hasPersistedRaw : Boolean(hasPersistedRaw);
++    if (!hasPersisted) {
++      return undefined;
++    }
++    const sourceRaw: preferences.ValueType = await store.get(slotKey(slot, KEY_SOURCE), 'system_default');
++    const source: string = readStringValue(sourceRaw);
++    const displayRaw: preferences.ValueType = await store.get(slotKey(slot, KEY_DISPLAY_NAME), '');
++    const displayName: string = readStringValue(displayRaw);
++    const versionRaw: preferences.ValueType = await store.get(slotKey(slot, KEY_VERSION), 0);
++    const version: number = readNumberValue(versionRaw, 0);
++    const updatedAtRaw: preferences.ValueType = await store.get(slotKey(slot, KEY_UPDATED_AT), 0);
++    const updatedAt: number = readNumberValue(updatedAtRaw, 0);
++
++    if (source === 'preset') {
++      const presetRaw: preferences.ValueType = await store.get(slotKey(slot, KEY_PRESET_ID), '');
++      const presetId: string = readStringValue(presetRaw);
++      if (presetId.length === 0) {
++        return undefined;
++      }
++      return {
++        source: 'preset',
++        presetId,
++        displayName: displayName.length > 0 ? displayName : 'Preset',
++        version,
++        updatedAt,
++      };
++    }
++    if (source === 'custom') {
++      const pathRaw: preferences.ValueType = await store.get(slotKey(slot, KEY_CUSTOM_FILE_PATH), '');
++      const customFilePath: string = readStringValue(pathRaw);
++      if (customFilePath.length === 0) {
++        return undefined;
++      }
++      return {
++        source: 'custom',
++        customFilePath,
++        displayName: displayName.length > 0 ? displayName : 'Custom sound',
++        version,
++        updatedAt,
++      };
++    }
++    return {
++      source: 'system_default',
++      displayName: displayName.length > 0 ? displayName : 'System default',
++      version,
++      updatedAt,
++    };
++  }
++
++  /**
++   * Persist the preference for the given slot.  The caller is
++   * responsible for ensuring that `preference` is well-formed (e.g.
++   * `custom` must have a non-empty `customFilePath`); this method
++   * writes the value as-is.
++   */
++  async write(slot: SoundSlotKind, preference: SoundPreference): Promise<void> {
++    const ctx: Context = getContext();
++    const store: preferences.Preferences = await preferences.getPreferences(ctx, this.options);
++    await store.put(slotKey(slot, KEY_HAS_PERSISTED), true);
++    await store.put(slotKey(slot, KEY_SOURCE), preference.source);
++    await store.put(slotKey(slot, KEY_DISPLAY_NAME), preference.displayName);
++    await store.put(slotKey(slot, KEY_VERSION), preference.version);
++    await store.put(slotKey(slot, KEY_UPDATED_AT), preference.updatedAt);
++    if (preference.source === 'preset' && preference.presetId !== undefined) {
++      await store.put(slotKey(slot, KEY_PRESET_ID), preference.presetId);
++      await store.delete(slotKey(slot, KEY_CUSTOM_FILE_PATH));
++    } else if (preference.source === 'custom' && preference.customFilePath !== undefined) {
++      await store.put(slotKey(slot, KEY_CUSTOM_FILE_PATH), preference.customFilePath);
++      await store.delete(slotKey(slot, KEY_PRESET_ID));
++    } else {
++      await store.delete(slotKey(slot, KEY_PRESET_ID));
++      await store.delete(slotKey(slot, KEY_CUSTOM_FILE_PATH));
++    }
++    await store.flush();
++  }
++
++  /**
++   * Forget any persisted preference for the given slot.  After this
++   * call `read` will return `undefined` for `slot`.
++   */
++  async clear(slot: SoundSlotKind): Promise<void> {
++    const ctx: Context = getContext();
++    const store: preferences.Preferences = await preferences.getPreferences(ctx, this.options);
++    await store.delete(slotKey(slot, KEY_HAS_PERSISTED));
++    await store.delete(slotKey(slot, KEY_SOURCE));
++    await store.delete(slotKey(slot, KEY_PRESET_ID));
++    await store.delete(slotKey(slot, KEY_CUSTOM_FILE_PATH));
++    await store.delete(slotKey(slot, KEY_DISPLAY_NAME));
++    await store.delete(slotKey(slot, KEY_VERSION));
++    await store.delete(slotKey(slot, KEY_UPDATED_AT));
++    await store.flush();
++  }
++}
++
++declare function getContext(): Context;
+diff --git a/entry/src/main/ets/features/sound/SoundPresetCatalog.ets b/entry/src/main/ets/features/sound/SoundPresetCatalog.ets
+new file mode 100644
+index 0000000..0e1398c
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/SoundPresetCatalog.ets
+@@ -0,0 +1,104 @@
++/**
++ * Bundled preset catalog.
++ *
++ * Each preset is a vendor-shipped audio file inside the application package.
++ * The asset path is relative to the application's resources/rawfile directory.
++ * The `system_default` pseudo-preset is handled specially: it carries no
++ * asset path and the corresponding channel must be told to use the device's
++ * built-in default sound instead.
++ */
++
++import { PresetDescriptor, SoundSlotKind } from './SoundTypes';
++
++const MESSAGE_PRESETS: PresetDescriptor[] = [
++  {
++    id: 'system_default',
++    label: 'System default',
++    assetPath: '',
++    supportsSlot: 'message',
++  },
++  {
++    id: 'element_default',
++    label: 'Element',
++    assetPath: 'message_element.ogg',
++    supportsSlot: 'message',
++  },
++  {
++    id: 'chime',
++    label: 'Chime',
++    assetPath: 'message_chime.ogg',
++    supportsSlot: 'message',
++  },
++  {
++    id: 'soft',
++    label: 'Soft',
++    assetPath: 'message_soft.ogg',
++    supportsSlot: 'message',
++  },
++  {
++    id: 'pulse',
++    label: 'Pulse',
++    assetPath: 'message_pulse.ogg',
++    supportsSlot: 'message',
++  },
++];
++
++const CALL_PRESETS: PresetDescriptor[] = [
++  {
++    id: 'system_default',
++    label: 'System default',
++    assetPath: '',
++    supportsSlot: 'call',
++  },
++  {
++    id: 'element_default',
++    label: 'Element',
++    assetPath: 'call_element.ogg',
++    supportsSlot: 'call',
++  },
++  {
++    id: 'silent',
++    label: 'Silent',
++    assetPath: '',
++    supportsSlot: 'call',
++  },
++  {
++    id: 'classic',
++    label: 'Classic',
++    assetPath: 'call_classic.ogg',
++    supportsSlot: 'call',
++  },
++  {
++    id: 'modern',
++    label: 'Modern',
++    assetPath: 'call_modern.ogg',
++    supportsSlot: 'call',
++  },
++  {
++    id: 'gentle',
++    label: 'Gentle',
++    assetPath: 'call_gentle.ogg',
++    supportsSlot: 'call',
++  },
++];
++
++export class SoundPresetCatalog {
++  static listForSlot(slot: SoundSlotKind): PresetDescriptor[] {
++    return slot === 'message' ? MESSAGE_PRESETS.slice() : CALL_PRESETS.slice();
++  }
++
++  static find(slot: SoundSlotKind, presetId: string): PresetDescriptor | null {
++    const list: PresetDescriptor[] = slot === 'message' ? MESSAGE_PRESETS : CALL_PRESETS;
++    for (let i: number = 0; i < list.length; i++) {
++      const item: PresetDescriptor = list[i];
++      if (item.id === presetId) {
++        return item;
++      }
++    }
++    return null;
++  }
++
++  static isValidPreset(slot: SoundSlotKind, presetId: string): boolean {
++    return SoundPresetCatalog.find(slot, presetId) !== null;
++  }
++}
+diff --git a/entry/src/main/ets/features/sound/SoundSettingsService.ets b/entry/src/main/ets/features/sound/SoundSettingsService.ets
+new file mode 100644
+index 0000000..2cd838c
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/SoundSettingsService.ets
+@@ -0,0 +1,183 @@
++/**
++ * High level sound settings service.
++ *
++ * This is the only class that the UI layer talks to for the custom
++ * notification sound feature.  It owns one SoundSlotController per
++ * `SoundSlotKind` so that:
++ *
++ *  - the message sound and the call ringtone have completely
++ *    independent state (dialogs, picker tokens, errors, etc.);
++ *  - concurrent updates to the same slot are serialised through a
++ *    monotonic token, so a late completion of an earlier pick can
++ *    never restore an older value;
++ *  - copy / persist / channel-update failures preserve the previous
++ *    effective sound and surface a dismissable retryable error;
++ *  - the user's choice is persisted before it becomes effective, and
++ *    the channel is updated afterwards, so a crash between the two
++ *    steps cannot lead to a silent inconsistency.
++ *
++ * The service is also responsible for invoking the legacy migrator on
++ * startup.  Migrated values are treated like any other explicit user
++ * choice and can subsequently be overwritten by a fresh preset pick or
++ * document pick.
++ */
++
++import { LocalSoundStorage } from './LocalSoundStorage';
++import { SoundPreferenceRepository } from './SoundPreferenceRepository';
++import { NotificationChannelService } from './NotificationChannelService';
++import { DocumentSoundPicker } from './DocumentSoundPicker';
++import { LegacyRingtoneMigrator, LegacyMigrationOutcome } from './LegacyRingtoneMigrator';
++import { SoundSlotController } from './SoundSlotController';
++import { SoundSlotKind, SoundPreference } from './SoundTypes';
++
++export interface SoundSettingsDeps {
++  readonly repository: SoundPreferenceRepository;
++  readonly storage: LocalSoundStorage;
++  readonly channels: NotificationChannelService;
++  readonly picker: DocumentSoundPicker;
++}
++
++export class SoundSettingsService {
++  private readonly deps: SoundSettingsDeps;
++  private readonly slots: Map<SoundSlotKind, SoundSlotController>;
++  private migrated: boolean = false;
++
++  constructor(deps: SoundSettingsDeps) {
++    this.deps = deps;
++    this.slots = new Map<SoundSlotKind, SoundSlotController>([
++      ['message', new SoundSlotController('message', deps)],
++      ['call', new SoundSlotController('call', deps)],
++    ]);
++  }
++
++  slot(kind: SoundSlotKind): SoundSlotController {
++    const controller: SoundSlotController | undefined = this.slots.get(kind);
++    if (controller === undefined) {
++      throw new Error(`unknown slot ${kind}`);
++    }
++    return controller;
++  }
++
++  /**
++   * Read the currently effective preference for the slot.  Used both
++   * at startup and by the UI to derive the label it shows.
++   */
++  currentPreference(kind: SoundSlotKind): SoundPreference {
++    return this.slot(kind).currentPreference();
++  }
++
++  /**
++   * Apply a preset selection.  The choice is persisted, then pushed
++   * to the OS notification slot.  Failures preserve the previous
++   * preference and surface a retryable error on the slot.
++   */
++  async applyPreset(kind: SoundSlotKind, presetId: string): Promise<void> {
++    await this.migrate();
++    await this.slot(kind).applyPreset(presetId);
++  }
++
++  /**
++   * Apply a custom pick.  The picker uri is copied into app-owned
++   * storage first; only the stable path is persisted and the OS slot
++   * is updated.  Failures preserve the previous preference and
++   * surface a retryable error on the slot.
++   */
++  async applyCustomPick(
++    kind: SoundSlotKind,
++    sourceUri: string,
++    displayName: string,
++  ): Promise<void> {
++    await this.migrate();
++    await this.slot(kind).applyCustomPick(sourceUri, displayName);
++  }
++
++  /**
++   * Launch the document picker for the slot.  The slot's picker
++   * token is bumped so any previous in-flight pick that completes
++   * after this launch is discarded.
++   */
++  launchPicker(kind: SoundSlotKind): void {
++    this.slot(kind).launchPicker();
++  }
++
++  /**
++   * Reset the slot back to the system default.  This is an explicit
++   * user choice (system default itself counts as a choice for
++   * migration purposes) and is persisted like any other value.
++   */
++  async resetToSystemDefault(kind: SoundSlotKind): Promise<void> {
++    await this.migrate();
++    await this.slot(kind).resetToSystemDefault();
++  }
++
++  /**
++   * Open / close the picker dialog.  These are UI side signals only -
++   * they do not start any async work.
++   */
++  openDialog(kind: SoundSlotKind): void {
++    this.slot(kind).openDialog();
++  }
++
++  closeDialog(kind: SoundSlotKind): void {
++    this.slot(kind).closeDialog();
++  }
++
++  dismissError(kind: SoundSlotKind): void {
++    this.slot(kind).dismissError();
++  }
++
++  /**
++   * Retry the last failed attempt for the slot.  Returns true if a
++   * retry was actually scheduled; false when there is nothing to retry
++   * (the slot is in a healthy state).
++   */
++  async retry(kind: SoundSlotKind): Promise<boolean> {
++    await this.migrate();
++    return this.slot(kind).retryLastAttempt();
++  }
++
++  /**
++   * One-shot initialisation: load persisted preferences for both
++   * slots and migrate the legacy call ringtone when needed.
++   * Subsequent calls are no-ops.
++   */
++  async initialize(): Promise<void> {
++    await this.deps.channels.ensureSlotRegistered('message');
++    await this.deps.channels.ensureSlotRegistered('call');
++    await this.migrate();
++  }
++
++  /**
++   * Inject a preference directly.  Used by the legacy migrator so it
++   * can install a value without going through the regular apply path
++   * (which would otherwise reject a missing pickable source).
++   */
++  installPreference(kind: SoundSlotKind, preference: SoundPreference): void {
++    this.slot(kind).installPreference(preference);
++  }
++
++  private async migrate(): Promise<void> {
++    if (this.migrated) {
++      return;
++    }
++    const callController: SoundSlotController | undefined = this.slots.get('call');
++    if (callController === undefined) {
++      this.migrated = true;
++      return;
++    }
++    await callController.hydrateFromRepository();
++    const migrator: LegacyRingtoneMigrator = new LegacyRingtoneMigrator(
++      this.deps.channels,
++      this.deps.repository,
++    );
++    const outcome: LegacyMigrationOutcome = await migrator.migrateCallSlotIfNeeded();
++    if (outcome.migrated) {
++      callController.installPreference(outcome.preference);
++    }
++    const messageController: SoundSlotController | undefined = this.slots.get('message');
++    if (messageController !== undefined) {
++      await messageController.hydrateFromRepository();
++    }
++    this.migrated = true;
++  }
++}
+diff --git a/entry/src/main/ets/features/sound/SoundSlotController.ets b/entry/src/main/ets/features/sound/SoundSlotController.ets
+new file mode 100644
+index 0000000..b0165ac
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/SoundSlotController.ets
+@@ -0,0 +1,365 @@
++/**
++ * Per-slot sound controller.
++ *
++ * Each SoundSlotKind owns one of these.  The controller is the only
++ * object that mutates the slot's state: preference, dialog visibility,
++ * picker-in-flight flag, picker token, error, and channel version.
++ *
++ * The picker token is a monotonically increasing number that lets us
++ * detect stale late completions: every long-running operation
++ * (copy-from-uri, persist, channel-update) captures the token that was
++ * current at the start.  When it is about to commit its results it
++ * compares that captured token against the controller's current token;
++ * if they differ it knows a newer pick is in flight and discards its
++ * own results.
++ */
++
++import { LocalSoundStorage, CopyResult } from './LocalSoundStorage';
++import { SoundPreferenceRepository } from './SoundPreferenceRepository';
++import { NotificationChannelService } from './NotificationChannelService';
++import { DocumentSoundPicker } from './DocumentSoundPicker';
++import { SoundPresetCatalog } from './SoundPresetCatalog';
++import {
++  SoundPreference,
++  SoundSlotKind,
++  SoundError,
++  SoundErrorReason,
++  SlotSnapshot,
++  PresetDescriptor,
++  describeDisplayLabel,
++  makeCustomPreference,
++  makePresetPreference,
++  makeSystemDefaultPreference,
++} from './SoundTypes';
++
++import { SoundSettingsDeps } from './SoundSettingsService';
++
++export interface PendingAttempt {
++  readonly kind: 'preset' | 'custom';
++  readonly presetId?: string;
++  readonly sourceUri?: string;
++  readonly displayName?: string;
++  readonly pickerToken?: number;
++}
++
++interface ErrnoShape {
++  readonly code?: number;
++  readonly message?: string;
++}
++
++export class SoundSlotController {
++  private readonly slotKind: SoundSlotKind;
++  private readonly deps: SoundSettingsDeps;
++
++  private preference: SoundPreference;
++  private dialogOpen: boolean = false;
++  private pickerInFlight: boolean = false;
++  private currentPickerToken: number = 0;
++  private error: SoundError | null = null;
++  private lastAttempt: PendingAttempt | null = null;
++
++  constructor(slot: SoundSlotKind, deps: SoundSettingsDeps) {
++    this.slotKind = slot;
++    this.deps = deps;
++    this.preference = deps.repository.defaultPreferenceFor(slot);
++  }
++
++  slot(): SoundSlotKind {
++    return this.slotKind;
++  }
++
++  currentPreference(): SoundPreference {
++    return this.preference;
++  }
++
++  displayLabel(): string {
++    return describeDisplayLabel(this.preference);
++  }
++
++  isDialogOpen(): boolean {
++    return this.dialogOpen;
++  }
++
++  isPickerInFlight(): boolean {
++    return this.pickerInFlight;
++  }
++
++  currentPickerTokenValue(): number {
++    return this.currentPickerToken;
++  }
++
++  currentError(): SoundError | null {
++    return this.error;
++  }
++
++  hasPendingAttempt(): boolean {
++    return this.lastAttempt !== null;
++  }
++
++  snapshot(): SlotSnapshot {
++    return {
++      kind: this.slotKind,
++      preference: this.preference,
++      displayLabel: describeDisplayLabel(this.preference),
++      dialogOpen: this.dialogOpen,
++      pickerInFlight: this.pickerInFlight,
++      error: this.error,
++      channelVersion: this.deps.channels.currentChannelVersion(this.slotKind),
++    };
++  }
++
++  openDialog(): void {
++    this.dialogOpen = true;
++  }
++
++  closeDialog(): void {
++    this.dialogOpen = false;
++  }
++
++  dismissError(): void {
++    this.error = null;
++    this.lastAttempt = null;
++  }
++
++  /**
++   * Bump the picker token and mark the picker as in-flight.  Any
++   * previously in-flight copy / persist that captures the OLD token
++   * will be discarded on completion.
++   */
++  launchPicker(): void {
++    this.currentPickerToken = this.currentPickerToken + 1;
++    this.pickerInFlight = true;
++  }
++
++  /**
++   * Apply a preset selection.  Persists then updates the OS slot.
++   * On any failure the previous preference is left untouched and an
++   * error is exposed on the slot.
++   */
++  async applyPreset(presetId: string): Promise<void> {
++    this.error = null;
++    if (!SoundPresetCatalog.isValidPreset(this.slotKind, presetId)) {
++      this.error = this.makeError('unsupported_preset',
++        `Unknown preset ${presetId} for slot ${this.slotKind}`, true);
++      this.lastAttempt = { kind: 'preset', presetId: presetId };
++      return;
++    }
++    const preset: PresetDescriptor | null = SoundPresetCatalog.find(this.slotKind, presetId);
++    const label: string = preset !== null && preset.label.length > 0 ? preset.label : presetId;
++    const previous: SoundPreference = this.preference;
++    const now: number = Date.now();
++    const nextVersion: number = previous.version + 1;
++    const next: SoundPreference = presetId === 'system_default'
++      ? makeSystemDefaultPreference(nextVersion, now)
++      : makePresetPreference(presetId, label, nextVersion, now);
++    this.lastAttempt = { kind: 'preset', presetId: presetId };
++    try {
++      await this.deps.repository.write(this.slotKind, next);
++    } catch (e) {
++      this.preference = previous;
++      this.error = this.makeError('persist_failed',
++        `Failed to persist preset ${presetId}: ${SlotControllerLogger.describe(e)}`, true);
++      return;
++    }
++    try {
++      await this.deps.channels.apply(this.slotKind, next);
++    } catch (e) {
++      this.preference = previous;
++      await this.bestEffortRevert(this.slotKind, previous);
++      this.error = this.makeError('channel_update_failed',
++        `Failed to update channel for preset ${presetId}: ${SlotControllerLogger.describe(e)}`, true);
++      return;
++    }
++    this.preference = next;
++    this.lastAttempt = null;
++  }
++
++  /**
++   * Apply a custom pick.  The picker URI is copied into app-owned
++   * storage first; only the stable local path is persisted and the
++   * channel is updated.
++   *
++   * The picker token captured at the start is used to detect a stale
++   * late completion: if the user has since launched another pick or
++   * applied a preset the previous pick's result is discarded.
++   */
++  async applyCustomPick(sourceUri: string, displayName: string): Promise<void> {
++    this.error = null;
++    const capturedToken: number = this.currentPickerToken;
++    this.lastAttempt = {
++      kind: 'custom',
++      sourceUri: sourceUri,
++      displayName: displayName,
++      pickerToken: capturedToken,
++    };
++    const previous: SoundPreference = this.preference;
++    let copiedFilePath: string = '';
++    let copiedName: string = displayName;
++    try {
++      const result: CopyResult = await this.deps.storage.copyFromUri(sourceUri, displayName);
++      copiedFilePath = result.filePath;
++      copiedName = result.displayName.length > 0 ? result.displayName : displayName;
++    } catch (e) {
++      // The picker returned a URI we could not honour.  The previous
++      // preference must not change.
++      this.preference = previous;
++      this.error = this.makeError('copy_failed',
++        `Failed to copy picked file: ${SlotControllerLogger.describe(e)}`, true);
++      return;
++    }
++
++    // Slot token must still match what the user intended.  A newer
++    // pick or a preset selection happened in the meantime - we
++    // discard the copied file (best effort) and leave the previous
++    // preference in place.
++    if (capturedToken !== this.currentPickerToken) {
++      await this.deps.storage.delete(copiedFilePath).catch(() => undefined);
++      return;
++    }
++
++    const now: number = Date.now();
++    const next: SoundPreference = makeCustomPreference(
++      copiedFilePath, copiedName, previous.version + 1, now,
++    );
++    try {
++      await this.deps.repository.write(this.slotKind, next);
++    } catch (e) {
++      await this.deps.storage.delete(copiedFilePath).catch(() => undefined);
++      this.preference = previous;
++      this.error = this.makeError('persist_failed',
++        `Failed to persist custom sound: ${SlotControllerLogger.describe(e)}`, true);
++      return;
++    }
++    try {
++      await this.deps.channels.apply(this.slotKind, next);
++    } catch (e) {
++      await this.deps.storage.delete(copiedFilePath).catch(() => undefined);
++      await this.bestEffortRevert(this.slotKind, previous);
++      this.preference = previous;
++      this.error = this.makeError('channel_update_failed',
++        `Failed to update channel for custom sound: ${SlotControllerLogger.describe(e)}`, true);
++      return;
++    }
++    this.preference = next;
++    this.pickerInFlight = false;
++    this.lastAttempt = null;
++  }
++
++  /**
++   * Reset the slot to the system default.  Treated like an explicit
++   * user choice: persisted and pushed to the channel.
++   */
++  async resetToSystemDefault(): Promise<void> {
++    this.error = null;
++    const previous: SoundPreference = this.preference;
++    const now: number = Date.now();
++    const next: SoundPreference = makeSystemDefaultPreference(previous.version + 1, now);
++    this.lastAttempt = null;
++    try {
++      await this.deps.repository.write(this.slotKind, next);
++    } catch (e) {
++      this.preference = previous;
++      this.error = this.makeError('persist_failed',
++        `Failed to persist system default: ${SlotControllerLogger.describe(e)}`, true);
++      return;
++    }
++    try {
++      await this.deps.channels.apply(this.slotKind, next);
++    } catch (e) {
++      this.preference = previous;
++      await this.bestEffortRevert(this.slotKind, previous);
++      this.error = this.makeError('channel_update_failed',
++        `Failed to update channel for system default: ${SlotControllerLogger.describe(e)}`, true);
++      return;
++    }
++    this.preference = next;
++  }
++
++  /**
++   * Retry the last failed attempt.  Used after the user dismisses or
++   * explicitly retries an exposed error.
++   */
++  async retryLastAttempt(): Promise<boolean> {
++    const attempt: PendingAttempt | null = this.lastAttempt;
++    if (attempt === null) {
++      return false;
++    }
++    if (attempt.kind === 'preset' && attempt.presetId !== undefined) {
++      await this.applyPreset(attempt.presetId);
++      return true;
++    }
++    if (attempt.kind === 'custom' &&
++      attempt.sourceUri !== undefined &&
++      attempt.displayName !== undefined) {
++      await this.applyCustomPick(attempt.sourceUri, attempt.displayName);
++      return true;
++    }
++    return false;
++  }
++
++  /**
++   * Install a preference without going through the regular apply
++   * path.  Used by the legacy migrator and at hydration time.
++   */
++  installPreference(preference: SoundPreference): void {
++    this.preference = preference;
++    this.error = null;
++    this.lastAttempt = null;
++  }
++
++  /**
++   * Hydrate the slot from the persisted repository.  Reads the
++   * persisted value (if any) and updates the in-memory preference
++   * without touching the OS channel - the OS channel is synced via
++   * the migrator's `apply` call when needed, and stays in sync from
++   * then on.
++   */
++  async hydrateFromRepository(): Promise<void> {
++    const persisted: SoundPreference | undefined =
++      await this.deps.repository.read(this.slotKind);
++    if (persisted !== undefined) {
++      this.preference = persisted;
++    }
++  }
++
++  private makeError(reason: SoundErrorReason, message: string, retryable: boolean): SoundError {
++    return {
++      reason: reason,
++      message: message,
++      retryable: retryable,
++      slot: this.slotKind,
++    };
++  }
++
++  private async bestEffortRevert(slot: SoundSlotKind, previous: SoundPreference): Promise<void> {
++    try {
++      await this.deps.channels.apply(slot, previous);
++    } catch (e) {
++      this.error = this.makeError('channel_update_failed',
++        `Failed to revert channel for ${slot}: ${SlotControllerLogger.describe(e)}`, true);
++    }
++  }
++}
++
++class SlotControllerLogger {
++  static describe(e: Error | object | undefined): string {
++    if (e === undefined) {
++      return 'unknown error';
++    }
++    if (typeof e === 'object' && e !== null) {
++      const maybeErr: ErrnoShape = e as ErrnoShape;
++      if (typeof maybeErr.message === 'string' && maybeErr.message.length > 0) {
++        return maybeErr.message;
++      }
++      if (typeof maybeErr.code === 'number') {
++        return `code ${maybeErr.code}`;
++      }
++      try {
++        return JSON.stringify(e);
++      } catch (jsonError) {
++        return 'unknown error';
++      }
++    }
++    return String(e);
++  }
++}
+diff --git a/entry/src/main/ets/features/sound/SoundTypes.ets b/entry/src/main/ets/features/sound/SoundTypes.ets
+new file mode 100644
+index 0000000..5957049
+--- /dev/null
++++ b/entry/src/main/ets/features/sound/SoundTypes.ets
+@@ -0,0 +1,132 @@
++/**
++ * Domain types for the custom notification sound feature.
++ *
++ * Each notification slot (message / call) is governed by an independent
++ * SoundPreference together with a monotonic version number.  When a
++ * long-running update (URI copy, persistence, channel update) is in flight
++ * the launcher captures the version that was current at start-up so that a
++ * late completion cannot overwrite a newer valid choice.
++ */
++
++export type SoundSource = 'system_default' | 'preset' | 'custom';
++
++export type SoundSlotKind = 'message' | 'call';
++
++export interface PresetDescriptor {
++  readonly id: string;
++  readonly label: string;
++  readonly assetPath: string;
++  readonly supportsSlot: SoundSlotKind;
++}
++
++/**
++ * The persisted and effective value for one slot.  Every successful update
++ * bumps `version` and `updatedAt`.  Callers MUST compare the `version` field
++ * before applying any side-effects derived from the value to detect stale
++ * late completions.
++ */
++export interface SoundPreference {
++  readonly source: SoundSource;
++  readonly presetId?: string;
++  readonly customFilePath?: string;
++  readonly displayName: string;
++  readonly version: number;
++  readonly updatedAt: number;
++}
++
++export const SYSTEM_DEFAULT_PRESET_ID: string = 'system_default';
++export const SYSTEM_DEFAULT_DISPLAY: string = 'System default';
++
++export function isSystemDefault(preference: SoundPreference): boolean {
++  return preference.source === 'system_default';
++}
++
++export function isCustomPreference(preference: SoundPreference): boolean {
++  return preference.source === 'custom' && preference.customFilePath !== undefined
++    && preference.customFilePath.length > 0;
++}
++
++export function isPresetPreference(preference: SoundPreference): boolean {
++  return preference.source === 'preset' && preference.presetId !== undefined;
++}
++
++export function describeDisplayLabel(preference: SoundPreference): string {
++  if (preference.source === 'system_default') {
++    return SYSTEM_DEFAULT_DISPLAY;
++  }
++  if (preference.displayName.length === 0) {
++    return 'Unknown';
++  }
++  return preference.displayName;
++}
++
++export interface SoundError {
++  readonly reason: SoundErrorReason;
++  readonly message: string;
++  readonly retryable: boolean;
++  readonly slot: SoundSlotKind;
++}
++
++export type SoundErrorReason =
++  | 'picker_cancelled'
++  | 'picker_failed'
++  | 'copy_failed'
++  | 'persist_failed'
++  | 'channel_update_failed'
++  | 'unsupported_preset';
++
++export interface PendingCustomSelection {
++  readonly pickerToken: number;
++  readonly sourceUri: string;
++  readonly displayName: string;
++  readonly startedAt: number;
++}
++
++export interface SlotSnapshot {
++  readonly kind: SoundSlotKind;
++  readonly preference: SoundPreference;
++  readonly displayLabel: string;
++  readonly dialogOpen: boolean;
++  readonly pickerInFlight: boolean;
++  readonly error: SoundError | null;
++  readonly channelVersion: number;
++}
++
++export function makeSystemDefaultPreference(version: number, updatedAt: number): SoundPreference {
++  return {
++    source: 'system_default',
++    displayName: SYSTEM_DEFAULT_DISPLAY,
++    version,
++    updatedAt,
++  };
++}
++
++export function makePresetPreference(
++  presetId: string,
++  label: string,
++  version: number,
++  updatedAt: number,
++): SoundPreference {
++  return {
++    source: 'preset',
++    presetId,
++    displayName: label,
++    version,
++    updatedAt,
++  };
++}
++
++export function makeCustomPreference(
++  filePath: string,
++  displayName: string,
++  version: number,
++  updatedAt: number,
++): SoundPreference {
++  return {
++    source: 'custom',
++    customFilePath: filePath,
++    displayName,
++    version,
++    updatedAt,
++  };
++}
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 7f9f0a8..949f45d 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,13 +1,55 @@
+ import { NotificationSettingsPresenter } from '../features/NotificationSettingsBase';
++import { hasSoundSettingsService, getSoundSettingsService } from '../features/ApplicationContext';
++import { PresetDescriptor } from '../features/sound/SoundTypes';
++
++interface PresetEntry {
++  readonly id: string;
++  readonly label: string;
++}
++
++function presetsToPresetEntries(presets: PresetDescriptor[]): PresetEntry[] {
++  const entries: PresetEntry[] = [];
++  for (let i: number = 0; i < presets.length; i++) {
++    const preset: PresetDescriptor = presets[i];
++    entries.push({ id: preset.id, label: preset.label });
++  }
++  return entries;
++}
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: NotificationSettingsPresenter = new NotificationSettingsPresenter();
++  private presenter: NotificationSettingsPresenter =
++    new NotificationSettingsPresenter(
++      hasSoundSettingsService() ? getSoundSettingsService() : null,
++    );
+   @State private notificationsEnabled: boolean = true;
+   @State private callNotificationsEnabled: boolean = true;
+   @State private mentionsEnabled: boolean = true;
+ 
++  @State private messageDialogOpen: boolean = false;
++  @State private messageError: string = '';
++  @State private messagePickerToken: number = 0;
++  @State private messageSoundLabel: string = 'System default';
++  @State private messagePickerInFlight: boolean = false;
++  @State private messageHasRetryable: boolean = false;
++  @State private messagePickerLaunchToken: number = 0;
++
++  @State private callDialogOpen: boolean = false;
++  @State private callError: string = '';
++  @State private callPickerToken: number = 0;
++  @State private callRingtoneLabel: string = 'System default';
++  @State private callPickerInFlight: boolean = false;
++  @State private callHasRetryable: boolean = false;
++  @State private callPickerLaunchToken: number = 0;
++
++  @State private messagePresets: PresetEntry[] = [];
++  @State private callPresets: PresetEntry[] = [];
++
++  aboutToAppear(): void {
++    this.refreshFromPresenter();
++  }
++
+   build() {
+     Column() {
+       Column({ space: 4 }) {
+@@ -39,6 +81,67 @@ struct Index {
+       }
+       .padding({ left: 16, right: 16, top: 20 })
+       .width('100%')
++
++      this.SoundSection(
++        'Message sound',
++        this.messageSoundLabel,
++        this.messageError,
++        this.messageHasRetryable,
++        this.messagePickerInFlight,
++        () => this.openMessageDialog(),
++        () => this.dismissMessageError(),
++        () => this.retryMessage(),
++        'message_sound_row',
++        'message_sound_value',
++        'message_sound_error',
++        'message_sound_retry',
++      )
++
++      this.SoundSection(
++        'Call ringtone',
++        this.callRingtoneLabel,
++        this.callError,
++        this.callHasRetryable,
++        this.callPickerInFlight,
++        () => this.openCallDialog(),
++        () => this.dismissCallError(),
++        () => this.retryCall(),
++        'call_ringtone_row',
++        'call_ringtone_value',
++        'call_ringtone_error',
++        'call_ringtone_retry',
++      )
++
++      if (this.messageDialogOpen) {
++        this.SoundDialog(
++          'Message sound',
++          this.messagePresets,
++          this.messageSoundLabel,
++          this.messagePickerInFlight,
++          (presetId: string) => this.selectMessagePreset(presetId),
++          () => this.closeMessageDialog(),
++          () => this.launchMessagePicker(),
++          'message_sound_dialog',
++          'message_sound_dialog_close',
++          'message_sound_picker',
++        )
++      }
++
++      if (this.callDialogOpen) {
++        this.SoundDialog(
++          'Call ringtone',
++          this.callPresets,
++          this.callRingtoneLabel,
++          this.callPickerInFlight,
++          (presetId: string) => this.selectCallPreset(presetId),
++          () => this.closeCallDialog(),
++          () => this.launchCallPicker(),
++          'call_ringtone_dialog',
++          'call_ringtone_dialog_close',
++          'call_ringtone_picker',
++        )
++      }
++
+       Blank()
+     }
+     .height('100%')
+@@ -60,4 +163,227 @@ struct Index {
+     .width('100%')
+     .backgroundColor('#FFFFFF')
+   }
++
++  @Builder
++  SoundSection(
++    title: string,
++    label: string,
++    error: string,
++    hasRetryable: boolean,
++    pickerInFlight: boolean,
++    onTap: () => void,
++    onDismissError: () => void,
++    onRetry: () => void,
++    rowId: string,
++    valueId: string,
++    errorId: string,
++    retryId: string,
++  ) {
++    Column() {
++      Row() {
++        Text(title)
++          .fontSize(16)
++          .layoutWeight(1)
++        Text(label)
++          .fontSize(14)
++          .fontColor('#64748B')
++          .id(valueId)
++        Text('Change')
++          .fontSize(14)
++          .fontColor('#0B7CFF')
++          .margin({ left: 12 })
++          .onClick(onTap)
++      }
++      .padding(16)
++      .width('100%')
++      .id(rowId)
++      .backgroundColor('#FFFFFF')
++
++      if (error.length > 0) {
++        Row() {
++          Text(error)
++            .fontSize(13)
++            .fontColor('#B91C1C')
++            .layoutWeight(1)
++            .id(errorId)
++          if (hasRetryable) {
++            Text('Retry')
++              .fontSize(13)
++              .fontColor('#0B7CFF')
++              .onClick(onRetry)
++              .id(retryId)
++          }
++          Text('Dismiss')
++            .fontSize(13)
++            .fontColor('#64748B')
++            .margin({ left: 12 })
++            .onClick(onDismissError)
++        }
++        .padding({ left: 16, right: 16, bottom: 12 })
++        .width('100%')
++        .backgroundColor('#FFFFFF')
++      } else if (pickerInFlight) {
++        Row() {
++          Text('Picker is open\u2026')
++            .fontSize(13)
++            .fontColor('#64748B')
++        }
++        .padding({ left: 16, right: 16, bottom: 12 })
++        .width('100%')
++        .backgroundColor('#FFFFFF')
++      }
++    }
++    .padding({ left: 16, right: 16, top: 12 })
++    .width('100%')
++  }
++
++  @Builder
++  SoundDialog(
++    title: string,
++    presets: PresetEntry[],
++    currentLabel: string,
++    pickerInFlight: boolean,
++    onPreset: (presetId: string) => void,
++    onClose: () => void,
++    onPick: () => void,
++    dialogId: string,
++    closeId: string,
++    pickId: string,
++  ) {
++    Column() {
++      Row() {
++        Text(title)
++          .fontSize(18)
++          .fontWeight(FontWeight.Bold)
++          .layoutWeight(1)
++        Text('Close')
++          .fontSize(14)
++          .fontColor('#64748B')
++          .onClick(onClose)
++          .id(closeId)
++      }
++      .padding(16)
++      .width('100%')
++
++      Text('Current: ' + currentLabel)
++        .fontSize(13)
++        .fontColor('#64748B')
++        .padding({ left: 16, right: 16, bottom: 8 })
++        .width('100%')
++
++      ForEach(presets, (preset: PresetEntry) => {
++        Row() {
++          Text(preset.label)
++            .fontSize(16)
++            .layoutWeight(1)
++          Text('Select')
++            .fontSize(14)
++            .fontColor('#0B7CFF')
++            .onClick(() => onPreset(preset.id))
++        }
++        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
++        .width('100%')
++        .backgroundColor('#FFFFFF')
++      }, (preset: PresetEntry): string => preset.id)
++
++      Row() {
++        Text('Choose from device')
++          .fontSize(16)
++          .layoutWeight(1)
++        Text(pickerInFlight ? 'Opening\u2026' : 'Pick')
++          .fontSize(14)
++          .fontColor('#0B7CFF')
++          .onClick(onPick)
++          .id(pickId)
++      }
++      .padding({ left: 16, right: 16, top: 12, bottom: 16 })
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++    }
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++    .id(dialogId)
++  }
++
++  private refreshFromPresenter(): void {
++    this.presenter.refreshSoundState();
++    this.messageDialogOpen = this.presenter.messageDialogOpen;
++    this.messageError = this.presenter.messageError;
++    this.messagePickerToken = this.presenter.messagePickerToken;
++    this.messageSoundLabel = this.presenter.messageSoundLabel;
++    this.messagePickerInFlight = this.presenter.messagePickerInFlight;
++    this.messageHasRetryable = this.presenter.messageHasRetryableError;
++    this.callDialogOpen = this.presenter.callDialogOpen;
++    this.callError = this.presenter.callError;
++    this.callPickerToken = this.presenter.callPickerToken;
++    this.callRingtoneLabel = this.presenter.callRingtoneLabel;
++    this.callPickerInFlight = this.presenter.callPickerInFlight;
++    this.callHasRetryable = this.presenter.callHasRetryableError;
++    this.messagePresets = presetsToPresetEntries(this.presenter.listMessagePresets());
++    this.callPresets = presetsToPresetEntries(this.presenter.listCallPresets());
++  }
++
++  private openMessageDialog(): void {
++    this.messagePickerLaunchToken = this.messagePickerLaunchToken + 1;
++    this.presenter.openMessageSoundDialog();
++    this.refreshFromPresenter();
++  }
++
++  private closeMessageDialog(): void {
++    this.presenter.closeMessageSoundDialog();
++    this.refreshFromPresenter();
++  }
++
++  private async selectMessagePreset(presetId: string): Promise<void> {
++    await this.presenter.selectMessagePreset(presetId);
++    this.refreshFromPresenter();
++  }
++
++  private launchMessagePicker(): void {
++    this.messagePickerLaunchToken = this.messagePickerLaunchToken + 1;
++    this.presenter.launchMessageSoundPicker();
++    this.refreshFromPresenter();
++  }
++
++  private dismissMessageError(): void {
++    this.presenter.dismissMessageError();
++    this.refreshFromPresenter();
++  }
++
++  private async retryMessage(): Promise<void> {
++    await this.presenter.retryMessageSound();
++    this.refreshFromPresenter();
++  }
++
++  private openCallDialog(): void {
++    this.callPickerLaunchToken = this.callPickerLaunchToken + 1;
++    this.presenter.openCallRingtoneDialog();
++    this.refreshFromPresenter();
++  }
++
++  private closeCallDialog(): void {
++    this.presenter.closeCallRingtoneDialog();
++    this.refreshFromPresenter();
++  }
++
++  private async selectCallPreset(presetId: string): Promise<void> {
++    await this.presenter.selectCallPreset(presetId);
++    this.refreshFromPresenter();
++  }
++
++  private launchCallPicker(): void {
++    this.callPickerLaunchToken = this.callPickerLaunchToken + 1;
++    this.presenter.launchCallRingtonePicker();
++    this.refreshFromPresenter();
++  }
++
++  private dismissCallError(): void {
++    this.presenter.dismissCallError();
++    this.refreshFromPresenter();
++  }
++
++  private async retryCall(): Promise<void> {
++    await this.presenter.retryCallRingtone();
++    this.refreshFromPresenter();
++  }
+ }

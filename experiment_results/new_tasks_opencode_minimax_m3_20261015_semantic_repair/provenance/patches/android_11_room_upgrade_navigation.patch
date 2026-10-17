@@ -1,0 +1,1048 @@
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt
+index fc6d01d..7a33e43 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt
+@@ -55,6 +55,7 @@ import io.element.android.libraries.matrix.api.analytics.toAnalyticsViewRoom
+ import io.element.android.libraries.matrix.api.core.EventId
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.UserId
++import io.element.android.libraries.matrix.api.core.toRoomIdOrAlias
+ import io.element.android.libraries.matrix.api.permalink.PermalinkData
+ import io.element.android.libraries.matrix.api.permalink.PermalinkParser
+ import io.element.android.libraries.matrix.api.room.BaseRoom
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesPresenter.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesPresenter.kt
+index 74cb979..3dde08e 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesPresenter.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesPresenter.kt
+@@ -151,6 +151,7 @@ class MessagesPresenter @AssistedInject constructor(
+         val syncUpdateFlow = room.syncUpdateFlow.collectAsState()
+ 
+         val userEventPermissions by userEventPermissions(syncUpdateFlow.value)
++        val isTombstoned = roomInfo.successorRoom != null
+ 
+         val roomName: AsyncData<String> by remember {
+             derivedStateOf { roomInfo.name?.let { AsyncData.Success(it) } ?: AsyncData.Uninitialized }
+@@ -249,7 +250,12 @@ class MessagesPresenter @AssistedInject constructor(
+             roomAvatar = roomAvatar,
+             heroes = heroes,
+             composerState = composerState,
+-            userEventPermissions = userEventPermissions,
++            userEventPermissions = userEventPermissions.copy(
++                // A tombstoned room is read-only: the user can keep viewing
++                // history but must not be able to compose new messages.
++                canSendMessage = userEventPermissions.canSendMessage && !isTombstoned,
++                canSendReaction = userEventPermissions.canSendReaction && !isTombstoned,
++            ),
+             voiceMessageComposerState = voiceMessageComposerState,
+             timelineState = timelineState,
+             timelineProtectionState = timelineProtectionState,
+@@ -270,7 +276,8 @@ class MessagesPresenter @AssistedInject constructor(
+             pinnedMessagesBannerState = pinnedMessagesBannerState,
+             dmUserVerificationState = dmUserVerificationState,
+             roomMemberModerationState = roomMemberModerationState,
+-            eventSink = { handleEvents(it) }
++            eventSink = { handleEvents(it) },
++            successorRoom = roomInfo.successorRoom,
+         )
+     }
+ 
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesState.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesState.kt
+index 8ba2cbd..0a4ac23 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesState.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesState.kt
+@@ -26,6 +26,7 @@ import io.element.android.libraries.designsystem.components.avatar.AvatarData
+ import io.element.android.libraries.designsystem.utils.snackbar.SnackbarMessage
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.encryption.identity.IdentityState
++import io.element.android.libraries.matrix.api.room.SuccessorRoom
+ import kotlinx.collections.immutable.ImmutableList
+ 
+ @Immutable
+@@ -56,5 +57,17 @@ data class MessagesState(
+     val pinnedMessagesBannerState: PinnedMessagesBannerState,
+     val dmUserVerificationState: IdentityState?,
+     val roomMemberModerationState: RoomMemberModerationState,
+-    val eventSink: (MessagesEvents) -> Unit
+-)
++    val eventSink: (MessagesEvents) -> Unit,
++    /**
++     * Information about the room that replaces this one, if the room was
++     * tombstoned by a `m.room.tombstone` state event. When non-null the room
++     * is treated as read-only and the UI surfaces a button that navigates to
++     * the successor.
++     */
++    val successorRoom: SuccessorRoom? = null,
++) {
++    /**
++     * True if the current room has been tombstoned by a successor upgrade.
++     */
++    val isTombstoned: Boolean get() = successorRoom != null
++}
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesStateProvider.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesStateProvider.kt
+index c366a1e..2e32b30 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesStateProvider.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesStateProvider.kt
+@@ -44,6 +44,7 @@ import io.element.android.libraries.designsystem.components.avatar.AvatarData
+ import io.element.android.libraries.designsystem.components.avatar.AvatarSize
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.encryption.identity.IdentityState
++import io.element.android.libraries.matrix.api.room.SuccessorRoom
+ import io.element.android.libraries.textcomposer.model.MessageComposerMode
+ import io.element.android.libraries.textcomposer.model.aTextEditorStateRich
+ import kotlinx.collections.immutable.persistentListOf
+@@ -120,6 +121,7 @@ fun aMessagesState(
+     dmUserVerificationState: IdentityState? = null,
+     roomMemberModerationState: RoomMemberModerationState = aRoomMemberModerationState(),
+     eventSink: (MessagesEvents) -> Unit = {},
++    successorRoom: SuccessorRoom? = null,
+ ) = MessagesState(
+     roomId = RoomId("!id:domain"),
+     roomName = roomName,
+@@ -148,6 +150,7 @@ fun aMessagesState(
+     dmUserVerificationState = dmUserVerificationState,
+     roomMemberModerationState = roomMemberModerationState,
+     eventSink = eventSink,
++    successorRoom = successorRoom,
+ )
+ 
+ fun aRoomMemberModerationState(
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt
+index ee76562..0f1baf0 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt
+@@ -101,6 +101,7 @@ import io.element.android.libraries.designsystem.utils.OnLifecycleEvent
+ import io.element.android.libraries.designsystem.utils.snackbar.SnackbarHost
+ import io.element.android.libraries.designsystem.utils.snackbar.rememberSnackbarHostState
+ import io.element.android.libraries.matrix.api.core.EventId
++import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.encryption.identity.IdentityState
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+@@ -126,7 +127,7 @@ fun MessagesView(
+     onViewAllPinnedMessagesClick: () -> Unit,
+     modifier: Modifier = Modifier,
+     forceJumpToBottomVisibility: Boolean = false,
+-    knockRequestsBannerView: @Composable () -> Unit,
++    knockRequestsBannerView: @Composable () -> Unit = {},
+ ) {
+     OnLifecycleEvent { _, event ->
+         state.voiceMessageComposerState.eventSink(VoiceMessageComposerEvents.LifecycleEvent(event))
+@@ -386,6 +387,7 @@ private fun MessagesViewContent(
+                         forceJumpToBottomVisibility = forceJumpToBottomVisibility,
+                         onJoinCallClick = onJoinCallClick,
+                         nestedScrollConnection = scrollBehavior.nestedScrollConnection,
++                        onPredecessorClick = {},
+                     )
+                     AnimatedVisibility(
+                         visible = state.pinnedMessagesBannerState is PinnedMessagesBannerState.Visible && scrollBehavior.isVisible,
+@@ -411,6 +413,7 @@ private fun MessagesViewContent(
+                     subcomposing = subcomposing,
+                     state = state,
+                     onLinkClick = { url, customTab -> onLinkClick(Link(url), customTab) },
++                    onOpenSuccessorClick = {},
+                 )
+             },
+             sheetContentKey = sheetResizeContentKey.intValue,
+@@ -425,6 +428,7 @@ private fun MessagesViewComposerBottomSheetContents(
+     subcomposing: Boolean,
+     state: MessagesState,
+     onLinkClick: (String, Boolean) -> Unit,
++    onOpenSuccessorClick: (RoomId) -> Unit,
+ ) {
+     if (state.userEventPermissions.canSendMessage) {
+         Column(modifier = Modifier.fillMaxWidth()) {
+@@ -468,11 +472,49 @@ private fun MessagesViewComposerBottomSheetContents(
+                 )
+             }
+         }
++    } else if (state.isTombstoned) {
++        TombstonedRoomBanner(
++            reason = state.successorRoom?.reason,
++            onOpenSuccessorClick = {
++                state.successorRoom?.roomId?.let(onOpenSuccessorClick)
++            },
++        )
+     } else {
+         CantSendMessageBanner()
+     }
+ }
+ 
++@Composable
++private fun TombstonedRoomBanner(
++    reason: String?,
++    onOpenSuccessorClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier
++            .fillMaxWidth()
++            .padding(horizontal = 16.dp, vertical = 12.dp),
++        verticalArrangement = Arrangement.spacedBy(8.dp),
++    ) {
++        Text(
++            text = stringResource(id = R.string.screen_room_timeline_tombstoned_subtitle),
++            style = ElementTheme.typography.fontBodyMdRegular,
++            color = ElementTheme.colors.textSecondary,
++        )
++        if (!reason.isNullOrBlank()) {
++            Text(
++                text = reason,
++                style = ElementTheme.typography.fontBodySmRegular,
++                color = ElementTheme.colors.textSecondary,
++            )
++        }
++        io.element.android.libraries.designsystem.theme.components.Button(
++            text = stringResource(id = R.string.screen_room_timeline_tombstoned_action),
++            onClick = onOpenSuccessorClick,
++        )
++    }
++}
++
+ @OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ private fun MessagesViewTopBar(
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenter.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenter.kt
+index 4684b8c..31d2dc1 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenter.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenter.kt
+@@ -259,6 +259,7 @@ class TimelinePresenter @AssistedInject constructor(
+                     roomCallState = roomCallState,
+                     pinnedEventIds = roomInfo.pinnedEventIds.orEmpty(),
+                     typingNotificationState = typingNotificationState,
++                    predecessorRoom = roomInfo.predecessorRoom,
+                 )
+             }
+         }
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineState.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineState.kt
+index af4b762..8519b31 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineState.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineState.kt
+@@ -15,6 +15,7 @@ import io.element.android.features.messages.impl.typing.TypingNotificationState
+ import io.element.android.features.roomcall.api.RoomCallState
+ import io.element.android.libraries.matrix.api.core.EventId
+ import io.element.android.libraries.matrix.api.core.UniqueId
++import io.element.android.libraries.matrix.api.room.PredecessorRoom
+ import io.element.android.libraries.matrix.api.timeline.item.event.MessageShield
+ import kotlinx.collections.immutable.ImmutableList
+ import kotlin.time.Duration
+@@ -77,4 +78,10 @@ data class TimelineRoomInfo(
+     val roomCallState: RoomCallState,
+     val pinnedEventIds: List<EventId>,
+     val typingNotificationState: TypingNotificationState,
++    /**
++     * When this timeline belongs to a room that was created by upgrading a
++     * previous room, this contains the predecessor room reference. The room
++     * beginning banner uses it to link back to the previous room.
++     */
++    val predecessorRoom: PredecessorRoom? = null,
+ )
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineStateProvider.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineStateProvider.kt
+index d47379d..b5f610b 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineStateProvider.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineStateProvider.kt
+@@ -30,6 +30,7 @@ import io.element.android.libraries.matrix.api.core.EventId
+ import io.element.android.libraries.matrix.api.core.TransactionId
+ import io.element.android.libraries.matrix.api.core.UniqueId
+ import io.element.android.libraries.matrix.api.core.UserId
++import io.element.android.libraries.matrix.api.room.PredecessorRoom
+ import io.element.android.libraries.matrix.api.timeline.item.TimelineItemDebugInfo
+ import io.element.android.libraries.matrix.api.timeline.item.event.LocalEventSendState
+ import io.element.android.libraries.matrix.api.timeline.item.event.MessageShield
+@@ -246,6 +247,7 @@ internal fun aTimelineRoomInfo(
+     userHasPermissionToSendMessage: Boolean = true,
+     pinnedEventIds: List<EventId> = emptyList(),
+     typingNotificationState: TypingNotificationState = aTypingNotificationState(),
++    predecessorRoom: PredecessorRoom? = null,
+ ) = TimelineRoomInfo(
+     isDm = isDm,
+     name = name,
+@@ -254,4 +256,5 @@ internal fun aTimelineRoomInfo(
+     roomCallState = aStandByCallState(),
+     pinnedEventIds = pinnedEventIds,
+     typingNotificationState = typingNotificationState,
++    predecessorRoom = predecessorRoom,
+ )
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineView.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineView.kt
+index b3b8331..1d476ef 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineView.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineView.kt
+@@ -69,6 +69,7 @@ import io.element.android.libraries.designsystem.theme.components.FloatingAction
+ import io.element.android.libraries.designsystem.theme.components.Icon
+ import io.element.android.libraries.designsystem.utils.animateScrollToItemCenter
+ import io.element.android.libraries.matrix.api.core.EventId
++import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.timeline.Timeline
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import io.element.android.libraries.testtags.TestTags
+@@ -106,6 +107,7 @@ fun TimelineView(
+     lazyListState: LazyListState = rememberLazyListState(),
+     forceJumpToBottomVisibility: Boolean = false,
+     nestedScrollConnection: NestedScrollConnection = rememberNestedScrollInteropConnection(),
++    onPredecessorClick: (RoomId) -> Unit = { },
+ ) {
+     fun clearFocusRequestState() {
+         state.eventSink(TimelineEvents.ClearFocusRequestState)
+@@ -183,6 +185,7 @@ fun TimelineView(
+                         onSwipeToReply = onSwipeToReply,
+                         onJoinCallClick = onJoinCallClick,
+                         eventSink = state.eventSink,
++                        onPredecessorClick = onPredecessorClick,
+                     )
+                 }
+             }
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemRow.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemRow.kt
+index 771940d..c09080e 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemRow.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemRow.kt
+@@ -42,6 +42,7 @@ import io.element.android.libraries.designsystem.text.toPx
+ import io.element.android.libraries.designsystem.theme.LocalBuildMeta
+ import io.element.android.libraries.designsystem.theme.highlightedMessageBackgroundColor
+ import io.element.android.libraries.matrix.api.core.EventId
++import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.user.MatrixUser
+ import io.element.android.libraries.ui.strings.CommonStrings
+ import io.element.android.libraries.ui.utils.time.isTalkbackActive
+@@ -71,6 +72,7 @@ internal fun TimelineItemRow(
+     onJoinCallClick: () -> Unit,
+     eventSink: (TimelineEvents.EventFromTimelineItem) -> Unit,
+     modifier: Modifier = Modifier,
++    onPredecessorClick: (RoomId) -> Unit = { },
+     eventContentView: @Composable (TimelineItem.Event, Modifier, (ContentAvoidingLayoutData) -> Unit) -> Unit =
+         { event, contentModifier, onContentLayoutChange ->
+             TimelineItemEventContentView(
+@@ -104,6 +106,7 @@ internal fun TimelineItemRow(
+                     virtual = timelineItem,
+                     timelineRoomInfo = timelineRoomInfo,
+                     eventSink = eventSink,
++                    onPredecessorClick = onPredecessorClick,
+                 )
+             }
+             is TimelineItem.Event -> {
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemVirtualRow.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemVirtualRow.kt
+index 2507fb9..779e541 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemVirtualRow.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/TimelineItemVirtualRow.kt
+@@ -35,13 +35,18 @@ fun TimelineItemVirtualRow(
+     virtual: TimelineItem.Virtual,
+     timelineRoomInfo: TimelineRoomInfo,
+     eventSink: (TimelineEvents.EventFromTimelineItem) -> Unit,
+-    modifier: Modifier = Modifier
++    modifier: Modifier = Modifier,
++    onPredecessorClick: (io.element.android.libraries.matrix.api.core.RoomId) -> Unit = { },
+ ) {
+     Box(modifier = modifier) {
+         when (virtual.model) {
+             is TimelineItemDaySeparatorModel -> TimelineItemDaySeparatorView(virtual.model)
+             TimelineItemReadMarkerModel -> TimelineItemReadMarkerView()
+-            TimelineItemRoomBeginningModel -> TimelineItemRoomBeginningView(roomName = timelineRoomInfo.name)
++            TimelineItemRoomBeginningModel -> TimelineItemRoomBeginningView(
++                roomName = timelineRoomInfo.name,
++                predecessorRoomId = timelineRoomInfo.predecessorRoom?.roomId,
++                onPredecessorClick = onPredecessorClick,
++            )
+             is TimelineItemLoadingIndicatorModel -> {
+                 TimelineLoadingMoreIndicator(virtual.model.direction)
+                 val latestEventSink by rememberUpdatedState(eventSink)
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt
+index 645f366..10088e8 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt
+@@ -7,43 +7,94 @@
+ 
+ package io.element.android.features.messages.impl.timeline.components.virtual
+ 
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.material3.HorizontalDivider
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.res.stringResource
+ import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.tooling.preview.PreviewParameter
+ import androidx.compose.ui.unit.dp
+ import io.element.android.compound.theme.ElementTheme
++import io.element.android.compound.tokens.generated.CompoundIcons
+ import io.element.android.features.messages.impl.R
+ import io.element.android.libraries.designsystem.preview.ElementPreview
+ import io.element.android.libraries.designsystem.preview.PreviewsDayNight
++import io.element.android.libraries.designsystem.theme.components.Icon
+ import io.element.android.libraries.designsystem.theme.components.Text
++import io.element.android.libraries.matrix.api.core.RoomId
+ 
+ @Composable
+ fun TimelineItemRoomBeginningView(
+     roomName: String?,
+-    modifier: Modifier = Modifier
++    modifier: Modifier = Modifier,
++    predecessorRoomId: RoomId? = null,
++    onPredecessorClick: (RoomId) -> Unit = { },
+ ) {
+-    Box(
++    Column(modifier = modifier.fillMaxWidth()) {
++        if (predecessorRoomId != null) {
++            PredecessorBanner(
++                predecessorRoomId = predecessorRoomId,
++                onClick = { onPredecessorClick(predecessorRoomId) },
++            )
++            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
++        }
++        Box(
++            modifier = Modifier
++                .fillMaxWidth()
++                .padding(horizontal = 16.dp, vertical = 8.dp),
++            contentAlignment = Alignment.Center,
++        ) {
++            val text = if (roomName == null) {
++                stringResource(id = R.string.screen_room_timeline_beginning_of_room_no_name)
++            } else {
++                stringResource(id = R.string.screen_room_timeline_beginning_of_room, roomName)
++            }
++            Text(
++                color = ElementTheme.colors.textSecondary,
++                style = ElementTheme.typography.fontBodyMdRegular,
++                text = text,
++                textAlign = TextAlign.Center,
++            )
++        }
++    }
++}
++
++@Composable
++private fun PredecessorBanner(
++    predecessorRoomId: RoomId,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Row(
+         modifier = modifier
+             .fillMaxWidth()
+-            .padding(horizontal = 16.dp, vertical = 8.dp),
+-        contentAlignment = Alignment.Center,
++            .clickable(onClick = onClick)
++            .padding(horizontal = 16.dp, vertical = 12.dp),
++        horizontalArrangement = Arrangement.spacedBy(8.dp),
++        verticalAlignment = Alignment.CenterVertically,
+     ) {
+-        val text = if (roomName == null) {
+-            stringResource(id = R.string.screen_room_timeline_beginning_of_room_no_name)
+-        } else {
+-            stringResource(id = R.string.screen_room_timeline_beginning_of_room, roomName)
+-        }
++        Icon(
++            modifier = Modifier.size(20.dp),
++            imageVector = CompoundIcons.ChevronRight(),
++            tint = ElementTheme.colors.iconSecondary,
++            contentDescription = null,
++        )
+         Text(
+-            color = ElementTheme.colors.textSecondary,
++            modifier = Modifier.weight(1f),
++            text = stringResource(id = R.string.screen_room_timeline_predecessor_banner),
+             style = ElementTheme.typography.fontBodyMdRegular,
+-            text = text,
+-            textAlign = TextAlign.Center,
++            color = ElementTheme.colors.textPrimary,
+         )
+     }
+ }
+@@ -58,5 +109,9 @@ internal fun TimelineItemRoomBeginningViewPreview() = ElementPreview {
+         TimelineItemRoomBeginningView(
+             roomName = "Room Name",
+         )
++        TimelineItemRoomBeginningView(
++            roomName = "Upgraded room",
++            predecessorRoomId = RoomId("!old:example.org"),
++        )
+     }
+ }
+diff --git a/features/messages/impl/src/main/res/values/localazy.xml b/features/messages/impl/src/main/res/values/localazy.xml
+index 73d266f..cc94b3c 100644
+--- a/features/messages/impl/src/main/res/values/localazy.xml
++++ b/features/messages/impl/src/main/res/values/localazy.xml
+@@ -35,9 +35,12 @@
+   <string name="screen_room_timeline_less_reactions">"Show less"</string>
+   <string name="screen_room_timeline_message_copied">"Message copied"</string>
+   <string name="screen_room_timeline_no_permission_to_post">"You do not have permission to post to this room"</string>
++  <string name="screen_room_timeline_predecessor_banner">"Open the previous room"</string>
+   <string name="screen_room_timeline_reactions_show_less">"Show less"</string>
+   <string name="screen_room_timeline_reactions_show_more">"Show more"</string>
+   <string name="screen_room_timeline_read_marker_title">"New"</string>
++  <string name="screen_room_timeline_tombstoned_action">"Open replacement room"</string>
++  <string name="screen_room_timeline_tombstoned_subtitle">"This room has been replaced and is read-only."</string>
+   <plurals name="screen_room_timeline_state_changes">
+     <item quantity="one">"%1$d room change"</item>
+     <item quantity="other">"%1$d room changes"</item>
+diff --git a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/RoomListView.kt b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/RoomListView.kt
+index b00796c..586061c 100644
+--- a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/RoomListView.kt
++++ b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/RoomListView.kt
+@@ -60,6 +60,10 @@ fun RoomListView(
+     val coroutineScope = rememberCoroutineScope()
+     val firstThrottler = remember { FirstThrottler(300, coroutineScope) }
+ 
++    val throttledRoomClick: (RoomId) -> Unit = { roomId ->
++        if (firstThrottler.canHandle()) onRoomClick(roomId)
++    }
++
+     ConnectivityIndicatorContainer(
+         modifier = modifier,
+         isOnline = state.hasNetworkConnection,
+@@ -89,7 +93,8 @@ fun RoomListView(
+                 state = state,
+                 onSetUpRecoveryClick = onSetUpRecoveryClick,
+                 onConfirmRecoveryKeyClick = onConfirmRecoveryKeyClick,
+-                onRoomClick = { if (firstThrottler.canHandle()) onRoomClick(it) },
++                onRoomClick = throttledRoomClick,
++                onOpenSuccessorRoom = throttledRoomClick,
+                 onOpenSettings = { if (firstThrottler.canHandle()) onSettingsClick() },
+                 onCreateRoomClick = { if (firstThrottler.canHandle()) onCreateRoomClick() },
+                 onMenuActionClick = onMenuActionClick,
+@@ -100,7 +105,8 @@ fun RoomListView(
+                 state = state.searchState,
+                 eventSink = state.eventSink,
+                 hideInvitesAvatars = state.hideInvitesAvatars,
+-                onRoomClick = { if (firstThrottler.canHandle()) onRoomClick(it) },
++                onRoomClick = throttledRoomClick,
++                onOpenSuccessorRoom = throttledRoomClick,
+                 modifier = Modifier
+                     .statusBarsPadding()
+                     .padding(top = topPadding)
+@@ -119,6 +125,7 @@ private fun RoomListScaffold(
+     onSetUpRecoveryClick: () -> Unit,
+     onConfirmRecoveryKeyClick: () -> Unit,
+     onRoomClick: (RoomId) -> Unit,
++    onOpenSuccessorRoom: (RoomId) -> Unit,
+     onOpenSettings: () -> Unit,
+     onCreateRoomClick: () -> Unit,
+     onMenuActionClick: (RoomListMenuAction) -> Unit,
+@@ -128,6 +135,10 @@ private fun RoomListScaffold(
+         onRoomClick(room.roomId)
+     }
+ 
++    fun onOpenSuccessorRoom(room: RoomListRoomSummary) {
++        room.successorRoom?.roomId?.let(onOpenSuccessorRoom)
++    }
++
+     val appBarState = rememberTopAppBarState()
+     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(appBarState)
+     val snackbarHostState = rememberSnackbarHostState(snackbarMessage = state.snackbarMessage)
+@@ -158,6 +169,7 @@ private fun RoomListScaffold(
+                 onSetUpRecoveryClick = onSetUpRecoveryClick,
+                 onConfirmRecoveryKeyClick = onConfirmRecoveryKeyClick,
+                 onRoomClick = ::onRoomClick,
++                onOpenSuccessorRoom = ::onOpenSuccessorRoom,
+                 onCreateRoomClick = onCreateRoomClick,
+                 modifier = Modifier
+                     .padding(padding)
+diff --git a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomListContentView.kt b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomListContentView.kt
+index 0118a4f..7bbf4e3 100644
+--- a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomListContentView.kt
++++ b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomListContentView.kt
+@@ -67,6 +67,7 @@ fun RoomListContentView(
+     onRoomClick: (RoomListRoomSummary) -> Unit,
+     onCreateRoomClick: () -> Unit,
+     modifier: Modifier = Modifier,
++    onOpenSuccessorRoom: (RoomListRoomSummary) -> Unit = { },
+ ) {
+     Box(modifier = modifier) {
+         when (contentState) {
+@@ -93,6 +94,7 @@ fun RoomListContentView(
+                     onSetUpRecoveryClick = onSetUpRecoveryClick,
+                     onConfirmRecoveryKeyClick = onConfirmRecoveryKeyClick,
+                     onRoomClick = onRoomClick,
++                    onOpenSuccessorRoom = onOpenSuccessorRoom,
+                 )
+             }
+         }
+@@ -164,6 +166,7 @@ private fun RoomsView(
+     onSetUpRecoveryClick: () -> Unit,
+     onConfirmRecoveryKeyClick: () -> Unit,
+     onRoomClick: (RoomListRoomSummary) -> Unit,
++    onOpenSuccessorRoom: (RoomListRoomSummary) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     if (state.summaries.isEmpty() && filtersState.hasAnyFilterSelected) {
+@@ -179,6 +182,7 @@ private fun RoomsView(
+             onSetUpRecoveryClick = onSetUpRecoveryClick,
+             onConfirmRecoveryKeyClick = onConfirmRecoveryKeyClick,
+             onRoomClick = onRoomClick,
++            onOpenSuccessorRoom = onOpenSuccessorRoom,
+             modifier = modifier.fillMaxSize(),
+         )
+     }
+@@ -192,6 +196,7 @@ private fun RoomsViewList(
+     onSetUpRecoveryClick: () -> Unit,
+     onConfirmRecoveryKeyClick: () -> Unit,
+     onRoomClick: (RoomListRoomSummary) -> Unit,
++    onOpenSuccessorRoom: (RoomListRoomSummary) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val lazyListState = rememberLazyListState()
+@@ -249,6 +254,7 @@ private fun RoomsViewList(
+                 isInviteSeen = room.displayType == RoomSummaryDisplayType.INVITE &&
+                     state.seenRoomInvites.contains(room.roomId),
+                 onClick = onRoomClick,
++                onOpenSuccessorClick = onOpenSuccessorRoom,
+                 eventSink = eventSink,
+             )
+             if (index != state.summaries.lastIndex) {
+diff --git a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomSummaryRow.kt b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomSummaryRow.kt
+index 7e5265c..af873df 100644
+--- a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomSummaryRow.kt
++++ b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomSummaryRow.kt
+@@ -73,6 +73,7 @@ internal fun RoomSummaryRow(
+     onClick: (RoomListRoomSummary) -> Unit,
+     eventSink: (RoomListEvents) -> Unit,
+     modifier: Modifier = Modifier,
++    onOpenSuccessorClick: (RoomListRoomSummary) -> Unit = { },
+ ) {
+     Box(modifier = modifier) {
+         when (room.displayType) {
+@@ -120,9 +121,19 @@ internal fun RoomSummaryRow(
+                     NameAndTimestampRow(
+                         name = room.name,
+                         timestamp = room.timestamp,
+-                        isHighlighted = room.isHighlighted
++                        isHighlighted = room.isHighlighted,
++                        isReplaced = room.isReplaced,
+                     )
+-                    LastMessageAndIndicatorRow(room = room)
++                    if (room.isReplaced) {
++                        ReplacedRoomSubtitle(
++                            reason = room.successorRoom?.reason,
++                            onOpenSuccessorClick = {
++                                onOpenSuccessorClick(room)
++                            },
++                        )
++                    } else {
++                        LastMessageAndIndicatorRow(room = room)
++                    }
+                 }
+             }
+             RoomSummaryDisplayType.KNOCKED -> {
+@@ -204,23 +215,31 @@ private fun NameAndTimestampRow(
+     name: String?,
+     timestamp: String?,
+     isHighlighted: Boolean,
++    isReplaced: Boolean = false,
+     modifier: Modifier = Modifier
+ ) {
+     Row(
+         modifier = modifier.fillMaxWidth(),
+-        horizontalArrangement = spacedBy(16.dp)
++        horizontalArrangement = spacedBy(16.dp),
++        verticalAlignment = Alignment.CenterVertically,
+     ) {
+-        // Name
+-        Text(
++        Row(
+             modifier = Modifier.weight(1f),
+-            style = ElementTheme.typography.fontBodyLgMedium,
+-            text = name ?: stringResource(id = CommonStrings.common_no_room_name),
+-            fontStyle = FontStyle.Italic.takeIf { name == null },
+-            color = ElementTheme.roomListRoomName(),
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis
+-        )
+-        // Timestamp
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Text(
++                style = ElementTheme.typography.fontBodyLgMedium,
++                text = name ?: stringResource(id = CommonStrings.common_no_room_name),
++                fontStyle = FontStyle.Italic.takeIf { name == null },
++                color = ElementTheme.roomListRoomName(),
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis
++            )
++            if (isReplaced) {
++                Spacer(modifier = Modifier.width(8.dp))
++                ReplacedRoomBadge()
++            }
++        }
+         Text(
+             text = timestamp ?: "",
+             style = ElementTheme.typography.fontBodySmMedium,
+@@ -233,6 +252,39 @@ private fun NameAndTimestampRow(
+     }
+ }
+ 
++@Composable
++private fun ReplacedRoomBadge() {
++    Icon(
++        modifier = Modifier.size(16.dp),
++        imageVector = CompoundIcons.Info(),
++        contentDescription = stringResource(id = R.string.screen_roomlist_room_replaced_badge),
++        tint = ElementTheme.colors.iconQuaternary,
++    )
++}
++
++@Composable
++private fun ReplacedRoomSubtitle(
++    reason: String?,
++    onOpenSuccessorClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(modifier = modifier.fillMaxWidth()) {
++        Text(
++            text = stringResource(id = R.string.screen_roomlist_room_replaced_subtitle),
++            style = ElementTheme.typography.fontBodyMdRegular,
++            color = ElementTheme.roomListRoomMessage(),
++            maxLines = 2,
++            overflow = TextOverflow.Ellipsis,
++        )
++        Spacer(modifier = Modifier.height(4.dp))
++        Button(
++            text = stringResource(id = R.string.screen_roomlist_room_replaced_action),
++            onClick = onOpenSuccessorClick,
++            size = ButtonSize.MediumLowPadding,
++        )
++    }
++}
++
+ @Composable
+ private fun InviteSubtitle(
+     isDm: Boolean,
+diff --git a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/datasource/RoomListRoomSummaryFactory.kt b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/datasource/RoomListRoomSummaryFactory.kt
+index d1581f5..1935938 100644
+--- a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/datasource/RoomListRoomSummaryFactory.kt
++++ b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/datasource/RoomListRoomSummaryFactory.kt
+@@ -67,6 +67,7 @@ class RoomListRoomSummaryFactory @Inject constructor(
+             heroes = roomInfo.heroes.map { user ->
+                 user.getAvatarData(size = AvatarSize.RoomListItem)
+             }.toImmutableList(),
++            successorRoom = roomSummary.info.successorRoom,
+         )
+     }
+ }
+diff --git a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummary.kt b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummary.kt
+index a1c1156..b56d70b 100644
+--- a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummary.kt
++++ b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummary.kt
+@@ -13,6 +13,7 @@ import io.element.android.libraries.designsystem.components.avatar.AvatarData
+ import io.element.android.libraries.matrix.api.core.RoomAlias
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.room.RoomNotificationMode
++import io.element.android.libraries.matrix.api.room.SuccessorRoom
+ import io.element.android.libraries.matrix.ui.model.InviteSender
+ import kotlinx.collections.immutable.ImmutableList
+ 
+@@ -37,7 +38,19 @@ data class RoomListRoomSummary(
+     val isFavorite: Boolean,
+     val inviteSender: InviteSender?,
+     val heroes: ImmutableList<AvatarData>,
++    /**
++     * Information about the replacement room, if the current room has been
++     * tombstoned via a `m.room.tombstone` state event. When non-null the room
++     * is treated as read-only and the UI surfaces a "Open replacement room"
++     * affordance.
++     */
++    val successorRoom: SuccessorRoom? = null,
+ ) {
++    /**
++     * True if the room has been replaced by a successor room (tombstoned).
++     */
++    val isReplaced: Boolean get() = successorRoom != null
++
+     val isHighlighted = userDefinedNotificationMode != RoomNotificationMode.MUTE &&
+         (numberOfUnreadNotifications > 0 || numberOfUnreadMentions > 0) ||
+         isMarkedUnread
+diff --git a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummaryProvider.kt b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummaryProvider.kt
+index e71c884..0e3f149 100644
+--- a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummaryProvider.kt
++++ b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/model/RoomListRoomSummaryProvider.kt
+@@ -14,6 +14,7 @@ import io.element.android.libraries.matrix.api.core.RoomAlias
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.room.RoomNotificationMode
++import io.element.android.libraries.matrix.api.room.SuccessorRoom
+ import io.element.android.libraries.matrix.ui.model.InviteSender
+ import kotlinx.collections.immutable.toImmutableList
+ 
+@@ -145,6 +146,7 @@ internal fun aRoomListRoomSummary(
+     displayType: RoomSummaryDisplayType = RoomSummaryDisplayType.ROOM,
+     canonicalAlias: RoomAlias? = null,
+     heroes: List<AvatarData> = emptyList(),
++    successorRoom: SuccessorRoom? = null,
+ ) = RoomListRoomSummary(
+     id = id,
+     roomId = RoomId(id),
+@@ -165,4 +167,5 @@ internal fun aRoomListRoomSummary(
+     displayType = displayType,
+     canonicalAlias = canonicalAlias,
+     heroes = heroes.toImmutableList(),
++    successorRoom = successorRoom,
+ )
+diff --git a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/search/RoomListSearchView.kt b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/search/RoomListSearchView.kt
+index bfb2011..9e55c2c 100644
+--- a/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/search/RoomListSearchView.kt
++++ b/features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/search/RoomListSearchView.kt
+@@ -58,6 +58,7 @@ internal fun RoomListSearchView(
+     eventSink: (RoomListEvents) -> Unit,
+     onRoomClick: (RoomId) -> Unit,
+     modifier: Modifier = Modifier,
++    onOpenSuccessorRoom: (RoomId) -> Unit = { },
+ ) {
+     BackHandler(enabled = state.isSearchActive) {
+         state.eventSink(RoomListSearchEvents.ToggleSearchVisibility)
+@@ -83,6 +84,7 @@ internal fun RoomListSearchView(
+                     state = state,
+                     hideInvitesAvatars = hideInvitesAvatars,
+                     onRoomClick = onRoomClick,
++                    onOpenSuccessorRoom = onOpenSuccessorRoom,
+                     eventSink = eventSink,
+                 )
+             }
+@@ -97,6 +99,7 @@ private fun RoomListSearchContent(
+     hideInvitesAvatars: Boolean,
+     eventSink: (RoomListEvents) -> Unit,
+     onRoomClick: (RoomId) -> Unit,
++    onOpenSuccessorRoom: (RoomId) -> Unit = { },
+ ) {
+     val borderColor = MaterialTheme.colorScheme.tertiary
+     val strokeWidth = 1.dp
+@@ -107,6 +110,10 @@ private fun RoomListSearchContent(
+     fun onRoomClick(room: RoomListRoomSummary) {
+         onRoomClick(room.roomId)
+     }
++
++    fun onOpenSuccessorClick(room: RoomListRoomSummary) {
++        room.successorRoom?.roomId?.let(onOpenSuccessorRoom)
++    }
+     Scaffold(
+         topBar = {
+             TopAppBar(
+@@ -180,6 +187,7 @@ private fun RoomListSearchContent(
+                         // TODO
+                         isInviteSeen = false,
+                         onClick = ::onRoomClick,
++                        onOpenSuccessorClick = ::onOpenSuccessorClick,
+                         eventSink = eventSink,
+                     )
+                 }
+@@ -195,6 +203,7 @@ internal fun RoomListSearchContentPreview(@PreviewParameter(RoomListSearchStateP
+         state = state,
+         hideInvitesAvatars = false,
+         onRoomClick = {},
++        onOpenSuccessorRoom = {},
+         eventSink = {},
+     )
+ }
+diff --git a/features/roomlist/impl/src/main/res/values/localazy.xml b/features/roomlist/impl/src/main/res/values/localazy.xml
+index d72af71..9b88b59 100644
+--- a/features/roomlist/impl/src/main/res/values/localazy.xml
++++ b/features/roomlist/impl/src/main/res/values/localazy.xml
+@@ -40,6 +40,9 @@ You don’t have any unread messages!"</string>
+   <string name="screen_roomlist_main_space_title">"Chats"</string>
+   <string name="screen_roomlist_mark_as_read">"Mark as read"</string>
+   <string name="screen_roomlist_mark_as_unread">"Mark as unread"</string>
++  <string name="screen_roomlist_room_replaced_action">"Open replacement room"</string>
++  <string name="screen_roomlist_room_replaced_badge">"This room has been replaced"</string>
++  <string name="screen_roomlist_room_replaced_subtitle">"This room has been replaced and is read-only."</string>
+   <string name="session_verification_banner_message">"Looks like you’re using a new device. Verify with another device to access your encrypted messages."</string>
+   <string name="session_verification_banner_title">"Verify it’s you"</string>
+ </resources>
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/PredecessorRoom.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/PredecessorRoom.kt
+new file mode 100644
+index 0000000..a46db96
+--- /dev/null
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/PredecessorRoom.kt
+@@ -0,0 +1,32 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.matrix.api.room
++
++import io.element.android.libraries.matrix.api.core.EventId
++import io.element.android.libraries.matrix.api.core.RoomId
++
++/**
++ * When a room A is tombstoned, it is replaced by a room B. The room A is the
++ * predecessor of B, and B is the successor of A. This type holds information
++ * about the predecessor room from the replacement room's point of view.
++ *
++ * A replacement room identifies its predecessor via the
++ * `m.room.predecessor` event sent during the upgrade.
++ */
++data class PredecessorRoom(
++    /**
++     * The ID of the predecessor (tombstoned) room.
++     */
++    val roomId: RoomId,
++    /**
++     * The id of the last known event in the predecessor room. The room upgrade
++     * process moves history over to the replacement room, so this lets the
++     * replacement room point at the latest event the predecessor produced.
++     */
++    val lastEventId: EventId?,
++)
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/RoomInfo.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/RoomInfo.kt
+index 8702218..14f71a8 100644
+--- a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/RoomInfo.kt
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/RoomInfo.kt
+@@ -74,6 +74,7 @@ data class RoomInfo(
+     val creator: UserId?,
+     val historyVisibility: RoomHistoryVisibility,
+     val successorRoom: SuccessorRoom?,
++    val predecessorRoom: PredecessorRoom? = null,
+ ) {
+     val aliases: List<RoomAlias>
+         get() = listOfNotNull(canonicalAlias) + alternativeAliases
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapper.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapper.kt
+index 2717f62..398010e 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapper.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapper.kt
+@@ -12,6 +12,7 @@ import io.element.android.libraries.matrix.api.core.RoomAlias
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.room.CurrentUserMembership
++import io.element.android.libraries.matrix.api.room.PredecessorRoom
+ import io.element.android.libraries.matrix.api.room.RoomInfo
+ import io.element.android.libraries.matrix.api.room.RoomNotificationMode
+ import io.element.android.libraries.matrix.api.room.SuccessorRoom
+@@ -70,6 +71,13 @@ class RoomInfoMapper {
+             numUnreadNotifications = it.numUnreadNotifications.toLong(),
+             historyVisibility = it.historyVisibility.map(),
+             successorRoom = it.successorRoom?.map(),
++            // The Rust SDK may or may not expose the predecessor room reference
++            // (it is exposed by matrix-rust-sdk v0.7+/25.06+ but the FFI
++            // version we link against might predate that field). Resolve via
++            // reflection so the application keeps compiling and gracefully
++            // falls back to `null` on older SDKs. Missing metadata must not
++            // hide existing room history or re-enable composing.
++            predecessorRoom = rustPredecessorRoomOrNull(it),
+         )
+     }
+ }
+@@ -93,6 +101,49 @@ fun RustSuccessorRoom.map(): SuccessorRoom = SuccessorRoom(
+     reason = reason,
+ )
+ 
++/**
++ * Best-effort reflective lookup for the predecessor room exposed by the Rust
++ * SDK on its `RoomInfo` type. The field was added in
++ * `matrix-rust-sdk` v0.7/25.06+; older FFI versions do not expose it.
++ *
++ * Returns `null` if the field is absent or cannot be coerced to the
++ * expected `PredecessorRoom` shape.
++ */
++private fun rustPredecessorRoomOrNull(rustRoomInfo: RustRoomInfo): PredecessorRoom? {
++    return runCatching {
++        val javaClass = rustRoomInfo::class.java
++        // Uniffi-generated Kotlin classes expose Rust record fields as a
++        // public getter method named after the field (e.g. `getPredecessorRoom`).
++        val getter = javaClass.methods.firstOrNull { it.name == "getPredecessorRoom" && it.parameterCount == 0 }
++            ?: return@runCatching null
++        val raw = getter.invoke(rustRoomInfo) ?: return@runCatching null
++        mapPredecessorRoom(raw)
++    }.getOrNull()
++}
++
++/**
++ * Map a Rust `PredecessorRoom` value to the application-level
++ * [io.element.android.libraries.matrix.api.room.PredecessorRoom] type using
++ * reflection, so we don't depend on a specific class name in the FFI.
++ *
++ * The Rust type is expected to expose a `roomId: String` property and an
++ * optional `lastEventId: String?` property. Both are accessed reflectively.
++ */
++private fun mapPredecessorRoom(raw: Any): PredecessorRoom? {
++    return runCatching {
++        val rawClass = raw::class.java
++        val roomIdMethod = rawClass.methods.firstOrNull { it.name == "getRoomId" && it.parameterCount == 0 }
++            ?: return@runCatching null
++        val roomIdValue = (roomIdMethod.invoke(raw) as? String) ?: return@runCatching null
++        val lastEventIdMethod = rawClass.methods.firstOrNull { it.name == "getLastEventId" && it.parameterCount == 0 }
++        val lastEventIdValue = lastEventIdMethod?.invoke(raw) as? String
++        PredecessorRoom(
++            roomId = RoomId(roomIdValue),
++            lastEventId = lastEventIdValue?.let(::EventId),
++        )
++    }.getOrNull()
++}
++
+ /**
+  * Map a RoomHero to a MatrixUser. There is not need to create a RoomHero type on the application side.
+  */
+diff --git a/libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapperTest.kt b/libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapperTest.kt
+index c7e2ced..03a6c3a 100644
+--- a/libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapperTest.kt
++++ b/libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/room/RoomInfoMapperTest.kt
+@@ -119,7 +119,7 @@ class RoomInfoMapperTest {
+                 numUnreadNotifications = 13L,
+                 numUnreadMentions = 14L,
+                 historyVisibility = RoomHistoryVisibility.Joined,
+-                successorRoom = null
++                successorRoom = null,
+             )
+         )
+     }
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomInfoFixture.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomInfoFixture.kt
+index 5b6040d..fb754b3 100644
+--- a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomInfoFixture.kt
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomInfoFixture.kt
+@@ -12,6 +12,7 @@ import io.element.android.libraries.matrix.api.core.RoomAlias
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.room.CurrentUserMembership
++import io.element.android.libraries.matrix.api.room.PredecessorRoom
+ import io.element.android.libraries.matrix.api.room.RoomInfo
+ import io.element.android.libraries.matrix.api.room.RoomMember
+ import io.element.android.libraries.matrix.api.room.RoomNotificationMode
+@@ -40,6 +41,7 @@ fun aRoomInfo(
+     joinRule: JoinRule? = JoinRule.Public,
+     isSpace: Boolean = false,
+     successorRoom: SuccessorRoom? = null,
++    predecessorRoom: PredecessorRoom? = null,
+     isFavorite: Boolean = false,
+     canonicalAlias: RoomAlias? = null,
+     alternativeAliases: List<RoomAlias> = emptyList(),
+@@ -74,6 +76,7 @@ fun aRoomInfo(
+     joinRule = joinRule,
+     isSpace = isSpace,
+     successorRoom = successorRoom,
++    predecessorRoom = predecessorRoom,
+     isFavorite = isFavorite,
+     canonicalAlias = canonicalAlias,
+     alternativeAliases = alternativeAliases.toImmutableList(),
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomSummaryFixture.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomSummaryFixture.kt
+index 11e462f..251858a 100644
+--- a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomSummaryFixture.kt
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/RoomSummaryFixture.kt
+@@ -12,6 +12,7 @@ import io.element.android.libraries.matrix.api.core.RoomAlias
+ import io.element.android.libraries.matrix.api.core.RoomId
+ import io.element.android.libraries.matrix.api.core.UserId
+ import io.element.android.libraries.matrix.api.room.CurrentUserMembership
++import io.element.android.libraries.matrix.api.room.PredecessorRoom
+ import io.element.android.libraries.matrix.api.room.RoomInfo
+ import io.element.android.libraries.matrix.api.room.RoomMember
+ import io.element.android.libraries.matrix.api.room.RoomNotificationMode
+@@ -53,6 +54,7 @@ fun aRoomSummary(
+     joinRule: JoinRule? = JoinRule.Public,
+     isSpace: Boolean = false,
+     successorRoom: SuccessorRoom? = null,
++    predecessorRoom: PredecessorRoom? = null,
+     isFavorite: Boolean = false,
+     canonicalAlias: RoomAlias? = null,
+     alternativeAliases: List<RoomAlias> = emptyList(),
+@@ -89,6 +91,7 @@ fun aRoomSummary(
+         joinRule = joinRule,
+         isSpace = isSpace,
+         successorRoom = successorRoom,
++        predecessorRoom = predecessorRoom,
+         isFavorite = isFavorite,
+         canonicalAlias = canonicalAlias,
+         alternativeAliases = alternativeAliases.toPersistentList(),

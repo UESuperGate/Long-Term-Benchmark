@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "16_identity_reset",
+  "releaseEvidence": ["CHANGES.md v0.5.1: Feature: identity reset"],
+  "implementationEvidence": {
+    "symbols": ["ResetIdentityFlowManager", "ResetIdentityRootPresenter", "ResetIdentityPasswordPresenter", "RustIdentityResetHandle", "FakeIdentityResetHandle"],
+    "productionPaths": ["features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset", "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/encryption/RustIdentityResetHandle.kt"],
+    "testPaths": ["features/securebackup/impl/src/test/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowManagerTest.kt", "features/securebackup/impl/src/test/kotlin/io/element/android/features/securebackup/impl/reset/password/ResetIdentityPasswordPresenterTest.kt", "features/securebackup/impl/src/test/kotlin/io/element/android/features/securebackup/impl/reset/root/ResetIdentityRootPresenterTest.kt"]
+  },
+  "baseFailureEvidence": ["The base has no identity-reset flow manager or reset root/password screens.", "The base cannot continue a reset handle through reauthentication and final confirmation.", "The base has no cancel and retry behavior for a partially started reset."],
+  "longHorizonSignals": ["The flow coordinates recovery eligibility, destructive confirmation, OIDC/password reauthentication, SDK handles, routing, and error recovery.", "Cancel must dispose the active reset path without reporting success.", "The implementation commit changes 95 files and includes 40 test files."],
+  "rawEvidence": "raw_release_evidence.json"
+}

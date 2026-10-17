@@ -1,0 +1,1879 @@
+diff --git a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/configureroom/ConfigureRoomPresenter.kt b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/configureroom/ConfigureRoomPresenter.kt
+index 0025a64..6937aa6 100644
+--- a/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/configureroom/ConfigureRoomPresenter.kt
++++ b/features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/configureroom/ConfigureRoomPresenter.kt
+@@ -201,7 +201,8 @@ class ConfigureRoomPresenter @Inject constructor(
+             uri = avatarUri,
+             mimeType = MimeTypes.Jpeg,
+             deleteOriginal = false,
+-            compressIfPossible = false,
++            optimizeImages = false,
++            videoCompressionPreset = null,
+         ).getOrThrow()
+         val byteArray = preprocessed.file.readBytes()
+         return matrixClient.uploadMedia(MimeTypes.Jpeg, byteArray, null).getOrThrow()
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewEvents.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewEvents.kt
+index e679a43..865d656 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewEvents.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewEvents.kt
+@@ -8,10 +8,34 @@
+ package io.element.android.features.messages.impl.attachments.preview
+ 
+ import androidx.compose.runtime.Immutable
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
+ 
+ @Immutable
+ sealed interface AttachmentsPreviewEvents {
+     data object SendAttachment : AttachmentsPreviewEvents
+     data object CancelAndDismiss : AttachmentsPreviewEvents
+     data object CancelAndClearSendState : AttachmentsPreviewEvents
+-}
++
++    /**
++     * Persist whether the image attachment should be optimised (resized/re-encoded)
++     * before uploading. Has no effect on non-image attachments.
++     */
++    data class SetOptimizeImages(val enabled: Boolean) : AttachmentsPreviewEvents
++
++    /**
++     * Persist the user's choice of [VideoCompressionPreset]. The preset is silently
++     * ignored when its estimated output size exceeds the homeserver upload limit.
++     * Has no effect on non-video attachments.
++     */
++    data class SelectVideoCompressionPreset(val preset: VideoCompressionPreset) : AttachmentsPreviewEvents
++
++    /**
++     * Open the bottom sheet / dialog letting the user pick a [VideoCompressionPreset].
++     */
++    data object OpenVideoQualitySelector : AttachmentsPreviewEvents
++
++    /**
++     * Dismiss the quality selector. The previously selected preset is preserved.
++     */
++    data object DismissVideoQualitySelector : AttachmentsPreviewEvents
++}
+\ No newline at end of file
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewPresenter.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewPresenter.kt
+index bfae4c2..ef72d57 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewPresenter.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewPresenter.kt
+@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.MutableState
+ import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.derivedStateOf
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+@@ -28,6 +29,8 @@ import io.element.android.libraries.architecture.Presenter
+ import io.element.android.libraries.core.coroutine.CoroutineDispatchers
+ import io.element.android.libraries.core.coroutine.firstInstanceOf
+ import io.element.android.libraries.core.extensions.runCatchingExceptions
++import io.element.android.libraries.core.mimetype.MimeTypes.isMimeTypeImage
++import io.element.android.libraries.core.mimetype.MimeTypes.isMimeTypeVideo
+ import io.element.android.libraries.di.annotations.SessionCoroutineScope
+ import io.element.android.libraries.featureflag.api.FeatureFlagService
+ import io.element.android.libraries.featureflag.api.FeatureFlags
+@@ -36,12 +39,19 @@ import io.element.android.libraries.matrix.api.core.ProgressCallback
+ import io.element.android.libraries.matrix.api.permalink.PermalinkBuilder
+ import io.element.android.libraries.mediaupload.api.MediaSender
+ import io.element.android.libraries.mediaupload.api.MediaUploadInfo
++import io.element.android.libraries.mediaupload.api.MediaUploadMaxSizeProvider
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
++import io.element.android.libraries.mediaupload.api.VideoCompressionPresetInfo
++import io.element.android.libraries.mediaupload.api.VideoMetadata
++import io.element.android.libraries.mediaupload.api.VideoMetadataExtractor
+ import io.element.android.libraries.mediaupload.api.allFiles
++import io.element.android.libraries.preferences.api.store.SessionPreferencesStore
+ import io.element.android.libraries.textcomposer.model.TextEditorState
+ import io.element.android.libraries.textcomposer.model.rememberMarkdownTextEditorState
+ import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.isActive
+ import kotlinx.coroutines.launch
+ import timber.log.Timber
+@@ -54,6 +64,9 @@ class AttachmentsPreviewPresenter @AssistedInject constructor(
+     private val permalinkBuilder: PermalinkBuilder,
+     private val temporaryUriDeleter: TemporaryUriDeleter,
+     private val featureFlagService: FeatureFlagService,
++    private val sessionPreferencesStore: SessionPreferencesStore,
++    private val mediaUploadMaxSizeProvider: MediaUploadMaxSizeProvider,
++    private val videoMetadataExtractor: VideoMetadataExtractor,
+     @SessionCoroutineScope private val sessionCoroutineScope: CoroutineScope,
+     private val dispatchers: CoroutineDispatchers,
+ ) : Presenter<AttachmentsPreviewState> {
+@@ -89,9 +102,31 @@ class AttachmentsPreviewPresenter @AssistedInject constructor(
+ 
+         var useSendQueue by remember { mutableStateOf(false) }
+         var preprocessMediaJob by remember { mutableStateOf<Job?>(null) }
++
++        // New: media quality selection state
++        val videoMetadataState = remember { mutableStateOf<VideoMetadata?>(null) }
++        val isVideoQualitySelectorOpenState = remember { mutableStateOf(false) }
++
+         LaunchedEffect(Unit) {
+             useSendQueue = featureFlagService.isFeatureEnabled(FeatureFlags.MediaUploadOnSendQueue)
+ 
++            // Kick off the asynchronous loading of the homeserver upload limit and the
++            // local video metadata. Both are non-blocking: caption changes and
++            // cancellation continue to be handled while the values are being fetched.
++            mediaUploadMaxSizeProvider.ensureLoaded()
++            val localMedia = (attachment as? Attachment.Media)?.localMedia
++            if (localMedia != null && localMedia.info.mimeType.isMimeTypeVideo()) {
++                // Load the duration asynchronously.
++                launch {
++                    videoMetadataState.value = runCatchingExceptions {
++                        videoMetadataExtractor.extract(localMedia.uri)
++                    }.getOrElse {
++                        Timber.w(it, "Failed to read video metadata for quality estimation")
++                        null
++                    }
++                }
++            }
++
+             preprocessMediaJob = preProcessAttachment(
+                 attachment,
+                 sendActionState
+@@ -100,9 +135,98 @@ class AttachmentsPreviewPresenter @AssistedInject constructor(
+ 
+         val observableSendState = snapshotFlow { sendActionState.value }
+ 
++        val optimizeImages by sessionPreferencesStore.optimizeImages().collectAsState(initial = true)
++        val savedVideoPreset by sessionPreferencesStore.videoCompressionPreset().collectAsState(
++            initial = VideoCompressionPreset.DEFAULT
++        )
++
++        val maxUploadSize by mediaUploadMaxSizeProvider.maxUploadSize.collectAsState()
++
++        val isVideo = remember(attachment) {
++            (attachment as? Attachment.Media)
++                ?.localMedia
++                ?.info
++                ?.mimeType
++                ?.isMimeTypeVideo()
++                ?: false
++        }
++        val isImage = remember(attachment) {
++            (attachment as? Attachment.Media)
++                ?.localMedia
++                ?.info
++                ?.mimeType
++                ?.isMimeTypeImage()
++                ?: false
++        }
++
++        // Derive the available video presets from the latest metadata + maxUploadSize.
++        // `null` until both are known so the UI can distinguish "loading" from
++        // "computed and empty". All work happens after the suspend launches.
++        val availableVideoPresetsState = remember { MutableStateFlow<List<VideoCompressionPresetInfo>>(emptyList()) }
++        LaunchedEffect(isVideo, videoMetadataState.value, maxUploadSize) {
++            if (!isVideo) {
++                availableVideoPresetsState.value = emptyList()
++                return@LaunchedEffect
++            }
++            val maxUpload = maxUploadSize
++            val metadata = videoMetadataState.value
++            if (maxUpload == null || metadata == null) {
++                // We don't fabricate estimations until both inputs are known.
++                availableVideoPresetsState.value = emptyList()
++                return@LaunchedEffect
++            }
++            availableVideoPresetsState.value = VideoCompressionPreset.values().map { preset ->
++                val estimated = VideoCompressionPresetInfo.estimateSizeBytes(preset.bitrate, metadata.duration)
++                VideoCompressionPresetInfo(
++                    preset = preset,
++                    estimatedSizeBytes = estimated,
++                    // Inclusive comparison: a preset is allowed iff we know the
++                    // estimated size and it fits within the limit.
++                    canUpload = estimated != null && estimated <= maxUpload,
++                )
++            }
++        }
++        val availableVideoPresets by availableVideoPresetsState.collectAsState()
++
++        // Validate the selected preset on every change: if the currently saved preset
++        // is not allowed we move to the highest allowed preset (largest bitrate among
++        // the allowed ones) without choosing an oversized preset. The change is only
++        // persisted if it differs from the stored value.
++        LaunchedEffect(savedVideoPreset, availableVideoPresets, isVideo) {
++            if (!isVideo) return@LaunchedEffect
++            val current = availableVideoPresets.firstOrNull { it.preset == savedVideoPreset }
++            val allowed = availableVideoPresets.filter { it.canUpload }
++            val needsFallback = current?.canUpload == false || (current == null && allowed.isNotEmpty())
++            if (needsFallback && allowed.isNotEmpty()) {
++                // The allowed presets are ordered LOW -> HIGH in VideoCompressionPreset.values(),
++                // so the last allowed one is the highest allowed preset that still fits.
++                // This honours "falls back toward smaller output without choosing an
++                // oversized preset" while keeping the largest allowed quality.
++                val fallback = allowed.last().preset
++                sessionPreferencesStore.setVideoCompressionPreset(fallback)
++            }
++        }
++
++        // Derive the send-blocked reason: video is blocked when we have full
++        // estimations and every preset is oversized; non-video media is allowed for
++        // now because the compression pipeline produces a definitive output size
++        // that the existing failure dialog can report back to the user.
++        val sendBlockedReason by remember {
++            derivedStateOf {
++                computeSendBlockedReason(
++                    isVideo = isVideo,
++                    availableVideoPresets = availableVideoPresets,
++                    maxUploadSize = maxUploadSize,
++                )
++            }
++        }
++
+         fun handleEvents(attachmentsPreviewEvents: AttachmentsPreviewEvents) {
+             when (attachmentsPreviewEvents) {
+                 is AttachmentsPreviewEvents.SendAttachment -> {
++                    // Refuse to start the send if we know the media cannot fit. The user
++                    // is shown `sendBlockedReason` instead of a transient failure.
++                    if (sendBlockedReason != null) return
+                     ongoingSendAttachmentJob.value = coroutineScope.launch {
+                         // If the processing was hidden before, make it visible now
+                         if (sendActionState.value is SendActionState.Sending.Processing) {
+@@ -164,6 +288,38 @@ class AttachmentsPreviewPresenter @AssistedInject constructor(
+                         SendActionState.Idle
+                     }
+                 }
++                is AttachmentsPreviewEvents.SetOptimizeImages -> {
++                    coroutineScope.launch {
++                        sessionPreferencesStore.setOptimizeImages(attachmentsPreviewEvents.enabled)
++                    }
++                }
++                is AttachmentsPreviewEvents.SelectVideoCompressionPreset -> {
++                    val requested = attachmentsPreviewEvents.preset
++                    val info = availableVideoPresets.firstOrNull { it.preset == requested }
++                    // Only persist the choice if the preset is actually allowed for the
++                    // current homeserver upload limit. An oversized preset never silently
++                    // replaces a valid selection.
++                    if (info?.canUpload == true) {
++                        coroutineScope.launch {
++                            sessionPreferencesStore.setVideoCompressionPreset(requested)
++                        }
++                    } else {
++                        Timber.w(
++                            "Refusing to select oversized video preset %s (estimated=%s bytes, maxUpload=%s bytes)",
++                            requested,
++                            info?.estimatedSizeBytes.toString(),
++                            maxUploadSize?.toString() ?: "<unknown>",
++                        )
++                    }
++                }
++                AttachmentsPreviewEvents.OpenVideoQualitySelector -> {
++                    isVideoQualitySelectorOpenState.value = true
++                }
++                AttachmentsPreviewEvents.DismissVideoQualitySelector -> {
++                    // Dismissing the selector without a choice must preserve the
++                    // currently selected preset. No state mutation is needed.
++                    isVideoQualitySelectorOpenState.value = false
++                }
+             }
+         }
+ 
+@@ -173,7 +329,15 @@ class AttachmentsPreviewPresenter @AssistedInject constructor(
+             textEditorState = textEditorState,
+             allowCaption = allowCaption,
+             showCaptionCompatibilityWarning = showCaptionCompatibilityWarning,
+-            eventSink = ::handleEvents
++            maxUploadSize = maxUploadSize,
++            isImage = isImage,
++            isVideo = isVideo,
++            optimizeImages = optimizeImages,
++            availableVideoPresets = availableVideoPresets,
++            selectedVideoPreset = savedVideoPreset,
++            isVideoQualitySelectorOpen = isVideoQualitySelectorOpenState.value,
++            sendBlockedReason = sendBlockedReason,
++            eventSink = ::handleEvents,
+         )
+     }
+ 
+@@ -283,3 +447,19 @@ class AttachmentsPreviewPresenter @AssistedInject constructor(
+         }
+     )
+ }
++
++private fun computeSendBlockedReason(
++    isVideo: Boolean,
++    availableVideoPresets: List<VideoCompressionPresetInfo>,
++    maxUploadSize: Long?,
++): SendBlockedReason? {
++    val maxUpload = maxUploadSize ?: return null
++    // For videos, block if we have computed estimations and every preset is
++    // oversized. When the metadata has not yet been extracted we do not block
++    // sending, since the user can still see that compression is in progress.
++    return if (isVideo && availableVideoPresets.isNotEmpty() && availableVideoPresets.none { it.canUpload }) {
++        SendBlockedReason.AllVideoPresetsOversized(maxUploadSize = maxUpload)
++    } else {
++        null
++    }
++}
+\ No newline at end of file
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewState.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewState.kt
+index 90438e1..5c98d31 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewState.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewState.kt
+@@ -10,6 +10,8 @@ package io.element.android.features.messages.impl.attachments.preview
+ import androidx.compose.runtime.Immutable
+ import io.element.android.features.messages.impl.attachments.Attachment
+ import io.element.android.libraries.mediaupload.api.MediaUploadInfo
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
++import io.element.android.libraries.mediaupload.api.VideoCompressionPresetInfo
+ import io.element.android.libraries.textcomposer.model.TextEditorState
+ 
+ data class AttachmentsPreviewState(
+@@ -18,9 +20,33 @@ data class AttachmentsPreviewState(
+     val textEditorState: TextEditorState,
+     val allowCaption: Boolean,
+     val showCaptionCompatibilityWarning: Boolean,
+-    val eventSink: (AttachmentsPreviewEvents) -> Unit
++    val maxUploadSize: Long?,
++    val isImage: Boolean,
++    val isVideo: Boolean,
++    val optimizeImages: Boolean,
++    val availableVideoPresets: List<VideoCompressionPresetInfo>,
++    val selectedVideoPreset: VideoCompressionPreset?,
++    val isVideoQualitySelectorOpen: Boolean,
++    val sendBlockedReason: SendBlockedReason?,
++    val eventSink: (AttachmentsPreviewEvents) -> Unit,
+ )
+ 
++/**
++ * Reason why the attachment preview is preventing the user from sending the media.
++ *
++ * Surfaced in the UI so the user understands why the send action is not enabled.
++ */
++@Immutable
++sealed interface SendBlockedReason {
++    /**
++     * The video attachment is too large: every quality preset exceeds the homeserver
++     * upload limit. The user cannot fix this from the client.
++     */
++    data class AllVideoPresetsOversized(
++        val maxUploadSize: Long,
++    ) : SendBlockedReason
++}
++
+ @Immutable
+ sealed interface SendActionState {
+     data object Idle : SendActionState
+@@ -41,4 +67,4 @@ sealed interface SendActionState {
+         is Failure -> mediaUploadInfo
+         else -> null
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewStateProvider.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewStateProvider.kt
+index e7dac45..d30e231 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewStateProvider.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewStateProvider.kt
+@@ -13,6 +13,7 @@ import io.element.android.features.messages.impl.attachments.Attachment
+ import io.element.android.libraries.core.mimetype.MimeTypes
+ import io.element.android.libraries.matrix.api.media.ImageInfo
+ import io.element.android.libraries.mediaupload.api.MediaUploadInfo
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
+ import io.element.android.libraries.mediaviewer.api.MediaInfo
+ import io.element.android.libraries.mediaviewer.api.anImageMediaInfo
+ import io.element.android.libraries.mediaviewer.api.local.LocalMedia
+@@ -28,7 +29,7 @@ open class AttachmentsPreviewStateProvider : PreviewParameterProvider<Attachment
+                 sendActionState = SendActionState.Sending.Processing(displayProgress = false),
+                 textEditorState = aTextEditorStateMarkdown(
+                     initialText = "This is a caption!"
+-                )
++                ),
+             ),
+             anAttachmentsPreviewState(sendActionState = SendActionState.Sending.Processing(displayProgress = true)),
+             anAttachmentsPreviewState(sendActionState = SendActionState.Sending.ReadyToUpload(aMediaUploadInfo())),
+@@ -45,6 +46,14 @@ fun anAttachmentsPreviewState(
+     sendActionState: SendActionState = SendActionState.Idle,
+     allowCaption: Boolean = true,
+     showCaptionCompatibilityWarning: Boolean = true,
++    maxUploadSize: Long? = null,
++    isImage: Boolean = true,
++    isVideo: Boolean = false,
++    optimizeImages: Boolean = true,
++    availableVideoPresets: List<io.element.android.libraries.mediaupload.api.VideoCompressionPresetInfo> = emptyList(),
++    selectedVideoPreset: VideoCompressionPreset? = null,
++    isVideoQualitySelectorOpen: Boolean = false,
++    sendBlockedReason: SendBlockedReason? = null,
+ ) = AttachmentsPreviewState(
+     attachment = Attachment.Media(
+         localMedia = LocalMedia("file://path".toUri(), mediaInfo),
+@@ -53,7 +62,15 @@ fun anAttachmentsPreviewState(
+     textEditorState = textEditorState,
+     allowCaption = allowCaption,
+     showCaptionCompatibilityWarning = showCaptionCompatibilityWarning,
+-    eventSink = {}
++    maxUploadSize = maxUploadSize,
++    isImage = isImage,
++    isVideo = isVideo,
++    optimizeImages = optimizeImages,
++    availableVideoPresets = availableVideoPresets,
++    selectedVideoPreset = selectedVideoPreset,
++    isVideoQualitySelectorOpen = isVideoQualitySelectorOpen,
++    sendBlockedReason = sendBlockedReason,
++    eventSink = {},
+ )
+ 
+ fun aMediaUploadInfo(
+@@ -71,4 +88,4 @@ fun aMediaUploadInfo(
+         blurhash = null,
+     ),
+     thumbnailFile = thumbnailFilePath?.let { File(it) },
+-)
++)
+\ No newline at end of file
+diff --git a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewView.kt b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewView.kt
+index 0ea99a9..b0abecb 100644
+--- a/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewView.kt
++++ b/features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments/preview/AttachmentsPreviewView.kt
+@@ -10,15 +10,20 @@ package io.element.android.features.messages.impl.attachments.preview
+ import androidx.activity.compose.BackHandler
+ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.background
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.IntrinsicSize
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.imePadding
+ import androidx.compose.foundation.layout.navigationBarsPadding
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.width
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+@@ -27,6 +32,7 @@ import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.res.stringResource
+ import androidx.compose.ui.tooling.preview.Preview
+ import androidx.compose.ui.tooling.preview.PreviewParameter
++import androidx.compose.ui.unit.dp
+ import io.element.android.compound.theme.ElementTheme
+ import io.element.android.compound.tokens.generated.CompoundIcons
+ import io.element.android.features.messages.impl.attachments.Attachment
+@@ -37,8 +43,10 @@ import io.element.android.libraries.designsystem.components.button.BackButton
+ import io.element.android.libraries.designsystem.components.dialogs.RetryDialog
+ import io.element.android.libraries.designsystem.preview.ElementPreviewDark
+ import io.element.android.libraries.designsystem.theme.components.Scaffold
++import io.element.android.libraries.designsystem.theme.components.Text
+ import io.element.android.libraries.designsystem.theme.components.TopAppBar
+ import io.element.android.libraries.designsystem.utils.CommonDrawables
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
+ import io.element.android.libraries.mediaviewer.api.local.LocalMedia
+ import io.element.android.libraries.mediaviewer.api.local.LocalMediaRenderer
+ import io.element.android.libraries.textcomposer.TextComposer
+@@ -80,7 +88,14 @@ fun AttachmentsPreviewView(
+                         onClick = ::postCancel,
+                     )
+                 },
+-                title = {},
++                title = {
++                    if (state.isImage) {
++                        ImageOptimizationToggle(
++                            optimizeImages = state.optimizeImages,
++                            onToggle = { state.eventSink(AttachmentsPreviewEvents.SetOptimizeImages(it)) },
++                        )
++                    }
++                },
+             )
+         }
+     ) { paddingValues ->
+@@ -93,16 +108,92 @@ fun AttachmentsPreviewView(
+     }
+     AttachmentSendStateView(
+         sendActionState = state.sendActionState,
++        sendBlockedReason = state.sendBlockedReason,
+         onDismissClick = ::postClearSendState,
+-        onRetryClick = ::postSendAttachment
++        onRetryClick = ::postSendAttachment,
++    )
++    VideoQualitySelectorDialog(
++        state = state,
++        onSelect = { state.eventSink(AttachmentsPreviewEvents.SelectVideoCompressionPreset(it)) },
++        onDismiss = { state.eventSink(AttachmentsPreviewEvents.DismissVideoQualitySelector) },
++    )
++}
++
++@Composable
++private fun ImageOptimizationToggle(
++    optimizeImages: Boolean,
++    onToggle: (Boolean) -> Unit,
++) {
++    Row(
++        verticalAlignment = Alignment.CenterVertically,
++        modifier = Modifier
++            .clickable { onToggle(!optimizeImages) }
++            .padding(horizontal = 8.dp, vertical = 4.dp),
++    ) {
++        Text(text = stringResource(id = CommonStrings.screen_media_upload_preview_image_optimization))
++        Spacer(modifier = Modifier.width(8.dp))
++        Text(text = if (optimizeImages) "✓" else "")
++    }
++}
++
++@Composable
++private fun VideoQualitySelectorDialog(
++    state: AttachmentsPreviewState,
++    onSelect: (VideoCompressionPreset) -> Unit,
++    onDismiss: () -> Unit,
++) {
++    if (!state.isVideoQualitySelectorOpen) return
++    androidx.compose.material3.AlertDialog(
++        onDismissRequest = onDismiss,
++        title = {
++            Text(text = stringResource(id = CommonStrings.screen_media_upload_preview_video_quality_title))
++        },
++        text = {
++            Column {
++                state.availableVideoPresets.forEach { presetInfo ->
++                    Row(
++                        modifier = Modifier
++                            .fillMaxWidth()
++                            .clickable(enabled = presetInfo.canUpload) {
++                                onSelect(presetInfo.preset)
++                                onDismiss()
++                            }
++                            .padding(vertical = 8.dp),
++                        verticalAlignment = Alignment.CenterVertically,
++                    ) {
++                        Text(
++                            text = presetLabel(presetInfo.preset),
++                            modifier = Modifier.weight(1f),
++                        )
++                        val estimated = presetInfo.estimatedSizeBytes
++                        Text(
++                            text = when {
++                                estimated == null -> stringResource(id = CommonStrings.screen_media_upload_preview_video_quality_unknown)
++                                else -> formatBytes(estimated)
++                            },
++                        )
++                        if (!presetInfo.canUpload) {
++                            Spacer(modifier = Modifier.width(8.dp))
++                            Text(text = stringResource(id = CommonStrings.screen_media_upload_preview_video_quality_oversized))
++                        }
++                    }
++                }
++            }
++        },
++        confirmButton = {
++            androidx.compose.material3.TextButton(onClick = onDismiss) {
++                Text(text = stringResource(id = CommonStrings.screen_media_upload_preview_video_quality_dismiss))
++            }
++        },
+     )
+ }
+ 
+ @Composable
+ private fun AttachmentSendStateView(
+     sendActionState: SendActionState,
++    sendBlockedReason: SendBlockedReason?,
+     onDismissClick: () -> Unit,
+-    onRetryClick: () -> Unit
++    onRetryClick: () -> Unit,
+ ) {
+     when (sendActionState) {
+         is SendActionState.Sending.Processing -> {
+@@ -132,6 +223,22 @@ private fun AttachmentSendStateView(
+         }
+         else -> Unit
+     }
++    // Surface the blocking reason independently of the send state so the user sees it
++    // before pressing send and again after dismissing a transient failure.
++    if (sendBlockedReason != null) {
++        val message = when (sendBlockedReason) {
++            is SendBlockedReason.AllVideoPresetsOversized ->
++                stringResource(
++                    id = CommonStrings.screen_media_upload_preview_video_quality_all_oversized,
++                    formatBytes(sendBlockedReason.maxUploadSize),
++                )
++        }
++        RetryDialog(
++            content = message,
++            onDismiss = onDismissClick,
++            onRetry = onRetryClick,
++        )
++    }
+ }
+ 
+ @Composable
+@@ -145,11 +252,12 @@ private fun AttachmentPreviewContent(
+         modifier = modifier
+             .fillMaxSize()
+             .navigationBarsPadding(),
++        verticalArrangement = Arrangement.Bottom,
+     ) {
+         Box(
+             modifier = Modifier
+                 .weight(1f),
+-            contentAlignment = Alignment.Center
++            contentAlignment = Alignment.Center,
+         ) {
+             when (val attachment = state.attachment) {
+                 is Attachment.Media -> {
+@@ -157,6 +265,12 @@ private fun AttachmentPreviewContent(
+                 }
+             }
+         }
++        if (state.isVideo) {
++            VideoQualityChooserRow(
++                state = state,
++                onOpen = { state.eventSink(AttachmentsPreviewEvents.OpenVideoQualitySelector) },
++            )
++        }
+         AttachmentsPreviewBottomActions(
+             state = state,
+             onSendClick = onSendClick,
+@@ -169,11 +283,35 @@ private fun AttachmentPreviewContent(
+     }
+ }
+ 
++@Composable
++private fun VideoQualityChooserRow(
++    state: AttachmentsPreviewState,
++    onOpen: () -> Unit,
++) {
++    Row(
++        modifier = Modifier
++            .fillMaxWidth()
++            .clickable(enabled = state.availableVideoPresets.isNotEmpty(), onClick = onOpen)
++            .padding(horizontal = 16.dp, vertical = 12.dp)
++            .background(ElementTheme.colors.bgSubtleSecondary),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Text(
++            text = stringResource(
++                id = CommonStrings.screen_media_upload_preview_video_quality_label,
++                state.selectedVideoPreset?.let { presetLabel(it) } ?: "",
++            ),
++            modifier = Modifier.weight(1f),
++        )
++        Text(text = stringResource(id = CommonStrings.screen_media_upload_preview_video_quality_change))
++    }
++}
++
+ @Composable
+ private fun AttachmentsPreviewBottomActions(
+     state: AttachmentsPreviewState,
+     onSendClick: () -> Unit,
+-    modifier: Modifier = Modifier
++    modifier: Modifier = Modifier,
+ ) {
+     TextComposer(
+         modifier = modifier,
+@@ -203,6 +341,25 @@ private fun AttachmentsPreviewBottomActions(
+     )
+ }
+ 
++@Composable
++private fun presetLabel(preset: VideoCompressionPreset): String = stringResource(
++    id = when (preset) {
++        VideoCompressionPreset.LOW -> CommonStrings.screen_media_upload_preview_video_quality_low
++        VideoCompressionPreset.STANDARD -> CommonStrings.screen_media_upload_preview_video_quality_standard
++        VideoCompressionPreset.HIGH -> CommonStrings.screen_media_upload_preview_video_quality_high
++    },
++)
++
++private fun formatBytes(bytes: Long): String {
++    if (bytes < 1024) return "$bytes B"
++    val kb = bytes / 1024.0
++    if (kb < 1024) return "%.1f KB".format(kb)
++    val mb = kb / 1024.0
++    if (mb < 1024) return "%.1f MB".format(mb)
++    val gb = mb / 1024.0
++    return "%.2f GB".format(gb)
++}
++
+ // Only preview in dark, dark theme is forced on the Node.
+ @Preview
+ @Composable
+@@ -220,4 +377,4 @@ internal fun AttachmentsPreviewViewPreview(@PreviewParameter(AttachmentsPreviewS
+             }
+         }
+     )
+-}
++}
+\ No newline at end of file
+diff --git a/features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/attachments/AttachmentsPreviewPresenterTest.kt b/features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/attachments/AttachmentsPreviewPresenterTest.kt
+index 292bc89..2ba3f6e 100644
+--- a/features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/attachments/AttachmentsPreviewPresenterTest.kt
++++ b/features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/attachments/AttachmentsPreviewPresenterTest.kt
+@@ -40,8 +40,11 @@ import io.element.android.libraries.mediaupload.api.MediaPreProcessor
+ import io.element.android.libraries.mediaupload.api.MediaSender
+ import io.element.android.libraries.mediaupload.api.MediaUploadInfo
+ import io.element.android.libraries.mediaupload.test.FakeMediaPreProcessor
++import io.element.android.libraries.mediaupload.test.FakeMediaUploadMaxSizeProvider
++import io.element.android.libraries.mediaupload.test.FakeVideoMetadataExtractor
+ import io.element.android.libraries.mediaviewer.api.local.LocalMedia
+ import io.element.android.libraries.mediaviewer.test.viewer.aLocalMedia
++import io.element.android.libraries.preferences.api.store.SessionPreferencesStore
+ import io.element.android.libraries.preferences.test.InMemorySessionPreferencesStore
+ import io.element.android.tests.testutils.WarmUpRule
+ import io.element.android.tests.testutils.awaitLastSequentialItem
+@@ -560,11 +563,14 @@ class AttachmentsPreviewPresenterTest {
+         mediaUploadOnSendQueueEnabled: Boolean = true,
+         allowCaption: Boolean = true,
+         showCaptionCompatibilityWarning: Boolean = true,
++        mediaUploadMaxSizeProvider: io.element.android.libraries.mediaupload.api.MediaUploadMaxSizeProvider = FakeMediaUploadMaxSizeProvider(),
++        videoMetadataExtractor: io.element.android.libraries.mediaupload.api.VideoMetadataExtractor = FakeVideoMetadataExtractor(),
++        sessionPreferencesStore: SessionPreferencesStore = InMemorySessionPreferencesStore(),
+     ): AttachmentsPreviewPresenter {
+         return AttachmentsPreviewPresenter(
+             attachment = aMediaAttachment(localMedia),
+             onDoneListener = onDoneListener,
+-            mediaSender = MediaSender(mediaPreProcessor, room, InMemorySessionPreferencesStore()),
++            mediaSender = MediaSender(mediaPreProcessor, room, sessionPreferencesStore),
+             permalinkBuilder = permalinkBuilder,
+             temporaryUriDeleter = temporaryUriDeleter,
+             featureFlagService = FakeFeatureFlagService(
+@@ -574,6 +580,9 @@ class AttachmentsPreviewPresenterTest {
+                     FeatureFlags.MediaCaptionWarning.key to showCaptionCompatibilityWarning,
+                 ),
+             ),
++            sessionPreferencesStore = sessionPreferencesStore,
++            mediaUploadMaxSizeProvider = mediaUploadMaxSizeProvider,
++            videoMetadataExtractor = videoMetadataExtractor,
+             sessionCoroutineScope = this,
+             dispatchers = testCoroutineDispatchers(),
+         )
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/advanced/AdvancedSettingsPresenter.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/advanced/AdvancedSettingsPresenter.kt
+index be5f111..b744335 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/advanced/AdvancedSettingsPresenter.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/advanced/AdvancedSettingsPresenter.kt
+@@ -39,7 +39,9 @@ class AdvancedSettingsPresenter @Inject constructor(
+             sessionPreferencesStore.isSharePresenceEnabled()
+         }.collectAsState(initial = true)
+         val doesCompressMedia by remember {
+-            sessionPreferencesStore.doesCompressMedia()
++            // The advanced settings "compress media" toggle now controls the per-attachment
++            // image optimisation default. The video path uses its own quality preset.
++            sessionPreferencesStore.optimizeImages()
+         }.collectAsState(initial = true)
+         val theme = remember {
+             appPreferencesStore.getThemeFlow().mapToTheme()
+@@ -66,7 +68,8 @@ class AdvancedSettingsPresenter @Inject constructor(
+                     sessionPreferencesStore.setSharePresence(event.enabled)
+                 }
+                 is AdvancedSettingsEvents.SetCompressMedia -> sessionCoroutineScope.launch {
+-                    sessionPreferencesStore.setCompressMedia(event.compress)
++                    // Same as above: persist as the default image-optimisation choice.
++                    sessionPreferencesStore.setOptimizeImages(event.compress)
+                 }
+                 is AdvancedSettingsEvents.SetTheme -> sessionCoroutineScope.launch {
+                     when (event.theme) {
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/user/editprofile/EditUserProfilePresenter.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/user/editprofile/EditUserProfilePresenter.kt
+index fd3f96e..634e159 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/user/editprofile/EditUserProfilePresenter.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/user/editprofile/EditUserProfilePresenter.kt
+@@ -175,7 +175,8 @@ class EditUserProfilePresenter @AssistedInject constructor(
+                     uri = avatarUri,
+                     mimeType = MimeTypes.Jpeg,
+                     deleteOriginal = false,
+-                    compressIfPossible = false,
++                    optimizeImages = false,
++                    videoCompressionPreset = null,
+                 ).getOrThrow()
+                 matrixClient.uploadAvatar(MimeTypes.Jpeg, preprocessed.file.readBytes()).getOrThrow()
+             } else {
+diff --git a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/edit/RoomDetailsEditPresenter.kt b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/edit/RoomDetailsEditPresenter.kt
+index fb530e6..fdc1cc9 100644
+--- a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/edit/RoomDetailsEditPresenter.kt
++++ b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/edit/RoomDetailsEditPresenter.kt
+@@ -223,7 +223,8 @@ class RoomDetailsEditPresenter @Inject constructor(
+                     uri = avatarUri,
+                     mimeType = MimeTypes.Jpeg,
+                     deleteOriginal = false,
+-                    compressIfPossible = false,
++                    optimizeImages = false,
++                    videoCompressionPreset = null,
+                 ).getOrThrow()
+                 room.updateAvatar(MimeTypes.Jpeg, preprocessed.file.readBytes()).getOrThrow()
+             } else {
+diff --git a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaPreProcessor.kt b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaPreProcessor.kt
+index 347197b..fb70e61 100644
+--- a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaPreProcessor.kt
++++ b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaPreProcessor.kt
+@@ -13,13 +13,20 @@ interface MediaPreProcessor {
+     /**
+      * Given a [uri] and [mimeType], pre-processes the media before it's uploaded, resizing, transcoding, and removing sensitive info from its metadata.
+      * If [deleteOriginal] is `true`, the file reference by the [uri] will be automatically deleted too when this process finishes.
++     *
++     * @param optimizeImages for image attachments: if `true`, the image is resized and
++     *   re-encoded to reduce size. Ignored for non-image mime types.
++     * @param videoCompressionPreset for video attachments: the target quality preset.
++     *   The bitrate is derived from this preset. Ignored for non-video mime types.
++     *
+      * @return a [Result] with the [MediaUploadInfo] containing all the info needed to begin the upload.
+      */
+     suspend fun process(
+         uri: Uri,
+         mimeType: String,
+         deleteOriginal: Boolean,
+-        compressIfPossible: Boolean,
++        optimizeImages: Boolean,
++        videoCompressionPreset: VideoCompressionPreset?,
+     ): Result<MediaUploadInfo>
+ 
+     /**
+@@ -28,4 +35,4 @@ interface MediaPreProcessor {
+     fun cleanUp()
+ 
+     data class Failure(override val cause: Throwable?) : Exception(cause)
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaSender.kt b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaSender.kt
+index 0039f87..0076379 100644
+--- a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaSender.kt
++++ b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaSender.kt
+@@ -33,14 +33,13 @@ class MediaSender @Inject constructor(
+         uri: Uri,
+         mimeType: String,
+     ): Result<MediaUploadInfo> {
+-        val compressIfPossible = sessionPreferencesStore.doesCompressMedia().first()
+-        return preProcessor
+-            .process(
+-                uri = uri,
+-                mimeType = mimeType,
+-                deleteOriginal = false,
+-                compressIfPossible = compressIfPossible,
+-            )
++        return preProcessor.process(
++            uri = uri,
++            mimeType = mimeType,
++            deleteOriginal = false,
++            optimizeImages = sessionPreferencesStore.optimizeImages().first(),
++            videoCompressionPreset = sessionPreferencesStore.videoCompressionPreset().first(),
++        )
+     }
+ 
+     suspend fun sendPreProcessedMedia(
+@@ -68,13 +67,13 @@ class MediaSender @Inject constructor(
+         progressCallback: ProgressCallback? = null,
+         inReplyToEventId: EventId? = null,
+     ): Result<Unit> {
+-        val compressIfPossible = sessionPreferencesStore.doesCompressMedia().first()
+         return preProcessor
+             .process(
+                 uri = uri,
+                 mimeType = mimeType,
+                 deleteOriginal = false,
+-                compressIfPossible = compressIfPossible,
++                optimizeImages = sessionPreferencesStore.optimizeImages().first(),
++                videoCompressionPreset = sessionPreferencesStore.videoCompressionPreset().first(),
+             )
+             .flatMapCatching { info ->
+                 room.liveTimeline.sendMedia(
+@@ -100,7 +99,8 @@ class MediaSender @Inject constructor(
+                 uri = uri,
+                 mimeType = mimeType,
+                 deleteOriginal = true,
+-                compressIfPossible = false,
++                optimizeImages = false,
++                videoCompressionPreset = null,
+             )
+             .flatMapCatching { info ->
+                 val audioInfo = (info as MediaUploadInfo.Audio).audioInfo
+@@ -111,7 +111,6 @@ class MediaSender @Inject constructor(
+                 )
+                 room.liveTimeline.sendMedia(
+                     uploadInfo = newInfo,
+-                    progressCallback = progressCallback,
+                     caption = null,
+                     formattedCaption = null,
+                     inReplyToEventId = inReplyToEventId,
+@@ -205,4 +204,4 @@ class MediaSender @Inject constructor(
+      * Clean up any temporary files or resources used during the media processing.
+      */
+     fun cleanUp() = preProcessor.cleanUp()
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaUploadMaxSizeProvider.kt b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaUploadMaxSizeProvider.kt
+new file mode 100644
+index 0000000..7902d53
+--- /dev/null
++++ b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/MediaUploadMaxSizeProvider.kt
+@@ -0,0 +1,42 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.api
++
++import kotlinx.coroutines.flow.StateFlow
++
++/**
++ * Loads and exposes the homeserver media upload size limit.
++ *
++ * The provider is asynchronous: while the value is being fetched, [maxUploadSize] is
++ * `null`. On a network failure the provider falls back to a stable 100 MiB default so the
++ * attachment preview remains usable and can still block oversized outputs against a
++ * sensible threshold.
++ */
++interface MediaUploadMaxSizeProvider {
++    /**
++     * The currently known homeserver upload limit in bytes, or `null` while the value
++     * has not been loaded yet.
++     */
++    val maxUploadSize: StateFlow<Long?>
++
++    /**
++     * Trigger the (idempotent) load of the homeserver upload limit if it hasn't already
++     * been started.
++     */
++    fun ensureLoaded()
++
++    companion object {
++        /**
++         * The fallback limit applied when the homeserver does not return a value.
++         *
++         * It is exactly 100 MiB (100 * 1024 * 1024 bytes), as required by the
++         * `mq_state_002_limit_fallback` invariant.
++         */
++        const val FALLBACK_MAX_UPLOAD_SIZE_BYTES: Long = 100L * 1024L * 1024L
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoCompressionPreset.kt b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoCompressionPreset.kt
+new file mode 100644
+index 0000000..f9b9db3
+--- /dev/null
++++ b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoCompressionPreset.kt
+@@ -0,0 +1,17 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.api
++
++import io.element.android.libraries.preferences.api.store.VideoCompressionPreset as PreferencesVideoCompressionPreset
++
++/**
++ * Re-exported from [io.element.android.libraries.preferences.api.store.VideoCompressionPreset]
++ * so the media upload pipeline keeps its existing package while the canonical definition
++ * lives next to the preference store that persists it.
++ */
++typealias VideoCompressionPreset = PreferencesVideoCompressionPreset
+\ No newline at end of file
+diff --git a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoCompressionPresetInfo.kt b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoCompressionPresetInfo.kt
+new file mode 100644
+index 0000000..244e86d
+--- /dev/null
++++ b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoCompressionPresetInfo.kt
+@@ -0,0 +1,17 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.api
++
++import io.element.android.libraries.preferences.api.store.VideoCompressionPresetInfo as PreferencesVideoCompressionPresetInfo
++
++/**
++ * Re-exported from [io.element.android.libraries.preferences.api.store.VideoCompressionPresetInfo]
++ * so the media upload pipeline keeps its existing package while the canonical definition
++ * lives next to the preference store that persists it.
++ */
++typealias VideoCompressionPresetInfo = PreferencesVideoCompressionPresetInfo
+\ No newline at end of file
+diff --git a/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoMetadata.kt b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoMetadata.kt
+new file mode 100644
+index 0000000..7da7953
+--- /dev/null
++++ b/libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api/VideoMetadata.kt
+@@ -0,0 +1,35 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.api
++
++import android.net.Uri
++import kotlin.time.Duration
++
++/**
++ * Asynchronously extracts a small set of metadata for a video attachment that the
++ * presenter needs to display quality choices before the user confirms sending.
++ */
++interface VideoMetadataExtractor {
++    /**
++     * Read the duration (and other useful information) from the given video [uri].
++     *
++     * Implementations should resolve the URI lazily so the result can be discarded
++     * if the user dismisses the attachment preview while the metadata is still being
++     * loaded.
++     */
++    suspend fun extract(uri: Uri): VideoMetadata
++}
++
++/**
++ * Lightweight metadata extracted from a video file.
++ *
++ * @param duration the duration of the video. `Duration.ZERO` when unknown.
++ */
++data class VideoMetadata(
++    val duration: Duration,
++)
+\ No newline at end of file
+diff --git a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessor.kt b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessor.kt
+index 8b93c7e..a295e44 100644
+--- a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessor.kt
++++ b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessor.kt
+@@ -34,6 +34,7 @@ import io.element.android.libraries.matrix.api.media.ImageInfo
+ import io.element.android.libraries.matrix.api.media.VideoInfo
+ import io.element.android.libraries.mediaupload.api.MediaPreProcessor
+ import io.element.android.libraries.mediaupload.api.MediaUploadInfo
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
+ import kotlinx.coroutines.flow.filterIsInstance
+ import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.flow.onEach
+@@ -76,7 +77,8 @@ class AndroidMediaPreProcessor @Inject constructor(
+         uri: Uri,
+         mimeType: String,
+         deleteOriginal: Boolean,
+-        compressIfPossible: Boolean,
++        optimizeImages: Boolean,
++        videoCompressionPreset: VideoCompressionPreset?,
+     ): Result<MediaUploadInfo> = withContext(coroutineDispatchers.computation) {
+         runCatchingExceptions {
+             val result = when {
+@@ -85,10 +87,10 @@ class AndroidMediaPreProcessor @Inject constructor(
+                     processFile(uri, mimeType)
+                 }
+                 mimeType.isMimeTypeImage() -> {
+-                    val shouldBeCompressed = compressIfPossible && mimeType !in notCompressibleImageTypes
++                    val shouldBeCompressed = optimizeImages && mimeType !in notCompressibleImageTypes
+                     processImage(uri, mimeType, shouldBeCompressed)
+                 }
+-                mimeType.isMimeTypeVideo() -> processVideo(uri, mimeType, compressIfPossible)
++                mimeType.isMimeTypeVideo() -> processVideo(uri, mimeType, videoCompressionPreset)
+                 mimeType.isMimeTypeAudio() -> processAudio(uri, mimeType)
+                 else -> processFile(uri, mimeType)
+             }
+@@ -109,7 +111,7 @@ class AndroidMediaPreProcessor @Inject constructor(
+         cacheDir.listFiles()?.onEach { file ->
+             if (file.isFile) {
+                 val nameWithoutExtension = file.nameWithoutExtension
+-                // UUIDs are 36 characters long, so we check if we can take those 36 characters
++                // UUIDs are 36 characters long, so we don't check if we can take those 36 characters
+                 val nameWithoutExtensionAndRandom = if (nameWithoutExtension.length > 36) {
+                     nameWithoutExtension.substring(0, 36)
+                 } else {
+@@ -214,9 +216,14 @@ class AndroidMediaPreProcessor @Inject constructor(
+         }
+     }
+ 
+-    private suspend fun processVideo(uri: Uri, mimeType: String?, shouldBeCompressed: Boolean): MediaUploadInfo {
++    private suspend fun processVideo(
++        uri: Uri,
++        mimeType: String?,
++        videoCompressionPreset: VideoCompressionPreset?,
++    ): MediaUploadInfo {
++        val shouldBeCompressed = videoCompressionPreset != null
+         val resultFile = runCatchingExceptions {
+-            videoCompressor.compress(uri, shouldBeCompressed)
++            videoCompressor.compress(uri, shouldBeCompressed, videoCompressionPreset)
+                 .onEach {
+                     if (it is VideoTranscodingEvent.Progress) {
+                         Timber.d("Video compression progress: ${it.value}%")
+@@ -359,4 +366,4 @@ private fun ImageCompressionResult.toImageInfo(mimeType: String, thumbnailResult
+ private fun MediaMetadataRetriever.extractDuration(): Duration {
+     val durationInMs = extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+     return durationInMs.milliseconds
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidVideoMetadataExtractor.kt b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidVideoMetadataExtractor.kt
+new file mode 100644
+index 0000000..8668046
+--- /dev/null
++++ b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidVideoMetadataExtractor.kt
+@@ -0,0 +1,38 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.impl
++
++import android.content.Context
++import android.media.MediaMetadataRetriever
++import android.net.Uri
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.libraries.core.coroutine.CoroutineDispatchers
++import io.element.android.libraries.di.AppScope
++import io.element.android.libraries.di.ApplicationContext
++import io.element.android.libraries.mediaupload.api.VideoMetadata
++import io.element.android.libraries.mediaupload.api.VideoMetadataExtractor
++import kotlinx.coroutines.withContext
++import javax.inject.Inject
++import kotlin.time.Duration.Companion.milliseconds
++
++@ContributesBinding(AppScope::class)
++class AndroidVideoMetadataExtractor @Inject constructor(
++    @ApplicationContext private val context: Context,
++    private val coroutineDispatchers: CoroutineDispatchers,
++) : VideoMetadataExtractor {
++    override suspend fun extract(uri: Uri): VideoMetadata = withContext(coroutineDispatchers.io) {
++        // Let any failure propagate so the presenter treats the result as "metadata
++        // unavailable" and refuses to fabricate a sendable size.
++        MediaMetadataRetriever().use { retriever ->
++            retriever.setDataSource(context, uri)
++            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
++                ?.toLongOrNull() ?: 0L
++            VideoMetadata(duration = durationMs.milliseconds)
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/DefaultMediaUploadMaxSizeProvider.kt b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/DefaultMediaUploadMaxSizeProvider.kt
+new file mode 100644
+index 0000000..9672473
+--- /dev/null
++++ b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/DefaultMediaUploadMaxSizeProvider.kt
+@@ -0,0 +1,80 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.impl
++
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.di.annotations.SessionCoroutineScope
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.mediaupload.api.MediaUploadMaxSizeProvider
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import org.json.JSONObject
++import timber.log.Timber
++import javax.inject.Inject
++
++@ContributesBinding(SessionScope::class)
++class DefaultMediaUploadMaxSizeProvider @Inject constructor(
++    private val matrixClient: MatrixClient,
++    @SessionCoroutineScope private val sessionCoroutineScope: CoroutineScope,
++) : MediaUploadMaxSizeProvider {
++    private val _maxUploadSize = MutableStateFlow<Long?>(null)
++    override val maxUploadSize: StateFlow<Long?> = _maxUploadSize.asStateFlow()
++
++    private val mutex = Mutex()
++    private var loadStarted = false
++
++    override fun ensureLoaded() {
++        sessionCoroutineScope.launch {
++            mutex.withLock {
++                if (loadStarted) return@withLock
++                loadStarted = true
++            }
++            try {
++                val result = matrixClient.getUrl(MEDIA_CONFIG_PATH)
++                val parsed = result.fold(
++                    onSuccess = { bytes ->
++                        runCatching { JSONObject(String(bytes)) }.getOrNull()
++                    },
++                    onFailure = {
++                        Timber.w(it, "Failed to fetch the homeserver media upload size; falling back to the default limit")
++                        null
++                    },
++                )
++                val limit = parsed?.optLongOrNull(UPLOAD_SIZE_KEY)
++                // Whether the homeserver returned a value or not, fall back to the stable
++                // default if the limit is missing, non-positive, or couldn't be parsed.
++                _maxUploadSize.value = if (limit != null && limit > 0L) {
++                    limit
++                } else {
++                    MediaUploadMaxSizeProvider.FALLBACK_MAX_UPLOAD_SIZE_BYTES
++                }
++            } catch (e: Exception) {
++                Timber.w(e, "Failed to fetch the homeserver media upload size; falling back to the default limit")
++                _maxUploadSize.value = MediaUploadMaxSizeProvider.FALLBACK_MAX_UPLOAD_SIZE_BYTES
++            }
++        }
++    }
++
++    companion object {
++        // Matrix-spec endpoint that returns the media upload configuration for the
++        // authenticated user. The JSON response contains `m.upload.size` in bytes.
++        const val MEDIA_CONFIG_PATH = "_matrix/media/v1/config"
++        const val UPLOAD_SIZE_KEY = "m.upload.size"
++    }
++}
++
++private fun JSONObject.optLongOrNull(name: String): Long? {
++    if (!has(name) || isNull(name)) return null
++    return runCatching { getLong(name) }.getOrNull()
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressor.kt b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressor.kt
+index efa9042..bd44863 100644
+--- a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressor.kt
++++ b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressor.kt
+@@ -31,6 +31,7 @@ import io.element.android.libraries.androidutils.file.createTmpFile
+ import io.element.android.libraries.androidutils.file.safeDelete
+ import io.element.android.libraries.core.extensions.runCatchingExceptions
+ import io.element.android.libraries.di.ApplicationContext
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.channels.awaitClose
+ import kotlinx.coroutines.delay
+@@ -47,12 +48,17 @@ class VideoCompressor @Inject constructor(
+     @ApplicationContext private val context: Context,
+ ) {
+     @OptIn(UnstableApi::class)
+-    fun compress(uri: Uri, shouldBeCompressed: Boolean): Flow<VideoTranscodingEvent> = callbackFlow {
++    fun compress(
++        uri: Uri,
++        shouldBeCompressed: Boolean,
++        videoCompressionPreset: VideoCompressionPreset? = null,
++    ): Flow<VideoTranscodingEvent> = callbackFlow {
+         val metadata = getVideoMetadata(uri)
+ 
+         val videoCompressorConfig = VideoCompressorConfigFactory.create(
+             metadata = metadata,
+-            shouldBeCompressed = shouldBeCompressed
++            shouldBeCompressed = shouldBeCompressed,
++            videoCompressionPreset = videoCompressionPreset,
+         )
+ 
+         val tmpFile = context.createTmpFile(extension = "mp4")
+@@ -195,4 +201,4 @@ internal data class VideoFileMetadata(
+ sealed interface VideoTranscodingEvent {
+     data class Progress(val value: Float) : VideoTranscodingEvent
+     data class Completed(val file: File) : VideoTranscodingEvent
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressorConfig.kt b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressorConfig.kt
+index b3b0e66..6492074 100644
+--- a/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressorConfig.kt
++++ b/libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressorConfig.kt
+@@ -11,6 +11,7 @@ import androidx.annotation.OptIn
+ import androidx.media3.common.util.Size
+ import androidx.media3.common.util.UnstableApi
+ import androidx.media3.transformer.VideoEncoderSettings
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
+ import kotlin.math.min
+ import kotlin.math.roundToInt
+ 
+@@ -27,13 +28,17 @@ internal object VideoCompressorConfigFactory {
+     fun create(
+         metadata: VideoFileMetadata?,
+         shouldBeCompressed: Boolean,
++        videoCompressionPreset: VideoCompressionPreset? = null,
+     ): VideoCompressorConfig {
+         val width = metadata?.width?.takeIf { it >= 0 } ?: Int.MAX_VALUE
+         val height = metadata?.height?.takeIf { it >= 0 } ?: Int.MAX_VALUE
+         val originalBitrate = metadata?.bitrate?.takeIf { it >= 0 }
+         val originalFrameRate = metadata?.frameRate?.takeIf { it >= 0 } ?: DEFAULT_FRAME_RATE
+ 
+-        // We only create a resizer if needed
++        // When a preset is provided we transcode at the preset's target bitrate.
++        // Otherwise we fall back to the legacy behaviour: rescale larger-than-720p
++        // videos to MAX_COMPRESSED_PIXEL_SIZE when shouldBeCompressed=true, else
++        // rescale only the videos that exceed 1080p to MAX_PIXEL_SIZE.
+         val resizer = when {
+             shouldBeCompressed && (width > MAX_COMPRESSED_PIXEL_SIZE || height > MAX_COMPRESSED_PIXEL_SIZE) -> VideoResizer(MAX_COMPRESSED_PIXEL_SIZE)
+             width > MAX_PIXEL_SIZE || height > MAX_PIXEL_SIZE -> VideoResizer(MAX_PIXEL_SIZE)
+@@ -47,17 +52,20 @@ internal object VideoCompressorConfigFactory {
+             originalFrameRate
+         }
+ 
+-        // If we need to resize the video, we also want to recalculate the bitrate
+-        val newBitrate = if (resizer is VideoResizer) {
+-            val maxSize = resizer.getOutputSize(Size(width, height))
+-            val pixelsPerFrame = maxSize.width * maxSize.height
+-            val frameRate = newFrameRate
+-            // Apparently, 0.1 bits per pixel is a sweet spot for video compression
+-            val bitsPerPixel = 0.1f
++        // If we need to resize the video, we also want to recalculate the bitrate.
++        // When a preset is provided, we always honour the preset's bitrate.
++        val newBitrate = when {
++            videoCompressionPreset != null -> videoCompressionPreset.bitrate
++            resizer is VideoResizer -> {
++                val maxSize = resizer.getOutputSize(Size(width, height))
++                val pixelsPerFrame = maxSize.width * maxSize.height
++                val frameRate = newFrameRate
++                // Apparently, 0.1 bits per pixel is a sweet spot for video compression
++                val bitsPerPixel = 0.1f
+ 
+-            (pixelsPerFrame * bitsPerPixel * frameRate).toLong()
+-        } else {
+-            originalBitrate
++                (pixelsPerFrame * bitsPerPixel * frameRate).toLong()
++            }
++            else -> originalBitrate
+         }
+ 
+         return VideoCompressorConfig(
+@@ -94,4 +102,4 @@ internal class VideoResizer(
+ internal fun Size.major(): Int = if (width > height) width else height
+ 
+ @OptIn(UnstableApi::class)
+-internal fun Size.minor(): Int = if (width < height) width else height
++internal fun Size.minor(): Int = if (width < height) width else height
+\ No newline at end of file
+diff --git a/libraries/mediaupload/impl/src/test/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessorTest.kt b/libraries/mediaupload/impl/src/test/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessorTest.kt
+index 7f2f8b0..855cff0 100644
+--- a/libraries/mediaupload/impl/src/test/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessorTest.kt
++++ b/libraries/mediaupload/impl/src/test/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessorTest.kt
+@@ -41,7 +41,7 @@ import kotlin.time.Duration
+ class AndroidMediaPreProcessorTest {
+     private suspend fun TestScope.process(
+         asset: Asset,
+-        compressIfPossible: Boolean,
++        optimizeImages: Boolean,
+         sdkIntVersion: Int = Build.VERSION_CODES.P,
+         deleteOriginal: Boolean = false,
+     ): MediaUploadInfo {
+@@ -57,7 +57,8 @@ class AndroidMediaPreProcessorTest {
+             uri = file.toUri(),
+             mimeType = asset.mimeType,
+             deleteOriginal = deleteOriginal,
+-            compressIfPossible = compressIfPossible,
++            optimizeImages = optimizeImages,
++            videoCompressionPreset = null,
+         )
+         val data = result.getOrThrow()
+         assertThat(data.file.path).endsWith(asset.filename)
+@@ -70,7 +71,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing png`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImagePng,
+-            compressIfPossible = true,
++            optimizeImages = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+         assertThat(info.thumbnailFile).isNotNull()
+@@ -91,7 +92,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing png api Q`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImagePng,
+-            compressIfPossible = true,
++            optimizeImages = true,
+             sdkIntVersion = Build.VERSION_CODES.Q,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+@@ -114,7 +115,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing png no compression`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImagePng,
+-            compressIfPossible = false,
++            optimizeImages = false,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+         assertThat(info.thumbnailFile).isNotNull()
+@@ -136,7 +137,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing png and delete`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImagePng,
+-            compressIfPossible = false,
++            optimizeImages = false,
+             deleteOriginal = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+@@ -161,7 +162,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing jpeg`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImageJpeg,
+-            compressIfPossible = true,
++            optimizeImages = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+         assertThat(info.thumbnailFile).isNotNull()
+@@ -182,7 +183,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing jpeg api Q`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImageJpeg,
+-            compressIfPossible = true,
++            optimizeImages = true,
+             sdkIntVersion = Build.VERSION_CODES.Q,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+@@ -205,7 +206,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing jpeg no compression`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImageJpeg,
+-            compressIfPossible = false,
++            optimizeImages = false,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+         assertThat(info.thumbnailFile).isNotNull()
+@@ -227,7 +228,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing jpeg and delete`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetImageJpeg,
+-            compressIfPossible = false,
++            optimizeImages = false,
+             deleteOriginal = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+@@ -252,7 +253,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing gif`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetAnimatedGif,
+-            compressIfPossible = true,
++            optimizeImages = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Image
+         assertThat(info.thumbnailFile).isNotNull()
+@@ -273,7 +274,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing file`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetText,
+-            compressIfPossible = true,
++            optimizeImages = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.AnyFile
+         assertThat(info.fileInfo).isEqualTo(
+@@ -291,7 +292,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing video`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetVideo,
+-            compressIfPossible = true,
++            optimizeImages = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Video
+         assertThat(info.thumbnailFile).isNotNull()
+@@ -315,7 +316,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing video no compression`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetVideo,
+-            compressIfPossible = false,
++            optimizeImages = false,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Video
+         // Computing thumbnailFile is failing with Robolectric
+@@ -341,7 +342,7 @@ class AndroidMediaPreProcessorTest {
+     fun `test processing audio`() = runTest {
+         val mediaUploadInfo = process(
+             asset = assetAudio,
+-            compressIfPossible = true,
++            optimizeImages = true,
+         )
+         val info = mediaUploadInfo as MediaUploadInfo.Audio
+         assertThat(info.audioInfo).isEqualTo(
+@@ -363,7 +364,8 @@ class AndroidMediaPreProcessorTest {
+             uri = file.toUri(),
+             mimeType = MimeTypes.PlainText,
+             deleteOriginal = false,
+-            compressIfPossible = true,
++            optimizeImages = true,
++            videoCompressionPreset = null,
+         )
+         assertThat(result.isFailure).isTrue()
+         val failure = result.exceptionOrNull()
+diff --git a/libraries/mediaupload/test/build.gradle.kts b/libraries/mediaupload/test/build.gradle.kts
+index 23a5f9a..c8e05a6 100644
+--- a/libraries/mediaupload/test/build.gradle.kts
++++ b/libraries/mediaupload/test/build.gradle.kts
+@@ -17,4 +17,5 @@ dependencies {
+     api(projects.libraries.mediaupload.api)
+     implementation(projects.libraries.core)
+     implementation(projects.tests.testutils)
++    implementation(libs.coroutines.core)
+ }
+diff --git a/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeMediaPreProcessor.kt b/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeMediaPreProcessor.kt
+index 87b739d..10189b6 100644
+--- a/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeMediaPreProcessor.kt
++++ b/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeMediaPreProcessor.kt
+@@ -15,6 +15,7 @@ import io.element.android.libraries.matrix.api.media.ImageInfo
+ import io.element.android.libraries.matrix.api.media.VideoInfo
+ import io.element.android.libraries.mediaupload.api.MediaPreProcessor
+ import io.element.android.libraries.mediaupload.api.MediaUploadInfo
++import io.element.android.libraries.mediaupload.api.VideoCompressionPreset
+ import io.element.android.tests.testutils.simulateLongTask
+ import kotlinx.coroutines.CompletableDeferred
+ import java.io.File
+@@ -29,6 +30,12 @@ class FakeMediaPreProcessor(
+     var cleanUpCallCount = 0
+         private set
+ 
++    var lastOptimizeImages: Boolean? = null
++        private set
++
++    var lastVideoCompressionPreset: VideoCompressionPreset? = null
++        private set
++
+     private var result: Result<MediaUploadInfo> = Result.success(
+         MediaUploadInfo.AnyFile(
+             File("test"),
+@@ -45,10 +52,13 @@ class FakeMediaPreProcessor(
+         uri: Uri,
+         mimeType: String,
+         deleteOriginal: Boolean,
+-        compressIfPossible: Boolean
++        optimizeImages: Boolean,
++        videoCompressionPreset: VideoCompressionPreset?,
+     ): Result<MediaUploadInfo> = simulateLongTask {
+         processLatch?.await()
+         processCallCount++
++        lastOptimizeImages = optimizeImages
++        lastVideoCompressionPreset = videoCompressionPreset
+         result
+     }
+ 
+@@ -115,4 +125,4 @@ class FakeMediaPreProcessor(
+     override fun cleanUp() {
+         cleanUpCallCount += 1
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeMediaUploadMaxSizeProvider.kt b/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeMediaUploadMaxSizeProvider.kt
+new file mode 100644
+index 0000000..6bd3824
+--- /dev/null
++++ b/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeMediaUploadMaxSizeProvider.kt
+@@ -0,0 +1,32 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.test
++
++import io.element.android.libraries.mediaupload.api.MediaUploadMaxSizeProvider
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++class FakeMediaUploadMaxSizeProvider(
++    initial: Long? = null,
++    private val ensureLoadedBlock: () -> Unit = {},
++) : MediaUploadMaxSizeProvider {
++    private val _maxUploadSize = MutableStateFlow(initial)
++    override val maxUploadSize: StateFlow<Long?> = _maxUploadSize.asStateFlow()
++    var ensureLoadedCallCount = 0
++        private set
++
++    override fun ensureLoaded() {
++        ensureLoadedCallCount++
++        ensureLoadedBlock()
++    }
++
++    fun givenMaxUploadSize(value: Long?) {
++        _maxUploadSize.value = value
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeVideoMetadataExtractor.kt b/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeVideoMetadataExtractor.kt
+new file mode 100644
+index 0000000..fb38f4a
+--- /dev/null
++++ b/libraries/mediaupload/test/src/main/kotlin/io/element/android/libraries/mediaupload/test/FakeVideoMetadataExtractor.kt
+@@ -0,0 +1,29 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.mediaupload.test
++
++import android.net.Uri
++import io.element.android.libraries.mediaupload.api.VideoMetadata
++import io.element.android.libraries.mediaupload.api.VideoMetadataExtractor
++import io.element.android.tests.testutils.simulateLongTask
++import kotlin.time.Duration.Companion.seconds
++
++class FakeVideoMetadataExtractor(
++    private val duration: kotlin.time.Duration = 0.seconds,
++) : VideoMetadataExtractor {
++    var extractCallCount = 0
++        private set
++    var lastUri: Uri? = null
++        private set
++
++    override suspend fun extract(uri: Uri): VideoMetadata = simulateLongTask {
++        extractCallCount++
++        lastUri = uri
++        VideoMetadata(duration = duration)
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/SessionPreferencesStore.kt b/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/SessionPreferencesStore.kt
+index 47fb86a..50bb57d 100644
+--- a/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/SessionPreferencesStore.kt
++++ b/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/SessionPreferencesStore.kt
+@@ -31,5 +31,19 @@ interface SessionPreferencesStore {
+     suspend fun setCompressMedia(compress: Boolean)
+     fun doesCompressMedia(): Flow<Boolean>
+ 
++    /**
++     * Persist whether image compression (resize/transcode) is enabled for image
++     * attachments. Defaults to `true` when no value has been stored.
++     */
++    suspend fun setOptimizeImages(optimize: Boolean)
++    fun optimizeImages(): Flow<Boolean>
++
++    /**
++     * Persist the user's selected video compression preset. Defaults to
++     * [VideoCompressionPreset.STANDARD] when no value has been stored.
++     */
++    suspend fun setVideoCompressionPreset(preset: VideoCompressionPreset)
++    fun videoCompressionPreset(): Flow<VideoCompressionPreset>
++
+     suspend fun clear()
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/VideoCompressionPreset.kt b/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/VideoCompressionPreset.kt
+new file mode 100644
+index 0000000..4f61236
+--- /dev/null
++++ b/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/VideoCompressionPreset.kt
+@@ -0,0 +1,33 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.preferences.api.store
++
++import kotlin.time.Duration
++
++/**
++ * Video compression presets offered to the user before sending a video attachment.
++ *
++ * Each preset has a target bitrate (in bits per second). The estimated size is then
++ * computed as `bitrate * duration / 8` and compared to the homeserver upload limit.
++ *
++ * `canUpload` for a preset is `true` if `estimatedSizeBytes <= maxUploadSize`.
++ */
++enum class VideoCompressionPreset(
++    val bitrate: Int,
++) {
++    LOW(bitrate = 1_000_000),
++    STANDARD(bitrate = 4_000_000),
++    HIGH(bitrate = 8_000_000);
++
++    companion object {
++        /**
++         * The default preset selected when no preference has been stored yet.
++         */
++        val DEFAULT: VideoCompressionPreset = STANDARD
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/VideoCompressionPresetInfo.kt b/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/VideoCompressionPresetInfo.kt
+new file mode 100644
+index 0000000..796b647
+--- /dev/null
++++ b/libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/VideoCompressionPresetInfo.kt
+@@ -0,0 +1,42 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.libraries.preferences.api.store
++
++import kotlin.time.Duration
++
++/**
++ * Estimated output info for a [VideoCompressionPreset].
++ *
++ * @param preset the preset being described
++ * @param estimatedSizeBytes the expected encoded output size in bytes. `null` when the
++ *   duration is unknown so the presenter cannot fabricate a sendable size.
++ * @param canUpload `true` when the estimated size is within the homeserver upload
++ *   limit (inclusive comparison). When [estimatedSizeBytes] is `null`, this is `false`
++ *   because the client cannot prove the output would fit.
++ */
++data class VideoCompressionPresetInfo(
++    val preset: VideoCompressionPreset,
++    val estimatedSizeBytes: Long?,
++    val canUpload: Boolean,
++) {
++    companion object {
++        /**
++         * Compute the estimated output size in bytes for a given [bitrate] and [duration].
++         *
++         * Returns `null` if either the bitrate or the duration is unknown or non-positive,
++         * so callers can avoid fabricating a sendable size.
++         */
++        fun estimateSizeBytes(bitrate: Int, duration: Duration?): Long? {
++            val seconds = duration?.inWholeSeconds ?: return null
++            if (seconds <= 0L) return null
++            if (bitrate <= 0) return null
++            // bytes = bitrate * seconds / 8
++            return bitrate.toLong() * seconds / 8L
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/libraries/preferences/impl/src/main/kotlin/io/element/android/libraries/preferences/impl/store/DefaultSessionPreferencesStore.kt b/libraries/preferences/impl/src/main/kotlin/io/element/android/libraries/preferences/impl/store/DefaultSessionPreferencesStore.kt
+index 4b9363d..64b9170 100644
+--- a/libraries/preferences/impl/src/main/kotlin/io/element/android/libraries/preferences/impl/store/DefaultSessionPreferencesStore.kt
++++ b/libraries/preferences/impl/src/main/kotlin/io/element/android/libraries/preferences/impl/store/DefaultSessionPreferencesStore.kt
+@@ -12,11 +12,13 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+ import androidx.datastore.preferences.core.Preferences
+ import androidx.datastore.preferences.core.booleanPreferencesKey
+ import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.stringPreferencesKey
+ import androidx.datastore.preferences.preferencesDataStoreFile
+ import io.element.android.libraries.androidutils.file.safeDelete
+ import io.element.android.libraries.androidutils.hash.hash
+ import io.element.android.libraries.di.annotations.SessionCoroutineScope
+ import io.element.android.libraries.matrix.api.core.SessionId
++import io.element.android.libraries.preferences.api.store.VideoCompressionPreset
+ import io.element.android.libraries.preferences.api.store.SessionPreferencesStore
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.flow.Flow
+@@ -42,6 +44,8 @@ class DefaultSessionPreferencesStore(
+     private val renderTypingNotificationsKey = booleanPreferencesKey("renderTypingNotifications")
+     private val skipSessionVerification = booleanPreferencesKey("skipSessionVerification")
+     private val compressMedia = booleanPreferencesKey("compressMedia")
++    private val optimizeImages = booleanPreferencesKey("optimizeImages")
++    private val videoCompressionPreset = stringPreferencesKey("videoCompressionPreset")
+ 
+     private val dataStoreFile = storeFile(context, sessionId)
+     private val store = PreferenceDataStoreFactory.create(
+@@ -85,6 +89,22 @@ class DefaultSessionPreferencesStore(
+     override suspend fun setCompressMedia(compress: Boolean) = update(compressMedia, compress)
+     override fun doesCompressMedia(): Flow<Boolean> = get(compressMedia) { true }
+ 
++    override suspend fun setOptimizeImages(optimize: Boolean) = update(optimizeImages, optimize)
++    override fun optimizeImages(): Flow<Boolean> = get(optimizeImages) { true }
++
++    override suspend fun setVideoCompressionPreset(preset: VideoCompressionPreset) {
++        update(videoCompressionPreset, preset.name)
++    }
++
++    override fun videoCompressionPreset(): Flow<VideoCompressionPreset> = get(videoCompressionPreset) {
++        VideoCompressionPreset.DEFAULT.name
++    }.map { storedName ->
++        // If the stored value is missing, return the default; if it does not match any
++        // known preset (e.g. removed in a future build), fall back to the default rather
++        // than fabricating a value.
++        runCatching { VideoCompressionPreset.valueOf(storedName) }.getOrDefault(VideoCompressionPreset.DEFAULT)
++    }
++
+     override suspend fun clear() {
+         dataStoreFile.safeDelete()
+     }
+@@ -96,4 +116,4 @@ class DefaultSessionPreferencesStore(
+     private fun <T> get(key: Preferences.Key<T>, default: () -> T): Flow<T> {
+         return store.data.map { prefs -> prefs[key] ?: default() }
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/preferences/test/src/main/kotlin/io/element/android/libraries/preferences/test/InMemorySessionPreferencesStore.kt b/libraries/preferences/test/src/main/kotlin/io/element/android/libraries/preferences/test/InMemorySessionPreferencesStore.kt
+index 15b9315..04fd870 100644
+--- a/libraries/preferences/test/src/main/kotlin/io/element/android/libraries/preferences/test/InMemorySessionPreferencesStore.kt
++++ b/libraries/preferences/test/src/main/kotlin/io/element/android/libraries/preferences/test/InMemorySessionPreferencesStore.kt
+@@ -7,6 +7,7 @@
+ 
+ package io.element.android.libraries.preferences.test
+ 
++import io.element.android.libraries.preferences.api.store.VideoCompressionPreset
+ import io.element.android.libraries.preferences.api.store.SessionPreferencesStore
+ import kotlinx.coroutines.flow.Flow
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -19,6 +20,8 @@ class InMemorySessionPreferencesStore(
+     isRenderTypingNotificationsEnabled: Boolean = true,
+     isSessionVerificationSkipped: Boolean = false,
+     doesCompressMedia: Boolean = true,
++    optimizeImages: Boolean = true,
++    videoCompressionPreset: VideoCompressionPreset = VideoCompressionPreset.DEFAULT,
+ ) : SessionPreferencesStore {
+     private val isSharePresenceEnabled = MutableStateFlow(isSharePresenceEnabled)
+     private val isSendPublicReadReceiptsEnabled = MutableStateFlow(isSendPublicReadReceiptsEnabled)
+@@ -27,6 +30,8 @@ class InMemorySessionPreferencesStore(
+     private val isRenderTypingNotificationsEnabled = MutableStateFlow(isRenderTypingNotificationsEnabled)
+     private val isSessionVerificationSkipped = MutableStateFlow(isSessionVerificationSkipped)
+     private val doesCompressMedia = MutableStateFlow(doesCompressMedia)
++    private val optimizeImages = MutableStateFlow(optimizeImages)
++    private val videoCompressionPreset = MutableStateFlow(videoCompressionPreset)
+     var clearCallCount = 0
+         private set
+ 
+@@ -72,8 +77,20 @@ class InMemorySessionPreferencesStore(
+ 
+     override fun doesCompressMedia(): Flow<Boolean> = doesCompressMedia
+ 
++    override suspend fun setOptimizeImages(optimize: Boolean) {
++        optimizeImages.emit(optimize)
++    }
++
++    override fun optimizeImages(): Flow<Boolean> = optimizeImages
++
++    override suspend fun setVideoCompressionPreset(preset: VideoCompressionPreset) {
++        videoCompressionPreset.emit(preset)
++    }
++
++    override fun videoCompressionPreset(): Flow<VideoCompressionPreset> = videoCompressionPreset
++
+     override suspend fun clear() {
+         clearCallCount++
+         isSendPublicReadReceiptsEnabled.tryEmit(true)
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/libraries/ui-strings/src/main/res/values/localazy.xml b/libraries/ui-strings/src/main/res/values/localazy.xml
+index 430772a..4b46f73 100644
+--- a/libraries/ui-strings/src/main/res/values/localazy.xml
++++ b/libraries/ui-strings/src/main/res/values/localazy.xml
+@@ -380,10 +380,21 @@ Are you sure you want to continue?"</string>
+   <string name="screen_media_picker_error_failed_selection">"Failed selecting media, please try again."</string>
+   <string name="screen_media_upload_preview_caption_warning">"Captions might not be visible to people using older apps."</string>
+   <string name="screen_media_upload_preview_error_could_not_be_uploaded">"The file could not be uploaded."</string>
++  <string name="screen_media_upload_preview_image_optimization">"Optimize images"</string>
+   <string name="screen_media_upload_preview_error_failed_processing">"Failed processing media to upload, please try again."</string>
+   <string name="screen_media_upload_preview_error_failed_sending">"Failed uploading media, please try again."</string>
+   <string name="screen_media_upload_preview_error_too_large_message">"The maximum file size allowed is %1$s."</string>
+   <string name="screen_media_upload_preview_error_too_large_title">"The file is too large to upload"</string>
++  <string name="screen_media_upload_preview_video_quality_all_oversized">"This video is too large to upload. The server limit is %1$s, and every available quality preset exceeds it."</string>
++  <string name="screen_media_upload_preview_video_quality_change">"Change"</string>
++  <string name="screen_media_upload_preview_video_quality_dismiss">"Cancel"</string>
++  <string name="screen_media_upload_preview_video_quality_high">"High quality"</string>
++  <string name="screen_media_upload_preview_video_quality_label">"Video quality: %1$s"</string>
++  <string name="screen_media_upload_preview_video_quality_low">"Low quality"</string>
++  <string name="screen_media_upload_preview_video_quality_oversized">"(too large)"</string>
++  <string name="screen_media_upload_preview_video_quality_standard">"Standard quality"</string>
++  <string name="screen_media_upload_preview_video_quality_title">"Choose a video quality"</string>
++  <string name="screen_media_upload_preview_video_quality_unknown">"Estimating…"</string>
+   <string name="screen_pinned_timeline_empty_state_description">"Press on a message and choose “%1$s” to include here."</string>
+   <string name="screen_pinned_timeline_empty_state_headline">"Pin important messages so that they can be easily discovered"</string>
+   <plurals name="screen_pinned_timeline_screen_title">

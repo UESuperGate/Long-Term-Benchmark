@@ -1,0 +1,1068 @@
+diff --git a/entry/src/main/ets/features/SpaceModels.ets b/entry/src/main/ets/features/SpaceModels.ets
+new file mode 100644
+index 0000000..e91655a
+--- /dev/null
++++ b/entry/src/main/ets/features/SpaceModels.ets
+@@ -0,0 +1,72 @@
++export enum MembershipState {
++  NotMember = 0,
++  Member = 1
++}
++
++export enum JoinActionState {
++  Idle = 0,
++  Loading = 1,
++  Failure = 2,
++  Success = 3
++}
++
++export enum LeaveActionState {
++  Idle = 0,
++  Loading = 1,
++  Failure = 2,
++  Success = 3
++}
++
++export enum InviteHandlingState {
++  Pending = 0,
++  Accepted = 1,
++  Declined = 2
++}
++
++export class SpaceSummary {
++  spaceId: string;
++  name: string;
++
++  constructor(spaceId: string, name: string) {
++    this.spaceId = spaceId;
++    this.name = name;
++  }
++}
++
++export class SpaceChildSummary {
++  roomId: string;
++  name: string;
++  isDirect: boolean;
++  isLastAdmin: boolean;
++
++  constructor(roomId: string, name: string, isDirect: boolean = false, isLastAdmin: boolean = false) {
++    this.roomId = roomId;
++    this.name = name;
++    this.isDirect = isDirect;
++    this.isLastAdmin = isLastAdmin;
++  }
++}
++
++export class SpaceInviteSummary {
++  spaceId: string;
++  inviter: string;
++  isInviteSeen: boolean;
++
++  constructor(spaceId: string, inviter: string = '', isInviteSeen: boolean = false) {
++    this.spaceId = spaceId;
++    this.inviter = inviter;
++    this.isInviteSeen = isInviteSeen;
++  }
++}
++
++export class SpaceLeaveOption {
++  roomId: string;
++  name: string;
++  isLastAdmin: boolean;
++
++  constructor(roomId: string, name: string, isLastAdmin: boolean = false) {
++    this.roomId = roomId;
++    this.name = name;
++    this.isLastAdmin = isLastAdmin;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/SpacesPresenter.ets b/entry/src/main/ets/features/SpacesPresenter.ets
+new file mode 100644
+index 0000000..0563014
+--- /dev/null
++++ b/entry/src/main/ets/features/SpacesPresenter.ets
+@@ -0,0 +1,429 @@
++import {
++  SpaceSummary,
++  SpaceChildSummary,
++  SpaceInviteSummary,
++  SpaceLeaveOption,
++  MembershipState,
++  JoinActionState,
++  LeaveActionState,
++  InviteHandlingState
++} from './SpaceModels';
++
++export interface JoinRoomApi {
++  joinRoom(roomId: string): boolean;
++}
++
++export interface LeaveSpaceApi {
++  leaveSpace(spaceId: string, roomIds: string[]): boolean;
++}
++
++class DefaultJoinRoomApi implements JoinRoomApi {
++  joinRoom(_roomId: string): boolean {
++    return true;
++  }
++}
++
++class DefaultLeaveSpaceApi implements LeaveSpaceApi {
++  leaveSpace(_spaceId: string, _roomIds: string[]): boolean {
++    return true;
++  }
++}
++
++export type SpacesStateListener = () => void;
++
++export class SpacesPresenter {
++  joinRoomApi: JoinRoomApi = new DefaultJoinRoomApi();
++  leaveSpaceApi: LeaveSpaceApi = new DefaultLeaveSpaceApi();
++
++  private listeners: SpacesStateListener[] = [];
++
++  subscribe(listener: SpacesStateListener): void {
++    if (this.listeners.indexOf(listener) < 0) {
++      this.listeners.push(listener);
++    }
++  }
++
++  unsubscribe(listener: SpacesStateListener): void {
++    const idx = this.listeners.indexOf(listener);
++    if (idx >= 0) {
++      this.listeners.splice(idx, 1);
++    }
++  }
++
++  private notify(): void {
++    for (let i = 0; i < this.listeners.length; i++) {
++      const listener = this.listeners[i];
++      listener();
++    }
++  }
++
++  joinedSpaces: SpaceSummary[] = [
++    new SpaceSummary('!acme', 'Acme Space'),
++    new SpaceSummary('!engineering', 'Engineering Space')
++  ];
++  selectedSpaceId: string = '';
++
++  spaceChildren: Map<string, SpaceChildSummary[]> = new Map<string, SpaceChildSummary[]>([
++    ['!acme', [
++      new SpaceChildSummary('!acme:design', 'Design', false, false),
++      new SpaceChildSummary('!acme:eng', 'Engineering', false, true),
++      new SpaceChildSummary('!acme:dm', 'Direct Chat', true, false)
++    ]],
++    ['!engineering', [
++      new SpaceChildSummary('!engineering:backend', 'Backend', false, false),
++      new SpaceChildSummary('!engineering:frontend', 'Frontend', false, false)
++    ]]
++  ]);
++  childrenHasMore: Map<string, boolean> = new Map<string, boolean>([
++    ['!acme', true],
++    ['!engineering', false]
++  ]);
++  paginationLoading: Map<string, boolean> = new Map<string, boolean>();
++
++  joinActions: Map<string, JoinActionState> = new Map<string, JoinActionState>();
++  memberships: Map<string, MembershipState> = new Map<string, MembershipState>();
++
++  spaceInvites: SpaceInviteSummary[] = [
++    new SpaceInviteSummary('!invited', '!alice', false)
++  ];
++  inviteSeen: Set<string> = new Set<string>();
++  inviteHandling: Map<string, InviteHandlingState> = new Map<string, InviteHandlingState>();
++
++  leaveState: Map<string, LeaveActionState> = new Map<string, LeaveActionState>();
++  eligibleLeaveRooms: Map<string, SpaceLeaveOption[]> = new Map<string, SpaceLeaveOption[]>();
++  lastAdminRooms: Set<string> = new Set<string>();
++  selectedLeaveRooms: Map<string, Set<string>> = new Map<string, Set<string>>();
++  leaveDialogOpen: Map<string, boolean> = new Map<string, boolean>();
++
++  openSpace(spaceId: string): void {
++    this.selectedSpaceId = spaceId;
++    this.notify();
++  }
++
++  closeSpace(): void {
++    this.selectedSpaceId = '';
++    this.notify();
++  }
++
++  loadMoreChildren(spaceId: string, page: SpaceChildSummary[]): void {
++    if (this.paginationLoading.get(spaceId)) {
++      return;
++    }
++    this.paginationLoading.set(spaceId, true);
++    this.notify();
++
++    const existing = this.spaceChildren.get(spaceId);
++    if (existing === undefined) {
++      const fresh: SpaceChildSummary[] = [];
++      for (let i = 0; i < page.length; i++) {
++        fresh.push(page[i]);
++      }
++      this.spaceChildren.set(spaceId, fresh);
++    } else {
++      const seen: Set<string> = new Set<string>();
++      const merged: SpaceChildSummary[] = [];
++      for (let i = 0; i < existing.length; i++) {
++        const child = existing[i];
++        merged.push(child);
++        seen.add(child.roomId);
++      }
++      for (let i = 0; i < page.length; i++) {
++        const child = page[i];
++        if (!seen.has(child.roomId)) {
++          merged.push(child);
++          seen.add(child.roomId);
++        }
++      }
++      this.spaceChildren.set(spaceId, merged);
++    }
++    this.paginationLoading.set(spaceId, false);
++    this.notify();
++  }
++
++  setChildrenHasMore(spaceId: string, hasMore: boolean): void {
++    this.childrenHasMore.set(spaceId, hasMore);
++    this.notify();
++  }
++
++  setSpaceChildren(spaceId: string, children: SpaceChildSummary[]): void {
++    this.spaceChildren.set(spaceId, children);
++    this.notify();
++  }
++
++  joinChild(roomId: string): void {
++    this.joinActions.set(roomId, JoinActionState.Loading);
++    this.notify();
++
++    let ok = false;
++    try {
++      ok = this.joinRoomApi.joinRoom(roomId);
++    } catch (e) {
++      ok = false;
++    }
++
++    if (ok) {
++      this.joinActions.set(roomId, JoinActionState.Success);
++      this.memberships.set(roomId, MembershipState.Member);
++    } else {
++      this.joinActions.set(roomId, JoinActionState.Failure);
++    }
++    this.notify();
++  }
++
++  clearJoinFailure(roomId: string): void {
++    const cur = this.joinActions.get(roomId);
++    if (cur === JoinActionState.Failure) {
++      this.joinActions.set(roomId, JoinActionState.Idle);
++      this.notify();
++    }
++  }
++
++  resetJoinState(roomId: string): void {
++    this.joinActions.set(roomId, JoinActionState.Idle);
++    this.memberships.set(roomId, MembershipState.NotMember);
++    this.notify();
++  }
++
++  acceptInvite(spaceId: string): void {
++    this.inviteHandling.set(spaceId, InviteHandlingState.Accepted);
++    this.inviteSeen.add(spaceId);
++
++    const filtered: SpaceInviteSummary[] = [];
++    for (let i = 0; i < this.spaceInvites.length; i++) {
++      const invite = this.spaceInvites[i];
++      if (invite.spaceId !== spaceId) {
++        filtered.push(invite);
++      }
++    }
++    this.spaceInvites = filtered;
++
++    let alreadyJoined = false;
++    for (let i = 0; i < this.joinedSpaces.length; i++) {
++      if (this.joinedSpaces[i].spaceId === spaceId) {
++        alreadyJoined = true;
++        break;
++      }
++    }
++    if (!alreadyJoined) {
++      const next: SpaceSummary[] = [];
++      for (let i = 0; i < this.joinedSpaces.length; i++) {
++        next.push(this.joinedSpaces[i]);
++      }
++      next.push(new SpaceSummary(spaceId, spaceId));
++      this.joinedSpaces = next;
++    }
++    this.notify();
++  }
++
++  declineInvite(spaceId: string): void {
++    this.inviteHandling.set(spaceId, InviteHandlingState.Declined);
++    this.inviteSeen.add(spaceId);
++
++    const filtered: SpaceInviteSummary[] = [];
++    for (let i = 0; i < this.spaceInvites.length; i++) {
++      const invite = this.spaceInvites[i];
++      if (invite.spaceId !== spaceId) {
++        filtered.push(invite);
++      }
++    }
++    this.spaceInvites = filtered;
++    this.notify();
++  }
++
++  markInviteSeen(spaceId: string): void {
++    this.inviteSeen.add(spaceId);
++    const updated: SpaceInviteSummary[] = [];
++    for (let i = 0; i < this.spaceInvites.length; i++) {
++      const invite = this.spaceInvites[i];
++      if (invite.spaceId === spaceId) {
++        updated.push(new SpaceInviteSummary(invite.spaceId, invite.inviter, true));
++      } else {
++        updated.push(invite);
++      }
++    }
++    this.spaceInvites = updated;
++    this.notify();
++  }
++
++  openLeaveSpace(spaceId: string): void {
++    const children = this.spaceChildren.get(spaceId);
++    const eligible: SpaceLeaveOption[] = [];
++    if (children !== undefined) {
++      for (let i = 0; i < children.length; i++) {
++        const c = children[i];
++        if (c.isDirect) {
++          continue;
++        }
++        eligible.push(new SpaceLeaveOption(c.roomId, c.name, c.isLastAdmin));
++        if (c.isLastAdmin) {
++          this.lastAdminRooms.add(c.roomId);
++        }
++      }
++    }
++    this.eligibleLeaveRooms.set(spaceId, eligible);
++
++    const defaultSelected: Set<string> = new Set<string>();
++    for (let i = 0; i < eligible.length; i++) {
++      const option = eligible[i];
++      if (!option.isLastAdmin) {
++        defaultSelected.add(option.roomId);
++      }
++    }
++    this.selectedLeaveRooms.set(spaceId, defaultSelected);
++    this.leaveState.set(spaceId, LeaveActionState.Idle);
++    this.leaveDialogOpen.set(spaceId, true);
++    this.notify();
++  }
++
++  closeLeaveSpace(spaceId: string): void {
++    this.leaveDialogOpen.set(spaceId, false);
++    this.leaveState.set(spaceId, LeaveActionState.Idle);
++    this.notify();
++  }
++
++  deselectAllLeave(spaceId: string): void {
++    this.selectedLeaveRooms.set(spaceId, new Set<string>());
++    this.notify();
++  }
++
++  selectAllLeave(spaceId: string): void {
++    const eligible = this.eligibleLeaveRooms.get(spaceId);
++    const filtered: Set<string> = new Set<string>();
++    if (eligible !== undefined) {
++      for (let i = 0; i < eligible.length; i++) {
++        const option = eligible[i];
++        if (this.lastAdminRooms.has(option.roomId)) {
++          continue;
++        }
++        filtered.add(option.roomId);
++      }
++    }
++    this.selectedLeaveRooms.set(spaceId, filtered);
++    this.notify();
++  }
++
++  toggleLeaveRoom(spaceId: string, roomId: string): void {
++    if (this.lastAdminRooms.has(roomId)) {
++      return;
++    }
++    const eligible = this.eligibleLeaveRooms.get(spaceId);
++    if (eligible === undefined) {
++      return;
++    }
++    let inEligible = false;
++    for (let i = 0; i < eligible.length; i++) {
++      if (eligible[i].roomId === roomId) {
++        inEligible = true;
++        break;
++      }
++    }
++    if (!inEligible) {
++      return;
++    }
++    const selected = this.selectedLeaveRooms.get(spaceId);
++    const next: Set<string> = selected === undefined ? new Set<string>() : new Set<string>(selected);
++    if (next.has(roomId)) {
++      next.delete(roomId);
++    } else {
++      next.add(roomId);
++    }
++    this.selectedLeaveRooms.set(spaceId, next);
++    this.notify();
++  }
++
++  confirmLeave(spaceId: string): void {
++    const selected = this.selectedLeaveRooms.get(spaceId);
++    const roomIds: string[] = [];
++    if (selected !== undefined) {
++      selected.forEach((roomId: string) => {
++        roomIds.push(roomId);
++      });
++    }
++
++    this.leaveState.set(spaceId, LeaveActionState.Loading);
++    this.notify();
++
++    let ok = false;
++    try {
++      ok = this.leaveSpaceApi.leaveSpace(spaceId, roomIds);
++    } catch (e) {
++      ok = false;
++    }
++
++    if (ok) {
++      this.leaveState.set(spaceId, LeaveActionState.Success);
++      this.selectedLeaveRooms.set(spaceId, new Set<string>());
++    } else {
++      this.leaveState.set(spaceId, LeaveActionState.Failure);
++    }
++    this.notify();
++  }
++
++  getSelectedSpaceChildren(): SpaceChildSummary[] {
++    const list = this.spaceChildren.get(this.selectedSpaceId);
++    if (list === undefined) {
++      return [];
++    }
++    const copy: SpaceChildSummary[] = [];
++    for (let i = 0; i < list.length; i++) {
++      copy.push(list[i]);
++    }
++    return copy;
++  }
++
++  getJoinState(roomId: string): JoinActionState {
++    return this.joinActions.get(roomId) ?? JoinActionState.Idle;
++  }
++
++  getMembership(roomId: string): MembershipState {
++    return this.memberships.get(roomId) ?? MembershipState.NotMember;
++  }
++
++  getLeaveState(spaceId: string): LeaveActionState {
++    return this.leaveState.get(spaceId) ?? LeaveActionState.Idle;
++  }
++
++  hasMoreChildren(spaceId: string): boolean {
++    return this.childrenHasMore.get(spaceId) ?? false;
++  }
++
++  isPaginationLoading(spaceId: string): boolean {
++    return this.paginationLoading.get(spaceId) ?? false;
++  }
++
++  isInviteSeen(spaceId: string): boolean {
++    return this.inviteSeen.has(spaceId);
++  }
++
++  getInviteHandlingState(spaceId: string): InviteHandlingState {
++    return this.inviteHandling.get(spaceId) ?? InviteHandlingState.Pending;
++  }
++
++  getEligibleLeaveRooms(spaceId: string): SpaceLeaveOption[] {
++    const list = this.eligibleLeaveRooms.get(spaceId);
++    if (list === undefined) {
++      return [];
++    }
++    const copy: SpaceLeaveOption[] = [];
++    for (let i = 0; i < list.length; i++) {
++      copy.push(list[i]);
++    }
++    return copy;
++  }
++
++  getSelectedLeaveRooms(spaceId: string): Set<string> {
++    const set = this.selectedLeaveRooms.get(spaceId);
++    if (set === undefined) {
++      return new Set<string>();
++    }
++    return new Set<string>(set);
++  }
++
++  isLastAdminRoom(roomId: string): boolean {
++    return this.lastAdminRooms.has(roomId);
++  }
++
++  isLeaveDialogOpen(spaceId: string): boolean {
++    return this.leaveDialogOpen.get(spaceId) ?? false;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index ec5fa00..159e5b6 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,10 +1,162 @@
+-import { HomeRoom, HomeRoomsPresenter } from '../features/HomeRoomsFeature';
++import {
++  SpaceSummary,
++  SpaceChildSummary,
++  SpaceInviteSummary,
++  SpaceLeaveOption,
++  MembershipState,
++  JoinActionState,
++  LeaveActionState,
++  InviteHandlingState
++} from '../features/SpaceModels';
++import { SpacesPresenter } from '../features/SpacesPresenter';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: HomeRoomsPresenter = new HomeRoomsPresenter();
+-  @State private selectedRoomId: string = '';
++  private presenter: SpacesPresenter = new SpacesPresenter();
++
++  @State private joinedSpaces: SpaceSummary[] = [];
++  @State private selectedSpaceId: string = '';
++  @State private currentChildren: SpaceChildSummary[] = [];
++  @State private hasMore: boolean = false;
++  @State private loadingMore: boolean = false;
++  @State private spaceInvites: SpaceInviteSummary[] = [];
++  @State private seenInvites: string[] = [];
++  @State private inviteHandling: Map<string, InviteHandlingState> = new Map<string, InviteHandlingState>();
++  @State private joinActions: Map<string, JoinActionState> = new Map<string, JoinActionState>();
++  @State private memberships: Map<string, MembershipState> = new Map<string, MembershipState>();
++  @State private leaveOpen: boolean = false;
++  @State private eligibleLeaveRooms: SpaceLeaveOption[] = [];
++  @State private lastAdminIds: Set<string> = new Set<string>();
++  @State private selectedLeaveIds: Set<string> = new Set<string>();
++  @State private leaveState: LeaveActionState = LeaveActionState.Idle;
++
++  aboutToAppear(): void {
++    const self = this;
++    const listener = (): void => {
++      self.refreshState();
++    };
++    this.presenter.subscribe(listener);
++    this.refreshState();
++  }
++
++  private refreshState(): void {
++    this.joinedSpaces = this.copySpaces(this.presenter.joinedSpaces);
++    this.selectedSpaceId = this.presenter.selectedSpaceId;
++    this.currentChildren = this.copyChildren(this.presenter.getSelectedSpaceChildren());
++    this.hasMore = this.presenter.hasMoreChildren(this.selectedSpaceId);
++    this.loadingMore = this.presenter.isPaginationLoading(this.selectedSpaceId);
++    this.spaceInvites = this.copyInvites(this.presenter.spaceInvites);
++    this.seenInvites = Array.from(this.presenter.inviteSeen);
++    this.inviteHandling = this.copyInviteHandling(this.presenter.inviteHandling);
++    this.joinActions = this.copyJoinActions(this.presenter.joinActions);
++    this.memberships = this.copyMemberships(this.presenter.memberships);
++
++    const spaceId = this.selectedSpaceId;
++    this.eligibleLeaveRooms = this.copyLeaveOptions(this.presenter.getEligibleLeaveRooms(spaceId));
++    this.selectedLeaveIds = this.presenter.getSelectedLeaveRooms(spaceId);
++    const lastAdminSet: Set<string> = new Set<string>();
++    for (let i = 0; i < this.eligibleLeaveRooms.length; i++) {
++      const option = this.eligibleLeaveRooms[i];
++      if (option.isLastAdmin) {
++        lastAdminSet.add(option.roomId);
++      }
++    }
++    this.lastAdminIds = lastAdminSet;
++    this.leaveState = this.presenter.getLeaveState(spaceId);
++    this.leaveOpen = this.presenter.isLeaveDialogOpen(spaceId);
++  }
++
++  private copySpaces(input: SpaceSummary[]): SpaceSummary[] {
++    const out: SpaceSummary[] = [];
++    for (let i = 0; i < input.length; i++) {
++      const s = input[i];
++      out.push(new SpaceSummary(s.spaceId, s.name));
++    }
++    return out;
++  }
++
++  private copyChildren(input: SpaceChildSummary[]): SpaceChildSummary[] {
++    const out: SpaceChildSummary[] = [];
++    for (let i = 0; i < input.length; i++) {
++      const c = input[i];
++      out.push(new SpaceChildSummary(c.roomId, c.name, c.isDirect, c.isLastAdmin));
++    }
++    return out;
++  }
++
++  private copyInvites(input: SpaceInviteSummary[]): SpaceInviteSummary[] {
++    const out: SpaceInviteSummary[] = [];
++    for (let i = 0; i < input.length; i++) {
++      const inv = input[i];
++      out.push(new SpaceInviteSummary(inv.spaceId, inv.inviter, inv.isInviteSeen));
++    }
++    return out;
++  }
++
++  private copyInviteHandling(input: Map<string, InviteHandlingState>): Map<string, InviteHandlingState> {
++    const out: Map<string, InviteHandlingState> = new Map<string, InviteHandlingState>();
++    input.forEach((value: InviteHandlingState, key: string) => {
++      out.set(key, value);
++    });
++    return out;
++  }
++
++  private copyJoinActions(input: Map<string, JoinActionState>): Map<string, JoinActionState> {
++    const out: Map<string, JoinActionState> = new Map<string, JoinActionState>();
++    input.forEach((value: JoinActionState, key: string) => {
++      out.set(key, value);
++    });
++    return out;
++  }
++
++  private copyMemberships(input: Map<string, MembershipState>): Map<string, MembershipState> {
++    const out: Map<string, MembershipState> = new Map<string, MembershipState>();
++    input.forEach((value: MembershipState, key: string) => {
++      out.set(key, value);
++    });
++    return out;
++  }
++
++  private copyLeaveOptions(input: SpaceLeaveOption[]): SpaceLeaveOption[] {
++    const out: SpaceLeaveOption[] = [];
++    for (let i = 0; i < input.length; i++) {
++      const opt = input[i];
++      out.push(new SpaceLeaveOption(opt.roomId, opt.name, opt.isLastAdmin));
++    }
++    return out;
++  }
++
++  private containsInSet(set: Set<string>, value: string): boolean {
++    let found = false;
++    set.forEach((v: string) => {
++      if (v === value) {
++        found = true;
++      }
++    });
++    return found;
++  }
++
++  private containsInMap(m: Map<string, Object>, key: string): boolean {
++    return m.has(key);
++  }
++
++  private containsInviteSeen(spaceId: string): boolean {
++    for (let i = 0; i < this.seenInvites.length; i++) {
++      if (this.seenInvites[i] === spaceId) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  private joinStateOf(roomId: string): JoinActionState {
++    return this.joinActions.get(roomId) ?? JoinActionState.Idle;
++  }
++
++  private membershipOf(roomId: string): MembershipState {
++    return this.memberships.get(roomId) ?? MembershipState.NotMember;
++  }
+ 
+   build() {
+     Column() {
+@@ -12,30 +164,368 @@ struct Index {
+         Text('Element X Home')
+           .fontSize(24)
+           .fontWeight(FontWeight.Bold)
+-        Text('Android v25.08.4 behavior: flat joined-room list')
++        Text('v25.10.0 Spaces lifecycle')
+           .fontSize(13)
+           .fontColor('#64748B')
+       }
+       .alignItems(HorizontalAlign.Start)
+-      .padding(20)
++      .padding({ left: 20, right: 20, top: 20, bottom: 12 })
+       .width('100%')
+       .backgroundColor('#FFFFFF')
+-      Column({ space: 12 }) {
+-        ForEach(this.presenter.rooms, (room: HomeRoom) => {
+-          Button(room.name)
+-            .width('100%')
++
++      Scroll() {
++        Column({ space: 16 }) {
++          this.InvitesSection()
++          this.SpacesSection()
++          if (this.selectedSpaceId.length > 0) {
++            this.ChildrenSection()
++          }
++          if (this.selectedSpaceId.length > 0 && this.leaveOpen) {
++            this.LeaveDialogSection()
++          }
++          if (this.selectedSpaceId.length > 0 && !this.leaveOpen) {
++            this.LeaveTriggerSection()
++          }
++        }
++        .padding(20)
++        .width('100%')
++      }
++      .layoutWeight(1)
++      .width('100%')
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  @Builder
++  InvitesSection() {
++    Column({ space: 8 }) {
++      Text('Invitations')
++        .fontSize(16)
++        .fontWeight(FontWeight.Bold)
++      if (this.spaceInvites.length === 0) {
++        Text('No outstanding invitations')
++          .fontSize(12)
++          .fontColor('#94A3B8')
++      }
++      ForEach(this.spaceInvites, (invite: SpaceInviteSummary) => {
++        Column({ space: 6 }) {
++          Row({ space: 8 }) {
++            Column({ space: 2 }) {
++              Text(`Invite to ${invite.spaceId}`)
++                .fontSize(14)
++                .fontWeight(FontWeight.Medium)
++              Text(`From ${invite.inviter}`)
++                .fontSize(11)
++                .fontColor('#64748B')
++              if (this.containsInviteSeen(invite.spaceId)) {
++                Text('Seen')
++                  .fontSize(11)
++                  .fontColor('#64748B')
++              }
++            }
++            .alignItems(HorizontalAlign.Start)
++            .layoutWeight(1)
++
++            Button('Accept')
++              .height(28)
++              .onClick(() => {
++                this.presenter.acceptInvite(invite.spaceId);
++              })
++            Button('Decline')
++              .height(28)
++              .onClick(() => {
++                this.presenter.declineInvite(invite.spaceId);
++              })
++          }
++          .width('100%')
++
++          if (!this.containsInviteSeen(invite.spaceId)) {
++            Button('Mark seen')
++              .height(24)
++              .fontSize(11)
++              .onClick(() => {
++                this.presenter.markInviteSeen(invite.spaceId);
++              })
++          }
++        }
++        .padding(12)
++        .backgroundColor('#FFFFFF')
++        .borderRadius(8)
++        .width('100%')
++      })
++    }
++    .alignItems(HorizontalAlign.Start)
++    .width('100%')
++  }
++
++  @Builder
++  SpacesSection() {
++    Column({ space: 8 }) {
++      Text('Joined Spaces')
++        .fontSize(16)
++        .fontWeight(FontWeight.Bold)
++      if (this.joinedSpaces.length === 0) {
++        Text('No joined spaces')
++          .fontSize(12)
++          .fontColor('#94A3B8')
++      }
++      ForEach(this.joinedSpaces, (space: SpaceSummary) => {
++        Row({ space: 8 }) {
++          Button(`${space.name}`)
++            .layoutWeight(1)
++            .backgroundColor(space.spaceId === this.selectedSpaceId ? '#2563EB' : '#FFFFFF')
++            .fontColor(space.spaceId === this.selectedSpaceId ? '#FFFFFF' : '#0F172A')
++            .onClick(() => {
++              this.presenter.openSpace(space.spaceId);
++            })
++          if (space.spaceId === this.selectedSpaceId) {
++            Button('Close')
++              .height(28)
++              .backgroundColor('#111827')
++              .onClick(() => {
++                this.presenter.closeSpace();
++              })
++          }
++        }
++        .width('100%')
++      })
++    }
++    .alignItems(HorizontalAlign.Start)
++    .width('100%')
++  }
++
++  @Builder
++  ChildrenSection() {
++    Column({ space: 8 }) {
++      Row() {
++        Text(`Children of ${this.selectedSpaceId}`)
++          .fontSize(16)
++          .fontWeight(FontWeight.Bold)
++          .layoutWeight(1)
++        if (this.hasMore) {
++          Button(this.loadingMore ? 'Loading...' : 'Load more')
++            .height(28)
++            .enabled(!this.loadingMore)
++            .onClick(() => {
++              const page = [
++                new SpaceChildSummary('!page:1', 'Paginated 1', false, false),
++                new SpaceChildSummary('!page:2', 'Paginated 2', false, false)
++              ];
++              this.presenter.loadMoreChildren(this.selectedSpaceId, page);
++            })
++        }
++      }
++      .width('100%')
++
++      if (this.currentChildren.length === 0) {
++        Text('No children yet')
++          .fontSize(12)
++          .fontColor('#94A3B8')
++      }
++
++      ForEach(this.currentChildren, (child: SpaceChildSummary) => {
++        this.ChildRow(child)
++      })
++    }
++    .alignItems(HorizontalAlign.Start)
++    .width('100%')
++  }
++
++  @Builder
++  ChildRow(child: SpaceChildSummary) {
++    Row({ space: 8 }) {
++      Column({ space: 4 }) {
++        Text(child.name)
++          .fontSize(14)
++          .fontWeight(FontWeight.Medium)
++        Text(child.roomId)
++          .fontSize(11)
++          .fontColor('#64748B')
++        if (child.isDirect) {
++          Text('Direct message - not a leave target')
++            .fontSize(11)
++            .fontColor('#94A3B8')
++        } else if (child.isLastAdmin) {
++          Text('You are the last admin - must transfer first')
++            .fontSize(11)
++            .fontColor('#DC2626')
++        }
++      }
++      .alignItems(HorizontalAlign.Start)
++      .layoutWeight(1)
++
++      if (child.isDirect) {
++        Text('-')
++          .fontSize(12)
++          .fontColor('#94A3B8')
++      } else if (this.membershipOf(child.roomId) === MembershipState.Member) {
++        Text('Joined')
++          .fontSize(11)
++          .fontColor('#16A34A')
++      } else if (this.joinStateOf(child.roomId) === JoinActionState.Loading) {
++        Button('Joining...')
++          .height(28)
++          .enabled(false)
++      } else if (this.joinStateOf(child.roomId) === JoinActionState.Failure) {
++        Row({ space: 4 }) {
++          Text('Failed')
++            .fontSize(11)
++            .fontColor('#DC2626')
++          Button('Clear')
++            .height(28)
++            .fontSize(11)
++            .onClick(() => {
++              this.presenter.clearJoinFailure(child.roomId);
++            })
++          Button('Retry')
++            .height(28)
++            .fontSize(11)
++            .backgroundColor('#2563EB')
+             .onClick(() => {
+-              this.presenter.openRoom(room.roomId);
+-              this.selectedRoomId = this.presenter.selectedRoomId;
++              this.presenter.clearJoinFailure(child.roomId);
++              this.presenter.joinChild(child.roomId);
+             })
++        }
++      } else if (this.joinStateOf(child.roomId) === JoinActionState.Success) {
++        Text('Success')
++          .fontSize(11)
++          .fontColor('#16A34A')
++      } else {
++        Button('Join')
++          .height(28)
++          .onClick(() => {
++            this.presenter.joinChild(child.roomId);
++          })
++      }
++    }
++    .padding(12)
++    .backgroundColor('#FFFFFF')
++    .borderRadius(8)
++    .width('100%')
++  }
++
++  @Builder
++  LeaveTriggerSection() {
++    Column({ space: 8 }) {
++      Text('Leave Space')
++        .fontSize(16)
++        .fontWeight(FontWeight.Bold)
++      Button('Open leave dialog')
++        .width('100%')
++        .backgroundColor('#DC2626')
++        .onClick(() => {
++          this.presenter.openLeaveSpace(this.selectedSpaceId);
+         })
+-        Text(this.selectedRoomId.length > 0 ? `Opened ${this.selectedRoomId}` : 'Choose a room')
++    }
++    .alignItems(HorizontalAlign.Start)
++    .width('100%')
++  }
++
++  @Builder
++  LeaveDialogSection() {
++    Column({ space: 12 }) {
++      Text(`Leave ${this.selectedSpaceId}`)
++        .fontSize(16)
++        .fontWeight(FontWeight.Bold)
++      Text('Select rooms to leave. Last-admin rooms cannot be selected.')
++        .fontSize(11)
++        .fontColor('#64748B')
++
++      Row({ space: 8 }) {
++        Button('Select all')
++          .layoutWeight(1)
++          .onClick(() => {
++            this.presenter.selectAllLeave(this.selectedSpaceId);
++          })
++        Button('Deselect all')
++          .layoutWeight(1)
++          .onClick(() => {
++            this.presenter.deselectAllLeave(this.selectedSpaceId);
++          })
++      }
++      .width('100%')
++
++      if (this.eligibleLeaveRooms.length === 0) {
++        Text('No eligible rooms to leave (direct messages excluded).')
++          .fontSize(12)
++          .fontColor('#94A3B8')
++      }
++
++      ForEach(this.eligibleLeaveRooms, (option: SpaceLeaveOption) => {
++        Row({ space: 8 }) {
++          Checkbox()
++            .select(this.containsInSet(this.selectedLeaveIds, option.roomId))
++            .enabled(!option.isLastAdmin)
++            .onChange((value: boolean) => {
++              const isSelected = this.containsInSet(this.selectedLeaveIds, option.roomId);
++              if (value !== isSelected) {
++                this.presenter.toggleLeaveRoom(this.selectedSpaceId, option.roomId);
++              }
++            })
++          Column({ space: 2 }) {
++            Text(option.name)
++              .fontSize(14)
++            Text(option.roomId)
++              .fontSize(11)
++              .fontColor('#64748B')
++            if (option.isLastAdmin) {
++              Text('Last admin - selection blocked')
++                .fontSize(11)
++                .fontColor('#DC2626')
++            }
++          }
++          .alignItems(HorizontalAlign.Start)
++          .layoutWeight(1)
++        }
++        .padding(8)
++        .backgroundColor('#FFFFFF')
++        .borderRadius(6)
++        .width('100%')
++      })
++
++      if (this.leaveState === LeaveActionState.Loading) {
++        Text('Leaving...')
++          .fontSize(13)
++          .fontColor('#64748B')
++      } else if (this.leaveState === LeaveActionState.Failure) {
++        Column({ space: 6 }) {
++          Text('Failed to leave; selection preserved.')
++            .fontSize(13)
++            .fontColor('#DC2626')
++          Button('Retry')
++            .height(28)
++            .backgroundColor('#DC2626')
++            .onClick(() => {
++              this.presenter.confirmLeave(this.selectedSpaceId);
++            })
++        }
++      } else if (this.leaveState === LeaveActionState.Success) {
++        Text('Left successfully.')
++          .fontSize(13)
++          .fontColor('#16A34A')
++      }
++
++      Row({ space: 8 }) {
++        Button('Confirm leave')
++          .layoutWeight(1)
++          .backgroundColor('#DC2626')
++          .enabled(this.selectedLeaveIds.size > 0 && this.leaveState !== LeaveActionState.Loading)
++          .onClick(() => {
++            this.presenter.confirmLeave(this.selectedSpaceId);
++          })
++        Button('Cancel')
++          .layoutWeight(1)
++          .onClick(() => {
++            this.presenter.closeLeaveSpace(this.selectedSpaceId);
++          })
+       }
+-      .padding(20)
+       .width('100%')
+     }
+-    .height('100%')
++    .padding(16)
++    .backgroundColor('#F8FAFC')
++    .borderRadius(8)
+     .width('100%')
+-    .backgroundColor('#F4F6F8')
+   }
+-}
++}
+\ No newline at end of file

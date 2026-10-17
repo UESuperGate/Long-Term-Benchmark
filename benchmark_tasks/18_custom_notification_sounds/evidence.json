@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "18_custom_notification_sounds",
+  "releaseEvidence": ["CHANGES.md v26.06.1: Notification settings: pick custom sounds for messages and call ringtones"],
+  "implementationEvidence": {
+    "symbols": ["NotificationSoundPicker", "NotificationSoundCopier", "NotificationSound", "NotificationSoundUpdater", "DefaultAppPreferencesStore", "NotificationChannels"],
+    "productionPaths": ["features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications", "libraries/preferences", "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications"],
+    "testPaths": ["features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt", "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSoundPickerTest.kt", "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSoundStorageTest.kt", "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannelsTest.kt"]
+  },
+  "baseFailureEvidence": ["The base has no sound picker abstraction or persisted custom sound model.", "The base cannot copy a selected content URI into app-owned storage and rebuild the matching notification channel.", "The base has no independent error and rollback state for message sound versus call ringtone."],
+  "longHorizonSignals": ["The task crosses UI dialogs, Android document picking, file-provider storage, preference flows, legacy migration, and immutable notification-channel replacement.", "Message and call updates use independent locks and failures preserve the previous effective sound.", "The implementation commit changes 79 files and includes 48 test files."],
+  "rawEvidence": "raw_release_evidence.json"
+}

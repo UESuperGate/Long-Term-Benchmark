@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "taskId": "12_report_room",
+  "android": {
+    "roots": [
+      "features/reportroom",
+      "features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl",
+      "features/invite/impl/src/main/kotlin/io/element/android/features/invite/impl/declineandblock"
+    ],
+    "cases": {
+      "rr_state_001_initial_form": [
+        {"options": [{"path": "ReportRoomPresenter\\.kt$", "patterns": ["mutableStateOf\\(\"\"\\)", "mutableStateOf\\(false\\)", "AsyncAction\\.Uninitialized"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomPresenter\\.kt$", "patterns": ["rememberSaveable \\{ mutableStateOf\\(\"\"\\) \\}", "rememberSaveable \\{ mutableStateOf\\(false\\) \\}", "mutableStateOf\\(ReportRoomAction\\.Uninitialized\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["fun ReportRoomView", "state\\.reason", "state\\.leaveRoom", "state\\.canReport"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomView\\.kt$", "patterns": ["fun ReportRoomView", "value = state\\.reason", "checked = state\\.leaveRoom", "state\\.action is ReportRoomAction\\.InProgress"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_002_reason_enables_report": [
+        {"options": [{"path": "ReportRoomState\\.kt$", "patterns": ["val canReport:\\s*Boolean\\s*=\\s*reason\\.isNotBlank\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomPresenter\\.kt$", "patterns": ["is ReportRoomEvents\\.UpdateReason", "reason\\.value = event\\.reason"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["UpdateReason\\(it\\)", "value\\s*=\\s*state\\.reason"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomView\\.kt$", "patterns": ["value = state\\.reason", "ReportRoomEvents\\.UpdateReason\\(it\\)", "enabled = state\\.reason\\.isNotBlank\\(\\) && !isInProgress"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_003_toggle_leave": [
+        {"options": [{"path": "ReportRoomPresenter\\.kt$", "patterns": ["ReportRoomEvents\\.ToggleLeaveRoom", "leaveRoom\\s*=\\s*!leaveRoom"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomPresenter\\.kt$", "patterns": ["is ReportRoomEvents\\.ToggleLeaveRoom", "leaveRoom\\.value = event\\.leaveRoom", "reason\\.value = event\\.reason"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["ToggleLeaveRoom", "Switch\\(checked\\s*=\\s*state\\.leaveRoom\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomView\\.kt$", "patterns": ["checked = state\\.leaveRoom", "ReportRoomEvents\\.ToggleLeaveRoom\\(it\\)", "value = state\\.reason"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_004_report_only_success": [
+        {"options": [{"path": "ReportRoom\\.kt$", "patterns": ["if \\(shouldReport\\)", "room\\s*\\.reportRoom", "if \\(shouldLeave\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "ReportRoomPresenter\\.kt$", "patterns": ["ReportRoomEvents\\.Report", "reportRoom\\(reason, leaveRoom, reportAction\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "RoomDetailsFlowNode\\.kt$", "patterns": ["ReportRoomEntryPoint", "NavTarget\\.ReportRoom"], "forbid": ["rr_state_|traceDigest|testcase"]}]}
+      ],
+      "rr_state_005_report_then_leave": [
+        {"options": [{"path": "ReportRoom\\.kt$", "patterns": ["room\\s*\\.reportRoom", "return Result\\.failure\\(ReportRoom\\.Exception\\.ReportRoomFailed\\)", "room\\s*\\.leave\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["state\\.eventSink\\(ReportRoomEvents\\.Report\\)", "AsyncActionView"], "forbid": ["rr_state_|traceDigest|testcase"]}]}
+      ],
+      "rr_state_006_blank_reason_disabled": [
+        {"options": [{"path": "ReportRoomState\\.kt$", "patterns": ["reason\\.isNotBlank\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomView\\.kt$", "patterns": ["enabled = state\\.reason\\.isNotBlank\\(\\) && !isInProgress", "ReportRoomEvents\\.Report"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["enabled\\s*=\\s*state\\.canReport\\s*&&\\s*!isReporting", "action_report"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomView\\.kt$", "patterns": ["Button\\(", "enabled = state\\.reason\\.isNotBlank\\(\\) && !isInProgress", "showProgress = isInProgress"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_007_report_failure_stops_leave": [
+        {"options": [{"path": "ReportRoom\\.kt$", "patterns": ["onFailure", "return Result\\.failure\\(ReportRoom\\.Exception\\.ReportRoomFailed\\)", "if \\(shouldLeave\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["onRetry", "onErrorDismiss", "ClearReportAction"], "forbid": ["rr_state_|traceDigest|testcase"]}]}
+      ],
+      "rr_state_008_leave_failure_is_partial": [
+        {"options": [{"path": "ReportRoom\\.kt$", "patterns": ["room\\s*\\.leave\\(\\)", "ReportRoom\\.Exception\\.LeftRoomFailed"], "forbid": ["rr_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["LeftRoomFailed", "screen_report_room_leave_failed_alert_title", "onRetry"], "forbid": ["rr_state_|traceDigest|testcase"]}]}
+      ],
+      "rr_state_009_retry_leave_only": [
+        {"options": [{"path": "ReportRoomPresenter\\.kt$", "patterns": ["previousFailure", "LeftRoomFailed", "shouldReport\\s*=\\s*previousFailure\\?\\.error !is"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomPresenter\\.kt$", "patterns": ["is ReportRoomAction\\.LeaveAfterReportFailed -> localCoroutineScope\\.runLeaveOnly", "ReportRoomEvents\\.Retry", "val leaveResult = room\\.leave\\(\\)", "ReportRoomAction\\.LeaveAfterReportFailed\\(error\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["onRetry", "state\\.eventSink\\(ReportRoomEvents\\.Report\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomView\\.kt$", "patterns": ["ReportRoomAction\\.LeaveAfterReportFailed", "onSubmitClick = \\{ state\\.eventSink\\(ReportRoomEvents\\.Retry\\) \\}", "screen_report_room_leave_failed_alert_title"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_010_clear_failure_keeps_form": [
+        {"options": [{"path": "ReportRoomPresenter\\.kt$", "patterns": ["ClearReportAction", "reportAction\\.value\\s*=\\s*AsyncAction\\.Uninitialized"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomPresenter\\.kt$", "patterns": ["ReportRoomEvents\\.ClearError", "is ReportRoomAction\\.ReportFailed", "is ReportRoomAction\\.LeaveAfterReportFailed -> action\\.value = ReportRoomAction\\.Uninitialized"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "ReportRoomView\\.kt$", "patterns": ["onErrorDismiss", "ClearReportAction", "value\\s*=\\s*state\\.reason"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomView\\.kt$", "patterns": ["onDismiss = \\{ state\\.eventSink\\(ReportRoomEvents\\.ClearError\\) \\}", "value = state\\.reason", "checked = state\\.leaveRoom"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "rr_state_001_initial_form": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["reason:\\s*string\\s*=\\s*''", "leaveRoom:\\s*boolean\\s*=\\s*false", "reportAction:\\s*ReportActionState\\s*=\\s*ReportActionState\\.Uninitialized"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["reason: string = ''", "leaveRoom: boolean = false", "phase: ReportRoomPhase = 'idle'", "this\\.lastOutcome = null"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["ReportRoomPresenter", "report_room_reason", "report_room_leave_toggle", "submit_report_room"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["new ReportRoomPresenter", "report_reason_input", "leave_room_toggle", "submit_report", "this\\.syncFromPresenter\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_002_reason_enables_report": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["get canReport", "this\\.reason\\.trim\\(\\)\\.length > 0", "updateReason\\(reason:\\s*string\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["updateReason\\(value: string\\): void", "this\\.reason = value", "canSubmit\\(\\): boolean", "return this\\.reason\\.trim\\(\\)\\.length > 0"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["this\\.presenter\\.updateReason\\(value\\)", "this\\.reason\\.trim\\(\\)\\.length > 0"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["this\\.presenter\\.updateReason\\(value\\)", "this\\.syncFromPresenter\\(\\)", "enabled\\(this\\.presenter\\.canSubmit\\(\\) && !this\\.presenter\\.inFlight\\(\\)\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_003_toggle_leave": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["toggleLeaveRoom\\(\\)", "this\\.leaveRoom\\s*=\\s*!this\\.leaveRoom"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["toggleLeaveRoom\\(\\): void", "this\\.leaveRoom = !this\\.leaveRoom", "setLeaveRoom\\(value: boolean\\): void", "this\\.leaveRoom = value"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["ToggleType\\.Switch", "this\\.presenter\\.toggleLeaveRoom\\(\\)", "this\\.refresh\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["ToggleType\\.Checkbox", "this\\.presenter\\.setLeaveRoom\\(isOn\\)", "this\\.syncFromPresenter\\(\\)", "leave_room_toggle"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_004_report_only_success": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["if \\(shouldReport", "this\\.gateway\\.reportRoom\\(reason\\.trim\\(\\)\\)", "if \\(shouldLeave"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["submitReport\\(\\): void", "this\\.gateway\\.reportRoom\\(this\\.roomId, this\\.reason\\)", "if \\(!reported\\)", "if \\(this\\.leaveRoom\\)", "this\\.phase = 'success'"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["submit_report_room", "this\\.presenter\\.submit\\(\\)", "report_room_success"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["submit_report", "this\\.presenter\\.submitReport\\(\\)", "this\\.syncFromPresenter\\(\\)", "this\\.phase === 'success'"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_005_report_then_leave": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["effects\\.push\\('report_room'\\)", "effects\\.push\\('leave_room'\\)", "ReportActionState\\.Success"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["const reported = this\\.gateway\\.reportRoom[\\s\\S]*if \\(!reported\\)[\\s\\S]*return;[\\s\\S]*if \\(this\\.leaveRoom\\)[\\s\\S]*this\\.gateway\\.leaveRoom", "this\\.reportCalls \\+= 1", "this\\.leaveCalls \\+= 1", "this\\.phase = 'success'"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["ReportRoomService\\(this\\.gateway\\)", "this\\.presenter\\.submit\\(\\)", "Room reported and left"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["this\\.presenter\\.setLeaveRoom\\(isOn\\)", "this\\.presenter\\.submitReport\\(\\)", "this\\.presenter\\.retry\\(\\)", "leave_room_toggle"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_006_blank_reason_disabled": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["this\\.reason\\.trim\\(\\)\\.length > 0", "if \\(!this\\.canReport"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["if \\(this\\.reason\\.trim\\(\\)\\.length === 0\\)", "canSubmit\\(\\): boolean", "return this\\.reason\\.trim\\(\\)\\.length > 0"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["enabled\\(this\\.reason\\.trim\\(\\)\\.length > 0", "submit_report_room"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["submit_report", "enabled\\(this\\.presenter\\.canSubmit\\(\\) && !this\\.presenter\\.inFlight\\(\\)\\)", "this\\.presenter\\.updateReason\\(value\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_007_report_failure_stops_leave": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["ReportActionState\\.ReportFailed", "if \\(shouldReport && !this\\.gateway\\.reportRoom", "if \\(shouldLeave"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["if \\(!reported\\) \\{[\\s\\S]*this\\.phase = 'report_failed';[\\s\\S]*reported: false, left: false[\\s\\S]*return;[\\s\\S]*if \\(this\\.leaveRoom\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["ReportActionState\\.ReportFailed", "Retry report", "Your form has been kept"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["this\\.statusText = this\\.presenter\\.statusText\\(\\)", "clear_report_action", "this\\.presenter\\.clearReportAction\\(\\)", "report_status"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_008_leave_failure_is_partial": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["ReportActionState\\.LeaveFailed", "if \\(shouldLeave && !this\\.gateway\\.leaveRoom\\(\\)\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["const left = this\\.gateway\\.leaveRoom\\(this\\.roomId\\)", "if \\(!left\\)", "this\\.phase = 'leave_failed'", "reported: true, left: false"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["ReportActionState\\.LeaveFailed", "report_room_partial_failure", "Retry leaving"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["this\\.presenter\\.canRetry\\(\\)", "Retry leave only", "retry_leave_only", "this\\.presenter\\.retry\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_009_retry_leave_only": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["shouldReport\\s*=\\s*this\\.reportAction !== ReportActionState\\.LeaveFailed", "this\\.service\\.execute\\(this\\.reason, shouldReport, this\\.leaveRoom\\)", "retry\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["retry\\(\\): void", "if \\(this\\.phase !== 'leave_failed'\\)", "this\\.gateway\\.leaveRoom\\(this\\.roomId\\)", "this\\.leaveCalls \\+= 1", "this\\.phase = 'success'"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["retry_leave_room", "this\\.presenter\\.retry\\(\\)", "this\\.refresh\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["retry_leave_only", "this\\.presenter\\.retry\\(\\)", "this\\.syncFromPresenter\\(\\)", "this\\.presenter\\.canRetry\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "rr_state_010_clear_failure_keeps_form": [
+        {"options": [{"path": "ReportRoomFeature\\.ets$", "patterns": ["clearReportAction\\(\\)", "this\\.reportAction\\s*=\\s*ReportActionState\\.Uninitialized"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "ReportRoomFeature\\.ets$", "patterns": ["clearReportAction\\(\\): void", "this\\.phase !== 'report_failed' && this\\.phase !== 'leave_failed'", "this\\.phase = 'editing'"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["Dismiss error", "this\\.presenter\\.clearReportAction\\(\\)", "this\\.refresh\\(\\)"], "forbid": ["rr_state_|traceDigest|testcase"]}, {"path": "pages/ReportRoomPage\\.ets$", "patterns": ["clear_report_action", "this\\.presenter\\.clearReportAction\\(\\)", "this\\.syncFromPresenter\\(\\)", "this\\.reason = this\\.presenter\\.reason", "this\\.leaveRoom = this\\.presenter\\.leaveRoom"], "forbid": ["rr_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ]
+    }
+  }
+}

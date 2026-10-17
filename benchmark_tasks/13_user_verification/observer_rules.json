@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "taskId": "13_user_verification",
+  "android": {
+    "roots": [
+      "features/verifysession",
+      "features/userprofile",
+      "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/crypto/identity",
+      "features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/members/details",
+      "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/verification",
+      "libraries/matrixui/src/main/kotlin/io/element/android/libraries/matrix/ui/room"
+    ],
+    "cases": {
+      "uv_state_001_profile_routes_user_request": [
+        {"options": [{"path": "UserProfileFlowNode\\.kt$", "patterns": ["data class VerifyUser\\(val userId:\\s*UserId\\)", "VerificationRequest\\.Outgoing\\.User\\(userId\\s*=\\s*navTarget\\.userId\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "UserProfileFlowNode\\.kt$", "patterns": ["override fun onVerifyUser", "backstack\\.push\\(NavTarget\\.VerifyUser", "verifySessionEntryPoint\\.nodeBuilder"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_002_request_targets_user": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["VerificationRequest\\.Outgoing\\.User", "requestUserVerification\\(event\\.verificationRequest\\.userId\\)", "State\\.RequestingVerification"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "VerifySelfSessionPresenter\\.kt$", "patterns": ["StateMachineEvent\\.RequestVerification\\(verificationRequest\\)", "VerifySelfSessionState\\.Step\\.AwaitingOtherDeviceResponse"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_003_start_sas_after_acceptance": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["State\\.VerificationRequestAccepted", "Event\\.StartSasVerification", "sessionVerificationService\\.startVerification\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "VerifySelfSessionPresenter\\.kt$", "patterns": ["private val verificationRequest:\\s*VerificationRequest\\.Outgoing", "VerifySelfSessionViewEvents\\.StartSasVerification", "StateMachineEvent\\.StartSasVerification", "Step\\.Ready"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_004_challenge_is_stable": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["ChallengeReceived\\(event\\.data\\)", "Replying\\(state\\.snapshot\\.data", "open val data:\\s*SessionVerificationData"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "VerifySelfSessionPresenter\\.kt$", "patterns": ["private val verificationRequest:\\s*VerificationRequest\\.Outgoing", "DidReceiveChallenge\\(verificationAttemptState\\.data\\)", "Step\\.Verifying\\(machineState\\.data, async\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_005_accept_challenge_once": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["Event\\.AcceptChallenge", "Replying\\(state\\.snapshot\\.data, accept\\s*=\\s*true\\)", "approveVerification\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "VerifySelfSessionPresenter\\.kt$", "patterns": ["private val verificationRequest:\\s*VerificationRequest\\.Outgoing", "VerifySelfSessionViewEvents\\.ConfirmVerification", "StateMachineEvent\\.AcceptChallenge", "AsyncData\\.Loading"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_006_decline_challenge_once": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["Event\\.DeclineChallenge", "Replying\\(state\\.snapshot\\.data, accept\\s*=\\s*false\\)", "declineVerification\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "VerifySelfSessionPresenter\\.kt$", "patterns": ["private val verificationRequest:\\s*VerificationRequest\\.Outgoing", "VerifySelfSessionViewEvents\\.DeclineVerification", "StateMachineEvent\\.DeclineChallenge", "AsyncData\\.Loading"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_007_finish_clears_violation": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["Event\\.DidAcceptChallenge", "State\\.Completed"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "UserProfileHeaderSection\\.kt$", "patterns": ["UserProfileVerificationState\\.VERIFIED", "common_verified", "UserProfileVerificationState\\.VERIFICATION_VIOLATION"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_008_local_cancel": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["Event\\.Cancel", "sessionVerificationService\\.cancelVerification\\(\\)", "State\\.Canceled"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "VerifySelfSessionPresenter\\.kt$", "patterns": ["private val verificationRequest:\\s*VerificationRequest\\.Outgoing", "VerifySelfSessionViewEvents\\.Cancel", "StateMachineEvent\\.Cancel", "Step\\.Canceled"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_009_failure_reset": [
+        {"options": [{"path": "VerifySelfSessionStateMachine\\.kt$", "patterns": ["Event\\.DidFail", "State\\.Canceled", "Event\\.Reset", "reset\\(cancelAnyPendingVerificationAttempt\\s*=\\s*false\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "VerifySelfSessionPresenter\\.kt$", "patterns": ["VerificationFlowState\\.DidFail", "StateMachineEvent\\.DidFail", "VerifySelfSessionViewEvents\\.Reset"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_010_identity_violation_surfaces": [
+        {"options": [{"path": "RoomMemberDetailsPresenter\\.kt$", "patterns": ["IdentityState\\.VerificationViolation", "UserProfileVerificationState\\.VERIFICATION_VIOLATION", "roomMemberIdentityStateChange\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "UserProfileHeaderSection\\.kt$", "patterns": ["UserProfileVerificationState\\.VERIFICATION_VIOLATION", "crypto_identity_change_withdraw_verification_action"], "forbid": ["uv_state_|traceDigest|testcase"]}, {"path": "IdentityChangeStateView\\.kt$", "patterns": ["VerificationViolation", "roomMemberIdentityStateChanges"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "uv_state_001_profile_routes_user_request": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["enum VerificationRequestType", "User = 'user'", "class VerificationRequest", "userId:\\s*string"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["new VerificationRequest\\(VerificationRequestType\\.User", "verify_user_action", "this\\.presenter\\.requestVerification\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_002_request_targets_user": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["requestUserVerification\\(this\\.request\\.userId\\)", "requestCurrentSessionVerification\\(\\)", "VerificationStep\\.AwaitingOtherDeviceResponse"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["verify_user_action", "this\\.presenter\\.requestVerification\\(\\)", "Waiting for Alice to accept"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_003_start_sas_after_acceptance": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["remoteAcceptedRequest\\(\\)", "VerificationStep\\.Ready", "startSasVerification\\(\\)", "this\\.gateway\\.startVerification\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["verification_remote_accepted", "start_sas_verification", "this\\.presenter\\.startSasVerification\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_004_challenge_is_stable": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["receiveChallenge\\(sas:\\s*string\\[\\]\\)", "this\\.sas\\s*=\\s*sas\\.slice\\(\\)", "ReplyState\\.Uninitialized", "VerificationStep\\.Verifying"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["receiveChallenge\\(\\['Dog', 'Tree', 'Rocket'\\]\\)", "sas_challenge", "this\\.sas\\.join"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_005_accept_challenge_once": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["acceptChallenge\\(\\)", "this\\.replyState !== ReplyState\\.Uninitialized", "this\\.gateway\\.approveVerification\\(\\)", "this\\.replyState\\s*=\\s*ReplyState\\.Loading"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["accept_sas_challenge", "this\\.presenter\\.acceptChallenge\\(\\)", "ReplyState\\.Uninitialized"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_006_decline_challenge_once": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["declineChallenge\\(\\)", "this\\.replyState !== ReplyState\\.Uninitialized", "this\\.gateway\\.declineVerification\\(\\)", "this\\.replyState\\s*=\\s*ReplyState\\.Loading"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["decline_sas_challenge", "this\\.presenter\\.declineChallenge\\(\\)", "ReplyState\\.Uninitialized"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_007_finish_clears_violation": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["verificationFinished\\(\\)", "VerificationStep\\.Completed", "this\\.identityStore\\.markVerified\\(this\\.request\\.userId\\)", "IdentityState\\.Verified"], "forbid": ["uv_state_|traceDigest|testcase"]}, {"path": "VerificationFeature\\.ets$", "patterns": ["finish\\(\\): boolean", "this\\.state !== VerificationState\\.Verifying", "this\\.state = VerificationState\\.Completed", "this\\.identityState = IdentityState\\.Trusted"], "forbid": ["uv_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["finish_verification", "this\\.presenter\\.verificationFinished\\(\\)", "verified_user_badge", "verification_completed"], "forbid": ["uv_state_|traceDigest|testcase"]}, {"path": "UserProfileFeature\\.ets$", "patterns": ["eventName === 'verification_finished'", "session\\.finish\\(\\)", "this\\.gateway\\.onVerificationFinished\\(\\)", "this\\.identityService\\.markTrusted\\("], "forbid": ["uv_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["verificationFinished\\(\\)", "this\\.identityStore\\.markVerified\\("], "forbid": ["uv_state_|traceDigest|testcase"]}, {"path": "pages/Index\\.ets$", "patterns": ["driveSessionFromProfile\\('verification_finished'\\)", "IdentityState\\.VerificationViolation", "IdentityState\\.Trusted", "identity_violation_badge"], "forbid": ["uv_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "uv_state_008_local_cancel": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["cancel\\(\\)", "this\\.gateway\\.cancelVerification\\(\\)", "this\\.step\\s*=\\s*VerificationStep\\.Canceled"], "forbid": ["uv_state_|traceDigest|testcase"]}, {"path": "VerificationFeature\\.ets$", "patterns": ["cancel\\(\\): boolean", "if \\(!this\\.isActive\\(\\)\\)", "this\\.cancelCalls \\+= 1", "this\\.state = VerificationState\\.Canceled"], "forbid": ["uv_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["cancel_verification", "this\\.presenter\\.cancel\\(\\)", "verification_canceled"], "forbid": ["uv_state_|traceDigest|testcase"]}, {"path": "UserProfileFeature\\.ets$", "patterns": ["eventName === 'cancel'", "session\\.cancel\\(\\)", "this\\.gateway\\.dispatchCancel\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]},
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["cancel\\(\\)", "this\\.gateway\\.cancelVerification\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}, {"path": "pages/Index\\.ets$", "patterns": ["cancel_verification", "driveSessionFromProfile\\('cancel'\\)", "Verification canceled"], "forbid": ["uv_state_|traceDigest|testcase|semanticFacts|state_probe_snapshot"]}]}
+      ],
+      "uv_state_009_failure_reset": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["verificationFailed\\(\\)", "reset\\(\\)", "resetVerification\\(false\\)", "VerificationStep\\.Initial"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["reset_verification", "this\\.presenter\\.reset\\(\\)", "this\\.refresh\\(\\)"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ],
+      "uv_state_010_identity_violation_surfaces": [
+        {"options": [{"path": "UserVerificationFeature\\.ets$", "patterns": ["IdentityState\\.VerificationViolation", "get warningVisible", "this\\.identityState === IdentityState\\.VerificationViolation"], "forbid": ["uv_state_|traceDigest|testcase"]}]},
+        {"options": [{"path": "pages/Index\\.ets$", "patterns": ["profile_verification_violation", "timeline_identity_warning", "room_member_identity_warning", "verify_user_action"], "forbid": ["uv_state_|traceDigest|testcase"]}]}
+      ]
+    }
+  }
+}

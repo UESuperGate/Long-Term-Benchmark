@@ -1,0 +1,1250 @@
+diff --git a/entry/src/main/ets/features/PinnedMessagesBase.ets b/entry/src/main/ets/features/PinnedMessagesBase.ets
+index 14f7383..b817a1d 100644
+--- a/entry/src/main/ets/features/PinnedMessagesBase.ets
++++ b/entry/src/main/ets/features/PinnedMessagesBase.ets
+@@ -1,31 +1,579 @@
+-export class PinnedBannerMessage {
++// =============================================================================
++// PinnedMessagesBase.ets
++//
++// Domain models, room state and the central RoomStore used by both the room
++// timeline page (Index.ets) and the pinned-message collection page
++// (PinnedMessagesPage.ets).
++//
++// The store simulates an authoritative server backend: pinned ordering,
++// permissions, the redacted/unavailable event variants and the success /
++// failure outcomes of load and unpin operations all live behind the same
++// store API the real network layer would expose.
++// =============================================================================
++
++// -----------------------------------------------------------------------------
++// Domain models
++// -----------------------------------------------------------------------------
++
++export class RoomEvent {
+   eventId: string;
+   body: string;
++  sender: string;
++  timestamp: number;
++  isRedacted: boolean;
++  isUnavailable: boolean;
+ 
+-  constructor(eventId: string, body: string) {
++  constructor(eventId: string, body: string, sender: string = '', timestamp: number = 0) {
+     this.eventId = eventId;
+     this.body = body;
++    this.sender = sender;
++    this.timestamp = timestamp;
++    this.isRedacted = false;
++    this.isUnavailable = false;
++  }
++}
++
++export class PinnedEvent extends RoomEvent {
++  pinnedAt: number;
++  pinnedBy: string;
++
++  constructor(eventId: string, body: string, sender: string = '', timestamp: number = 0,
++               pinnedAt: number = 0, pinnedBy: string = '') {
++    super(eventId, body, sender, timestamp);
++    this.pinnedAt = pinnedAt;
++    this.pinnedBy = pinnedBy;
+   }
+ }
+ 
+-export class PinnedMessagesBannerPresenter {
+-  pinnedMessages: PinnedBannerMessage[] = [
+-    new PinnedBannerMessage('$welcome', 'Welcome to the room'),
+-    new PinnedBannerMessage('$rules', 'Please read the room rules')
+-  ];
+-  currentIndex: number = 1;
++// -----------------------------------------------------------------------------
++// State enumerations
++// -----------------------------------------------------------------------------
++
++export enum PinnedListState {
++  IDLE = 'idle',
++  LOADING = 'loading',
++  EMPTY = 'empty',
++  FILLED = 'filled',
++  FAILED = 'failed'
++}
++
++export enum UnpinStatus {
++  IDLE = 'idle',
++  IN_FLIGHT = 'in_flight',
++  SUCCESS = 'success',
++  FAILED = 'failed'
++}
++
++// -----------------------------------------------------------------------------
++// View state for the pinned-message collection
++// -----------------------------------------------------------------------------
++
++export class PinnedListViewState {
++  listState: PinnedListState;
++  items: PinnedEvent[];
++  hasMore: boolean;
++  loadingMore: boolean;
++  loadFailureMessage: string;
++  unpinStatus: UnpinStatus;
++  unpinFailureEventId: string;
++  unpinFailureMessage: string;
++  lastLoadDurationMs: number;
+ 
+-  current(): PinnedBannerMessage | null {
+-    if (this.pinnedMessages.length === 0) {
++  constructor() {
++    this.listState = PinnedListState.IDLE;
++    this.items = [];
++    this.hasMore = false;
++    this.loadingMore = false;
++    this.loadFailureMessage = '';
++    this.unpinStatus = UnpinStatus.IDLE;
++    this.unpinFailureEventId = '';
++    this.unpinFailureMessage = '';
++    this.lastLoadDurationMs = 0;
++  }
++}
++
++// -----------------------------------------------------------------------------
++// Room state: information that any page observing the room can read
++// -----------------------------------------------------------------------------
++
++export class RoomState {
++  roomId: string;
++  roomName: string;
++  memberCount: number;
++  pinnedEvents: PinnedEvent[];
++  timeline: RoomEvent[];
++  canPinUnpin: boolean;
++  focusedEventId: string | null;
++  bannerIndex: number;
++
++  constructor(roomId: string, roomName: string, memberCount: number) {
++    this.roomId = roomId;
++    this.roomName = roomName;
++    this.memberCount = memberCount;
++    this.pinnedEvents = [];
++    this.timeline = [];
++    this.canPinUnpin = false;
++    this.focusedEventId = null;
++    this.bannerIndex = 0;
++  }
++
++  hasPinnedMessages(): boolean {
++    return this.pinnedEvents.length > 0;
++  }
++
++  currentBanner(): PinnedEvent | null {
++    if (this.pinnedEvents.length === 0) {
+       return null;
+     }
+-    return this.pinnedMessages[this.currentIndex];
++    return this.pinnedEvents[this.bannerIndex];
+   }
+ 
+-  moveToNext(): void {
+-    if (this.pinnedMessages.length === 0) {
++  moveToNextBanner(): void {
++    if (this.pinnedEvents.length === 0) {
+       return;
+     }
+-    this.currentIndex = (this.currentIndex - 1 + this.pinnedMessages.length) % this.pinnedMessages.length;
++    this.bannerIndex = (this.bannerIndex - 1 + this.pinnedEvents.length) % this.pinnedEvents.length;
++  }
++
++  pinnedById(eventId: string): PinnedEvent | null {
++    for (let i = 0; i < this.pinnedEvents.length; i++) {
++      if (this.pinnedEvents[i].eventId === eventId) {
++        return this.pinnedEvents[i];
++      }
++    }
++    return null;
++  }
++
++  timelineEventById(eventId: string): RoomEvent | null {
++    for (let i = 0; i < this.timeline.length; i++) {
++      if (this.timeline[i].eventId === eventId) {
++        return this.timeline[i];
++      }
++    }
++    return null;
++  }
++}
++
++// -----------------------------------------------------------------------------
++// Listener class for components that observe RoomStore changes. Defined as a
++// class so the ArkTS object-literal checker can validate the inline instances
++// created by each page.
++// -----------------------------------------------------------------------------
++
++export class StoreListener {
++  onStoreChanged: () => void;
++
++  constructor(handler: () => void) {
++    this.onStoreChanged = handler;
++  }
++}
++
++// -----------------------------------------------------------------------------
++// Diagnostics helper: failure injection used to model real network/server
++// errors so that the failure-state UI is exercisable in production.
++// -----------------------------------------------------------------------------
++
++export class RoomStoreDiagnostics {
++  private store: RoomStore;
++
++  constructor(store: RoomStore) {
++    this.store = store;
++  }
++
++  injectNextLoadFailure(): void {
++    this.store.markNextLoadForFailure();
++  }
++
++  injectUnpinFailure(eventId: string): void {
++    this.store.markUnpinForFailure(eventId);
++  }
++
++  clearInjections(): void {
++    this.store.clearFailureInjections();
++  }
++}
++
++// -----------------------------------------------------------------------------
++// RoomStore: central state holder + simulated server backend
++// -----------------------------------------------------------------------------
++
++export class RoomStore {
++  private static _instance: RoomStore | null = null;
++
++  state: RoomState;
++  pinnedList: PinnedListViewState;
++  diagnostics: RoomStoreDiagnostics;
++
++  // Server-authoritative datasets
++  private serverPinned: PinnedEvent[];
++  private serverTimeline: RoomEvent[];
++
++  private readonly INITIAL_PAGE_SIZE: number = 5;
++  private readonly MORE_PAGE_SIZE: number = 3;
++  private readonly LOAD_LATENCY_MS: number = 140;
++  private readonly UNPIN_LATENCY_MS: number = 200;
++
++  // Failure injection: marks an upcoming async operation to fail
++  private failureForNextLoad: boolean;
++  private failureForUnpin: Set<string>;
++
++  private listeners: StoreListener[];
++
++  private constructor() {
++    this.state = new RoomState('room_design', 'Design team', 12);
++    this.pinnedList = new PinnedListViewState();
++    this.diagnostics = new RoomStoreDiagnostics(this);
++    this.serverPinned = [];
++    this.serverTimeline = [];
++    this.failureForNextLoad = false;
++    this.failureForUnpin = new Set<string>();
++    this.listeners = [];
++
++    this.seedServerData();
++    this.applyServerToState();
++  }
++
++  static shared(): RoomStore {
++    if (RoomStore._instance === null) {
++      RoomStore._instance = new RoomStore();
++    }
++    return RoomStore._instance;
++  }
++
++  // ---------- Listeners ----------
++
++  addListener(listener: StoreListener): void {
++    if (this.listeners.indexOf(listener) < 0) {
++      this.listeners.push(listener);
++    }
++  }
++
++  removeListener(listener: StoreListener): void {
++    const idx = this.listeners.indexOf(listener);
++    if (idx >= 0) {
++      this.listeners.splice(idx, 1);
++    }
++  }
++
++  notifyChanged(): void {
++    const snapshot = this.listeners.slice();
++    for (let i = 0; i < snapshot.length; i++) {
++      try {
++        snapshot[i].onStoreChanged();
++      } catch (e) {
++        // listener errors must not poison the store
++      }
++    }
++  }
++
++  // ---------- Server data ----------
++
++  private seedServerData(): void {
++    const now: number = Date.now();
++
++    // Pinned events in server-authoritative order (newest pin first).
++    this.serverPinned = [
++      new PinnedEvent('$welcome', 'Welcome to the room', 'Alice', now - 86400000, now - 3600000, 'Alice'),
++      new PinnedEvent('$rules', 'Please read the room rules', 'Bob', now - 86400000, now - 7200000, 'Bob'),
++      new PinnedEvent('$guidelines', 'Code of conduct guidelines', 'Carol', now - 86400000, now - 10800000, 'Carol'),
++      new PinnedEvent('$schedule', 'Sprint planning at 10:00 UTC', 'Dave', now - 86400000, now - 14400000, 'Dave'),
++      new PinnedEvent('$a', 'Alpha', 'Alice', now - 3600000, now - 1800000, 'Alice'),
++      new PinnedEvent('$b', 'Beta', 'Bob', now - 1800000, now - 900000, 'Bob'),
++      new PinnedEvent('$redacted_1', 'Message redacted', 'Eve', now - 7200000, now - 7000000, 'Eve'),
++      new PinnedEvent('$unavailable_1', 'Message unavailable', 'Frank', now - 7300000, now - 7100000, 'Frank'),
++    ];
++    this.serverPinned[6].isRedacted = true;
++    this.serverPinned[7].isUnavailable = true;
++
++    // Room timeline (some events share IDs with pinned items so the
++    // "view in timeline" navigation can find them in the room history).
++    this.serverTimeline = [
++      new RoomEvent('msg_1', 'Hey team, design review at 3pm', 'Alice', now - 7200000),
++      new RoomEvent('$welcome', 'Welcome to the room', 'Alice', now - 86400000),
++      new RoomEvent('msg_2', 'I will join from home today', 'Bob', now - 10800000),
++      new RoomEvent('$rules', 'Please read the room rules', 'Bob', now - 86400000),
++      new RoomEvent('msg_3', 'New mockups are ready', 'Carol', now - 14400000),
++      new RoomEvent('$guidelines', 'Code of conduct guidelines', 'Carol', now - 86400000),
++      new RoomEvent('$a', 'Alpha', 'Alice', now - 3600000),
++      new RoomEvent('$b', 'Beta', 'Bob', now - 1800000),
++      new RoomEvent('msg_4', 'Quick sync tomorrow morning?', 'Dave', now - 18000000),
++      new RoomEvent('$schedule', 'Sprint planning at 10:00 UTC', 'Dave', now - 86400000),
++      new RoomEvent('msg_5', 'I updated the spec', 'Eve', now - 7200000),
++    ];
++
++    // Server is authoritative for permissions: default deny.
++    this.state.canPinUnpin = false;
++  }
++
++  private applyServerToState(): void {
++    this.state.pinnedEvents = [];
++    for (let i = 0; i < this.serverPinned.length; i++) {
++      this.state.pinnedEvents.push(this.serverPinned[i]);
++    }
++    this.state.timeline = [];
++    for (let i = 0; i < this.serverTimeline.length; i++) {
++      this.state.timeline.push(this.serverTimeline[i]);
++    }
++    if (this.state.bannerIndex >= this.state.pinnedEvents.length) {
++      this.state.bannerIndex = 0;
++    }
++  }
++
++  // ---------- Permissions ----------
++
++  setCanPinUnpin(can: boolean): void {
++    if (this.state.canPinUnpin === can) {
++      return;
++    }
++    this.state.canPinUnpin = can;
++    this.notifyChanged();
++  }
++
++  // ---------- Banner ----------
++
++  hasPinnedMessages(): boolean {
++    return this.state.hasPinnedMessages();
++  }
++
++  pinnedCount(): number {
++    return this.state.pinnedEvents.length;
++  }
++
++  currentBanner(): PinnedEvent | null {
++    return this.state.currentBanner();
++  }
++
++  moveToNextBanner(): void {
++    this.state.moveToNextBanner();
++    this.notifyChanged();
++  }
++
++  // ---------- Focus / view in timeline ----------
++
++  focusEventInTimeline(eventId: string): void {
++    if (this.state.focusedEventId === eventId) {
++      return;
++    }
++    this.state.focusedEventId = eventId;
++    this.notifyChanged();
++  }
++
++  clearFocus(): void {
++    if (this.state.focusedEventId === null) {
++      return;
++    }
++    this.state.focusedEventId = null;
++    this.notifyChanged();
++  }
++
++  // ---------- Pinned list: lifecycle ----------
++
++  beginPinnedList(): void {
++    this.pinnedList = new PinnedListViewState();
++    this.pinnedList.listState = PinnedListState.LOADING;
++    this.notifyChanged();
++  }
++
++  async loadInitialPinnedPage(): Promise<void> {
++    this.pinnedList.listState = PinnedListState.LOADING;
++    this.pinnedList.items = [];
++    this.pinnedList.hasMore = false;
++    this.pinnedList.loadingMore = false;
++    this.pinnedList.loadFailureMessage = '';
++    this.pinnedList.unpinStatus = UnpinStatus.IDLE;
++    this.pinnedList.unpinFailureEventId = '';
++    this.pinnedList.unpinFailureMessage = '';
++    this.notifyChanged();
++
++    const startedAt: number = Date.now();
++    await this.delay(this.LOAD_LATENCY_MS);
++    this.pinnedList.lastLoadDurationMs = Date.now() - startedAt;
++
++    if (this.failureForNextLoad) {
++      this.failureForNextLoad = false;
++      this.pinnedList.listState = PinnedListState.FAILED;
++      this.pinnedList.loadFailureMessage = 'Unable to load pinned messages';
++      this.notifyChanged();
++      return;
++    }
++
++    const initial = this.serverPinned.slice(0, this.INITIAL_PAGE_SIZE);
++    const items: PinnedEvent[] = [];
++    for (let i = 0; i < initial.length; i++) {
++      items.push(initial[i]);
++    }
++    this.pinnedList.items = items;
++    this.pinnedList.hasMore = this.serverPinned.length > this.INITIAL_PAGE_SIZE;
++
++    if (items.length === 0) {
++      this.pinnedList.listState = PinnedListState.EMPTY;
++    } else {
++      this.pinnedList.listState = PinnedListState.FILLED;
++    }
++    this.notifyChanged();
++  }
++
++  async loadMorePinned(): Promise<void> {
++    if (this.pinnedList.listState !== PinnedListState.FILLED) {
++      return;
++    }
++    if (this.pinnedList.loadingMore) {
++      return;
++    }
++    if (!this.pinnedList.hasMore) {
++      return;
++    }
++
++    this.pinnedList.loadingMore = true;
++    this.notifyChanged();
++
++    await this.delay(this.LOAD_LATENCY_MS);
++
++    if (this.failureForNextLoad) {
++      this.failureForNextLoad = false;
++      this.pinnedList.loadingMore = false;
++      this.pinnedList.loadFailureMessage = 'Unable to load more pinned messages';
++      this.notifyChanged();
++      return;
++    }
++
++    const existing: Set<string> = new Set<string>();
++    for (let i = 0; i < this.pinnedList.items.length; i++) {
++      existing.add(this.pinnedList.items[i].eventId);
++    }
++
++    const startIdx: number = this.pinnedList.items.length;
++    const newItems: PinnedEvent[] = [];
++    let added: number = 0;
++    for (let i = startIdx; i < this.serverPinned.length && added < this.MORE_PAGE_SIZE; i++) {
++      const candidate: PinnedEvent = this.serverPinned[i];
++      if (!existing.has(candidate.eventId)) {
++        newItems.push(candidate);
++        existing.add(candidate.eventId);
++        added++;
++      }
++    }
++
++    for (let i = 0; i < newItems.length; i++) {
++      this.pinnedList.items.push(newItems[i]);
++    }
++
++    this.pinnedList.hasMore = (startIdx + newItems.length) < this.serverPinned.length;
++    this.pinnedList.loadingMore = false;
++    this.pinnedList.loadFailureMessage = '';
++    this.notifyChanged();
++  }
++
++  // ---------- Unpin ----------
++
++  async unpinEvent(eventId: string): Promise<void> {
++    if (this.pinnedList.unpinStatus === UnpinStatus.IN_FLIGHT) {
++      return;
++    }
++    if (!this.state.canPinUnpin) {
++      // Without permission, do nothing. The UI must not even surface the
++      // control, but this guards against any caller bypassing the UI gate.
++      return;
++    }
++
++    // Capture whether the target is in the current view so we can decide
++    // whether to clear the in-flight marker if the operation fails.
++    const wasVisible: boolean = this.pinnedList.items.some(e => e.eventId === eventId);
++
++    this.pinnedList.unpinStatus = UnpinStatus.IN_FLIGHT;
++    this.pinnedList.unpinFailureEventId = eventId;
++    this.pinnedList.unpinFailureMessage = '';
++    this.notifyChanged();
++
++    await this.delay(this.UNPIN_LATENCY_MS);
++
++    if (this.failureForUnpin.has(eventId)) {
++      this.failureForUnpin.delete(eventId);
++      this.pinnedList.unpinStatus = UnpinStatus.FAILED;
++      this.pinnedList.unpinFailureMessage = 'Server could not unpin the message';
++      // The item is intentionally NOT removed from either the server or the
++      // view state. It remains visible and the user gets a recovery bar.
++      this.notifyChanged();
++      return;
++    }
++
++    // Authoritative server removal.
++    const serverIdx: number = this.findPinnedIndex(this.serverPinned, eventId);
++    if (serverIdx >= 0) {
++      this.serverPinned.splice(serverIdx, 1);
++    }
++
++    // Mirror into the view list while preserving the server order of all
++    // unrelated items.
++    const listIdx: number = this.findPinnedIndex(this.pinnedList.items, eventId);
++    if (listIdx >= 0) {
++      this.pinnedList.items.splice(listIdx, 1);
++    }
++
++    // Reflect into the room state so the banner and the timeline stay in
++    // sync.
++    this.applyServerToState();
++
++    if (this.pinnedList.items.length === 0 && this.pinnedList.listState === PinnedListState.FILLED) {
++      this.pinnedList.listState = PinnedListState.EMPTY;
++    }
++
++    this.pinnedList.unpinStatus = UnpinStatus.SUCCESS;
++    this.pinnedList.unpinFailureEventId = '';
++    // Reference to silence unused warnings on small builds.
++    if (!wasVisible) {
++      // Item was not on screen; still removed from server above.
++    }
++    this.notifyChanged();
++  }
++
++  dismissUnpinFailure(): void {
++    this.pinnedList.unpinStatus = UnpinStatus.IDLE;
++    this.pinnedList.unpinFailureEventId = '';
++    this.pinnedList.unpinFailureMessage = '';
++    this.notifyChanged();
++  }
++
++  retryLastFailedUnpin(): void {
++    const eventId: string = this.pinnedList.unpinFailureEventId;
++    if (eventId.length === 0) {
++      return;
++    }
++    if (this.pinnedList.unpinStatus === UnpinStatus.IN_FLIGHT) {
++      return;
++    }
++    this.unpinEvent(eventId);
++  }
++
++  // ---------- Failure injection (diagnostics) ----------
++
++  markNextLoadForFailure(): void {
++    this.failureForNextLoad = true;
++  }
++
++  markUnpinForFailure(eventId: string): void {
++    this.failureForUnpin.add(eventId);
++  }
++
++  clearFailureInjections(): void {
++    this.failureForNextLoad = false;
++    this.failureForUnpin.clear();
++  }
++
++  // ---------- Helpers ----------
++
++  private findPinnedIndex(list: PinnedEvent[], eventId: string): number {
++    for (let i = 0; i < list.length; i++) {
++      if (list[i].eventId === eventId) {
++        return i;
++      }
++    }
++    return -1;
++  }
++
++  private delay(ms: number): Promise<void> {
++    return new Promise<void>((resolve) => {
++      setTimeout(resolve, ms);
++    });
+   }
+ }
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 01d645e..b271f74 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,78 +1,247 @@
+-import { PinnedBannerMessage, PinnedMessagesBannerPresenter } from '../features/PinnedMessagesBase';
++import router from '@ohos.router';
++import {
++  PinnedEvent,
++  RoomEvent,
++  RoomState,
++  RoomStore,
++  StoreListener
++} from '../features/PinnedMessagesBase';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: PinnedMessagesBannerPresenter = new PinnedMessagesBannerPresenter();
+-  @State private currentPinned: PinnedBannerMessage | null = this.presenter.current();
++  @State private storeVersion: number = 0;
++  private storeListener: StoreListener = new StoreListener(() => {
++    this.storeVersion = this.storeVersion + 1;
++  });
++
++  aboutToAppear(): void {
++    RoomStore.shared().addListener(this.storeListener);
++  }
++
++  aboutToDisappear(): void {
++    RoomStore.shared().removeListener(this.storeListener);
++  }
++
++  onPageShow(): void {
++    // Returning from the pinned list (or anywhere else) should make sure
++    // the timeline re-reads the latest store snapshot.
++    this.storeVersion = this.storeVersion + 1;
++  }
+ 
+   build() {
+     Column() {
+-      Row() {
+-        Column({ space: 2 }) {
+-          Text('Design team')
+-            .fontSize(22)
+-            .fontWeight(FontWeight.Bold)
+-          Text('12 members')
+-            .fontSize(13)
+-            .fontColor('#64748B')
+-        }
+-        .alignItems(HorizontalAlign.Start)
+-        Blank()
+-        Text('Room')
++      this.RoomHeader()
++
++      if (RoomStore.shared().hasPinnedMessages()) {
++        this.PinnedBanner()
++      } else {
++        this.EmptyPinnedBanner()
++      }
++
++      this.Timeline()
++
++      this.PermissionsRow()
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  // ---------------------------------------------------------------------------
++  // Header
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  RoomHeader() {
++    Row() {
++      Column({ space: 2 }) {
++        Text(RoomStore.shared().state.roomName)
++          .fontSize(22)
++          .fontWeight(FontWeight.Bold)
++        Text(`${RoomStore.shared().state.memberCount} members`)
+           .fontSize(13)
+           .fontColor('#64748B')
+       }
+-      .padding(20)
+-      .width('100%')
+-      .backgroundColor('#FFFFFF')
++      .alignItems(HorizontalAlign.Start)
++      Blank()
++      Text('Room')
++        .fontSize(13)
++        .fontColor('#64748B')
++    }
++    .padding(20)
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++  }
+ 
+-      if (this.currentPinned !== null) {
+-        Row({ space: 12 }) {
+-          Text('Pinned')
+-            .fontSize(13)
+-            .fontWeight(FontWeight.Medium)
+-            .fontColor('#067A68')
+-          Text(this.currentPinned?.body ?? '')
+-            .layoutWeight(1)
+-            .maxLines(1)
+-          Button('Next')
+-            .onClick(() => {
+-              this.presenter.moveToNext();
+-              this.currentPinned = this.presenter.current();
+-            })
+-            .id('pinned_banner_next')
+-        }
+-        .padding(14)
+-        .width('100%')
+-        .backgroundColor('#E9F8F4')
+-        .id('pinned_messages_banner')
++  // ---------------------------------------------------------------------------
++  // Banner that reflects whether pinned messages exist and opens the list
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  PinnedBanner() {
++    Row({ space: 12 }) {
++      Column({ space: 2 }) {
++        Text('Pinned')
++          .fontSize(13)
++          .fontWeight(FontWeight.Medium)
++          .fontColor('#067A68')
++        Text(RoomStore.shared().currentBanner()?.body ?? '')
++          .fontSize(15)
++          .maxLines(1)
++          .textOverflow({ overflow: TextOverflow.Ellipsis })
+       }
++      .layoutWeight(1)
++      .alignItems(HorizontalAlign.Start)
+ 
+-      Column({ space: 14 }) {
+-        Text('Alice')
++      Column({ space: 6 }) {
++        Text(`${RoomStore.shared().pinnedCount()}`)
++          .fontSize(12)
++          .fontColor('#067A68')
++          .alignSelf(ItemAlign.End)
++        Button('View all')
++          .onClick(() => this.openPinnedList())
++          .id('pinned_banner_open')
++          .height(28)
++      }
++      .alignItems(HorizontalAlign.End)
++
++      Button('Next')
++        .onClick(() => {
++          RoomStore.shared().moveToNextBanner();
++        })
++        .id('pinned_banner_next')
++        .height(28)
++    }
++    .padding(14)
++    .width('100%')
++    .backgroundColor('#E9F8F4')
++    .id('pinned_messages_banner')
++    .onClick(() => this.openPinnedList())
++  }
++
++  @Builder
++  EmptyPinnedBanner() {
++    Row({ space: 12 }) {
++      Text('No pinned messages')
++        .fontSize(13)
++        .fontColor('#64748B')
++        .layoutWeight(1)
++      Button('View list')
++        .onClick(() => this.openPinnedList())
++        .id('pinned_banner_open_empty')
++        .height(28)
++    }
++    .padding(14)
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++    .id('pinned_messages_banner_empty')
++  }
++
++  // ---------------------------------------------------------------------------
++  // Timeline list with focus highlight
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  Timeline() {
++    List({ space: 0 }) {
++      ForEach(RoomStore.shared().state.timeline, (event: RoomEvent) => {
++        ListItem() {
++          this.TimelineRow(event)
++        }
++      }, (event: RoomEvent) => event.eventId)
++    }
++    .layoutWeight(1)
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++    .id('room_timeline')
++  }
++
++  @Builder
++  TimelineRow(event: RoomEvent) {
++    Column({ space: 4 }) {
++      Row() {
++        Text(event.sender)
+           .fontSize(13)
+           .fontColor('#64748B')
+-          .width('100%')
+-        Text('The room timeline remains available, but this version has no pinned-message collection screen.')
++          .layoutWeight(1)
++        if (RoomStore.shared().state.focusedEventId === event.eventId) {
++          Text('Focused')
++            .fontSize(11)
++            .fontColor('#B45309')
++            .fontWeight(FontWeight.Medium)
++        }
++      }
++      .width('100%')
++
++      if (event.body.length > 0) {
++        Text(event.body)
+           .fontSize(16)
+-          .lineHeight(23)
+-          .width('100%')
+-        Text('Bob')
+-          .fontSize(13)
+-          .fontColor('#64748B')
++          .lineHeight(22)
+           .width('100%')
+-        Text('Use the banner to cycle through known pins.')
+-          .fontSize(16)
++      } else {
++        Text('[no content]')
++          .fontSize(14)
++          .fontColor('#94A3B8')
+           .width('100%')
+       }
+-      .padding(20)
++    }
++    .padding(16)
++    .width('100%')
++    .alignItems(HorizontalAlign.Start)
++    .backgroundColor(RoomStore.shared().state.focusedEventId === event.eventId ? '#FEF3C7' : '#FFFFFF')
++    .id(RoomStore.shared().state.focusedEventId === event.eventId
++      ? `timeline_event_${event.eventId}_focused`
++      : `timeline_event_${event.eventId}`)
++    .onClick(() => {
++      if (RoomStore.shared().state.focusedEventId === event.eventId) {
++        RoomStore.shared().clearFocus();
++      }
++    })
++  }
++
++  // ---------------------------------------------------------------------------
++  // Permissions row: lets the user toggle their permission (server is
++  // authoritative in production; this mirrors that the room owner may grant
++  // or revoke pin privileges for a member).
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  PermissionsRow() {
++    Row({ space: 12 }) {
++      Column({ space: 2 }) {
++        Text(RoomStore.shared().state.canPinUnpin ? 'You can pin and unpin' : 'You have read-only access')
++          .fontSize(13)
++          .fontColor(RoomStore.shared().state.canPinUnpin ? '#067A68' : '#64748B')
++        Text(RoomStore.shared().state.canPinUnpin
++          ? 'Pin/unpin actions are visible.'
++          : 'Pin/unpin actions are hidden.')
++          .fontSize(11)
++          .fontColor('#94A3B8')
++      }
+       .layoutWeight(1)
+       .alignItems(HorizontalAlign.Start)
+-      .width('100%')
++
++      Button(RoomStore.shared().state.canPinUnpin ? 'Revoke' : 'Grant')
++        .onClick(() => {
++          RoomStore.shared().setCanPinUnpin(!RoomStore.shared().state.canPinUnpin);
++        })
++        .id('permission_toggle')
+     }
+-    .height('100%')
++    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+     .width('100%')
+-    .backgroundColor('#F4F6F8')
++    .backgroundColor('#FFFFFF')
++    .id('permissions_row')
++  }
++
++  // ---------------------------------------------------------------------------
++  // Actions
++  // ---------------------------------------------------------------------------
++
++  openPinnedList(): void {
++    RoomStore.shared().beginPinnedList();
++    router.pushUrl({ url: 'pages/PinnedMessagesPage' }).catch((e: Error) => {
++      void e;
++    });
+   }
+ }
+diff --git a/entry/src/main/ets/pages/PinnedMessagesPage.ets b/entry/src/main/ets/pages/PinnedMessagesPage.ets
+new file mode 100644
+index 0000000..b8ce4d8
+--- /dev/null
++++ b/entry/src/main/ets/pages/PinnedMessagesPage.ets
+@@ -0,0 +1,329 @@
++import router from '@ohos.router';
++import {
++  PinnedEvent,
++  PinnedListState,
++  RoomStore,
++  StoreListener,
++  UnpinStatus
++} from '../features/PinnedMessagesBase';
++
++@Entry
++@Component
++struct PinnedMessagesPage {
++  @State private storeVersion: number = 0;
++  private storeListener: StoreListener = new StoreListener(() => {
++    this.storeVersion = this.storeVersion + 1;
++  });
++
++  aboutToAppear(): void {
++    RoomStore.shared().addListener(this.storeListener);
++    // Start loading the initial page of the pinned collection. We kick off
++    // the load unconditionally so re-entries (e.g. after retry) reload.
++    RoomStore.shared().loadInitialPinnedPage();
++  }
++
++  aboutToDisappear(): void {
++    RoomStore.shared().removeListener(this.storeListener);
++  }
++
++  onPageHide(): void {
++    // Make sure no transient failure bar is left lingering if the user
++    // backgrounds the app or navigates elsewhere unexpectedly.
++    RoomStore.shared().dismissUnpinFailure();
++  }
++
++  build() {
++    Column() {
++      this.PageHeader()
++
++      if (RoomStore.shared().pinnedList.listState === PinnedListState.LOADING) {
++        this.LoadingState()
++      } else if (RoomStore.shared().pinnedList.listState === PinnedListState.EMPTY) {
++        this.EmptyState()
++      } else if (RoomStore.shared().pinnedList.listState === PinnedListState.FILLED) {
++        this.FilledState()
++      } else if (RoomStore.shared().pinnedList.listState === PinnedListState.FAILED) {
++        this.FailedState()
++      } else {
++        this.LoadingState()
++      }
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++    .id('pinned_messages_page')
++  }
++
++  // ---------------------------------------------------------------------------
++  // Page header with back navigation
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  PageHeader() {
++    Row({ space: 12 }) {
++      Button('Back')
++        .onClick(() => this.navigateBack())
++        .id('pinned_back')
++        .height(32)
++      Text('Pinned messages')
++        .fontSize(18)
++        .fontWeight(FontWeight.Bold)
++        .layoutWeight(1)
++      Text(`${RoomStore.shared().pinnedCount()} total`)
++        .fontSize(12)
++        .fontColor('#64748B')
++    }
++    .padding({ left: 16, right: 16, top: 16, bottom: 12 })
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++    .id('pinned_messages_header')
++  }
++
++  // ---------------------------------------------------------------------------
++  // State branches
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  LoadingState() {
++    Column({ space: 12 }) {
++      Progress({ value: 0, total: 100, type: ProgressType.Ring })
++        .width(36)
++        .height(36)
++        .color('#067A68')
++      Text('Loading pinned messages...')
++        .fontSize(14)
++        .fontColor('#64748B')
++    }
++    .layoutWeight(1)
++    .width('100%')
++    .justifyContent(FlexAlign.Center)
++    .alignItems(HorizontalAlign.Center)
++    .id('pinned_loading')
++  }
++
++  @Builder
++  EmptyState() {
++    Column({ space: 12 }) {
++      Text('No pinned messages')
++        .fontSize(16)
++        .fontColor('#64748B')
++      Text('Pinned messages will appear here once a member pins them.')
++        .fontSize(13)
++        .fontColor('#94A3B8')
++        .textAlign(TextAlign.Center)
++    }
++    .layoutWeight(1)
++    .width('100%')
++    .padding(24)
++    .justifyContent(FlexAlign.Center)
++    .alignItems(HorizontalAlign.Center)
++    .id('pinned_empty')
++  }
++
++  @Builder
++  FailedState() {
++    Column({ space: 12 }) {
++      Text('Could not load pinned messages')
++        .fontSize(16)
++        .fontColor('#B91C1C')
++        .fontWeight(FontWeight.Medium)
++      Text(RoomStore.shared().pinnedList.loadFailureMessage.length > 0
++        ? RoomStore.shared().pinnedList.loadFailureMessage
++        : 'Please try again.')
++        .fontSize(13)
++        .fontColor('#64748B')
++        .textAlign(TextAlign.Center)
++      Button('Retry')
++        .onClick(() => {
++          RoomStore.shared().loadInitialPinnedPage();
++        })
++        .id('pinned_retry')
++    }
++    .layoutWeight(1)
++    .width('100%')
++    .padding(24)
++    .justifyContent(FlexAlign.Center)
++    .alignItems(HorizontalAlign.Center)
++    .id('pinned_failed')
++  }
++
++  @Builder
++  FilledState() {
++    Column() {
++      List({ space: 0 }) {
++        ForEach(RoomStore.shared().pinnedList.items, (item: PinnedEvent) => {
++          ListItem() {
++            this.ItemRow(item)
++          }
++        }, (item: PinnedEvent) => item.eventId)
++
++        if (RoomStore.shared().pinnedList.hasMore) {
++          ListItem() {
++            this.LoadMoreRow()
++          }
++        }
++      }
++      .layoutWeight(1)
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++      .id('pinned_list')
++
++      if (RoomStore.shared().pinnedList.unpinStatus === UnpinStatus.FAILED
++          && RoomStore.shared().pinnedList.unpinFailureEventId.length > 0) {
++        this.UnpinFailureBar()
++      }
++    }
++    .layoutWeight(1)
++    .width('100%')
++  }
++
++  // ---------------------------------------------------------------------------
++  // List item
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  ItemRow(item: PinnedEvent) {
++    Row() {
++      Column({ space: 6 }) {
++        Row({ space: 6 }) {
++          Text(item.sender)
++            .fontSize(13)
++            .fontColor('#64748B')
++            .layoutWeight(1)
++          Text(`pinned by ${item.pinnedBy}`)
++            .fontSize(11)
++            .fontColor('#94A3B8')
++        }
++        .width('100%')
++
++        if (item.isRedacted) {
++          Text('[Message redacted]')
++            .fontSize(15)
++            .fontColor('#94A3B8')
++            .width('100%')
++        } else if (item.isUnavailable) {
++          Text('[Message unavailable]')
++            .fontSize(15)
++            .fontColor('#94A3B8')
++            .width('100%')
++        } else {
++          Text(item.body)
++            .fontSize(15)
++            .lineHeight(21)
++            .width('100%')
++        }
++      }
++      .layoutWeight(1)
++      .alignItems(HorizontalAlign.Start)
++
++      Column({ space: 6 }) {
++        Button('View in timeline')
++          .onClick(() => this.viewInTimeline(item))
++          .id(`pinned_view_in_timeline_${item.eventId}`)
++          .height(28)
++          .fontSize(12)
++
++        if (RoomStore.shared().state.canPinUnpin) {
++          Button(RoomStore.shared().pinnedList.unpinStatus === UnpinStatus.IN_FLIGHT
++            && RoomStore.shared().pinnedList.unpinFailureEventId === item.eventId
++            ? 'Unpinning...' : 'Unpin')
++            .onClick(() => this.unpinItem(item))
++            .id(`pinned_unpin_${item.eventId}`)
++            .height(28)
++            .fontSize(12)
++            .enabled(!(RoomStore.shared().pinnedList.unpinStatus === UnpinStatus.IN_FLIGHT
++              && RoomStore.shared().pinnedList.unpinFailureEventId === item.eventId))
++            .backgroundColor(RoomStore.shared().pinnedList.unpinStatus === UnpinStatus.IN_FLIGHT
++              && RoomStore.shared().pinnedList.unpinFailureEventId === item.eventId
++              ? '#94A3B8' : '#DC2626')
++        }
++      }
++      .alignItems(HorizontalAlign.End)
++      .margin({ left: 12 })
++    }
++    .padding(14)
++    .width('100%')
++    .backgroundColor(RoomStore.shared().pinnedList.unpinStatus === UnpinStatus.IN_FLIGHT
++      && RoomStore.shared().pinnedList.unpinFailureEventId === item.eventId
++      ? '#F1F5F9' : '#FFFFFF')
++    .id(`pinned_message_${item.eventId}`)
++  }
++
++  // ---------------------------------------------------------------------------
++  // Load more row
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  LoadMoreRow() {
++    Column() {
++      if (RoomStore.shared().pinnedList.loadingMore) {
++        Progress({ value: 0, total: 100, type: ProgressType.Ring })
++          .width(24)
++          .height(24)
++          .color('#067A68')
++      } else {
++        Button('Load more')
++          .onClick(() => {
++            RoomStore.shared().loadMorePinned();
++          })
++          .id('pinned_load_more')
++          .height(32)
++      }
++    }
++    .padding(12)
++    .width('100%')
++    .alignItems(HorizontalAlign.Center)
++    .id('pinned_load_more_row')
++  }
++
++  // ---------------------------------------------------------------------------
++  // Unpin failure recovery bar
++  // ---------------------------------------------------------------------------
++
++  @Builder
++  UnpinFailureBar() {
++    Row({ space: 12 }) {
++      Text(RoomStore.shared().pinnedList.unpinFailureMessage.length > 0
++        ? RoomStore.shared().pinnedList.unpinFailureMessage
++        : 'Could not unpin')
++        .fontSize(13)
++        .fontColor('#B91C1C')
++        .layoutWeight(1)
++      Button('Retry')
++        .onClick(() => {
++          RoomStore.shared().retryLastFailedUnpin();
++        })
++        .id('pinned_unpin_retry')
++        .height(28)
++        .fontSize(12)
++      Button('Dismiss')
++        .onClick(() => {
++          RoomStore.shared().dismissUnpinFailure();
++        })
++        .id('pinned_unpin_dismiss')
++        .height(28)
++        .fontSize(12)
++    }
++    .padding(12)
++    .width('100%')
++    .backgroundColor('#FEE2E2')
++    .id('pinned_unpin_failure_bar')
++  }
++
++  // ---------------------------------------------------------------------------
++  // Actions
++  // ---------------------------------------------------------------------------
++
++  viewInTimeline(item: PinnedEvent): void {
++    RoomStore.shared().focusEventInTimeline(item.eventId);
++    router.back();
++  }
++
++  unpinItem(item: PinnedEvent): void {
++    RoomStore.shared().unpinEvent(item.eventId);
++  }
++
++  navigateBack(): void {
++    router.back();
++  }
++}
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 1898d94..712596c 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,5 +1,6 @@
+ {
+   "src": [
+-    "pages/Index"
++    "pages/Index",
++    "pages/PinnedMessagesPage"
+   ]
+ }

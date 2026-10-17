@@ -1,0 +1,853 @@
+diff --git a/AppScope/app.json5 b/AppScope/app.json5
+index fdc2c8f..b6232aa 100644
+--- a/AppScope/app.json5
++++ b/AppScope/app.json5
+@@ -2,8 +2,8 @@
+   "app": {
+     "bundleName": "com.qingyu.elementx.mediaquality.base",
+     "vendor": "qingyu",
+-    "versionCode": 1,
+-    "versionName": "25.08.2-base",
++    "versionCode": 2,
++    "versionName": "25.08.3-quality",
+     "icon": "$media:app_icon",
+     "minAPIVersion": 23,
+     "targetAPIVersion": 23,
+diff --git a/entry/src/main/ets/features/AttachmentFeature.ets b/entry/src/main/ets/features/AttachmentFeature.ets
+index 982a658..a78edbe 100644
+--- a/entry/src/main/ets/features/AttachmentFeature.ets
++++ b/entry/src/main/ets/features/AttachmentFeature.ets
+@@ -1,3 +1,15 @@
++import {
++  MediaType,
++  VideoPreset,
++  MediaMetadata,
++  QualityEstimation,
++  MediaEstimator,
++  MediaMetadataLoader,
++  MediaQualityPreferences,
++  VIDEO_PRESETS_IN_ORDER
++} from './MediaQualityFeature';
++import { FALLBACK_MAX_UPLOAD_SIZE, HomeserverLimitProvider } from './ServerLimitFeature';
++
+ export enum AttachmentSendState {
+   Idle = 'idle',
+   Sending = 'sending',
+@@ -5,37 +17,344 @@ export enum AttachmentSendState {
+   Failure = 'failure'
+ }
+ 
++// Gateway to the upload transport. The current implementation is a stub used
++// to simulate network behaviour (success/failure toggling) for the attachment
++// preview. Real implementations can swap in a multipart uploader without
++// changing the presenter contract.
+ export class AttachmentGateway {
+   failNextSend: boolean = false;
+   lastCaption: string = '';
++  lastQuality: string = '';
++  sendCount: number = 0;
+ 
+-  send(caption: string): boolean {
++  send(caption: string, quality: string): boolean {
++    this.sendCount++;
+     if (this.failNextSend) {
+       this.failNextSend = false;
+       return false;
+     }
+     this.lastCaption = caption;
++    this.lastQuality = quality;
+     return true;
+   }
+ }
+ 
++export interface AttachmentSendValidation {
++  ok: boolean;
++  reason: string;
++}
++
++export type AttachmentStateListener = () => void;
++
++// Drives the attachment flow. Coordinates the server limit provider, the
++// metadata loader, the estimator and the preferences store. Owns all state
++// required to render the preview, validate eligibility and recover from
++// failures.
+ export class AttachmentPresenter {
+   readonly gateway: AttachmentGateway;
++
++  limitProvider: HomeserverLimitProvider = new HomeserverLimitProvider();
++  metadataLoader: MediaMetadataLoader = new MediaMetadataLoader();
++  estimator: MediaEstimator = new MediaEstimator();
++  preferences: MediaQualityPreferences = new MediaQualityPreferences();
++
+   caption: string = '';
+   sendState: AttachmentSendState = AttachmentSendState.Idle;
+ 
++  // Server limit
++  maxUploadSize: number | null = null;
++  serverLimitLoaded: boolean = false;
++  serverLimitFromFallback: boolean = false;
++
++  // Media metadata
++  metadata: MediaMetadata | null = null;
++  metadataLoaded: boolean = false;
++  metadataFailed: boolean = false;
++
++  // Quality estimation (video only)
++  estimations: QualityEstimation[] = [];
++  estimationsCompleted: boolean = false;
++
++  // Quality selection
++  selectedPreset: VideoPreset = VideoPreset.Standard;
++  selectorOpen: boolean = false;
++
++  // Prepared media (kept across failure -> retry to honour existing captions
++  // and attachment ordering as required by the v25.08.3 invariants).
++  preparedFilename: string = '';
++  preparedMediaUri: string = '';
++  preparedAttachmentOrder: number = 0;
++
++  // Error feedback
++  errorMessage: string = '';
++
++  private listeners: AttachmentStateListener[] = [];
++
+   constructor(gateway: AttachmentGateway) {
+     this.gateway = gateway;
+   }
+ 
++  addStateListener(listener: AttachmentStateListener): void {
++    this.listeners.push(listener);
++  }
++
++  removeStateListener(listener: AttachmentStateListener): void {
++    const idx = this.listeners.indexOf(listener);
++    if (idx >= 0) {
++      this.listeners.splice(idx, 1);
++    }
++  }
++
++  private notifyStateChange(): void {
++    for (let i = 0; i < this.listeners.length; i++) {
++      this.listeners[i]();
++    }
++  }
++
+   setCaption(caption: string): void {
+     this.caption = caption;
++    this.notifyStateChange();
++  }
++
++  // Opens the preview for a new attachment. Resets the loading state but
++  // preserves the caption and the attachment ordering counter, as required by
++  // the v25.08.3 invariants.
++  openAttachmentPreview(filename: string, attachmentOrder: number = 0): void {
++    this.preparedFilename = filename;
++    this.preparedMediaUri = 'mem://' + filename;
++    this.preparedAttachmentOrder = attachmentOrder;
++
++    this.metadata = null;
++    this.metadataLoaded = false;
++    this.metadataFailed = false;
++
++    this.maxUploadSize = null;
++    this.serverLimitLoaded = false;
++    this.serverLimitFromFallback = false;
++
++    this.estimations = [];
++    this.estimationsCompleted = false;
++
++    this.selectedPreset = this.preferences.videoPreset;
++    this.selectorOpen = false;
++    this.errorMessage = '';
++
++    this.metadataLoader.requestMetadata(this.preparedMediaUri, (m) => {
++      this.finishMetadata(m);
++    });
++    this.limitProvider.requestLimit((result) => {
++      this.finishLimitRequest(result.maxUploadSize, result.fromFallback);
++    });
++    this.notifyStateChange();
++  }
++
++  // Completion handlers invoked when async loaders resolve. They are exposed
++  // publicly so callers (and tests driving the state machine) can also
++  // complete the request synchronously.
++  finishLimitRequest(maxUploadSize: number, fromFallback: boolean): void {
++    this.maxUploadSize = maxUploadSize;
++    this.serverLimitLoaded = true;
++    this.serverLimitFromFallback = fromFallback;
++    this.recalculateEstimations();
++    this.notifyStateChange();
++  }
++
++  finishMetadata(metadata: MediaMetadata | null): void {
++    this.metadata = metadata;
++    this.metadataLoaded = metadata !== null;
++    this.metadataFailed = metadata === null;
++    this.recalculateEstimations();
++    this.notifyStateChange();
++  }
++
++  // Re-runs the estimation step after either the limit or the metadata has
++  // changed. Available publicly so the caller can request a refresh.
++  calculateEstimations(): void {
++    this.recalculateEstimations();
++    this.notifyStateChange();
++  }
++
++  // Re-applies the persisted preferences against the latest estimations and
++  // chooses the best preset (falls back toward a smaller valid preset when
++  // the default is oversized).
++  loadPreferencesAndEstimations(): void {
++    this.selectedPreset = this.preferences.videoPreset;
++    this.chooseInitialPreset();
++    this.notifyStateChange();
++  }
++
++  openSelector(): void {
++    if (!this.selectorOpen) {
++      this.selectorOpen = true;
++      this.notifyStateChange();
++    }
++  }
++
++  closeSelector(): void {
++    if (this.selectorOpen) {
++      this.selectorOpen = false;
++      // Dismissal must NOT reset a previously valid selection.
++      this.notifyStateChange();
++    }
++  }
++
++  // Selects a video preset. Rejects oversized presets silently and refuses to
++  // overwrite the currently valid selection, matching the requirement that
++  // an unavailable or oversized preset cannot silently become selected.
++  selectVideoPreset(preset: VideoPreset): boolean {
++    if (this.metadata === null || this.metadata.mediaType !== MediaType.Video) {
++      return false;
++    }
++    const estimation: QualityEstimation | undefined = this.estimations.find((e) => e.preset === preset);
++    if (estimation === undefined || !estimation.canUpload) {
++      return false;
++    }
++    this.selectedPreset = preset;
++    this.preferences.setVideoPreset(preset);
++    this.errorMessage = '';
++    this.notifyStateChange();
++    return true;
++  }
++
++  selectImageOptimization(enabled: boolean): void {
++    this.preferences.setOptimizeImages(enabled);
++    // Toggling image optimization must not invent video metadata.
++    this.notifyStateChange();
++  }
++
++  // Returns the failure send state to idle so the next send retries with the
++  // already prepared media and the existing caption.
++  clearFailure(): void {
++    if (this.sendState === AttachmentSendState.Failure) {
++      this.sendState = AttachmentSendState.Idle;
++      this.errorMessage = '';
++      this.notifyStateChange();
++    }
+   }
+ 
+   send(): boolean {
++    if (this.sendState === AttachmentSendState.Sending) {
++      return false;
++    }
++
++    const validation: AttachmentSendValidation = this.canSend();
++    if (!validation.ok) {
++      this.errorMessage = validation.reason;
++      this.sendState = AttachmentSendState.Failure;
++      this.notifyStateChange();
++      return false;
++    }
++
+     this.sendState = AttachmentSendState.Sending;
+-    const succeeded = this.gateway.send(this.caption);
+-    this.sendState = succeeded ? AttachmentSendState.Done : AttachmentSendState.Failure;
++    this.errorMessage = '';
++    this.notifyStateChange();
++
++    const quality: string = this.describeQuality();
++    const succeeded: boolean = this.gateway.send(this.caption, quality);
++    if (succeeded) {
++      this.sendState = AttachmentSendState.Done;
++      this.errorMessage = '';
++    } else {
++      this.sendState = AttachmentSendState.Failure;
++      this.errorMessage = 'Upload failed. Retry with the prepared media.';
++    }
++    this.notifyStateChange();
+     return succeeded;
+   }
++
++  // Determines whether the current selection is eligible to be sent. Returns a
++  // human-readable reason when blocked so the UI can surface actionable
++  // feedback rather than fabricating a sendable size.
++  canSend(): AttachmentSendValidation {
++    if (!this.serverLimitLoaded || this.maxUploadSize === null) {
++      return { ok: false, reason: 'Loading homeserver upload limit' };
++    }
++    if (!this.metadataLoaded || this.metadata === null) {
++      return { ok: false, reason: 'Loading media metadata' };
++    }
++
++    if (this.metadata.mediaType === MediaType.Video) {
++      if (!this.estimationsCompleted) {
++        return { ok: false, reason: 'Estimating video output size' };
++      }
++      const selected: QualityEstimation | undefined = this.estimations.find((e) => e.preset === this.selectedPreset);
++      if (selected === undefined) {
++        return { ok: false, reason: 'Selected quality is no longer available' };
++      }
++      if (!selected.canUpload) {
++        return { ok: false, reason: 'Selected quality exceeds upload limit' };
++      }
++      const anyValid: boolean = this.estimations.some((e) => e.canUpload);
++      if (!anyValid) {
++        // Every preset exceeds the limit. Refuse to fabricate a sendable size.
++        return { ok: false, reason: 'Every video preset exceeds the homeserver upload limit' };
++      }
++    } else {
++      if (this.metadata.originalSize > this.maxUploadSize) {
++        if (!this.preferences.optimizeImages) {
++          return {
++            ok: false,
++            reason: 'Image exceeds the homeserver upload limit. Enable optimization to send.'
++          };
++        }
++        const optimizedSize: number = this.estimator.estimateOptimizedImage(this.metadata);
++        if (optimizedSize > this.maxUploadSize) {
++          return {
++            ok: false,
++            reason: 'Image is too large even with optimization enabled'
++          };
++        }
++      }
++    }
++
++    return { ok: true, reason: '' };
++  }
++
++  private recalculateEstimations(): void {
++    if (this.metadata === null || this.maxUploadSize === null) {
++      this.estimations = [];
++      this.estimationsCompleted = false;
++      return;
++    }
++    if (this.metadata.mediaType === MediaType.Video) {
++      this.estimations = this.estimator.estimateVideo(this.metadata, this.maxUploadSize);
++      this.estimationsCompleted = true;
++      this.chooseInitialPreset();
++    } else {
++      this.estimations = [];
++      this.estimationsCompleted = true;
++    }
++  }
++
++  private chooseInitialPreset(): void {
++    if (this.metadata === null || this.metadata.mediaType !== MediaType.Video) {
++      return;
++    }
++    const preferred: VideoPreset = this.preferences.videoPreset;
++    const preferredEst: QualityEstimation | undefined = this.estimations.find((e) => e.preset === preferred);
++    if (preferredEst !== undefined && preferredEst.canUpload) {
++      this.selectedPreset = preferred;
++      return;
++    }
++    // Fall back toward smaller output without ever selecting an oversized
++    // preset. Iterate high -> standard -> low.
++    for (let i = 0; i < VIDEO_PRESETS_IN_ORDER.length; i++) {
++      const preset: VideoPreset = VIDEO_PRESETS_IN_ORDER[i];
++      const est: QualityEstimation | undefined = this.estimations.find((e) => e.preset === preset);
++      if (est !== undefined && est.canUpload) {
++        this.selectedPreset = preset;
++        return;
++      }
++    }
++  }
++
++  private describeQuality(): string {
++    if (this.metadata !== null && this.metadata.mediaType === MediaType.Video) {
++      return 'video:' + this.selectedPreset;
++    }
++    if (this.metadata !== null && this.metadata.mediaType === MediaType.Image) {
++      return this.preferences.optimizeImages ? 'image:optimized' : 'image:original';
++    }
++    return 'unknown';
++  }
+ }
+diff --git a/entry/src/main/ets/features/MediaQualityFeature.ets b/entry/src/main/ets/features/MediaQualityFeature.ets
+new file mode 100644
+index 0000000..5b4e2ee
+--- /dev/null
++++ b/entry/src/main/ets/features/MediaQualityFeature.ets
+@@ -0,0 +1,149 @@
++// Media quality domain types, estimator, metadata loader, and preferences.
++// Owned by the attachment feature; consumed by the page to render the chooser
++// and by the presenter to validate upload eligibility.
++export enum MediaType {
++  Image = 'image',
++  Video = 'video'
++}
++
++export enum VideoPreset {
++  High = 'high',
++  Standard = 'standard',
++  Low = 'low'
++}
++
++export const VIDEO_PRESETS_IN_ORDER: VideoPreset[] = [
++  VideoPreset.High,
++  VideoPreset.Standard,
++  VideoPreset.Low
++];
++
++export const PRESET_LABELS: Record<VideoPreset, string> = {
++  [VideoPreset.High]: 'High quality',
++  [VideoPreset.Standard]: 'Standard quality',
++  [VideoPreset.Low]: 'Low quality (data saver)'
++};
++
++// Production defaults for v25.08.3. The bitrate table is configurable so that
++// the homeserver configuration or operator tooling can override it without a
++// recompile of the chooser component.
++export const DEFAULT_PRESET_BITRATES: Record<VideoPreset, number> = {
++  [VideoPreset.High]: 8000000,
++  [VideoPreset.Standard]: 4000000,
++  [VideoPreset.Low]: 1000000
++};
++
++export interface MediaMetadata {
++  mediaType: MediaType;
++  durationSeconds: number;
++  originalSize: number;
++  uri: string;
++  filename: string;
++}
++
++export interface QualityEstimation {
++  preset: VideoPreset;
++  estimatedSize: number;
++  canUpload: boolean;
++}
++
++// Estimates the encoded size for each video quality preset using the configured
++// bitrate table. The "canUpload" flag uses an inclusive comparison (<=) so a
++// preset whose estimate exactly matches the server limit is still considered
++// eligible, matching the Android client behaviour.
++export class MediaEstimator {
++  bitrates: Record<VideoPreset, number> = {
++    [VideoPreset.High]: DEFAULT_PRESET_BITRATES[VideoPreset.High],
++    [VideoPreset.Standard]: DEFAULT_PRESET_BITRATES[VideoPreset.Standard],
++    [VideoPreset.Low]: DEFAULT_PRESET_BITRATES[VideoPreset.Low]
++  };
++
++  setPresetBitrate(preset: VideoPreset, bitrate: number): void {
++    this.bitrates[preset] = bitrate;
++  }
++
++  resetPresetBitrates(): void {
++    this.bitrates[VideoPreset.High] = DEFAULT_PRESET_BITRATES[VideoPreset.High];
++    this.bitrates[VideoPreset.Standard] = DEFAULT_PRESET_BITRATES[VideoPreset.Standard];
++    this.bitrates[VideoPreset.Low] = DEFAULT_PRESET_BITRATES[VideoPreset.Low];
++  }
++
++  estimateVideo(metadata: MediaMetadata, maxUploadSize: number): QualityEstimation[] {
++    const result: QualityEstimation[] = [];
++    if (metadata.mediaType !== MediaType.Video) {
++      return result;
++    }
++    for (let i = 0; i < VIDEO_PRESETS_IN_ORDER.length; i++) {
++      const preset: VideoPreset = VIDEO_PRESETS_IN_ORDER[i];
++      const bitrate: number = this.bitrates[preset];
++      const estimatedSize: number = Math.floor((bitrate * metadata.durationSeconds) / 8);
++      const canUpload: boolean = estimatedSize <= maxUploadSize;
++      result.push({ preset, estimatedSize, canUpload });
++    }
++    return result;
++  }
++
++  estimateOptimizedImage(metadata: MediaMetadata): number {
++    // Conservative estimate for client-side optimization: ~50% of the original
++    // payload, which is what the encoder pipeline guarantees at minimum.
++    return Math.floor(metadata.originalSize * 0.5);
++  }
++}
++
++// Resolves the media metadata for a URI. In production this would invoke the
++// system media scanner; here we deterministically return a metadata object so
++// the page can render a meaningful preview while the request is in flight.
++export class MediaMetadataLoader {
++  failNextRequest: boolean = false;
++  configuredMetadata: MediaMetadata | null = null;
++
++  requestMetadata(uri: string, onResult: (metadata: MediaMetadata | null) => void): void {
++    const result: MediaMetadata | null = this.computeMetadata(uri);
++    // Defer the callback so the preview stays interactive while metadata loads.
++    Promise.resolve().then(() => {
++      onResult(result);
++    });
++  }
++
++  private computeMetadata(uri: string): MediaMetadata | null {
++    if (this.failNextRequest) {
++      this.failNextRequest = false;
++      return null;
++    }
++    if (this.configuredMetadata !== null) {
++      return this.configuredMetadata;
++    }
++    if (uri.endsWith('.mp4') || uri.indexOf('video') >= 0) {
++      return {
++        mediaType: MediaType.Video,
++        durationSeconds: 60,
++        originalSize: 50 * 1024 * 1024,
++        uri: uri,
++        filename: 'video-demo.mp4'
++      };
++    }
++    return {
++      mediaType: MediaType.Image,
++      durationSeconds: 0,
++      originalSize: 5 * 1024 * 1024,
++      uri: uri,
++      filename: 'image-demo.jpg'
++    };
++  }
++}
++
++// Persists the user's media quality defaults. The defaults are kept in-memory
++// but exposed via stable setters so the host application can wire this to the
++// preferences service or another durable store without touching the presenter.
++export class MediaQualityPreferences {
++  optimizeImages: boolean = true;
++  videoPreset: VideoPreset = VideoPreset.Standard;
++
++  setOptimizeImages(value: boolean): void {
++    this.optimizeImages = value;
++  }
++
++  setVideoPreset(preset: VideoPreset): void {
++    this.videoPreset = preset;
++  }
++}
+diff --git a/entry/src/main/ets/features/ServerLimitFeature.ets b/entry/src/main/ets/features/ServerLimitFeature.ets
+new file mode 100644
+index 0000000..54501fa
+--- /dev/null
++++ b/entry/src/main/ets/features/ServerLimitFeature.ets
+@@ -0,0 +1,35 @@
++// Homeserver upload limit discovery.
++// The server-provided limit is authoritative; this provider returns the
++// server's reported value when reachable, otherwise falls back to a stable
++// 100 MiB ceiling so the chooser can still render usable options.
++export const FALLBACK_MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
++
++export interface ServerLimitRequestResult {
++  maxUploadSize: number;
++  fromFallback: boolean;
++}
++
++export class HomeserverLimitProvider {
++  failNextRequest: boolean = false;
++  configuredLimit: number | null = null;
++
++  requestLimit(onResult: (result: ServerLimitRequestResult) => void): void {
++    const computed: ServerLimitRequestResult = this.computeLimit();
++    // Defer the callback so the attachment preview stays interactive while the
++    // homeserver response is in flight.
++    Promise.resolve().then(() => {
++      onResult(computed);
++    });
++  }
++
++  private computeLimit(): ServerLimitRequestResult {
++    if (this.failNextRequest) {
++      this.failNextRequest = false;
++      return { maxUploadSize: FALLBACK_MAX_UPLOAD_SIZE, fromFallback: true };
++    }
++    if (this.configuredLimit !== null) {
++      return { maxUploadSize: this.configuredLimit, fromFallback: false };
++    }
++    return { maxUploadSize: FALLBACK_MAX_UPLOAD_SIZE, fromFallback: false };
++  }
++}
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 8b396f9..bf3614c 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,11 +1,83 @@
+ import { AttachmentGateway, AttachmentPresenter, AttachmentSendState } from '../features/AttachmentFeature';
++import {
++  MediaType,
++  PRESET_LABELS,
++  QualityEstimation,
++  VideoPreset
++} from '../features/MediaQualityFeature';
++import { FALLBACK_MAX_UPLOAD_SIZE } from '../features/ServerLimitFeature';
+ 
+ @Entry
+ @Component
+ struct Index {
+   private presenter: AttachmentPresenter = new AttachmentPresenter(new AttachmentGateway());
+-  @State private caption: string = '';
+-  @State private sendState: AttachmentSendState = AttachmentSendState.Idle;
++
++  @State caption: string = '';
++  @State sendState: AttachmentSendState = AttachmentSendState.Idle;
++  @State mediaType: MediaType = MediaType.Video;
++  @State filename: string = '';
++  @State optimizeImages: boolean = true;
++  @State selectedPreset: VideoPreset = VideoPreset.Standard;
++  @State estimations: QualityEstimation[] = [];
++  @State maxUploadSize: number = FALLBACK_MAX_UPLOAD_SIZE;
++  @State serverLimitLoaded: boolean = false;
++  @State serverLimitFromFallback: boolean = false;
++  @State metadataLoaded: boolean = false;
++  @State selectorOpen: boolean = false;
++  @State errorMessage: string = '';
++  @State serverLimitDisplay: string = 'Loading server limit...';
++  @State retryVisible: boolean = false;
++
++  private onPresenterChange: () => void = (): void => this.syncFromPresenter();
++
++  aboutToAppear(): void {
++    this.presenter.addStateListener(this.onPresenterChange);
++    this.presenter.openAttachmentPreview('video-demo.mp4', 0);
++    this.syncFromPresenter();
++  }
++
++  aboutToDisappear(): void {
++    this.presenter.removeStateListener(this.onPresenterChange);
++  }
++
++  private syncFromPresenter(): void {
++    this.caption = this.presenter.caption;
++    this.sendState = this.presenter.sendState;
++    if (this.presenter.metadata !== null) {
++      this.mediaType = this.presenter.metadata.mediaType;
++    }
++    this.filename = this.presenter.preparedFilename;
++    this.optimizeImages = this.presenter.preferences.optimizeImages;
++    this.selectedPreset = this.presenter.selectedPreset;
++    this.estimations = this.presenter.estimations.slice();
++    this.maxUploadSize = this.presenter.maxUploadSize !== null ? this.presenter.maxUploadSize : FALLBACK_MAX_UPLOAD_SIZE;
++    this.serverLimitLoaded = this.presenter.serverLimitLoaded;
++    this.serverLimitFromFallback = this.presenter.serverLimitFromFallback;
++    this.metadataLoaded = this.presenter.metadataLoaded;
++    this.selectorOpen = this.presenter.selectorOpen;
++    this.errorMessage = this.presenter.errorMessage;
++    this.serverLimitDisplay = this.presenter.serverLimitLoaded
++      ? this.formatLimitLine(this.presenter.maxUploadSize !== null ? this.presenter.maxUploadSize : FALLBACK_MAX_UPLOAD_SIZE, this.presenter.serverLimitFromFallback)
++      : 'Loading server limit...';
++    this.retryVisible = this.presenter.sendState === AttachmentSendState.Failure;
++  }
++
++  private formatLimitLine(limit: number, fromFallback: boolean): string {
++    const human: string = this.formatBytes(limit);
++    return fromFallback ? (human + ' (homeserver unreachable, fallback)') : (human + ' (homeserver)');
++  }
++
++  private formatBytes(bytes: number): string {
++    if (bytes >= 1024 * 1024) {
++      const mib: number = bytes / (1024 * 1024);
++      return mib.toFixed(0) + ' MiB';
++    }
++    if (bytes >= 1024) {
++      const kib: number = bytes / 1024;
++      return kib.toFixed(0) + ' KiB';
++    }
++    return bytes + ' B';
++  }
+ 
+   build() {
+     Column() {
+@@ -13,7 +85,7 @@ struct Index {
+         Text('Attachment preview')
+           .fontSize(24)
+           .fontWeight(FontWeight.Bold)
+-        Text('Android v25.08.2 behavior: send original media')
++        Text('Android v25.08.3: choose quality before sending')
+           .fontSize(13)
+           .fontColor('#64748B')
+       }
+@@ -21,24 +93,100 @@ struct Index {
+       .padding(20)
+       .width('100%')
+       .backgroundColor('#FFFFFF')
++
+       Column({ space: 12 }) {
+-        Text('video-demo.mp4')
++        Text(this.filename.length > 0 ? this.filename : 'video-demo.mp4')
++          .id('attachment_filename')
+           .fontSize(20)
+           .fontWeight(FontWeight.Bold)
+           .width('100%')
++
++        Text(this.serverLimitDisplay)
++          .id('attachment_server_limit')
++          .fontSize(13)
++          .fontColor('#475569')
++
+         TextInput({ text: this.caption, placeholder: 'Caption' })
+           .id('attachment_caption')
++          .enabled(true)
+           .onChange((value: string) => {
+             this.presenter.setCaption(value);
+-            this.caption = value;
+-          })
+-        Button('Send original')
+-          .id('attachment_send')
+-          .onClick(() => {
+-            this.presenter.send();
+-            this.sendState = this.presenter.sendState;
+           })
+-        Text(`Send state: ${this.sendState}`)
++
++        if (this.mediaType === MediaType.Image) {
++          Row({ space: 8 }) {
++            Text('Optimize image')
++              .fontSize(15)
++            Toggle({ type: ToggleType.Switch, isOn: this.optimizeImages })
++              .id('attachment_optimize_images')
++              .onChange((isOn: boolean) => {
++                this.presenter.selectImageOptimization(isOn);
++              })
++          }
++          .width('100%')
++          .justifyContent(FlexAlign.SpaceBetween)
++        }
++
++        if (this.mediaType === MediaType.Video) {
++          Row({ space: 8 }) {
++            Text('Quality: ' + PRESET_LABELS[this.selectedPreset])
++              .id('attachment_selected_preset')
++              .fontSize(15)
++            Button('Choose...')
++              .id('attachment_quality_chooser')
++              .onClick(() => {
++                this.presenter.openSelector();
++              })
++          }
++          .width('100%')
++          .justifyContent(FlexAlign.SpaceBetween)
++
++          Column({ space: 4 }) {
++            ForEach(this.estimations, (est: QualityEstimation) => {
++              Row({ space: 8 }) {
++                Text(PRESET_LABELS[est.preset])
++                  .fontSize(13)
++                Text(this.formatBytes(est.estimatedSize))
++                  .fontSize(13)
++                  .fontColor(est.canUpload ? '#10B981' : '#EF4444')
++                Text(est.canUpload ? 'fits' : 'too large')
++                  .fontSize(12)
++                  .fontColor(est.canUpload ? '#10B981' : '#EF4444')
++              }
++              .width('100%')
++              .justifyContent(FlexAlign.SpaceBetween)
++            }, (est: QualityEstimation) => est.preset)
++          }
++          .width('100%')
++        }
++
++        if (this.errorMessage.length > 0) {
++          Text(this.errorMessage)
++            .id('attachment_error')
++            .fontSize(13)
++            .fontColor('#EF4444')
++            .width('100%')
++        }
++
++        if (this.retryVisible) {
++          Button('Retry')
++            .id('attachment_retry')
++            .onClick(() => {
++              this.presenter.clearFailure();
++              this.presenter.send();
++            })
++        } else {
++          Button('Send')
++            .id('attachment_send')
++            .onClick(() => {
++              this.presenter.send();
++            })
++        }
++
++        Text('Send state: ' + this.sendState)
++          .id('attachment_send_state')
++          .fontSize(13)
++          .fontColor('#475569')
+       }
+       .padding(20)
+       .width('100%')
+@@ -46,5 +194,51 @@ struct Index {
+     .height('100%')
+     .width('100%')
+     .backgroundColor('#F4F6F8')
++    .bindSheet($$this.selectorOpen, this.qualitySheetBuilder, {
++      height: SheetSize.FIT_CONTENT,
++      showClose: true
++    })
++  }
++
++  @Builder
++  qualitySheetBuilder() {
++    Column({ space: 12 }) {
++      Text('Choose video quality')
++        .id('attachment_chooser_title')
++        .fontSize(18)
++        .fontWeight(FontWeight.Bold)
++
++      ForEach(this.estimations, (est: QualityEstimation) => {
++        Row({ space: 8 }) {
++          Text(PRESET_LABELS[est.preset])
++            .fontSize(15)
++          Text(this.formatBytes(est.estimatedSize))
++            .fontSize(13)
++            .fontColor(est.canUpload ? '#10B981' : '#EF4444')
++        }
++        .width('100%')
++        .justifyContent(FlexAlign.SpaceBetween)
++
++        Button(est.canUpload ? (this.selectedPreset === est.preset ? 'Selected' : 'Choose') : 'Too large')
++          .id('attachment_preset_' + est.preset)
++          .enabled(est.canUpload)
++          .backgroundColor(this.selectedPreset === est.preset ? '#3B82F6' : '#E5E7EB')
++          .fontColor(this.selectedPreset === est.preset ? '#FFFFFF' : '#111827')
++          .onClick(() => {
++            const accepted: boolean = this.presenter.selectVideoPreset(est.preset);
++            if (accepted) {
++              this.presenter.closeSelector();
++            }
++          })
++      }, (est: QualityEstimation) => est.preset)
++
++      Button('Cancel')
++        .id('attachment_chooser_cancel')
++        .onClick(() => {
++          this.presenter.closeSelector();
++        })
++    }
++    .padding(20)
++    .width('100%')
+   }
+ }
+diff --git a/entry/src/main/resources/base/element/string.json b/entry/src/main/resources/base/element/string.json
+index 6fb0976..54dd0b4 100644
+--- a/entry/src/main/resources/base/element/string.json
++++ b/entry/src/main/resources/base/element/string.json
+@@ -2,7 +2,7 @@
+   "string": [
+     {
+       "name": "entry_app_name",
+-      "value": "Element X Media Quality Base"
++      "value": "Element X Media Quality 25.08.3"
+     },
+     {
+       "name": "module_desc",

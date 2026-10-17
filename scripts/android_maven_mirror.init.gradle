@@ -7,12 +7,14 @@ System.setProperty("http.nonProxyHosts", [nonProxyHosts, mirrorHosts].findAll { 
 System.setProperty("https.nonProxyHosts", [nonProxyHosts, mirrorHosts].findAll { it }.join("|"))
 
 def publicMirror = "https://maven.aliyun.com/repository/public/"
+def pluginMirror = "https://maven.aliyun.com/repository/gradle-plugin/"
 def centralMirror = "https://maven-central.storage-download.googleapis.com/maven2/"
 def googleMirror = "https://maven.aliyun.com/repository/google/"
 
 beforeSettings { settings ->
     settings.pluginManagement.repositories {
         maven { url = uri(googleMirror) }
+        maven { url = uri(pluginMirror) }
         maven {
             url = uri(publicMirror)
             content { excludeGroup("org.matrix.rustcomponents") }

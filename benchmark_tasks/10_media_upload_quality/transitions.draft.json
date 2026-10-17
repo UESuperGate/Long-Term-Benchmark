@@ -1,0 +1,96 @@
+{
+  "taskId": "10_media_upload_quality",
+  "description": "Shared Android/ArkTS semantics for media quality selection and upload-limit enforcement",
+  "cases": [
+    {
+      "caseId": "mq_state_001_async_loading",
+      "key": "async_loading",
+      "functionalArea": "server_limit_loading",
+      "given": {"mediaType": "video", "maxUploadSize": null, "metadata": null},
+      "event": {"name": "open_attachment_preview"},
+      "expected": {"limitState": "loading", "estimationState": "loading", "previewUsable": true, "sendState": "idle"},
+      "invariants": ["loading server data does not block caption editing or cancellation"],
+      "evidence": {"androidProduction": ["DefaultMediaOptimizationSelectorPresenter.kt", "AttachmentsPreviewPresenter.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_002_limit_fallback",
+      "key": "limit_fallback",
+      "functionalArea": "server_limit_loading",
+      "given": {"maxUploadSizeRequest": "failure"},
+      "event": {"name": "finish_limit_request"},
+      "expected": {"limitState": "success", "maxUploadSize": 104857600, "fallbackUsed": true},
+      "invariants": ["the fallback is exactly 100 MiB"],
+      "evidence": {"androidProduction": ["DefaultMediaOptimizationSelectorPresenter.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_003_image_optimization",
+      "key": "image_optimization",
+      "functionalArea": "image_optimization",
+      "given": {"mediaType": "image", "optimizeImages": true},
+      "event": {"name": "select_image_optimization", "enabled": false},
+      "expected": {"optimizeImages": false, "videoEstimationState": "uninitialized", "preprocessConfig": {"compressImages": false}},
+      "invariants": ["changing image optimization does not fabricate video metadata"],
+      "evidence": {"androidProduction": ["DefaultMediaOptimizationSelectorPresenter.kt", "AttachmentsPreviewPresenter.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_004_estimate_video_presets",
+      "key": "estimate_video_presets",
+      "functionalArea": "video_estimation",
+      "given": {"durationSeconds": 60, "presetBitrates": {"high": 8000000, "standard": 4000000, "low": 1000000}, "maxUploadSize": 35000000},
+      "event": {"name": "calculate_estimations"},
+      "expected": {"sizes": {"high": 66000000, "standard": 33000000, "low": 8250000}, "canUpload": {"high": false, "standard": true, "low": true}, "safetyOverhead": 1.1},
+      "invariants": ["server limit comparison is inclusive"],
+      "evidence": {"androidProduction": ["DefaultMediaOptimizationSelectorPresenter.kt", "MediaOptimizationSelectorState.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_005_choose_best_preset",
+      "key": "choose_best_preset",
+      "functionalArea": "quality_selection",
+      "given": {"defaultPreset": "high", "estimations": [{"preset": "high", "canUpload": false}, {"preset": "standard", "canUpload": true}, {"preset": "low", "canUpload": true}]},
+      "event": {"name": "load_preferences_and_estimations"},
+      "expected": {"selectedPreset": "standard", "selectionState": "success"},
+      "invariants": ["selection falls back toward smaller output without choosing an oversized preset"],
+      "evidence": {"androidProduction": ["DefaultMediaOptimizationSelectorPresenter.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_006_dismiss_preserves_selection",
+      "key": "dismiss_preserves_selection",
+      "functionalArea": "quality_selection",
+      "given": {"selectedPreset": "standard", "selectorOpen": false},
+      "event": {"name": "open_then_dismiss_selector"},
+      "expected": {"selectedPreset": "standard", "selectorOpen": false},
+      "invariants": ["dismissing without a choice does not reset the valid selection"],
+      "evidence": {"androidProduction": ["MediaOptimizationSelectorEvent.kt", "DefaultMediaOptimizationSelectorPresenter.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_007_reject_oversized_preset",
+      "key": "reject_oversized_preset",
+      "functionalArea": "send_validation",
+      "given": {"selectedPreset": "standard", "estimations": [{"preset": "high", "canUpload": false}, {"preset": "standard", "canUpload": true}]},
+      "event": {"name": "select_video_preset", "preset": "high"},
+      "expected": {"selectedPreset": "standard", "selectorOpen": true, "sendable": true},
+      "invariants": ["an oversized preset never silently replaces a valid selection"],
+      "evidence": {"androidProduction": ["DefaultMediaOptimizationSelectorPresenter.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_008_block_when_all_oversized",
+      "key": "block_when_all_oversized",
+      "functionalArea": "error_feedback",
+      "given": {"estimations": [{"preset": "high", "canUpload": false}, {"preset": "standard", "canUpload": false}, {"preset": "low", "canUpload": false}], "sendState": "idle"},
+      "event": {"name": "finish_estimations"},
+      "expected": {"sendEnabled": false, "fileTooLargeError": true, "selectedPreset": null},
+      "invariants": ["the client does not fabricate a sendable output size"],
+      "evidence": {"androidProduction": ["AttachmentsPreviewPresenter.kt", "DefaultMediaOptimizationSelectorPresenter.kt"], "androidTests": ["DefaultMediaOptimizationSelectorPresenterTest.kt", "AttachmentsPreviewPresenterTest.kt"]}
+    },
+    {
+      "caseId": "mq_state_009_failure_cancel_retry",
+      "key": "failure_cancel_retry",
+      "functionalArea": "error_feedback",
+      "given": {"selectedPreset": "standard", "caption": "demo", "sendState": "failure", "preparedMedia": true},
+      "event": {"name": "clear_failure_then_retry", "secondResult": "success"},
+      "expected": {"stateAfterClear": "ready_to_upload", "finalState": "done", "caption": "demo", "presetUsed": "standard", "attempts": 2},
+      "invariants": ["retry reuses prepared media and the selected quality without losing the caption"],
+      "evidence": {"androidProduction": ["AttachmentsPreviewEvents.kt", "AttachmentsPreviewPresenter.kt", "MediaSender.kt"], "androidTests": ["AttachmentsPreviewPresenterTest.kt", "MediaSenderTest.kt"]}
+    }
+  ]
+}

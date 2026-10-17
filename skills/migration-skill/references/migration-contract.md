@@ -12,9 +12,16 @@ migrations/<task-id>/
   arkts/bindings.json
   results/android-base.json
   results/android-final.json
+  results/android-agent.json
   results/arkts-base.json
   results/arkts-final.json
   results/arkts-agent.json
+  provenance/eval-manifest.json
+  provenance/calibration-summary.json
+  provenance/rescore-summary.json
+  provenance/patches/android-agent.patch
+  provenance/patches/arkts-agent.patch
+  provenance/evidence-index.json
 ```
 
 `manifest.json` records exact source refs and toolchain versions. It also records which Android modules map to which ArkTS modules and identifies intentionally unsupported platform-specific behavior.
@@ -52,6 +59,8 @@ For `N` canonical cases:
 | ArkTS | ground-truth final | `N/N` pass |
 
 Every row must be scored. A compile or adapter failure is a calibration defect until repaired.
+
+Agent reports are interpreted only after calibration. Base plus each published binary-safe patch must reconstruct the scored candidate, including untracked production files. The evidence index records SHA-256 and byte length for retained patches and local logs; provider or transport failures remain unavailable and outside benchmark denominators.
 
 ## Completeness Review
 

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "15_account_deactivation",
+  "releaseEvidence": ["CHANGES.md v0.6.3: Account deactivation", "Commit containment shows PR #3479 first appears in v0.6.2, so the base is v0.6.1."],
+  "implementationEvidence": {
+    "symbols": ["AccountDeactivationPresenter", "DeactivateFormState", "AccountDeactivationEvents.DeactivateAccount", "MatrixClient.deactivateAccount", "AsyncAction.Confirming"],
+    "productionPaths": ["features/deactivation", "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root", "libraries/matrix/api/src/main"],
+    "testPaths": ["features/deactivation/impl/src/test/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenterTest.kt", "features/deactivation/impl/src/test/kotlin/io/element/android/features/logout/impl/AccountDeactivationViewTest.kt"]
+  },
+  "baseFailureEvidence": ["The v0.6.1 base has no deactivation feature module or preferences entry.", "The base cannot collect a password and erase-data choice before destructive confirmation.", "The base has no retry-preserving failure state for a failed deactivation request."],
+  "longHorizonSignals": ["The task spans settings navigation, sensitive form state, two-stage confirmation, an SDK destructive action, retry, and session completion.", "A failed request must retain the entered form while a canceled confirmation must not call the SDK.", "The implementation commit changes 43 files and includes 18 test files."],
+  "rawEvidence": "raw_release_evidence.json"
+}

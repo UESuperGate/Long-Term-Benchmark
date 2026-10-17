@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "13_user_verification",
+  "releaseEvidence": ["CHANGES.md v25.03.2: Implement user verification", "CHANGES.md v25.03.2: Add user verification and verification state violation badges"],
+  "implementationEvidence": {
+    "symbols": ["VerificationRequest", "IncomingVerificationStateMachine", "VerifySelfSessionStateMachine", "IdentityChangeState", "ObserveRoomMemberIdentityStateChange", "UserProfileEvents.VerifyUser"],
+    "productionPaths": ["features/verifysession", "features/userprofile", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/crypto/identity", "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/verification"],
+    "testPaths": ["features/verifysession/impl/src/test", "features/userprofile/impl/src/test", "features/roomdetails/impl/src/test"]
+  },
+  "baseFailureEvidence": ["The base supports self-session verification but has no complete user-profile verification entry and cross-user flow.", "The base does not surface a room member identity change as a violation state across timeline, room details, and profile.", "The base cannot clear a violation only after a successful verification."],
+  "longHorizonSignals": ["The task joins SDK verification callbacks, state machines, SAS challenge decisions, cancellation, profile routing, and identity badges.", "Unexpected failure and remote cancellation converge to a recoverable canceled state.", "Two feature commits add both the interaction flow and the identity-violation presentation."],
+  "rawEvidence": "raw_release_evidence.json"
+}

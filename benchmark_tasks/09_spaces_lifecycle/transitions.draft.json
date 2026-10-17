@@ -1,0 +1,96 @@
+{
+  "taskId": "09_spaces_lifecycle",
+  "description": "Shared Android/ArkTS semantics for browsing, joining and leaving Spaces",
+  "cases": [
+    {
+      "caseId": "sp_state_001_open_space",
+      "key": "open_space",
+      "functionalArea": "space_navigation",
+      "given": {"joinedSpaces": ["!space"], "selectedSpaceId": null},
+      "event": {"name": "open_space", "spaceId": "!space"},
+      "expected": {"surface": "space", "selectedSpaceId": "!space", "childrenState": "loading"},
+      "invariants": ["home retains the selected Space while children update"],
+      "evidence": {"androidProduction": ["HomeSpacesPresenter.kt", "SpaceFlowNode.kt"], "androidTests": ["HomeSpacesPresenterTest.kt", "DefaultSpaceEntryPointTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_002_paginate_children",
+      "key": "paginate_children",
+      "functionalArea": "space_pagination",
+      "given": {"children": ["!a", "!b"], "hasMoreToLoad": true},
+      "event": {"name": "load_more", "page": ["!b", "!c"]},
+      "expected": {"children": ["!a", "!b", "!c"], "hasMoreToLoad": false, "paginationState": "idle"},
+      "invariants": ["existing order is stable and duplicate children are not added"],
+      "evidence": {"androidProduction": ["SpacePresenter.kt", "SpaceRoomList.kt"], "androidTests": ["SpacePresenterTest.kt", "RustSpaceRoomListTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_003_join_child_success",
+      "key": "join_child_success",
+      "functionalArea": "join_room",
+      "given": {"children": [{"roomId": "!a", "membership": null}, {"roomId": "!b", "membership": null}], "joinActions": {}},
+      "event": {"name": "join_child", "roomId": "!a", "result": "success"},
+      "expected": {"memberships": {"!a": "joined", "!b": null}, "joinActions": {"!a": "cleared"}, "effect": "join_room"},
+      "invariants": ["joining one child does not change another child's state"],
+      "evidence": {"androidProduction": ["SpacePresenter.kt"], "androidTests": ["SpacePresenterTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_004_join_failure_retry",
+      "key": "join_failure_retry",
+      "functionalArea": "failure_recovery",
+      "given": {"joinActions": {"!a": "failure", "!b": "loading"}, "memberships": {"!a": null, "!b": null}},
+      "event": {"name": "clear_failure_then_retry", "roomId": "!a", "result": "success"},
+      "expected": {"joinActions": {"!a": "cleared", "!b": "loading"}, "memberships": {"!a": "joined", "!b": null}, "attempts": {"!a": 2}},
+      "invariants": ["failure and retry are tracked independently per room"],
+      "evidence": {"androidProduction": ["SpacePresenter.kt", "SpaceEvents.kt"], "androidTests": ["SpacePresenterTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_005_accept_invite",
+      "key": "accept_invite",
+      "functionalArea": "invite_handling",
+      "given": {"spaceInvites": ["!invited"], "seenInvites": []},
+      "event": {"name": "accept_invite", "spaceId": "!invited"},
+      "expected": {"effect": "accept_invite", "membership": "joined", "seenInvites": ["!invited"]},
+      "invariants": ["invite handling uses the existing accept/decline semantics"],
+      "evidence": {"androidProduction": ["HomeSpacesPresenter.kt", "SpacePresenter.kt"], "androidTests": ["SpacePresenterTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_006_default_leave_selection",
+      "key": "default_leave_selection",
+      "functionalArea": "leave_space_selection",
+      "given": {"spaceId": "!space", "children": [{"roomId": "!normal", "isDirect": false, "isLastAdmin": false}, {"roomId": "!admin", "isDirect": false, "isLastAdmin": true}, {"roomId": "!dm", "isDirect": true, "isLastAdmin": false}]},
+      "event": {"name": "open_leave_space"},
+      "expected": {"visibleChildren": ["!normal", "!admin"], "selectedRoomIds": ["!normal"], "disabledRoomIds": ["!admin"]},
+      "invariants": ["direct messages are excluded and last-admin rooms are never selected by default"],
+      "evidence": {"androidProduction": ["LeaveSpacePresenter.kt", "SelectableSpaceRoom.kt"], "androidTests": ["LeaveSpacePresenterTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_007_bulk_and_toggle_selection",
+      "key": "bulk_and_toggle_selection",
+      "functionalArea": "leave_space_selection",
+      "given": {"eligibleRoomIds": ["!a", "!b"], "lastAdminRoomIds": ["!admin"], "selectedRoomIds": ["!a"]},
+      "event": {"name": "deselect_all_select_all_toggle", "roomId": "!b"},
+      "expected": {"afterDeselectAll": [], "afterSelectAll": ["!a", "!b"], "selectedRoomIds": ["!a"], "lastAdminSelected": false},
+      "invariants": ["bulk actions and toggles cannot select a last-admin room"],
+      "evidence": {"androidProduction": ["LeaveSpaceEvents.kt", "LeaveSpacePresenter.kt"], "androidTests": ["LeaveSpacePresenterTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_008_leave_failure_retry",
+      "key": "leave_failure_retry",
+      "functionalArea": "failure_recovery",
+      "given": {"spaceId": "!space", "selectedRoomIds": ["!a"], "leaveState": "idle"},
+      "event": {"name": "leave_failure_then_retry", "secondResult": "success"},
+      "expected": {"firstState": "failure", "selectionAfterFailure": ["!a"], "finalState": "success", "attempts": 2},
+      "invariants": ["a failed leave does not report success or discard the current selection"],
+      "evidence": {"androidProduction": ["LeaveSpacePresenter.kt"], "androidTests": ["LeaveSpacePresenterTest.kt"]}
+    },
+    {
+      "caseId": "sp_state_009_leave_selected_rooms",
+      "key": "leave_selected_rooms",
+      "functionalArea": "leave_space_selection",
+      "given": {"spaceId": "!space", "selectedRoomIds": ["!a", "!c"], "leaveState": "idle"},
+      "event": {"name": "confirm_leave", "result": "success"},
+      "expected": {"effect": "leave_space", "payload": ["!a", "!c"], "leaveState": "success", "surface": "home"},
+      "invariants": ["only explicitly selected eligible children are included"],
+      "evidence": {"androidProduction": ["LeaveSpaceHandle.kt", "LeaveSpacePresenter.kt"], "androidTests": ["LeaveSpacePresenterTest.kt"]}
+    }
+  ]
+}

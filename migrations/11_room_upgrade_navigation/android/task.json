@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "11_room_upgrade_navigation",
+  "title": "Navigate between predecessor and successor rooms after upgrades",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v25.06.2",
+    "baseCommit": "3818b166d0bb730c5a497ca8e5a40197fbaa94e5",
+    "finalRef": "v25.06.3",
+    "finalCommit": "426e5de99caac15a44f3d4f27f1ff6e3d4960f84"
+  },
+  "arkts": {
+    "platform": "OpenHarmony",
+    "apiVersion": 23,
+    "basePath": "11_room_upgrade_navigation_base_25_06_2",
+    "finalPath": "final_dev_nodes/11_room_upgrade_navigation_final_25_06_3",
+    "baseVersion": "25.06.2-base",
+    "finalVersion": "25.06.3-final",
+    "baseBundle": "com.qingyu.elementx.roomupgrade.base",
+    "finalBundle": "com.qingyu.elementx.roomupgrade.final",
+    "productionRoots": ["entry/src/main/ets"],
+    "toolchain": {"devEcoStudio": "6.1.1", "openHarmonySdk": "6.1.0.32", "openHarmonySdkApi": 23, "hvigor": "6.24.5", "ohpm": "6.1.2.285", "node": "18.20.1", "jdk": "21.0.8"}
+  },
+  "releaseNotes": [{"text": "Feature: room version upgrade", "source": "CHANGES.md v25.06.3 / PR #4862"}],
+  "functionalAreas": ["room_metadata_mapping", "tombstone_state", "successor_banner", "predecessor_timeline_link", "room_list_preview", "navigation"],
+  "stateSurfaces": ["RoomInfo.successorRoom", "TimelineState.predecessorRoom", "MessagesState.isTombstoned", "room list summary"],
+  "eventEntrypoints": ["open successor room", "open predecessor room", "render tombstoned composer", "render tombstoned room summary"],
+  "evidence": {
+    "productionPaths": ["libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/tombstone", "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/tombstone", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl"],
+    "testPaths": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl", "tests/uitests/src/test/snapshots/images"],
+    "commits": ["2bdb3f8a1f501a465bfbfae08617b1d772d336ce"]
+  },
+  "nonGoals": ["Performing the server-side room upgrade", "Migrating room members", "Changing room-version policy"],
+  "handoff": {"requirement": "requirement.md", "evidence": "evidence.json", "transitionDraft": "transitions.draft.json", "transitions": "transitions.json", "observerRules": "observer_rules.json"}
+}

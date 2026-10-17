@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "taskId": "16_identity_reset",
+  "android": {
+    "roots": ["features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl"],
+    "cases": {
+      "ir_state_001_continue_requests_confirmation": [
+        {"options": [{"path": "ResetIdentityRootPresenter\\.kt$", "patterns": ["ResetIdentityRootEvent.Continue -> true", "displayConfirmationDialog"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityRootView\\.kt$", "patterns": ["ResetIdentityRootEvent.Continue", "if \\(state.displayConfirmationDialog\\)", "ConfirmationDialog"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_002_dismiss_confirmation": [
+        {"options": [{"path": "ResetIdentityRootPresenter\\.kt$", "patterns": ["ResetIdentityRootEvent.DismissDialog -> false", "displayConfirmationDialog"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityRootView\\.kt$", "patterns": ["onDismiss", "ResetIdentityRootEvent.DismissDialog"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_003_confirm_starts_handle": [
+        {"options": [{"path": "ResetIdentityFlowManager\\.kt$", "patterns": ["getResetHandle", "AsyncData.Loading", "startIdentityReset", "AsyncData.Success"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityFlowNode\\.kt$", "patterns": ["onContinue", "startReset", "getResetHandle", "ProgressDialog"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_004_password_handle_routes": [
+        {"options": [{"path": "ResetIdentityFlowNode\\.kt$", "patterns": ["IdentityPasswordResetHandle", "backstack.push\\(NavTarget.ResetPassword\\)", "Inputs\\(handle\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityPasswordView\\.kt$", "patterns": ["textFieldState", "ResetIdentityPasswordEvent.Reset", "enabled = passwordState.value.isNotEmpty\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_005_oidc_handle_routes_and_resets": [
+        {"options": [{"path": "ResetIdentityFlowNode\\.kt$", "patterns": ["IdentityOidcResetHandle", "openUrlInChromeCustomTab", "NavTarget.ResetOidc", "handle.resetOidc\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityFlowNode\\.kt$", "patterns": ["IdentityOidcResetHandle", "oidcEntryPoint.canUseCustomTab", "createFallbackWebViewNode", "handle.resetOidc\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_006_handle_failure_recovers": [
+        {"options": [{"path": "ResetIdentityFlowManager\\.kt$", "patterns": ["handle != null", "AsyncData.Failure", "Could not get a reset identity handle", "onFailure"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityFlowNode\\.kt$", "patterns": ["is AsyncData.Failure", "cancelResetJob", "Could not load the reset identity handle"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_007_password_submit_calls_handle": [
+        {"options": [{"path": "ResetIdentityPasswordPresenter\\.kt$", "patterns": ["ResetIdentityPasswordEvent.Reset", "resetPassword\\(password\\)", "runCatchingUpdatingState"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityPasswordView\\.kt$", "patterns": ["passwordState.value.isNotEmpty", "ResetIdentityPasswordEvent.Reset\\(passwordState.value\\)", "ProgressDialog"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_008_password_failure_clears_on_edit": [
+        {"options": [{"path": "ResetIdentityPasswordPresenter\\.kt$", "patterns": ["DismissError", "resetAction.value = AsyncAction.Uninitialized", "runCatchingUpdatingState"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityPasswordView\\.kt$", "patterns": ["state.resetAction.isFailure", "ResetIdentityPasswordEvent.DismissError", "isError = hasError"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_009_success_waits_for_verification": [
+        {"options": [{"path": "ResetIdentityFlowManager\\.kt$", "patterns": ["whenResetIsDone", "SessionVerifiedStatus.Verified", "filterIsInstance", "first\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityPasswordView\\.kt$", "patterns": ["isLoading\\(\\) \\|\\| state.resetAction.isSuccess\\(\\)", "ProgressDialog"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_010_cancel_cleans_up": [
+        {"options": [{"path": "ResetIdentityFlowManager\\.kt$", "patterns": ["suspend fun cancel", "dataOrNull\\(\\)\\?\\.cancel\\(\\)", "AsyncData.Uninitialized", "whenResetIsDoneWaitingJob\\?\\.cancel\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "ResetIdentityFlowNode\\.kt$", "patterns": ["cancelResetJob", "resetJob\\?\\.cancel\\(\\)", "resetIdentityFlowManager.cancel\\(\\)", "onDestroy"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "ir_state_001_continue_requests_confirmation": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["continue\\(\\): void", "confirmationVisible = true"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "IdentityResetPresenter\\.ets$", "patterns": ["continueToConfirmation\\(\\): void", "confirmationVisible = true", "phase = ResetPhase.Confirmation"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["identity_reset_continue", "presenter.continue", "if \\(this.confirmationVisible\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/Index\\.ets$", "patterns": ["if \\(this.backupState === BackupState.Recovering\\)", "Button\\('Reset identity'\\)", "resetPresenter.continueToConfirmation\\(\\)", "pages/ResetIdentityPage"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_002_dismiss_confirmation": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["dismissConfirmation", "confirmationVisible = false"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "IdentityResetPresenter\\.ets$", "patterns": ["dismissConfirmation\\(\\): void", "confirmationVisible = false", "handleState = ResetHandleState.Uninitialized", "currentHandle = null"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["presenter.dismissConfirmation", "Button\\('Cancel'\\)", "this.refresh"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/ResetIdentityPage\\.ets$", "patterns": ["presenter.dismissConfirmation\\(\\)", "Button\\('Keep my identity'\\)", "router.back\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_003_confirm_starts_handle": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["confirmReset", "getResetHandle", "ResetOperationState.Loading", "startIdentityReset"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Reset identity", "presenter.confirmReset", "progressVisible"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_004_password_handle_routes": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["ResetAuthenticationType.Password", "screen = IdentityResetScreen.Password", "IdentityPasswordResetHandle"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["IdentityResetScreen.Password", "identity_reset_password", "presenter.setPassword"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_005_oidc_handle_routes_and_resets": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["IdentityOidcResetHandle", "approvalUrl = oidcHandle.url", "screen = IdentityResetScreen.Oidc", "oidcHandle.resetOidc"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["IdentityResetScreen.Oidc", "this.approvalUrl", "Approval completed"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_006_handle_failure_recovers": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["handle === undefined", "handleState = ResetOperationState.Failure", "Could not start identity reset"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["this.errorMessage.length > 0", "Button\\('Retry'\\)", "presenter.continue"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_007_password_submit_calls_handle": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["submitPassword", "resetPassword\\(this.password\\)", "resetAction = ResetOperationState.Loading", "progressVisible = true"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["presenter.submitPassword", "password.length > 0", "ResetOperationState.Loading"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_008_password_failure_clears_on_edit": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["resetAction === ResetOperationState.Failure", "resetAction = ResetOperationState.Uninitialized", "errorMessage = ''"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["ResetOperationState.Failure", "presenter.setPassword", "this.errorMessage"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_009_success_waits_for_verification": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["resetAction = ResetOperationState.Success", "progressVisible = true", "sessionVerified", "completionWatcherActive"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Waiting for session verification", "presenter.sessionVerified", "IdentityResetScreen.Complete"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ir_state_010_cancel_cleans_up": [
+        {"options": [{"path": "IdentityResetFeature\\.ets$", "patterns": ["async cancel", "currentHandle.cancel", "handleState = ResetOperationState.Uninitialized", "completionWatcherActive = false", "resetJobActive = false"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Exit reset", "presenter.cancel", "this.refresh"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ]
+    }
+  }
+}

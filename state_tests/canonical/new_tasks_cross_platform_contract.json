@@ -1,0 +1,3269 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-15T02:25:06.003363+00:00",
+  "owner": "evaluator",
+  "description": "Shared Android/ArkTS semantic contracts for extracted Element X tasks 08-18",
+  "taskCount": 11,
+  "caseCount": 101,
+  "cases": [
+    {
+      "caseId": "th_state_001_open_thread",
+      "key": "open_thread",
+      "functionalArea": "thread_navigation",
+      "given": {
+        "roomTimeline": [
+          "$root",
+          "$reply"
+        ],
+        "threadRootId": "$root"
+      },
+      "event": {
+        "name": "open_thread",
+        "rootEventId": "$root"
+      },
+      "expected": {
+        "surface": "thread",
+        "timelineMode": "thread",
+        "threadRootId": "$root",
+        "visibleEvents": [
+          "$root",
+          "$reply"
+        ]
+      },
+      "invariants": [
+        "the main room timeline remains available and unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ThreadedMessagesNode.kt",
+          "CreateTimelineParams.kt"
+        ],
+        "androidTests": [
+          "MessagesPresenterTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "fe1d87689a6d8d5df4a534986bec50299c55c6726c4b137a33866fce70e8394c"
+    },
+    {
+      "caseId": "th_state_002_focus_reply",
+      "key": "focus_reply",
+      "functionalArea": "thread_timeline",
+      "given": {
+        "threadRootId": "$root",
+        "visibleEvents": [
+          "$root",
+          "$reply"
+        ],
+        "focusedEventId": null
+      },
+      "event": {
+        "name": "focus_event",
+        "eventId": "$reply"
+      },
+      "expected": {
+        "focusedEventId": "$reply",
+        "focusState": "success",
+        "timelineMode": "thread"
+      },
+      "invariants": [
+        "focus does not replace the threaded timeline with the main-room timeline"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ThreadedMessagesNode.kt",
+          "TimelineEvents.kt"
+        ],
+        "androidTests": [
+          "TimelineControllerTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "ec8089ca8d2f3b309256cac945d2eb31dae7b9989ea9b38f05358cef25d9deb2"
+    },
+    {
+      "caseId": "th_state_003_focus_failure_preserves_thread",
+      "key": "focus_failure_preserves_thread",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "threadRootId": "$root",
+        "visibleEvents": [
+          "$root",
+          "$reply"
+        ],
+        "focusedEventId": "$reply"
+      },
+      "event": {
+        "name": "focus_event_failed",
+        "eventId": "$missing"
+      },
+      "expected": {
+        "focusedEventId": "$reply",
+        "focusState": "failure",
+        "timelineMode": "thread",
+        "visibleEvents": [
+          "$root",
+          "$reply"
+        ]
+      },
+      "invariants": [
+        "a failed out-of-window focus never corrupts the current thread"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "TimelineController.kt",
+          "ThreadedMessagesNode.kt"
+        ],
+        "androidTests": [
+          "TimelineControllerTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "57ccedebfaa6e0ff6e9c63858fbfe38e2ad95c530287a2541f16e4217d9ad02b"
+    },
+    {
+      "caseId": "th_state_004_send_thread_message",
+      "key": "send_thread_message",
+      "functionalArea": "reply_composer",
+      "given": {
+        "threadRootId": "$root",
+        "composerText": "hello",
+        "sendState": "idle"
+      },
+      "event": {
+        "name": "send_message"
+      },
+      "expected": {
+        "sendState": "success",
+        "effect": "send_message",
+        "body": "hello",
+        "threadRootId": "$root",
+        "composerText": ""
+      },
+      "invariants": [
+        "the message is not emitted on the main-room timeline"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ThreadedMessagesNode.kt",
+          "MessageComposerPresenter.kt"
+        ],
+        "androidTests": [
+          "MessageComposerPresenterTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "888d422e9d7131a00942624d5ef8cd4ae665b1659436ffe3926e29f7916045ef"
+    },
+    {
+      "caseId": "th_state_005_reply_remote_event",
+      "key": "reply_remote_event",
+      "functionalArea": "reply_composer",
+      "given": {
+        "threadRootId": "$root",
+        "replyTargetId": "$remote",
+        "composerText": "reply"
+      },
+      "event": {
+        "name": "send_reply"
+      },
+      "expected": {
+        "effect": "reply_message",
+        "replyTargetId": "$remote",
+        "threadRootId": "$root",
+        "sendState": "success",
+        "composerMode": "normal"
+      },
+      "invariants": [
+        "any valid remote event can be the reply target"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "MessagesPresenter.kt",
+          "MessageComposerPresenter.kt"
+        ],
+        "androidTests": [
+          "MessagesPresenterTest.kt",
+          "MessageComposerPresenterTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "75c60264e30f5b1f17a14e7cc0aa5e5dc6f16364f65ffb038845a13a40fed689"
+    },
+    {
+      "caseId": "th_state_006_send_thread_attachment",
+      "key": "send_thread_attachment",
+      "functionalArea": "attachment_and_voice_send",
+      "given": {
+        "threadRootId": "$root",
+        "attachmentId": "image-1",
+        "caption": "diagram"
+      },
+      "event": {
+        "name": "send_attachment"
+      },
+      "expected": {
+        "effect": "send_attachment",
+        "attachmentId": "image-1",
+        "caption": "diagram",
+        "threadRootId": "$root",
+        "sendState": "success"
+      },
+      "invariants": [
+        "attachment relation remains scoped to the thread"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "AttachmentsPreviewPresenter.kt",
+          "ThreadedMessagesNode.kt",
+          "MediaSender.kt"
+        ],
+        "androidTests": [
+          "AttachmentsPreviewPresenterTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "04c7d6d9565d75b7e6cf7fb8128d12b1745a915f204b69cf2db7565191e898b3"
+    },
+    {
+      "caseId": "th_state_007_restore_nested_context",
+      "key": "restore_nested_context",
+      "functionalArea": "thread_navigation",
+      "given": {
+        "threadRootId": "$root",
+        "composerText": "draft",
+        "replyTargetId": "$reply",
+        "surface": "attachment_preview"
+      },
+      "event": {
+        "name": "return_to_thread"
+      },
+      "expected": {
+        "surface": "thread",
+        "threadRootId": "$root",
+        "composerText": "draft",
+        "replyTargetId": "$reply"
+      },
+      "invariants": [
+        "nested media, location and poll flows do not reset thread context"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "MessagesFlowNode.kt",
+          "ThreadedMessagesNode.kt",
+          "MessageComposerPresenter.kt"
+        ],
+        "androidTests": [
+          "MessageComposerPresenterTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "0279a77d5183af8276d18052974592dbc12d674d4e3cc42686a7b87c7ba8d5e1"
+    },
+    {
+      "caseId": "th_state_008_retry_failed_send",
+      "key": "retry_failed_send",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "threadRootId": "$root",
+        "composerText": "retry me",
+        "sendState": "failure",
+        "attempts": 1
+      },
+      "event": {
+        "name": "retry_send"
+      },
+      "expected": {
+        "sendState": "success",
+        "attempts": 2,
+        "effect": "send_message",
+        "body": "retry me",
+        "threadRootId": "$root"
+      },
+      "invariants": [
+        "failure keeps the original body and relation until retry succeeds"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "MessageComposerPresenter.kt",
+          "ThreadedMessagesNode.kt"
+        ],
+        "androidTests": [
+          "MessageComposerPresenterTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "364c9fd4e2a9ce03bfc44d7249d1b659f193117122854f661d3eae79904ab238"
+    },
+    {
+      "caseId": "th_state_009_back_isolates_room",
+      "key": "back_isolates_room",
+      "functionalArea": "thread_navigation",
+      "given": {
+        "surface": "thread",
+        "threadRootId": "$root",
+        "focusedEventId": "$reply",
+        "mainRoomFocus": null
+      },
+      "event": {
+        "name": "navigate_back"
+      },
+      "expected": {
+        "surface": "room",
+        "threadRootId": null,
+        "mainRoomFocus": null
+      },
+      "invariants": [
+        "thread focus and composer state do not leak into the room timeline"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "MessagesFlowNode.kt",
+          "ThreadedMessagesNode.kt"
+        ],
+        "androidTests": [
+          "MessagesPresenterTest.kt"
+        ]
+      },
+      "taskId": "08_threads",
+      "traceDigest": "8cb3a64b7078a99baf19b3440d76a2a38ba5cac8a8d10d4374f513ab8d3c9fc1"
+    },
+    {
+      "caseId": "sp_state_001_open_space",
+      "key": "open_space",
+      "functionalArea": "space_navigation",
+      "given": {
+        "joinedSpaces": [
+          "!space"
+        ],
+        "selectedSpaceId": null
+      },
+      "event": {
+        "name": "open_space",
+        "spaceId": "!space"
+      },
+      "expected": {
+        "surface": "space",
+        "selectedSpaceId": "!space",
+        "childrenState": "loading"
+      },
+      "invariants": [
+        "home retains the selected Space while children update"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "HomeSpacesPresenter.kt",
+          "SpaceFlowNode.kt"
+        ],
+        "androidTests": [
+          "HomeSpacesPresenterTest.kt",
+          "DefaultSpaceEntryPointTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "5031e634ed571cc5f31bb38df86b4e3df9dcd2b29045dee14e9722d353c7931c"
+    },
+    {
+      "caseId": "sp_state_002_paginate_children",
+      "key": "paginate_children",
+      "functionalArea": "space_pagination",
+      "given": {
+        "children": [
+          "!a",
+          "!b"
+        ],
+        "hasMoreToLoad": true
+      },
+      "event": {
+        "name": "load_more",
+        "page": [
+          "!b",
+          "!c"
+        ]
+      },
+      "expected": {
+        "children": [
+          "!a",
+          "!b",
+          "!c"
+        ],
+        "hasMoreToLoad": false,
+        "paginationState": "idle"
+      },
+      "invariants": [
+        "existing order is stable and duplicate children are not added"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SpacePresenter.kt",
+          "SpaceRoomList.kt"
+        ],
+        "androidTests": [
+          "SpacePresenterTest.kt",
+          "RustSpaceRoomListTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "ca25230e5347452e118ea36ae74f5ef2bae6e3616f355b09a9d2ceb9deb56932"
+    },
+    {
+      "caseId": "sp_state_003_join_child_success",
+      "key": "join_child_success",
+      "functionalArea": "join_room",
+      "given": {
+        "children": [
+          {
+            "roomId": "!a",
+            "membership": null
+          },
+          {
+            "roomId": "!b",
+            "membership": null
+          }
+        ],
+        "joinActions": {}
+      },
+      "event": {
+        "name": "join_child",
+        "roomId": "!a",
+        "result": "success"
+      },
+      "expected": {
+        "memberships": {
+          "!a": "joined",
+          "!b": null
+        },
+        "joinActions": {
+          "!a": "cleared"
+        },
+        "effect": "join_room"
+      },
+      "invariants": [
+        "joining one child does not change another child's state"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SpacePresenter.kt"
+        ],
+        "androidTests": [
+          "SpacePresenterTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "d2a2f922ddb410c597f4d3c62077a25d4edbc47509893137f3290de252235c94"
+    },
+    {
+      "caseId": "sp_state_004_join_failure_retry",
+      "key": "join_failure_retry",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "joinActions": {
+          "!a": "failure",
+          "!b": "loading"
+        },
+        "memberships": {
+          "!a": null,
+          "!b": null
+        }
+      },
+      "event": {
+        "name": "clear_failure_then_retry",
+        "roomId": "!a",
+        "result": "success"
+      },
+      "expected": {
+        "joinActions": {
+          "!a": "cleared",
+          "!b": "loading"
+        },
+        "memberships": {
+          "!a": "joined",
+          "!b": null
+        },
+        "attempts": {
+          "!a": 2
+        }
+      },
+      "invariants": [
+        "failure and retry are tracked independently per room"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SpacePresenter.kt",
+          "SpaceEvents.kt"
+        ],
+        "androidTests": [
+          "SpacePresenterTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "1456999016f97381098ca180378c02ebbccca8ec178c939a62eeb544b2d43dd4"
+    },
+    {
+      "caseId": "sp_state_005_accept_invite",
+      "key": "accept_invite",
+      "functionalArea": "invite_handling",
+      "given": {
+        "spaceInvites": [
+          "!invited"
+        ],
+        "seenInvites": []
+      },
+      "event": {
+        "name": "accept_invite",
+        "spaceId": "!invited"
+      },
+      "expected": {
+        "effect": "accept_invite",
+        "membership": "joined",
+        "seenInvites": [
+          "!invited"
+        ]
+      },
+      "invariants": [
+        "invite handling uses the existing accept/decline semantics"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "HomeSpacesPresenter.kt",
+          "SpacePresenter.kt"
+        ],
+        "androidTests": [
+          "SpacePresenterTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "14dbe856aaf84f5cc940ec12ee69aed4a884288a14756d342054309432da880f"
+    },
+    {
+      "caseId": "sp_state_006_default_leave_selection",
+      "key": "default_leave_selection",
+      "functionalArea": "leave_space_selection",
+      "given": {
+        "spaceId": "!space",
+        "children": [
+          {
+            "roomId": "!normal",
+            "isDirect": false,
+            "isLastAdmin": false
+          },
+          {
+            "roomId": "!admin",
+            "isDirect": false,
+            "isLastAdmin": true
+          },
+          {
+            "roomId": "!dm",
+            "isDirect": true,
+            "isLastAdmin": false
+          }
+        ]
+      },
+      "event": {
+        "name": "open_leave_space"
+      },
+      "expected": {
+        "visibleChildren": [
+          "!normal",
+          "!admin"
+        ],
+        "selectedRoomIds": [
+          "!normal"
+        ],
+        "disabledRoomIds": [
+          "!admin"
+        ]
+      },
+      "invariants": [
+        "direct messages are excluded and last-admin rooms are never selected by default"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "LeaveSpacePresenter.kt",
+          "SelectableSpaceRoom.kt"
+        ],
+        "androidTests": [
+          "LeaveSpacePresenterTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "aac1c6b8a362a8ec39ccd2fc66a248d8d912924c903666479a6b4eb4faf57a6b"
+    },
+    {
+      "caseId": "sp_state_007_bulk_and_toggle_selection",
+      "key": "bulk_and_toggle_selection",
+      "functionalArea": "leave_space_selection",
+      "given": {
+        "eligibleRoomIds": [
+          "!a",
+          "!b"
+        ],
+        "lastAdminRoomIds": [
+          "!admin"
+        ],
+        "selectedRoomIds": [
+          "!a"
+        ]
+      },
+      "event": {
+        "name": "deselect_all_select_all_toggle",
+        "roomId": "!b"
+      },
+      "expected": {
+        "afterDeselectAll": [],
+        "afterSelectAll": [
+          "!a",
+          "!b"
+        ],
+        "selectedRoomIds": [
+          "!a"
+        ],
+        "lastAdminSelected": false
+      },
+      "invariants": [
+        "bulk actions and toggles cannot select a last-admin room"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "LeaveSpaceEvents.kt",
+          "LeaveSpacePresenter.kt"
+        ],
+        "androidTests": [
+          "LeaveSpacePresenterTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "2d2cc288c89339c3b5e71b692f01b6dec28c2ac1e0522cab1f7b2a85b763ff36"
+    },
+    {
+      "caseId": "sp_state_008_leave_failure_retry",
+      "key": "leave_failure_retry",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "spaceId": "!space",
+        "selectedRoomIds": [
+          "!a"
+        ],
+        "leaveState": "idle"
+      },
+      "event": {
+        "name": "leave_failure_then_retry",
+        "secondResult": "success"
+      },
+      "expected": {
+        "firstState": "failure",
+        "selectionAfterFailure": [
+          "!a"
+        ],
+        "finalState": "success",
+        "attempts": 2
+      },
+      "invariants": [
+        "a failed leave does not report success or discard the current selection"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "LeaveSpacePresenter.kt"
+        ],
+        "androidTests": [
+          "LeaveSpacePresenterTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "5e887f899a885fbea5e1f8dbd6240ee9ea166b74d27c009b3854607233c19a35"
+    },
+    {
+      "caseId": "sp_state_009_leave_selected_rooms",
+      "key": "leave_selected_rooms",
+      "functionalArea": "leave_space_selection",
+      "given": {
+        "spaceId": "!space",
+        "selectedRoomIds": [
+          "!a",
+          "!c"
+        ],
+        "leaveState": "idle"
+      },
+      "event": {
+        "name": "confirm_leave",
+        "result": "success"
+      },
+      "expected": {
+        "effect": "leave_space",
+        "payload": [
+          "!a",
+          "!c"
+        ],
+        "leaveState": "success",
+        "surface": "home"
+      },
+      "invariants": [
+        "only explicitly selected eligible children are included"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "LeaveSpaceHandle.kt",
+          "LeaveSpacePresenter.kt"
+        ],
+        "androidTests": [
+          "LeaveSpacePresenterTest.kt"
+        ]
+      },
+      "taskId": "09_spaces_lifecycle",
+      "traceDigest": "70bbbfc920ebc8eea403219bbf2f808bf28f895bf3fc22a238a9a2fc2599ff1a"
+    },
+    {
+      "caseId": "mq_state_001_async_loading",
+      "key": "async_loading",
+      "functionalArea": "server_limit_loading",
+      "given": {
+        "mediaType": "video",
+        "maxUploadSize": null,
+        "metadata": null
+      },
+      "event": {
+        "name": "open_attachment_preview"
+      },
+      "expected": {
+        "limitState": "loading",
+        "estimationState": "loading",
+        "previewUsable": true,
+        "sendState": "idle"
+      },
+      "invariants": [
+        "loading server data does not block caption editing or cancellation"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "DefaultMediaOptimizationSelectorPresenter.kt",
+          "AttachmentsPreviewPresenter.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "2be6d18728576c19c062fe3539f3a1e82738485dd75cd12f3332ac3ad73391ad"
+    },
+    {
+      "caseId": "mq_state_002_limit_fallback",
+      "key": "limit_fallback",
+      "functionalArea": "server_limit_loading",
+      "given": {
+        "maxUploadSizeRequest": "failure"
+      },
+      "event": {
+        "name": "finish_limit_request"
+      },
+      "expected": {
+        "limitState": "success",
+        "maxUploadSize": 104857600,
+        "fallbackUsed": true
+      },
+      "invariants": [
+        "the fallback is exactly 100 MiB"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "DefaultMediaOptimizationSelectorPresenter.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "29bdc1860acde5fbd4914e254d4b4183f55f15ae8e6d5a514a75cf4c04faccb7"
+    },
+    {
+      "caseId": "mq_state_003_image_optimization",
+      "key": "image_optimization",
+      "functionalArea": "image_optimization",
+      "given": {
+        "mediaType": "image",
+        "optimizeImages": true
+      },
+      "event": {
+        "name": "select_image_optimization",
+        "enabled": false
+      },
+      "expected": {
+        "optimizeImages": false,
+        "videoEstimationState": "uninitialized",
+        "preprocessConfig": {
+          "compressImages": false
+        }
+      },
+      "invariants": [
+        "changing image optimization does not fabricate video metadata"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "DefaultMediaOptimizationSelectorPresenter.kt",
+          "AttachmentsPreviewPresenter.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "eb8de76794a7d9789ddebfd661a5a66020c0e60f28fffa8c952bf45b2a2659a0"
+    },
+    {
+      "caseId": "mq_state_004_estimate_video_presets",
+      "key": "estimate_video_presets",
+      "functionalArea": "video_estimation",
+      "given": {
+        "durationSeconds": 60,
+        "presetBitrates": {
+          "high": 8000000,
+          "standard": 4000000,
+          "low": 1000000
+        },
+        "maxUploadSize": 35000000
+      },
+      "event": {
+        "name": "calculate_estimations"
+      },
+      "expected": {
+        "sizes": {
+          "high": 66000000,
+          "standard": 33000000,
+          "low": 8250000
+        },
+        "canUpload": {
+          "high": false,
+          "standard": true,
+          "low": true
+        },
+        "safetyOverhead": 1.1
+      },
+      "invariants": [
+        "server limit comparison is inclusive"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "DefaultMediaOptimizationSelectorPresenter.kt",
+          "MediaOptimizationSelectorState.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "0088823cf649a0424c10269acf4011e349edd9908e4c1cb85a054ab162abb841"
+    },
+    {
+      "caseId": "mq_state_005_choose_best_preset",
+      "key": "choose_best_preset",
+      "functionalArea": "quality_selection",
+      "given": {
+        "defaultPreset": "high",
+        "estimations": [
+          {
+            "preset": "high",
+            "canUpload": false
+          },
+          {
+            "preset": "standard",
+            "canUpload": true
+          },
+          {
+            "preset": "low",
+            "canUpload": true
+          }
+        ]
+      },
+      "event": {
+        "name": "load_preferences_and_estimations"
+      },
+      "expected": {
+        "selectedPreset": "standard",
+        "selectionState": "success"
+      },
+      "invariants": [
+        "selection falls back toward smaller output without choosing an oversized preset"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "DefaultMediaOptimizationSelectorPresenter.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "72a4083fc28b23fc41d180f8a4eace831422fd707be05ac742235354a8c06529"
+    },
+    {
+      "caseId": "mq_state_006_dismiss_preserves_selection",
+      "key": "dismiss_preserves_selection",
+      "functionalArea": "quality_selection",
+      "given": {
+        "selectedPreset": "standard",
+        "selectorOpen": false
+      },
+      "event": {
+        "name": "open_then_dismiss_selector"
+      },
+      "expected": {
+        "selectedPreset": "standard",
+        "selectorOpen": false
+      },
+      "invariants": [
+        "dismissing without a choice does not reset the valid selection"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "MediaOptimizationSelectorEvent.kt",
+          "DefaultMediaOptimizationSelectorPresenter.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "34e8f344806e118f26b5a9f570ae954326e858536990d196f55501197edcd742"
+    },
+    {
+      "caseId": "mq_state_007_reject_oversized_preset",
+      "key": "reject_oversized_preset",
+      "functionalArea": "send_validation",
+      "given": {
+        "selectedPreset": "standard",
+        "estimations": [
+          {
+            "preset": "high",
+            "canUpload": false
+          },
+          {
+            "preset": "standard",
+            "canUpload": true
+          }
+        ]
+      },
+      "event": {
+        "name": "select_video_preset",
+        "preset": "high"
+      },
+      "expected": {
+        "selectedPreset": "standard",
+        "selectorOpen": true,
+        "sendable": true
+      },
+      "invariants": [
+        "an oversized preset never silently replaces a valid selection"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "DefaultMediaOptimizationSelectorPresenter.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "0792c01c33397e43224cc6fdcc6165eec25e8c918fdd514ff18f7688c0694149"
+    },
+    {
+      "caseId": "mq_state_008_block_when_all_oversized",
+      "key": "block_when_all_oversized",
+      "functionalArea": "error_feedback",
+      "given": {
+        "estimations": [
+          {
+            "preset": "high",
+            "canUpload": false
+          },
+          {
+            "preset": "standard",
+            "canUpload": false
+          },
+          {
+            "preset": "low",
+            "canUpload": false
+          }
+        ],
+        "sendState": "idle"
+      },
+      "event": {
+        "name": "finish_estimations"
+      },
+      "expected": {
+        "sendEnabled": false,
+        "fileTooLargeError": true,
+        "selectedPreset": null
+      },
+      "invariants": [
+        "the client does not fabricate a sendable output size"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "AttachmentsPreviewPresenter.kt",
+          "DefaultMediaOptimizationSelectorPresenter.kt"
+        ],
+        "androidTests": [
+          "DefaultMediaOptimizationSelectorPresenterTest.kt",
+          "AttachmentsPreviewPresenterTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "7183f1873871b248e7778ca490faa58a8ee156768721fe32794399cb6bdc65a2"
+    },
+    {
+      "caseId": "mq_state_009_failure_cancel_retry",
+      "key": "failure_cancel_retry",
+      "functionalArea": "error_feedback",
+      "given": {
+        "selectedPreset": "standard",
+        "caption": "demo",
+        "sendState": "failure",
+        "preparedMedia": true
+      },
+      "event": {
+        "name": "clear_failure_then_retry",
+        "secondResult": "success"
+      },
+      "expected": {
+        "stateAfterClear": "ready_to_upload",
+        "finalState": "done",
+        "caption": "demo",
+        "presetUsed": "standard",
+        "attempts": 2
+      },
+      "invariants": [
+        "retry reuses prepared media and the selected quality without losing the caption"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "AttachmentsPreviewEvents.kt",
+          "AttachmentsPreviewPresenter.kt",
+          "MediaSender.kt"
+        ],
+        "androidTests": [
+          "AttachmentsPreviewPresenterTest.kt",
+          "MediaSenderTest.kt"
+        ]
+      },
+      "taskId": "10_media_upload_quality",
+      "traceDigest": "4498319696f2826896d4a448ec10e359b550a517a625aed57bebc324e2017a66"
+    },
+    {
+      "caseId": "ru_state_002_tombstone_is_read_only",
+      "key": "tombstone_is_read_only",
+      "functionalArea": "tombstone_state",
+      "given": {
+        "roomId": "!old:example.org",
+        "history": [
+          "Earlier message"
+        ],
+        "successorRoomId": "!new:example.org",
+        "composerEnabled": true
+      },
+      "event": {
+        "name": "render_messages"
+      },
+      "expected": {
+        "history": [
+          "Earlier message"
+        ],
+        "composerVisible": false,
+        "successorBannerVisible": true
+      },
+      "invariants": [
+        "existing room history remains visible"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt"
+        ]
+      },
+      "taskId": "11_room_upgrade_navigation",
+      "traceDigest": "0bf0bdfd73d6d5e3969dc60a25723ba4816c5328309bff26c6de1ef2729f0b60"
+    },
+    {
+      "caseId": "ru_state_003_open_successor",
+      "key": "open_successor",
+      "functionalArea": "navigation",
+      "given": {
+        "currentRoomId": "!old:example.org",
+        "successorRoomId": "!new:example.org"
+      },
+      "event": {
+        "name": "open_successor_room"
+      },
+      "expected": {
+        "effect": "navigate_to_room",
+        "roomId": "!new:example.org",
+        "navigationState": "success"
+      },
+      "invariants": [
+        "the old room history is not mutated"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesView.kt",
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/MessagesNode.kt"
+        ]
+      },
+      "taskId": "11_room_upgrade_navigation",
+      "traceDigest": "9efc889329c90e731c8e4334bfa6c3afcaaa4cc8d278127adfc8915c7d27ee8f"
+    },
+    {
+      "caseId": "ru_state_005_room_list_tombstone_preview",
+      "key": "room_list_tombstone_preview",
+      "functionalArea": "room_list_preview",
+      "given": {
+        "roomId": "!old:example.org",
+        "lastMessage": "Earlier message",
+        "successorRoomId": "!new:example.org"
+      },
+      "event": {
+        "name": "render_room_list_summary"
+      },
+      "expected": {
+        "isTombstoned": true,
+        "preview": "room_replaced",
+        "avatarMarkedTombstoned": true
+      },
+      "invariants": [
+        "the underlying last message is retained"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/datasource/RoomListRoomSummaryFactory.kt",
+          "features/roomlist/impl/src/main/kotlin/io/element/android/features/roomlist/impl/components/RoomSummaryRow.kt"
+        ]
+      },
+      "taskId": "11_room_upgrade_navigation",
+      "traceDigest": "17b9c1389549f43efcc21aa93e52af9003d1df6da1a16b4555c0a3856471021a"
+    },
+    {
+      "caseId": "ru_state_006_map_predecessor",
+      "key": "map_predecessor_metadata",
+      "functionalArea": "room_metadata_mapping",
+      "given": {
+        "roomId": "!new:example.org",
+        "predecessor": {
+          "roomId": "!old:example.org",
+          "lastEventId": "$last:example.org"
+        }
+      },
+      "event": {
+        "name": "observe_timeline_room_info"
+      },
+      "expected": {
+        "predecessorRoom": {
+          "roomId": "!old:example.org",
+          "lastEventId": "$last:example.org"
+        }
+      },
+      "invariants": [
+        "the predecessor event identifier is preserved"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenter.kt",
+          "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/tombstone/PredecessorRoom.kt"
+        ]
+      },
+      "taskId": "11_room_upgrade_navigation",
+      "traceDigest": "f55ed6d11bba0f502955ee4a37f2864feae9be8a6085e9af69a37c13eaa9027b"
+    },
+    {
+      "caseId": "ru_state_007_predecessor_banner",
+      "key": "predecessor_banner",
+      "functionalArea": "predecessor_timeline_link",
+      "given": {
+        "roomId": "!new:example.org",
+        "predecessorRoomId": "!old:example.org"
+      },
+      "event": {
+        "name": "render_room_beginning"
+      },
+      "expected": {
+        "predecessorBannerVisible": true,
+        "historyVisible": true
+      },
+      "invariants": [
+        "the ordinary room-beginning content remains visible"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt"
+        ]
+      },
+      "taskId": "11_room_upgrade_navigation",
+      "traceDigest": "99eaf8a7170d777949019d0551b073c6c333140148e48cdcb1b56b942b14d926"
+    },
+    {
+      "caseId": "ru_state_008_open_predecessor",
+      "key": "open_predecessor",
+      "functionalArea": "navigation",
+      "given": {
+        "currentRoomId": "!new:example.org",
+        "predecessor": {
+          "roomId": "!old:example.org",
+          "lastEventId": "$last:example.org"
+        }
+      },
+      "event": {
+        "name": "open_predecessor_room"
+      },
+      "expected": {
+        "effect": "navigate_to_room",
+        "roomId": "!old:example.org",
+        "navigationState": "success"
+      },
+      "invariants": [
+        "the predecessor event id remains available in timeline metadata"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/components/virtual/TimelineItemRoomBeginningView.kt",
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline/TimelineEvents.kt"
+        ]
+      },
+      "taskId": "11_room_upgrade_navigation",
+      "traceDigest": "857f482d4de37dc283068b1df3ede07bc0a0111f2f5a88dd16c4088f09081031"
+    },
+    {
+      "caseId": "rr_state_001_initial_form",
+      "key": "initial_form",
+      "functionalArea": "report_form",
+      "given": {
+        "roomId": "!room:example.org"
+      },
+      "event": {
+        "name": "open_report_room"
+      },
+      "expected": {
+        "reason": "",
+        "leaveRoom": false,
+        "reportAction": "uninitialized",
+        "canReport": false
+      },
+      "invariants": [
+        "no report or leave effect is emitted"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt",
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomState.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "11a05532c082292646a9347ca751828fae07b73ffc0797b4f43415ede2f98a95"
+    },
+    {
+      "caseId": "rr_state_002_reason_enables_report",
+      "key": "reason_enables_report",
+      "functionalArea": "report_form",
+      "given": {
+        "reason": "",
+        "leaveRoom": false
+      },
+      "event": {
+        "name": "update_reason",
+        "reason": "Spam"
+      },
+      "expected": {
+        "reason": "Spam",
+        "leaveRoom": false,
+        "canReport": true
+      },
+      "invariants": [
+        "editing the reason does not toggle leave"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "55ed55323f2c0e0b574f067a006bde00124ac06c531d247c4140167a12dff9a7"
+    },
+    {
+      "caseId": "rr_state_003_toggle_leave",
+      "key": "toggle_leave",
+      "functionalArea": "leave_option",
+      "given": {
+        "reason": "Spam",
+        "leaveRoom": false
+      },
+      "event": {
+        "name": "toggle_leave_room"
+      },
+      "expected": {
+        "reason": "Spam",
+        "leaveRoom": true,
+        "canReport": true
+      },
+      "invariants": [
+        "the reason remains unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "0d27421132c7a0b54f038bf5ccf6c2c79ae7847c52b6c0304e6a1c91761fb435"
+    },
+    {
+      "caseId": "rr_state_004_report_only_success",
+      "key": "report_only_success",
+      "functionalArea": "matrix_report",
+      "given": {
+        "reason": "Spam",
+        "leaveRoom": false,
+        "reportAction": "uninitialized"
+      },
+      "event": {
+        "name": "report"
+      },
+      "expected": {
+        "reportAction": "success",
+        "reportCalls": 1,
+        "reportReason": "Spam",
+        "leaveCalls": 0
+      },
+      "invariants": [
+        "reporting completes before the success result"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoom.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "04633b7947cd453e3446ddd0d4ec4f30c7a91bbc82d32720e86226613bddadf4"
+    },
+    {
+      "caseId": "rr_state_005_report_then_leave",
+      "key": "report_then_leave",
+      "functionalArea": "leave_room",
+      "given": {
+        "reason": "Abuse",
+        "leaveRoom": true,
+        "reportAction": "uninitialized"
+      },
+      "event": {
+        "name": "report"
+      },
+      "expected": {
+        "reportAction": "success",
+        "effects": [
+          "report_room",
+          "leave_room"
+        ],
+        "reportCalls": 1,
+        "leaveCalls": 1
+      },
+      "invariants": [
+        "leave is attempted only after reporting succeeds"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoom.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "3217e9acd3bc87ec5cc5744f0d2528d8180700e1dec84747d5d6869a7c102385"
+    },
+    {
+      "caseId": "rr_state_006_blank_reason_disabled",
+      "key": "blank_reason_disabled",
+      "functionalArea": "report_form",
+      "given": {
+        "reason": "   ",
+        "leaveRoom": true
+      },
+      "event": {
+        "name": "render_report_form"
+      },
+      "expected": {
+        "canReport": false,
+        "submitEnabled": false
+      },
+      "invariants": [
+        "leave preference remains selected"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomState.kt",
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomView.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "290ee9a7d51df4c413519efeda527e162e0d0a66368f23a3c56fc67883a91db3"
+    },
+    {
+      "caseId": "rr_state_007_report_failure_stops_leave",
+      "key": "report_failure_stops_leave",
+      "functionalArea": "partial_failure_retry",
+      "given": {
+        "reason": "Spam",
+        "leaveRoom": true,
+        "reportResult": "failure"
+      },
+      "event": {
+        "name": "report"
+      },
+      "expected": {
+        "reportAction": "report_failed",
+        "reportCalls": 1,
+        "leaveCalls": 0,
+        "reason": "Spam",
+        "leaveRoom": true
+      },
+      "invariants": [
+        "form values survive the failure"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoom.kt",
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "84cd8054638a9b7c45a749bd5b22dbc21490705c3e96b6ec804a45d632045e51"
+    },
+    {
+      "caseId": "rr_state_008_leave_failure_is_partial",
+      "key": "leave_failure_is_partial",
+      "functionalArea": "partial_failure_retry",
+      "given": {
+        "reason": "Spam",
+        "leaveRoom": true,
+        "reportResult": "success",
+        "leaveResult": "failure"
+      },
+      "event": {
+        "name": "report"
+      },
+      "expected": {
+        "reportAction": "leave_failed",
+        "reportCalls": 1,
+        "leaveCalls": 1,
+        "retryEnabled": true
+      },
+      "invariants": [
+        "the successful report is remembered"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoom.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "dee8902983851e344647af5dd57104c803a2a0b360e12bc23132b309bf88f01f"
+    },
+    {
+      "caseId": "rr_state_009_retry_leave_only",
+      "key": "retry_leave_only",
+      "functionalArea": "partial_failure_retry",
+      "given": {
+        "reason": "Spam",
+        "leaveRoom": true,
+        "reportAction": "leave_failed",
+        "reportCalls": 1,
+        "leaveCalls": 1
+      },
+      "event": {
+        "name": "retry"
+      },
+      "expected": {
+        "reportAction": "success",
+        "reportCalls": 1,
+        "leaveCalls": 2,
+        "retryShouldReport": false
+      },
+      "invariants": [
+        "the report is never submitted twice"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "0e1a59099872b7b9deaebf62e704236e68de951680cf4fb40816d72d2ccc30e2"
+    },
+    {
+      "caseId": "rr_state_010_clear_failure_keeps_form",
+      "key": "clear_failure_keeps_form",
+      "functionalArea": "partial_failure_retry",
+      "given": {
+        "reason": "Spam",
+        "leaveRoom": true,
+        "reportAction": "report_failed"
+      },
+      "event": {
+        "name": "clear_report_action"
+      },
+      "expected": {
+        "reason": "Spam",
+        "leaveRoom": true,
+        "reportAction": "uninitialized",
+        "canReport": true
+      },
+      "invariants": [
+        "clearing the error emits no network effect"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt"
+        ]
+      },
+      "taskId": "12_report_room",
+      "traceDigest": "95fc0090c37789fcf1e4d017cebba18e0ddb4e72fa4ef6c4f1e070989717d3c1"
+    },
+    {
+      "caseId": "uv_state_001_profile_routes_user_request",
+      "key": "profile_routes_user_request",
+      "functionalArea": "profile_and_room_integration",
+      "given": {
+        "profileUserId": "@alice:example.org",
+        "isCurrentUser": false,
+        "verificationAvailable": true
+      },
+      "event": {
+        "name": "verify_user_from_profile"
+      },
+      "expected": {
+        "route": "verify_user",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        }
+      },
+      "invariants": [
+        "self-session verification remains a distinct request type"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/UserProfileFlowNode.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "f8ee9048171bb4f23e7476653f4b3e2f81c2f733bec817eb32d402153b3e8162"
+    },
+    {
+      "caseId": "uv_state_002_request_targets_user",
+      "key": "request_targets_user",
+      "functionalArea": "verification_request",
+      "given": {
+        "step": "initial",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        }
+      },
+      "event": {
+        "name": "request_verification"
+      },
+      "expected": {
+        "step": "awaiting_other_device_response",
+        "effect": "request_user_verification",
+        "userId": "@alice:example.org",
+        "requestCalls": 1
+      },
+      "invariants": [
+        "current-session verification is not requested"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "c050e5b7ef8d43335092cbb7f560f39373d0585595a16ac848fd495644da527f"
+    },
+    {
+      "caseId": "uv_state_003_start_sas_after_acceptance",
+      "key": "start_sas_after_acceptance",
+      "functionalArea": "sas_challenge",
+      "given": {
+        "step": "ready",
+        "requestAccepted": true
+      },
+      "event": {
+        "name": "start_sas_verification"
+      },
+      "expected": {
+        "step": "awaiting_other_device_response",
+        "effect": "start_verification",
+        "startCalls": 1
+      },
+      "invariants": [
+        "the target user request remains active"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "7956b81a95ba3415a3518253fa1b9058a554c79627adb0d769a8ab420ad0380d"
+    },
+    {
+      "caseId": "uv_state_004_challenge_is_stable",
+      "key": "challenge_is_stable",
+      "functionalArea": "sas_challenge",
+      "given": {
+        "step": "awaiting_other_device_response",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ]
+      },
+      "event": {
+        "name": "receive_challenge"
+      },
+      "expected": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "replyState": "uninitialized"
+      },
+      "invariants": [
+        "the challenge data is preserved until a response is sent"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "2233f9d6e9726146c2b20f26d23e88059b348e2796d033cb4f845f07089f111f"
+    },
+    {
+      "caseId": "uv_state_005_accept_challenge_once",
+      "key": "accept_challenge_once",
+      "functionalArea": "accept_decline",
+      "given": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "approveCalls": 0
+      },
+      "event": {
+        "name": "accept_challenge"
+      },
+      "expected": {
+        "step": "verifying",
+        "replyState": "loading",
+        "effect": "approve_verification",
+        "approveCalls": 1
+      },
+      "invariants": [
+        "the SAS challenge is unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "6b15ba85baae338af5c0ef6e8564a4d2ea5a1145c0901bfc0f2ad2fea9bc916f"
+    },
+    {
+      "caseId": "uv_state_006_decline_challenge_once",
+      "key": "decline_challenge_once",
+      "functionalArea": "accept_decline",
+      "given": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "declineCalls": 0
+      },
+      "event": {
+        "name": "decline_challenge"
+      },
+      "expected": {
+        "step": "verifying",
+        "replyState": "loading",
+        "effect": "decline_verification",
+        "declineCalls": 1
+      },
+      "invariants": [
+        "the user is not marked verified"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "742660b82b52d06617d49a719a96969ba9c74831c95c5f4f394e642a4fde0ff3"
+    },
+    {
+      "caseId": "uv_state_007_finish_clears_violation",
+      "key": "finish_clears_violation",
+      "functionalArea": "identity_badges",
+      "given": {
+        "step": "verifying",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "verification_finished"
+      },
+      "expected": {
+        "step": "completed",
+        "identityState": "verified",
+        "warningVisible": false
+      },
+      "invariants": [
+        "the warning clears only after successful completion"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt",
+          "features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileHeaderSection.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "29ebcee9e82a925a089fa27242eba50f359f5266dd399c435d432b5030d95a3f"
+    },
+    {
+      "caseId": "uv_state_008_local_cancel",
+      "key": "local_cancel",
+      "functionalArea": "cancel_failure",
+      "given": {
+        "step": "awaiting_other_device_response",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "cancel"
+      },
+      "expected": {
+        "step": "canceled",
+        "effect": "cancel_verification",
+        "cancelCalls": 1,
+        "identityState": "verification_violation"
+      },
+      "invariants": [
+        "cancellation never marks the user verified"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "d48207c07a6a7137cceb1869ede911f246be1ed420693fd1270ffdb20aeb871a"
+    },
+    {
+      "caseId": "uv_state_009_failure_reset",
+      "key": "failure_reset",
+      "functionalArea": "cancel_failure",
+      "given": {
+        "step": "canceled",
+        "failure": "sdk_failure",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "reset"
+      },
+      "expected": {
+        "step": "initial",
+        "effect": "reset_verification",
+        "cancelPending": false,
+        "identityState": "verification_violation"
+      },
+      "invariants": [
+        "reset creates no false success"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "e9ef89f47bd0219ec2679da15c71736d93ad8ae377d38c88af4111c217c6e5c8"
+    },
+    {
+      "caseId": "uv_state_010_identity_violation_surfaces",
+      "key": "identity_violation_surfaces",
+      "functionalArea": "identity_badges",
+      "given": {
+        "encryptedRoom": true,
+        "userId": "@alice:example.org",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "observe_identity_change"
+      },
+      "expected": {
+        "profileBadge": "verification_violation",
+        "timelineWarning": true,
+        "roomMemberWarning": true,
+        "verifyActionVisible": true
+      },
+      "invariants": [
+        "unrelated member identities are unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "libraries/matrixui/src/main/kotlin/io/element/android/libraries/matrix/ui/room/ObserveRoomMemberIdentityStateChange.kt",
+          "features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/members/details/RoomMemberDetailsPresenter.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "31f3780972bcd5c3cd0aee8f7a2d69f68e86a4d5185063bd39a1caa324f905a2"
+    },
+    {
+      "caseId": "jr_state_001_entry_opens_address_flow",
+      "key": "entry_opens_address_flow",
+      "functionalArea": "address_entry",
+      "given": {
+        "surface": "start_chat",
+        "searchActive": false
+      },
+      "event": {
+        "name": "select_join_by_address"
+      },
+      "expected": {
+        "addressFlowVisible": true,
+        "address": "",
+        "addressState": "unknown"
+      },
+      "invariants": [
+        "existing create-room and direct-message actions remain available"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootView.kt",
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/CreateRoomFlowNode.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "c1c0dd85d1a3912dc4ae1dcb12c2a04769b7853ea5b2bbd1a2900c8a9252caf6"
+    },
+    {
+      "caseId": "jr_state_002_update_trims_and_debounces",
+      "key": "update_trims_and_debounces",
+      "functionalArea": "syntax_validation",
+      "given": {
+        "address": "",
+        "addressState": "unknown"
+      },
+      "event": {
+        "name": "update_address",
+        "value": "  #team:example.org  "
+      },
+      "expected": {
+        "address": "#team:example.org",
+        "addressStateBefore300ms": "unknown",
+        "resolveAfterMs": 300
+      },
+      "invariants": [
+        "each address change invalidates the previous resolution"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "59cd4003c86f35637c4c99e7a655e5a3d670cb5754be4d104a4fc8a036f11d17"
+    },
+    {
+      "caseId": "jr_state_003_invalid_after_continue",
+      "key": "invalid_after_continue",
+      "functionalArea": "syntax_validation",
+      "given": {
+        "address": "not-a-room",
+        "internalAddressState": "invalid",
+        "validationRequested": false
+      },
+      "event": {
+        "name": "continue"
+      },
+      "expected": {
+        "addressState": "invalid",
+        "errorVisible": true,
+        "navigationCount": 0
+      },
+      "invariants": [
+        "invalid feedback is suppressed before validation is requested"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt",
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressView.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "9ff9e57e749aa5eaf6010b8979b37d560b94ede1d8f583e534938c0d36fe308a"
+    },
+    {
+      "caseId": "jr_state_004_valid_address_resolves",
+      "key": "valid_address_resolves",
+      "functionalArea": "alias_resolution",
+      "given": {
+        "address": "#team:example.org",
+        "addressState": "unknown"
+      },
+      "event": {
+        "name": "debounce_elapsed",
+        "elapsedMs": 300
+      },
+      "expected": {
+        "addressState": "resolving",
+        "effect": "resolve_room_alias",
+        "alias": "#team:example.org"
+      },
+      "invariants": [
+        "only syntactically valid room aliases are resolved"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "639304c85bdb457b4610eae50cded6e9b8b6375ed599d825d7f54b9d1b2e3220"
+    },
+    {
+      "caseId": "jr_state_005_found_then_continue_navigates",
+      "key": "found_then_continue_navigates",
+      "functionalArea": "join_navigation",
+      "given": {
+        "addressState": "room_found",
+        "roomId": "!team:example.org",
+        "servers": [
+          "example.org"
+        ]
+      },
+      "event": {
+        "name": "continue"
+      },
+      "expected": {
+        "dismissAddressFlow": true,
+        "openRoom": {
+          "roomIdOrAlias": "!team:example.org",
+          "serverNames": [
+            "example.org"
+          ]
+        }
+      },
+      "invariants": [
+        "room navigation happens once"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt",
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/CreateRoomNavigator.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "696c2bd5266843d7ae81a646a1b6a1dc773d7bc1ecee9bbeea1c80d33d116a1a"
+    },
+    {
+      "caseId": "jr_state_006_continue_waits_for_resolution",
+      "key": "continue_waits_for_resolution",
+      "functionalArea": "join_navigation",
+      "given": {
+        "address": "#team:example.org",
+        "addressState": "resolving",
+        "validationRequested": false
+      },
+      "event": {
+        "name": "continue_then_resolution_succeeds",
+        "roomId": "!team:example.org",
+        "servers": [
+          "example.org"
+        ]
+      },
+      "expected": {
+        "validationRequested": true,
+        "dismissAddressFlow": true,
+        "navigationCount": 1
+      },
+      "invariants": [
+        "continue does not issue a second alias-resolution request"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "039af5fc69c71a9916c0514c43176a43197a3a33169f13435259963c0059aba5"
+    },
+    {
+      "caseId": "jr_state_007_not_found_recovers",
+      "key": "not_found_recovers",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "address": "#missing:example.org",
+        "addressState": "resolving"
+      },
+      "event": {
+        "name": "resolve_returns_empty_or_error"
+      },
+      "expected": {
+        "addressState": "room_not_found",
+        "errorVisible": true,
+        "navigationCount": 0,
+        "editingEnabled": true
+      },
+      "invariants": [
+        "resolution failures do not close the flow"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "6a5876bbe84235ec20b050a670e8e270dc90b9873887ec24d78207ebf4048d65"
+    },
+    {
+      "caseId": "jr_state_008_timeout_recovers",
+      "key": "timeout_recovers",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "address": "#slow:example.org",
+        "addressState": "resolving"
+      },
+      "event": {
+        "name": "resolve_timeout",
+        "elapsedSeconds": 10
+      },
+      "expected": {
+        "addressState": "room_not_found",
+        "navigationCount": 0,
+        "retryByEditing": true
+      },
+      "invariants": [
+        "the resolver cannot leave the UI loading indefinitely"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "421e8f85cf81a2ae561ea1981ee03913b316373e34c7bcbd28a538d2a72a494e"
+    },
+    {
+      "caseId": "jr_state_009_dismiss_closes_flow",
+      "key": "dismiss_closes_flow",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "addressFlowVisible": true,
+        "addressState": "resolving"
+      },
+      "event": {
+        "name": "dismiss"
+      },
+      "expected": {
+        "addressFlowVisible": false,
+        "openRoomCount": 0
+      },
+      "invariants": [
+        "dismissing never joins a room"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressView.kt",
+          "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/CreateRoomNavigator.kt"
+        ]
+      },
+      "taskId": "14_join_room_by_address",
+      "traceDigest": "ad877ad6d5caeb1d261f8a98c4a3677dcac7f615d1c44eb8c06749f0eb2cb831"
+    },
+    {
+      "caseId": "ad_state_001_capability_gates_entry",
+      "key": "capability_gates_entry",
+      "functionalArea": "settings_entry",
+      "given": {
+        "serverCanDeactivateAccount": true,
+        "surface": "settings"
+      },
+      "event": {
+        "name": "load_settings"
+      },
+      "expected": {
+        "deactivateEntryVisible": true,
+        "entryStyle": "destructive"
+      },
+      "invariants": [
+        "the entry is hidden when the server reports unsupported"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootPresenter.kt",
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootView.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "b3684f9076e2d1644b5f0845e8e19e85e1e8a0092f99abfd6dbf49517da828cf"
+    },
+    {
+      "caseId": "ad_state_002_default_form_blocks_submit",
+      "key": "default_form_blocks_submit",
+      "functionalArea": "password_form",
+      "given": {
+        "password": "",
+        "eraseData": false,
+        "action": "uninitialized"
+      },
+      "event": {
+        "name": "open_deactivation"
+      },
+      "expected": {
+        "password": "",
+        "eraseData": false,
+        "submitEnabled": false
+      },
+      "invariants": [
+        "no deactivation request is sent on entry"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationState.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "1d66e15fe75db7f8003f4d5cd634a7e754043d4dc4af2c14a9a2c1699b23c5db"
+    },
+    {
+      "caseId": "ad_state_003_password_enables_submit",
+      "key": "password_enables_submit",
+      "functionalArea": "password_form",
+      "given": {
+        "password": "",
+        "action": "uninitialized"
+      },
+      "event": {
+        "name": "set_password",
+        "value": "secret\n"
+      },
+      "expected": {
+        "password": "secret",
+        "submitEnabled": true
+      },
+      "invariants": [
+        "pasted newline characters are removed"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationView.kt",
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "2bedbcf31f25c47b40b0f1f5db33d6c4c20b0b6aa3917c76cb84f51babfe77d7"
+    },
+    {
+      "caseId": "ad_state_004_erase_data_option",
+      "key": "erase_data_option",
+      "functionalArea": "erase_data_option",
+      "given": {
+        "eraseData": false,
+        "action": "uninitialized"
+      },
+      "event": {
+        "name": "set_erase_data",
+        "value": true
+      },
+      "expected": {
+        "eraseData": true
+      },
+      "invariants": [
+        "the password is unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt",
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationView.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "ff2ae69bc219f57f1040476486e0a237a975cc072104bd9e5f26e7ef68c43a28"
+    },
+    {
+      "caseId": "ad_state_005_first_submit_confirms",
+      "key": "first_submit_confirms",
+      "functionalArea": "confirmation",
+      "given": {
+        "password": "secret",
+        "eraseData": true,
+        "action": "uninitialized"
+      },
+      "event": {
+        "name": "deactivate_account",
+        "isRetry": false
+      },
+      "expected": {
+        "action": "confirming",
+        "requestCount": 0,
+        "confirmationVisible": true
+      },
+      "invariants": [
+        "a destructive request is never sent before confirmation"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt",
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/ui/AccountDeactivationConfirmationDialog.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "2f77a9ed753a91e1de420cddee06a05374109ee707c9c769ef1ca569b865cae7"
+    },
+    {
+      "caseId": "ad_state_006_confirm_sends_payload",
+      "key": "confirm_sends_payload",
+      "functionalArea": "deactivation_request",
+      "given": {
+        "password": "secret",
+        "eraseData": true,
+        "action": "confirming"
+      },
+      "event": {
+        "name": "deactivate_account",
+        "isRetry": false
+      },
+      "expected": {
+        "action": "loading",
+        "effect": "deactivate_account",
+        "payload": {
+          "password": "secret",
+          "eraseData": true
+        }
+      },
+      "invariants": [
+        "form controls are disabled while loading"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt",
+          "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "c49c76266173b8a48dd97417d747be0ead27a9c8f65f1a3b5954a397b1295a38"
+    },
+    {
+      "caseId": "ad_state_007_success_completes",
+      "key": "success_completes",
+      "functionalArea": "retry_and_completion",
+      "given": {
+        "action": "loading",
+        "requestCount": 1
+      },
+      "event": {
+        "name": "deactivation_succeeds"
+      },
+      "expected": {
+        "action": "success",
+        "requestCount": 1
+      },
+      "invariants": [
+        "the request is not duplicated"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt",
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/ui/AccountDeactivationActionDialog.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "a3a54aee86587d76d7f3fea466763d1ff0b6fa9c025b0429139813e5ec978a63"
+    },
+    {
+      "caseId": "ad_state_008_failure_preserves_form",
+      "key": "failure_preserves_form",
+      "functionalArea": "retry_and_completion",
+      "given": {
+        "password": "secret",
+        "eraseData": true,
+        "action": "loading"
+      },
+      "event": {
+        "name": "deactivation_fails"
+      },
+      "expected": {
+        "action": "failure",
+        "password": "secret",
+        "eraseData": true,
+        "retryEnabled": true
+      },
+      "invariants": [
+        "failure does not report completion"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt",
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/ui/AccountDeactivationActionDialog.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "595e37cfd9368ef42e9bf16445744fda2ce114e1418b0f498f4705778b18272f"
+    },
+    {
+      "caseId": "ad_state_009_retry_bypasses_confirmation",
+      "key": "retry_bypasses_confirmation",
+      "functionalArea": "retry_and_completion",
+      "given": {
+        "password": "secret",
+        "eraseData": true,
+        "action": "failure",
+        "requestCount": 1
+      },
+      "event": {
+        "name": "deactivate_account",
+        "isRetry": true
+      },
+      "expected": {
+        "action": "loading",
+        "requestCount": 2,
+        "confirmationVisible": false
+      },
+      "invariants": [
+        "retry reuses the preserved form payload"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt",
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationView.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "a112f159facaba6a31c84138e10091493edf100421ca6a0887ae2f6e561557c6"
+    },
+    {
+      "caseId": "ad_state_010_close_dialog_resets_action",
+      "key": "close_dialog_resets_action",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "action": "failure",
+        "password": "secret",
+        "eraseData": true
+      },
+      "event": {
+        "name": "close_dialogs"
+      },
+      "expected": {
+        "action": "uninitialized",
+        "password": "secret",
+        "eraseData": true
+      },
+      "invariants": [
+        "dismissing an error does not submit again"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/deactivation/impl/src/main/kotlin/io/element/android/features/logout/impl/AccountDeactivationPresenter.kt"
+        ]
+      },
+      "taskId": "15_account_deactivation",
+      "traceDigest": "25a6279600074d28df718e589ef05a0c1aa58e590c4ac8db99967b5904497800"
+    },
+    {
+      "caseId": "ir_state_001_continue_requests_confirmation",
+      "key": "continue_requests_confirmation",
+      "functionalArea": "confirmation",
+      "given": {
+        "confirmationVisible": false,
+        "handleState": "uninitialized"
+      },
+      "event": {
+        "name": "continue"
+      },
+      "expected": {
+        "confirmationVisible": true,
+        "startResetCount": 0
+      },
+      "invariants": [
+        "identity reset cannot start without destructive confirmation"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/root/ResetIdentityRootPresenter.kt",
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/root/ResetIdentityRootView.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "432fd51333ef56e64ac144dd5e248ae0561d4b4ab99792ea3b38f744ed86443b"
+    },
+    {
+      "caseId": "ir_state_002_dismiss_confirmation",
+      "key": "dismiss_confirmation",
+      "functionalArea": "confirmation",
+      "given": {
+        "confirmationVisible": true,
+        "handleState": "uninitialized"
+      },
+      "event": {
+        "name": "dismiss_confirmation"
+      },
+      "expected": {
+        "confirmationVisible": false,
+        "startResetCount": 0
+      },
+      "invariants": [
+        "dismissal has no SDK side effect"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/root/ResetIdentityRootPresenter.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "c30e2623ca0ad01429b45299eb1e42b48748edb8beb1dd1b4d93a9091afb37f7"
+    },
+    {
+      "caseId": "ir_state_003_confirm_starts_handle",
+      "key": "confirm_starts_handle",
+      "functionalArea": "sdk_reset_handle",
+      "given": {
+        "confirmationVisible": true,
+        "handleState": "uninitialized"
+      },
+      "event": {
+        "name": "confirm_reset"
+      },
+      "expected": {
+        "confirmationVisible": false,
+        "handleState": "loading",
+        "effect": "start_identity_reset"
+      },
+      "invariants": [
+        "concurrent calls reuse a loading or successful handle"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowManager.kt",
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowNode.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "8abed05c11b783611231c5c7edd2b02803d80d567105e4fca704bbc44fa554ae"
+    },
+    {
+      "caseId": "ir_state_004_password_handle_routes",
+      "key": "password_handle_routes",
+      "functionalArea": "password_reauthentication",
+      "given": {
+        "handleState": "loading",
+        "authenticationType": "password"
+      },
+      "event": {
+        "name": "handle_loaded"
+      },
+      "expected": {
+        "handleState": "success",
+        "screen": "reset_password",
+        "password": ""
+      },
+      "invariants": [
+        "the password reset screen receives the same SDK handle"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowNode.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "3c34c0342439f7fd54d85b5349c9535b8dae7b984f23bce684b6ee03c56ae8d5"
+    },
+    {
+      "caseId": "ir_state_005_oidc_handle_routes_and_resets",
+      "key": "oidc_handle_routes_and_resets",
+      "functionalArea": "sdk_reset_handle",
+      "given": {
+        "handleState": "loading",
+        "authenticationType": "oidc",
+        "approvalUrl": "https://id.example/reset"
+      },
+      "event": {
+        "name": "handle_loaded"
+      },
+      "expected": {
+        "handleState": "success",
+        "effect": "open_oidc_approval",
+        "url": "https://id.example/reset",
+        "pollEffect": "reset_oidc"
+      },
+      "invariants": [
+        "fallback webview is used when a custom tab is unavailable"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowNode.kt",
+          "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/encryption/RustIdentityResetHandle.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "05b6ba2ddca9261f000f3a636ba30619d00ac898408a4a697eb088b9e52d84f9"
+    },
+    {
+      "caseId": "ir_state_006_handle_failure_recovers",
+      "key": "handle_failure_recovers",
+      "functionalArea": "failure_and_cancel",
+      "given": {
+        "handleState": "loading"
+      },
+      "event": {
+        "name": "start_identity_reset_returns_null_or_error"
+      },
+      "expected": {
+        "handleState": "failure",
+        "progressVisible": false,
+        "screen": "reset_root",
+        "retryEnabled": true
+      },
+      "invariants": [
+        "a missing handle is treated as failure rather than success"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowManager.kt",
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowNode.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "e3e9e12f1dca712a181fd923b7cf4314d6415aec930d28305dfc8e453b1d9603"
+    },
+    {
+      "caseId": "ir_state_007_password_submit_calls_handle",
+      "key": "password_submit_calls_handle",
+      "functionalArea": "password_reauthentication",
+      "given": {
+        "screen": "reset_password",
+        "password": "secret",
+        "resetAction": "uninitialized"
+      },
+      "event": {
+        "name": "submit_password"
+      },
+      "expected": {
+        "resetAction": "loading",
+        "effect": "reset_password",
+        "password": "secret",
+        "progressVisible": true
+      },
+      "invariants": [
+        "empty passwords cannot be submitted"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/password/ResetIdentityPasswordPresenter.kt",
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/password/ResetIdentityPasswordView.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "4064c00d231265e4bc9194ed2a2ed8dee87cb0b9cbb19e1b4b5359367c50af7b"
+    },
+    {
+      "caseId": "ir_state_008_password_failure_clears_on_edit",
+      "key": "password_failure_clears_on_edit",
+      "functionalArea": "failure_and_cancel",
+      "given": {
+        "screen": "reset_password",
+        "password": "wrong",
+        "resetAction": "loading"
+      },
+      "event": {
+        "name": "reset_password_fails_then_password_changes",
+        "value": "correct"
+      },
+      "expected": {
+        "resetAction": "uninitialized",
+        "password": "correct",
+        "errorVisible": false,
+        "retryEnabled": true
+      },
+      "invariants": [
+        "a failed attempt does not destroy the reset handle"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/password/ResetIdentityPasswordPresenter.kt",
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/password/ResetIdentityPasswordView.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "c32e66866a8af0d4d61bd311551230a96874a399bcf52b00c649fa2e66bb4c4d"
+    },
+    {
+      "caseId": "ir_state_009_success_waits_for_verification",
+      "key": "success_waits_for_verification",
+      "functionalArea": "success_routing",
+      "given": {
+        "resetAction": "loading",
+        "sessionVerificationStatus": "not_verified"
+      },
+      "event": {
+        "name": "reset_succeeds_then_session_verified"
+      },
+      "expected": {
+        "resetAction": "success",
+        "progressVisibleUntilVerified": true,
+        "completionCount": 1
+      },
+      "invariants": [
+        "completion is emitted only after verified status"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowManager.kt",
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/password/ResetIdentityPasswordView.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "4a5c29e5ec749f32e626db8b219eeaf62060245746aeb3e5cfb1ee697ec66789"
+    },
+    {
+      "caseId": "ir_state_010_cancel_cleans_up",
+      "key": "cancel_cleans_up",
+      "functionalArea": "failure_and_cancel",
+      "given": {
+        "handleState": "success",
+        "resetJobActive": true,
+        "completionWatcherActive": true
+      },
+      "event": {
+        "name": "cancel_or_destroy"
+      },
+      "expected": {
+        "effect": "cancel_reset_handle",
+        "handleState": "uninitialized",
+        "resetJobActive": false,
+        "completionWatcherActive": false
+      },
+      "invariants": [
+        "OIDC return and node destruction use the same cleanup path"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowManager.kt",
+          "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowNode.kt",
+          "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/encryption/RustIdentityResetHandle.kt"
+        ]
+      },
+      "taskId": "16_identity_reset",
+      "traceDigest": "7e89fb15e0ae6f65fc8fd7b4c17e9b9aefd4025092952fbb30bb59a081e503dd"
+    },
+    {
+      "caseId": "pm_state_001_open_loading",
+      "key": "open_loading",
+      "functionalArea": "list_loading",
+      "given": {
+        "screen": "room_timeline",
+        "pinnedList": "closed"
+      },
+      "event": {
+        "name": "open_pinned_messages"
+      },
+      "expected": {
+        "screen": "pinned_messages",
+        "listState": "loading",
+        "effects": [
+          "open_pinned_timeline"
+        ]
+      },
+      "invariants": [
+        "the room timeline remains the navigation parent"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/PinnedEventsTimelineProvider.kt",
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListNode.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "c15a7e08ce803419b47ba43d877c935d394b82405a80803a728ad94df2daeceb"
+    },
+    {
+      "caseId": "pm_state_002_load_failure",
+      "key": "load_failure",
+      "functionalArea": "failure_state",
+      "given": {
+        "listState": "loading",
+        "pinnedTimelineResult": "failure"
+      },
+      "event": {
+        "name": "timeline_load_completed"
+      },
+      "expected": {
+        "listState": "failed",
+        "emptyStateVisible": false,
+        "errorVisible": true
+      },
+      "invariants": [
+        "a load failure is never rendered as an empty collection"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "bf7e3e8806a4cb9801b281b3f16935552e96f6f0a7e8d91802788d72b43a9456"
+    },
+    {
+      "caseId": "pm_state_003_empty_success",
+      "key": "empty_success",
+      "functionalArea": "list_loading",
+      "given": {
+        "listState": "loading",
+        "pinnedTimelineItems": []
+      },
+      "event": {
+        "name": "timeline_load_completed"
+      },
+      "expected": {
+        "listState": "empty",
+        "loadedPinnedMessagesCount": 0,
+        "failureVisible": false
+      },
+      "invariants": [
+        "the empty state is a successful load"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "0848f056c3d15e7e25ad5d4038e3118286bc6e232124202d066b12027429fd96"
+    },
+    {
+      "caseId": "pm_state_004_filled_list",
+      "key": "filled_list",
+      "functionalArea": "pinned_timeline",
+      "given": {
+        "pinnedTimelineItems": [
+          {
+            "eventId": "$a",
+            "body": "Alpha"
+          },
+          {
+            "eventId": "$b",
+            "body": "Beta"
+          }
+        ]
+      },
+      "event": {
+        "name": "timeline_items_updated"
+      },
+      "expected": {
+        "listState": "filled",
+        "visibleEventIds": [
+          "$a",
+          "$b"
+        ],
+        "loadedPinnedMessagesCount": 2
+      },
+      "invariants": [
+        "event identity and server order are preserved"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenter.kt",
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListState.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "7893735f28fb51b79c1584ad8206259ce78a3b8e4b3cf31d26650f864b22a092"
+    },
+    {
+      "caseId": "pm_state_005_unpin_permission_denied",
+      "key": "unpin_permission_denied",
+      "functionalArea": "permission_gating",
+      "given": {
+        "listState": "filled",
+        "canPinUnpin": false,
+        "eventId": "$a"
+      },
+      "event": {
+        "name": "show_message_actions"
+      },
+      "expected": {
+        "actionsVisible": [
+          "view_in_timeline"
+        ],
+        "actionsHidden": [
+          "unpin"
+        ]
+      },
+      "invariants": [
+        "opening the action menu does not mutate the pinned list"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenter.kt",
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListTimelineActionPostProcessor.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "e3e03fc3649656f40bbc10afa3d90bfcc89c9ad1992f04eb1b76f7664f91e893"
+    },
+    {
+      "caseId": "pm_state_006_unpin_permission_allowed",
+      "key": "unpin_permission_allowed",
+      "functionalArea": "permission_gating",
+      "given": {
+        "listState": "filled",
+        "canPinUnpin": true,
+        "eventId": "$a"
+      },
+      "event": {
+        "name": "show_message_actions"
+      },
+      "expected": {
+        "actionsVisible": [
+          "view_in_timeline",
+          "unpin"
+        ]
+      },
+      "invariants": [
+        "server permissions remain authoritative"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "d61b1169c138481addf4fb68a91c1e05a0f0788eaa03a2af5c8d38184f8beb84"
+    },
+    {
+      "caseId": "pm_state_007_view_in_timeline",
+      "key": "view_in_timeline",
+      "functionalArea": "banner_navigation",
+      "given": {
+        "screen": "pinned_messages",
+        "eventId": "$a"
+      },
+      "event": {
+        "name": "view_in_timeline"
+      },
+      "expected": {
+        "screen": "room_timeline",
+        "focusedEventId": "$a",
+        "effects": [
+          "navigate_to_event"
+        ]
+      },
+      "invariants": [
+        "the pinned event remains pinned"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "f2782909361f68c36f316f43e0b59dcaa46e10150ce8a8caabc56b12f8f45ae9"
+    },
+    {
+      "caseId": "pm_state_008_unpin_success",
+      "key": "unpin_success",
+      "functionalArea": "unpin_action",
+      "given": {
+        "visibleEventIds": [
+          "$a",
+          "$b"
+        ],
+        "canPinUnpin": true
+      },
+      "event": {
+        "name": "unpin",
+        "eventId": "$a",
+        "result": "success"
+      },
+      "expected": {
+        "visibleEventIds": [
+          "$b"
+        ],
+        "effects": [
+          "unpin_event",
+          "persist_pinned_state"
+        ],
+        "errorVisible": false
+      },
+      "invariants": [
+        "unrelated pinned events remain in server order"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenter.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "9d7e9c79c84138ca4632fb4b07d6e4b0ff69490fbc3e7f55a4349a0274449317"
+    },
+    {
+      "caseId": "pm_state_009_unpin_failure_recovery",
+      "key": "unpin_failure_recovery",
+      "functionalArea": "failure_state",
+      "given": {
+        "visibleEventIds": [
+          "$a",
+          "$b"
+        ],
+        "canPinUnpin": true
+      },
+      "event": {
+        "name": "unpin",
+        "eventId": "$a",
+        "result": "failure"
+      },
+      "expected": {
+        "visibleEventIds": [
+          "$a",
+          "$b"
+        ],
+        "effects": [
+          "show_error"
+        ],
+        "retryEnabled": true
+      },
+      "invariants": [
+        "a failed unpin never removes the item optimistically"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"
+        ]
+      },
+      "taskId": "17_pinned_messages",
+      "traceDigest": "1ac5e7082921bacf5495c8310c631e409e3e337cd882e6a6095711774ccf072b"
+    },
+    {
+      "caseId": "ns_state_001_restore_independent_slots",
+      "key": "restore_independent_slots",
+      "functionalArea": "preference_persistence",
+      "given": {
+        "persistedMessageSound": "element_default",
+        "persistedCallRingtone": "silent"
+      },
+      "event": {
+        "name": "open_notification_settings"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "callRingtone": "silent",
+        "labelsResolved": true
+      },
+      "invariants": [
+        "message and call slots are loaded independently"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
+          "libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/NotificationSound.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "5ff3dfde4cfb7fddd6606d3481445c5733d8a41686055a1ad834e732e90741bb"
+    },
+    {
+      "caseId": "ns_state_002_message_preset",
+      "key": "message_preset",
+      "functionalArea": "preset_dialog",
+      "given": {
+        "messageSound": "system_default",
+        "callRingtone": "silent",
+        "messageDialog": "open"
+      },
+      "event": {
+        "name": "select_message_preset",
+        "value": "element_default"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "callRingtone": "silent",
+        "messageDialog": "closed",
+        "messageChannelVersion": 1,
+        "effects": [
+          "persist_message_sound",
+          "recreate_message_channel"
+        ]
+      },
+      "invariants": [
+        "changing the message sound does not change the call ringtone"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "5ebc94fafef6837216e2f85bf2038e72f1d8c20489d2d4222e1356db4b1a2f90"
+    },
+    {
+      "caseId": "ns_state_003_message_picker_launch",
+      "key": "message_picker_launch",
+      "functionalArea": "system_picker",
+      "given": {
+        "messageDialog": "open",
+        "messagePickerToken": 0
+      },
+      "event": {
+        "name": "launch_message_sound_picker"
+      },
+      "expected": {
+        "messageDialog": "closed",
+        "messagePickerToken": 1,
+        "effects": [
+          "open_audio_picker"
+        ]
+      },
+      "invariants": [
+        "no preference changes before the picker returns a value"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "cc2a53bac503f3b17888a3caf039d157a0de085c5838e6f109e5112990a3616a"
+    },
+    {
+      "caseId": "ns_state_004_message_custom_copy",
+      "key": "message_custom_copy",
+      "functionalArea": "sound_copy",
+      "given": {
+        "messageSound": "system_default",
+        "pickedUri": "content://media/message/42",
+        "displayName": "Message Tone"
+      },
+      "event": {
+        "name": "set_message_sound_from_picker"
+      },
+      "expected": {
+        "messageSound": "app_owned_custom_uri",
+        "messageDisplayName": "Message Tone",
+        "messageChannelVersion": 1,
+        "effects": [
+          "copy_to_app_storage",
+          "persist_message_sound",
+          "recreate_message_channel"
+        ]
+      },
+      "invariants": [
+        "the transient provider URI is not persisted as the effective sound"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt",
+          "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/sound/DefaultNotificationSoundCopierTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "2b76c922587cb222dc7173b2d75569fb670021d4da0440af084a99b5d65f9820"
+    },
+    {
+      "caseId": "ns_state_005_message_copy_failure",
+      "key": "message_copy_failure",
+      "functionalArea": "copy_failure",
+      "given": {
+        "messageSound": "element_default",
+        "pickedUri": "content://broken"
+      },
+      "event": {
+        "name": "set_message_sound_from_picker",
+        "copyResult": "failure"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "messageCopyError": true,
+        "channelRecreated": false,
+        "dismissible": true
+      },
+      "invariants": [
+        "copy failure preserves the previous effective sound and version"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "1b5b663f6cd00b4dc1052a46856c350158f25d79c874a711bbe86cb8ded5ea9d"
+    },
+    {
+      "caseId": "ns_state_006_call_preset",
+      "key": "call_preset",
+      "functionalArea": "preset_dialog",
+      "given": {
+        "messageSound": "element_default",
+        "callRingtone": "system_default",
+        "callDialog": "open"
+      },
+      "event": {
+        "name": "select_call_preset",
+        "value": "silent"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "callRingtone": "silent",
+        "callDialog": "closed",
+        "callChannelVersion": 1,
+        "effects": [
+          "persist_call_ringtone",
+          "recreate_call_channel"
+        ]
+      },
+      "invariants": [
+        "changing the call ringtone does not change the message sound"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "3a53bca2920e2611ce2049e8e42c202917b6079a22e66daa432aadc0f81a423f"
+    },
+    {
+      "caseId": "ns_state_007_call_custom_copy",
+      "key": "call_custom_copy",
+      "functionalArea": "sound_copy",
+      "given": {
+        "callRingtone": "system_default",
+        "pickedUri": "content://media/call/7",
+        "displayName": "Call Tone"
+      },
+      "event": {
+        "name": "set_call_ringtone_from_picker"
+      },
+      "expected": {
+        "callRingtone": "app_owned_custom_uri",
+        "callDisplayName": "Call Tone",
+        "callChannelVersion": 1,
+        "effects": [
+          "copy_to_app_storage",
+          "persist_call_ringtone",
+          "recreate_call_channel"
+        ]
+      },
+      "invariants": [
+        "the message sound and its channel version are unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
+          "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/sound/DefaultNotificationSoundCopier.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "fbffe9b6596b5c271ff589ece871e2a316124204e4d5e89201e157a41e51dc25"
+    },
+    {
+      "caseId": "ns_state_008_call_copy_failure",
+      "key": "call_copy_failure",
+      "functionalArea": "copy_failure",
+      "given": {
+        "callRingtone": "silent",
+        "pickedUri": "content://broken"
+      },
+      "event": {
+        "name": "set_call_ringtone_from_picker",
+        "copyResult": "failure"
+      },
+      "expected": {
+        "callRingtone": "silent",
+        "callCopyError": true,
+        "channelRecreated": false,
+        "dismissible": true
+      },
+      "invariants": [
+        "call-copy failure does not leak into message-sound error state"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "bbb861e9c0fd8e862057d5773092d474b5c1be3d538bf24329602da895aebcc0"
+    },
+    {
+      "caseId": "ns_state_009_latest_pick_wins",
+      "key": "latest_pick_wins",
+      "functionalArea": "channel_recreation",
+      "given": {
+        "messageSound": "system_default",
+        "messageChannelVersion": 0
+      },
+      "event": {
+        "name": "set_message_sounds_rapidly",
+        "values": [
+          "content://A",
+          "content://B"
+        ]
+      },
+      "expected": {
+        "messageSound": "app_owned_custom_uri_for_B",
+        "messageChannelVersion": 2,
+        "copyOrder": [
+          "content://A",
+          "content://B"
+        ],
+        "recreateOrder": [
+          1,
+          2
+        ]
+      },
+      "invariants": [
+        "per-slot updates are serialized and a late completion cannot restore an older pick"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "08a3815e40952338770d37f90b7ddb7ce263d66caf8844a06c8aad468f91c6d6"
+    },
+    {
+      "caseId": "ns_state_010_legacy_migration_guard",
+      "key": "legacy_migration_guard",
+      "functionalArea": "legacy_migration",
+      "given": {
+        "persistedCallRingtone": "custom_explicit",
+        "callChannelVersion": 3,
+        "legacyChannelRingtone": "silent"
+      },
+      "event": {
+        "name": "migrate_legacy_channel_sound"
+      },
+      "expected": {
+        "callRingtone": "custom_explicit",
+        "callChannelVersion": 3,
+        "migrationApplied": false
+      },
+      "invariants": [
+        "legacy discovery never overwrites an explicit new preference"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
+          "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannels.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "82c4cff114d79e42989270376186861490867ed5c8ceb127f86b1d431298298e"
+    }
+  ]
+}

@@ -1,0 +1,1454 @@
+diff --git a/entry/src/main/ets/features/JoinRoomByAddress/DelegatingRoomAliasResolver.ets b/entry/src/main/ets/features/JoinRoomByAddress/DelegatingRoomAliasResolver.ets
+new file mode 100644
+index 0000000..c0e2762
+--- /dev/null
++++ b/entry/src/main/ets/features/JoinRoomByAddress/DelegatingRoomAliasResolver.ets
+@@ -0,0 +1,127 @@
++// SPDX-License-Identifier: Apache-2.0
++// Pluggable resolver that delegates to a caller-provided function. This
++// lets production builds wire the real Matrix homeserver directory
++// lookup (HTTP-backed) without forcing the UI layer to depend on the
++// networking module. The flow stays authoritative: a missing delegate is
++// surfaced as 'unconfigured' rather than fabricating a room ID.
++
++import { RoomAliasResolver } from './RoomAliasResolver';
++import {
++  CancellationHandle,
++  CancellationToken,
++  ResolverError,
++  ResolverFailureKind,
++  ResolverResult,
++  ResolvedRoom
++} from './types';
++
++export type DirectoryLookupFn = (alias: string, server: string, signal: CancellationHandle)
++  => Promise<ResolverResult>;
++
++const DEFAULT_TIMEOUT_MS: number = 10000;
++
++function buildError(reason: ResolverFailureKind, message: string): ResolverError {
++  const err: ResolverError = { kind: 'error', reason, message };
++  return err;
++}
++
++function isCancellationToken(value: Object): boolean {
++  return value instanceof CancellationToken;
++}
++
++function isErrorResult(result: ResolverResult): boolean {
++  const candidate: ResolverError = result as ResolverError;
++  return candidate.kind === 'error';
++}
++
++export class DelegatingRoomAliasResolver implements RoomAliasResolver {
++  private lookup: DirectoryLookupFn | null;
++  private timeoutMs: number;
++
++  constructor(lookup: DirectoryLookupFn | null, timeoutMs: number = DEFAULT_TIMEOUT_MS) {
++    this.lookup = lookup;
++    this.timeoutMs = timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
++  }
++
++  setLookup(lookup: DirectoryLookupFn | null): void {
++    this.lookup = lookup;
++  }
++
++  async resolve(alias: string, server: string, signal: CancellationHandle): Promise<ResolverResult> {
++    if (!alias.startsWith('#') || alias.indexOf(':') < 0) {
++      return buildError('invalid_response', 'Malformed alias passed to resolver');
++    }
++    if (this.lookup === null) {
++      return buildError('unconfigured',
++        'No homeserver directory lookup is configured for this build');
++    }
++    const token: CancellationToken = new CancellationToken();
++    const cancelBridge = (): void => {
++      token.cancel();
++    };
++    if (signal.cancelled) {
++      token.cancel();
++      return buildError('cancelled', 'Alias resolution was cancelled');
++    }
++    if (isCancellationToken(signal)) {
++      const upstream: CancellationToken = signal as CancellationToken;
++      upstream.onCancel((): void => {
++        token.cancel();
++        cancelBridge();
++      });
++    } else {
++      const handle: CancellationHandle = signal;
++      const interval: number = setInterval(() => {
++        const cancelledHandle: boolean = handle.cancelled;
++        const cancelledToken: boolean = token.cancelled;
++        if (cancelledHandle || cancelledToken) {
++          clearInterval(interval);
++          token.cancel();
++        }
++      }, 50);
++      token.onCancel((): void => clearInterval(interval));
++    }
++
++    let timer: number = 0;
++    const timeoutPromise: Promise<ResolverResult> = new Promise<ResolverResult>((resolveOuter) => {
++      timer = setTimeout(() => {
++        token.cancel();
++        resolveOuter(buildError('timeout',
++          `Alias resolution did not complete within ${this.timeoutMs}ms`));
++      }, this.timeoutMs);
++    });
++
++    try {
++      const lookup: DirectoryLookupFn = this.lookup;
++      const lookupPromise: Promise<ResolverResult> = lookup(alias, server, token);
++      const result: ResolverResult = await Promise.race<ResolverResult>([lookupPromise, timeoutPromise]);
++      if (timer !== 0) {
++        clearTimeout(timer);
++        timer = 0;
++      }
++      if (token.cancelled && !this.isTerminalResult(result)) {
++        return buildError('cancelled', 'Alias resolution was cancelled');
++      }
++      return result;
++    } catch (e) {
++      if (timer !== 0) {
++        clearTimeout(timer);
++        timer = 0;
++      }
++      const message: string = (e as Error).message ?? String(e);
++      if (token.cancelled) {
++        return buildError('cancelled', 'Alias resolution was cancelled');
++      }
++      return buildError('network', `Resolver failure: ${message}`);
++    }
++  }
++
++  private isTerminalResult(result: ResolverResult): boolean {
++    if (isErrorResult(result)) {
++      const err: ResolverError = result as ResolverError;
++      return err.reason === 'cancelled';
++    }
++    const room: ResolvedRoom = result as ResolvedRoom;
++    return typeof room.roomId === 'string' && room.roomId.length > 0;
++  }
++}
+diff --git a/entry/src/main/ets/features/JoinRoomByAddress/HttpRoomAliasResolver.ets b/entry/src/main/ets/features/JoinRoomByAddress/HttpRoomAliasResolver.ets
+new file mode 100644
+index 0000000..eb2e71b
+--- /dev/null
++++ b/entry/src/main/ets/features/JoinRoomByAddress/HttpRoomAliasResolver.ets
+@@ -0,0 +1,165 @@
++// SPDX-License-Identifier: Apache-2.0
++//
++// HTTP-backed Matrix room alias resolver. Issues an authoritative GET
++// against `<homeserver>/_matrix/client/v3/directory/room/<alias>` and
++// surfaces every failure as a typed ResolverError so the UI can recover.
++//
++// Construction sites MUST consult a real homeserver (configured via the
++// active client session); pattern-based or fabricated room IDs are
++// disallowed by the task requirements.
++
++import http from '@ohos.net.http';
++import { RoomAliasResolver } from './RoomAliasResolver';
++import {
++  CancellationHandle,
++  ResolverError,
++  ResolverFailureKind,
++  ResolverResult,
++  ResolvedRoom
++} from './types';
++
++const DEFAULT_TIMEOUT_MS: number = 10000;
++
++function buildError(reason: ResolverFailureKind, message: string): ResolverError {
++  const err: ResolverError = { kind: 'error', reason, message };
++  return err;
++}
++
++function isCancelled(signal: CancellationHandle): boolean {
++  return signal.cancelled;
++}
++
++export class HttpRoomAliasResolver implements RoomAliasResolver {
++  private homeserverUrl: string;
++  private timeoutMs: number;
++
++  constructor(homeserverUrl: string = '', timeoutMs: number = DEFAULT_TIMEOUT_MS) {
++    this.homeserverUrl = normalize(homeserverUrl);
++    this.timeoutMs = timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
++  }
++
++  setHomeserverUrl(homeserverUrl: string): void {
++    this.homeserverUrl = normalize(homeserverUrl);
++  }
++
++  async resolve(alias: string, server: string, signal: CancellationHandle): Promise<ResolverResult> {
++    if (this.homeserverUrl.length === 0) {
++      return buildError('unconfigured', 'Homeserver is not configured');
++    }
++    if (!alias.startsWith('#') || alias.indexOf(':') < 0) {
++      return buildError('invalid_response', 'Malformed alias passed to resolver');
++    }
++    const encodedAlias: string = encodeURIComponent(alias);
++    const url: string = `${this.homeserverUrl}/_matrix/client/v3/directory/room/${encodedAlias}`;
++
++    return new Promise<ResolverResult>((resolveOuter) => {
++      let settled: boolean = false;
++      const httpRequest = http.createHttp();
++      const finish = (result: ResolverResult): void => {
++        if (settled) {
++          return;
++        }
++        settled = true;
++        try {
++          httpRequest.destroy();
++        } catch (_e) {
++          // ignore
++        }
++        resolveOuter(result);
++      };
++
++      const timer: number = setTimeout((): void => {
++        finish(buildError('timeout',
++          `Alias resolution did not complete within ${this.timeoutMs}ms`));
++      }, this.timeoutMs);
++
++      const pollHandle: number = setInterval((): void => {
++        if (isCancelled(signal)) {
++          clearInterval(pollHandle);
++          clearTimeout(timer);
++          finish(buildError('cancelled', 'Alias resolution was cancelled'));
++        }
++      }, 50);
++      httpRequest.request(url, {
++        method: http.RequestMethod.GET,
++        header: { 'Accept': 'application/json' },
++        connectTimeout: this.timeoutMs,
++        readTimeout: this.timeoutMs
++      }).then((response: http.HttpResponse): void => {
++        clearTimeout(timer);
++        clearInterval(pollHandle);
++        const code: number = Number(response.responseCode);
++        if (isCancelled(signal)) {
++          finish(buildError('cancelled', 'Alias resolution was cancelled'));
++          return;
++        }
++        if (code === 404) {
++          finish(buildError('not_found',
++            `No room found for alias ${alias} on ${server}`));
++          return;
++        }
++        if (code === 0) {
++          finish(buildError('network',
++            `Network failure contacting ${server}`));
++          return;
++        }
++        if (code >= 500) {
++          finish(buildError('server_error',
++            `Homeserver responded with status ${code}`));
++          return;
++        }
++        if (code !== 200) {
++          finish(buildError('invalid_response',
++            `Unexpected response status ${code} for alias ${alias}`));
++          return;
++        }
++        const raw: Object = response.result as Object;
++        if (typeof raw !== 'string') {
++          finish(buildError('invalid_response',
++            'Empty response body from homeserver directory endpoint'));
++          return;
++        }
++        let parsed: Record<string, Object>;
++        try {
++          parsed = JSON.parse(raw) as Record<string, Object>;
++        } catch (_parseErr) {
++          finish(buildError('invalid_response',
++            'Homeserver returned malformed JSON for alias lookup'));
++          return;
++        }
++        const roomIdValue: Object = parsed['room_id'];
++        if (typeof roomIdValue !== 'string' || roomIdValue.length === 0) {
++          finish(buildError('invalid_response',
++            'Homeserver response did not include a room_id'));
++          return;
++        }
++        const roomId: string = roomIdValue;
++        const serversValue: Object = parsed['servers'];
++        let servers: string[] = [];
++        if (Array.isArray(serversValue)) {
++          const collected: string[] = [];
++          for (const s of serversValue as Object[]) {
++            if (typeof s === 'string' && s.length > 0) {
++              collected.push(s);
++            }
++          }
++          servers = collected;
++        }
++        if (servers.length === 0) {
++          servers = [server];
++        }
++        const resolved: ResolvedRoom = { roomId, servers };
++        finish(resolved);
++      }).catch((err: Error): void => {
++        clearTimeout(timer);
++        clearInterval(pollHandle);
++        finish(buildError('network',
++          `Network failure contacting ${server}: ${err.message ?? 'unknown'}`));
++      });
++    });
++  }
++}
++
++function normalize(input: string): string {
++  return input.replace(/\/+$/, '');
++}
+diff --git a/entry/src/main/ets/features/JoinRoomByAddress/JoinRoomByAddressPresenter.ets b/entry/src/main/ets/features/JoinRoomByAddress/JoinRoomByAddressPresenter.ets
+new file mode 100644
+index 0000000..fe167be
+--- /dev/null
++++ b/entry/src/main/ets/features/JoinRoomByAddress/JoinRoomByAddressPresenter.ets
+@@ -0,0 +1,405 @@
++// SPDX-License-Identifier: Apache-2.0
++// State machine for the "join room by address" flow.
++//
++// States and transitions:
++//
++//   Unknown(touched)         -> editing -> Invalid || Resolving
++//   Invalid                  -> editing
++//   Resolving                -> editing (cancel) | RoomFound | NotFound
++//   RoomFound                -> editing (cancel + clear)
++//   NotFound                 -> editing (cancel + clear) | Retry -> Resolving
++//
++// Editing the field cancels any in-flight resolve via the cancellation
++// handle, clears stale validation, and bumps the session token; a
++// response for a previous address therefore can never replace the
++// current result.
++//
++// Continue on invalid/empty input reveals validation without issuing a
++// resolution request. Continue while a valid address is resolving sets
++// a pending-continuation flag and the flow auto-advances if and only
++// if the same address resolves.
++
++import { RoomAliasResolver } from './RoomAliasResolver';
++import { DelegatingRoomAliasResolver, DirectoryLookupFn } from './DelegatingRoomAliasResolver';
++import { HttpRoomAliasResolver } from './HttpRoomAliasResolver';
++import {
++  AddressParseResult,
++  AddressState,
++  CancellationToken,
++  ResolvedRoom,
++  ResolverError,
++  ResolverResult,
++  parseRoomAlias
++} from './types';
++
++export interface NavigationParams {
++  roomId: string;
++  address: string;
++  servers: string[];
++}
++
++export type StateChangeListener = () => void;
++
++const RESOLVE_DEBOUNCE_MS: number = 300;
++
++export class JoinRoomByAddressPresenter {
++  // Observable surface (UI mirrors these via @State).
++  rawInput: string = '';
++  address: string = '';
++  localPart: string = '';
++  domain: string = '';
++  addressState: AddressState = AddressState.Unknown;
++  internalAddressState: AddressState = AddressState.Unknown;
++  validationRequested: boolean = false;
++  resolvedRoom: ResolvedRoom | null = null;
++  lastError: ResolverError | null = null;
++  pendingContinue: boolean = false;
++  isResolving: boolean = false;
++  pendingNavigation: NavigationParams | null = null;
++  closed: boolean = false;
++  resolvingRequestId: number = 0;
++
++  // Wiring.
++  private resolver: RoomAliasResolver;
++  private listener: StateChangeListener | null = null;
++
++  // Internal bookkeeping.
++  private debounceTimer: number = 0;
++  private currentToken: CancellationToken | null = null;
++  private sessionToken: number = 0;
++
++  constructor(resolver?: RoomAliasResolver) {
++    this.resolver = resolver ?? new HttpRoomAliasResolver('');
++  }
++
++  setResolver(resolver: RoomAliasResolver): void {
++    this.resolver = resolver;
++  }
++
++  setDirectoryLookup(lookup: DirectoryLookupFn | null): void {
++    if (this.resolver instanceof DelegatingRoomAliasResolver) {
++      this.resolver.setLookup(lookup);
++    }
++  }
++
++  setHomeserverUrl(homeserverUrl: string): void {
++    if (this.resolver instanceof HttpRoomAliasResolver) {
++      this.resolver.setHomeserverUrl(homeserverUrl);
++    }
++  }
++
++  setOnStateChange(listener: StateChangeListener | null): void {
++    this.listener = listener;
++  }
++
++  /** Replace any in-flight work; prepare for re-use. */
++  reset(): void {
++    this.cancelInFlight();
++    this.rawInput = '';
++    this.address = '';
++    this.localPart = '';
++    this.domain = '';
++    this.addressState = AddressState.Unknown;
++    this.internalAddressState = AddressState.Unknown;
++    this.validationRequested = false;
++    this.resolvedRoom = null;
++    this.lastError = null;
++    this.pendingContinue = false;
++    this.isResolving = false;
++    this.pendingNavigation = null;
++    this.closed = false;
++    this.resolvingRequestId = 0;
++    this.notifyChange();
++  }
++
++  /** User typed a new value. Cancels stale resolution, kicks off debounced resolve. */
++  updateAddress(value: string): void {
++    this.rawInput = typeof value === 'string' ? value : '';
++    this.validationRequested = false;
++    this.resolvedRoom = null;
++    this.lastError = null;
++    this.pendingContinue = false;
++    this.pendingNavigation = null;
++
++    this.cancelInFlight();
++
++    const trimmed: string = this.rawInput.trim();
++    const parsed: AddressParseResult = parseRoomAlias(trimmed);
++
++    if (trimmed.length === 0) {
++      this.internalAddressState = AddressState.Unknown;
++      this.addressState = AddressState.Unknown;
++      this.address = '';
++      this.localPart = '';
++      this.domain = '';
++      this.notifyChange();
++      return;
++    }
++
++    if (parsed.isValid) {
++      this.address = parsed.normalized;
++      this.localPart = parsed.localPart;
++      this.domain = parsed.domain;
++      this.internalAddressState = AddressState.Resolving;
++      this.addressState = AddressState.Resolving;
++      this.notifyChange();
++      this.scheduleResolve(parsed.normalized, parsed.domain);
++      return;
++    }
++
++    // Syntactically invalid: surface it only after the user has asked
++    // for validation (e.g. by tapping Continue). Mid-typing keeps the
++    // visible state at Unknown.
++    this.address = trimmed;
++    this.localPart = '';
++    this.domain = '';
++    this.internalAddressState = AddressState.Invalid;
++    this.addressState = AddressState.Unknown;
++    this.notifyChange();
++  }
++
++  /** User tapped Continue. */
++  requestContinue(): void {
++    if (this.closed) {
++      return;
++    }
++    this.validationRequested = true;
++
++    const trimmed: string = this.rawInput.trim();
++    const parsed: AddressParseResult = parseRoomAlias(trimmed);
++
++    if (parsed.isValid) {
++      this.address = parsed.normalized;
++      this.localPart = parsed.localPart;
++      this.domain = parsed.domain;
++    }
++
++    // Empty input -> show the validation error.
++    if (trimmed.length === 0) {
++      this.addressState = AddressState.Invalid;
++      this.internalAddressState = AddressState.Invalid;
++      this.notifyChange();
++      return;
++    }
++
++    // Invalid syntax -> reveal the validation error without resolving.
++    if (parsed.isValid !== true) {
++      this.addressState = AddressState.Invalid;
++      this.internalAddressState = AddressState.Invalid;
++      this.notifyChange();
++      return;
++    }
++
++    // Already resolved -> navigate.
++    if (this.addressState === AddressState.RoomFound && this.resolvedRoom !== null) {
++      this.navigateToPreview();
++      this.notifyChange();
++      return;
++    }
++
++    // Currently resolving -> mark for auto-advance when same address resolves.
++    if (this.addressState === AddressState.Resolving) {
++      this.internalAddressState = AddressState.Resolving;
++      this.pendingContinue = true;
++      this.notifyChange();
++      return;
++    }
++
++    // Not found with valid input -> retry the resolve.
++    if (this.addressState === AddressState.NotFound) {
++      this.addressState = AddressState.Resolving;
++      this.internalAddressState = AddressState.Resolving;
++      this.lastError = null;
++      this.pendingContinue = true;
++      this.notifyChange();
++      this.scheduleResolve(parsed.normalized, parsed.domain);
++      return;
++    }
++
++    // Invalid (validation already shown) -> no-op, message stays.
++    if (this.addressState === AddressState.Invalid) {
++      this.notifyChange();
++      return;
++    }
++
++    // Otherwise (Unknown with valid input that hasn't started resolving yet) -> start now.
++    if (this.addressState === AddressState.Unknown) {
++      this.addressState = AddressState.Resolving;
++      this.internalAddressState = AddressState.Resolving;
++      this.pendingContinue = true;
++      this.notifyChange();
++      this.scheduleResolve(parsed.normalized, parsed.domain);
++      return;
++    }
++  }
++
++  /** User tapped the Retry action in the not-found state. */
++  retry(): void {
++    if (this.closed) {
++      return;
++    }
++    const trimmed: string = this.rawInput.trim();
++    const parsed: AddressParseResult = parseRoomAlias(trimmed);
++    if (parsed.isValid !== true) {
++      this.addressState = AddressState.Invalid;
++      this.internalAddressState = AddressState.Invalid;
++      this.validationRequested = true;
++      this.notifyChange();
++      return;
++    }
++    this.address = parsed.normalized;
++    this.localPart = parsed.localPart;
++    this.domain = parsed.domain;
++    this.lastError = null;
++    this.addressState = AddressState.Resolving;
++    this.internalAddressState = AddressState.Resolving;
++    this.notifyChange();
++    this.scheduleResolve(parsed.normalized, parsed.domain);
++  }
++
++  /** User dismissed the flow without joining anything. */
++  dismiss(): void {
++    if (this.closed) {
++      return;
++    }
++    this.closed = true;
++    this.cancelInFlight();
++    this.pendingContinue = false;
++    this.pendingNavigation = null;
++    this.notifyChange();
++  }
++
++  /** Acknowledge a navigation request already consumed by the UI. */
++  consumePendingNavigation(): void {
++    this.pendingNavigation = null;
++    this.notifyChange();
++  }
++
++  /** Allow external resolvers to push their result into the state machine. */
++  notifyResolverResult(address: string, result: ResolverResult): void {
++    const trimmedAddress: string = (address ?? '').trim();
++    if (trimmedAddress.length === 0) {
++      return;
++    }
++    if (trimmedAddress !== this.address) {
++      return; // stale response for a different address
++    }
++    this.applyResult(trimmedAddress, result);
++  }
++
++  // -------- internal --------
++
++  private cancelInFlight(): void {
++    this.sessionToken += 1;
++    if (this.debounceTimer !== 0) {
++      clearTimeout(this.debounceTimer);
++      this.debounceTimer = 0;
++    }
++    if (this.currentToken !== null) {
++      try {
++        this.currentToken.cancel();
++      } catch (_e) {
++        // ignore
++      }
++      this.currentToken = null;
++    }
++    this.isResolving = false;
++  }
++
++  private scheduleResolve(normalized: string, server: string): void {
++    if (this.closed) {
++      return;
++    }
++    this.resolvingRequestId += 1;
++    const myToken: number = this.sessionToken;
++    const myRequestId: number = this.resolvingRequestId;
++    this.debounceTimer = setTimeout(() => {
++      this.debounceTimer = 0;
++      if (myToken !== this.sessionToken) {
++        return;
++      }
++      void this.runResolve(normalized, server, myToken, myRequestId);
++    }, RESOLVE_DEBOUNCE_MS);
++  }
++
++  private async runResolve(normalized: string, server: string, token: number, requestId: number): Promise<void> {
++    if (this.closed) {
++      return;
++    }
++    const signal: CancellationToken = new CancellationToken();
++    this.currentToken = signal;
++    this.isResolving = true;
++
++    let result: ResolverResult;
++    try {
++      result = await this.resolver.resolve(normalized, server, signal);
++    } catch (e) {
++      const message: string = (e as Error).message ?? String(e);
++      result = { kind: 'error', reason: 'network', message };
++    }
++
++    if (token !== this.sessionToken) {
++      return; // stale
++    }
++    if (requestId !== this.resolvingRequestId) {
++      return; // a newer resolve was started
++    }
++    if (signal.cancelled) {
++      return;
++    }
++    if (this.currentToken === signal) {
++      this.currentToken = null;
++    }
++    this.isResolving = false;
++    this.applyResult(normalized, result);
++  }
++
++  private applyResult(address: string, result: ResolverResult): void {
++    if (this.closed) {
++      return;
++    }
++    if (address !== this.address) {
++      return; // stale
++    }
++    const errCandidate: ResolverError = result as ResolverError;
++    if (errCandidate.kind === 'error') {
++      this.resolvedRoom = null;
++      this.lastError = errCandidate;
++      this.addressState = AddressState.NotFound;
++      this.pendingContinue = false;
++      this.notifyChange();
++      return;
++    }
++    const roomCandidate: ResolvedRoom = result as ResolvedRoom;
++    this.resolvedRoom = roomCandidate;
++    this.lastError = null;
++    this.addressState = AddressState.RoomFound;
++    if (this.pendingContinue) {
++      this.pendingContinue = false;
++      this.navigateToPreview();
++    }
++    this.notifyChange();
++  }
++
++  private navigateToPreview(): void {
++    if (this.closed || this.resolvedRoom === null) {
++      return;
++    }
++    const room: ResolvedRoom = this.resolvedRoom;
++    this.pendingNavigation = {
++      roomId: room.roomId,
++      address: this.address,
++      servers: room.servers.slice()
++    };
++  }
++
++  private notifyChange(): void {
++    if (this.listener !== null) {
++      try {
++        this.listener();
++      } catch (_e) {
++        // listener errors must not break the state machine
++      }
++    }
++  }
++}
+diff --git a/entry/src/main/ets/features/JoinRoomByAddress/RoomAliasResolver.ets b/entry/src/main/ets/features/JoinRoomByAddress/RoomAliasResolver.ets
+new file mode 100644
+index 0000000..a549c2e
+--- /dev/null
++++ b/entry/src/main/ets/features/JoinRoomByAddress/RoomAliasResolver.ets
+@@ -0,0 +1,11 @@
++// SPDX-License-Identifier: Apache-2.0
++// Authoritative room alias resolution interface.
++// Implementations are required to consult a real source of truth
++// (e.g. the configured Matrix homeserver directory endpoint).
++// Pattern-based or fabricated room IDs are not allowed.
++
++import { CancellationHandle, ResolverResult } from './types';
++
++export interface RoomAliasResolver {
++  resolve(alias: string, server: string, signal: CancellationHandle): Promise<ResolverResult>;
++}
+diff --git a/entry/src/main/ets/features/JoinRoomByAddress/types.ets b/entry/src/main/ets/features/JoinRoomByAddress/types.ets
+new file mode 100644
+index 0000000..1bd74b2
+--- /dev/null
++++ b/entry/src/main/ets/features/JoinRoomByAddress/types.ets
+@@ -0,0 +1,133 @@
++// SPDX-License-Identifier: Apache-2.0
++// Types and Matrix alias parsing for the "join room by address" flow.
++
++export enum AddressState {
++  Unknown = 'unknown',
++  Invalid = 'invalid',
++  Resolving = 'resolving',
++  NotFound = 'not_found',
++  RoomFound = 'room_found'
++}
++
++export interface AddressValidation {
++  isValid: true;
++  normalized: string;
++  localPart: string;
++  domain: string;
++}
++
++export interface AddressParseFailure {
++  isValid: false;
++  reason: string;
++}
++
++export type AddressParseResult = AddressValidation | AddressParseFailure;
++
++export interface ResolvedRoom {
++  roomId: string;
++  servers: string[];
++}
++
++export type ResolverFailureKind =
++  | 'not_found'
++  | 'timeout'
++  | 'network'
++  | 'invalid_response'
++  | 'server_error'
++  | 'cancelled'
++  | 'unconfigured'
++  | 'unknown';
++
++export interface ResolverError {
++  kind: 'error';
++  reason: ResolverFailureKind;
++  message: string;
++}
++
++export type ResolverResult = ResolvedRoom | ResolverError;
++
++/**
++ * Lightweight cancellation handle. Implementations poll {@link cancelled}
++ * between awaits; the flow cancels stale resolutions when the user edits
++ * the address or dismisses the sheet.
++ */
++export interface CancellationHandle {
++  cancelled: boolean;
++}
++
++export class CancellationToken implements CancellationHandle {
++  cancelled: boolean = false;
++  private listeners: Array<() => void> = [];
++
++  cancel(): void {
++    if (this.cancelled) {
++      return;
++    }
++    this.cancelled = true;
++    for (let i: number = 0; i < this.listeners.length; i++) {
++      const fn: () => void = this.listeners[i];
++      try {
++        fn();
++      } catch (_e) {
++        // ignore listener failures
++      }
++    }
++    this.listeners = [];
++  }
++
++  onCancel(listener: () => void): void {
++    if (this.cancelled) {
++      try {
++        listener();
++      } catch (_e) {
++        // ignore
++      }
++      return;
++    }
++    this.listeners.push(listener);
++  }
++}
++
++const ALIAS_LOCAL_REGEX = /^[A-Za-z0-9._=/+-]{1,255}$/;
++const ALIAS_DOMAIN_REGEX = /^[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)+$/;
++const MAX_ALIAS_LENGTH = 255;
++
++export function isResolverError(result: ResolverResult): boolean {
++  return (result as ResolverError).kind === 'error';
++}
++
++export function parseRoomAlias(input: string): AddressParseResult {
++  const raw: string = typeof input === 'string' ? input : '';
++  const trimmed: string = raw.trim();
++  if (trimmed.length === 0) {
++    return { isValid: false, reason: 'empty' };
++  }
++  if (trimmed.length > MAX_ALIAS_LENGTH) {
++    return { isValid: false, reason: 'too_long' };
++  }
++  if (!trimmed.startsWith('#')) {
++    return { isValid: false, reason: 'missing_hash' };
++  }
++  const colonIndex: number = trimmed.indexOf(':');
++  if (colonIndex <= 1) {
++    return { isValid: false, reason: 'missing_local_or_domain' };
++  }
++  const dotIndex: number = trimmed.indexOf('.', colonIndex + 1);
++  if (dotIndex < 0 || dotIndex === trimmed.length - 1) {
++    return { isValid: false, reason: 'invalid_domain' };
++  }
++  const localPart: string = trimmed.substring(1, colonIndex);
++  const domain: string = trimmed.substring(colonIndex + 1);
++  if (!ALIAS_LOCAL_REGEX.test(localPart)) {
++    return { isValid: false, reason: 'invalid_local_chars' };
++  }
++  if (!ALIAS_DOMAIN_REGEX.test(domain)) {
++    return { isValid: false, reason: 'invalid_domain' };
++  }
++  return {
++    isValid: true,
++    normalized: trimmed,
++    localPart,
++    domain
++  };
++}
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 24e4943..2ee2d9c 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,3 +1,4 @@
++import router from '@ohos.router';
+ import { CreateRoomBasePresenter } from '../features/CreateRoomBase';
+ 
+ @Entry
+@@ -32,7 +33,24 @@ struct Index {
+           })
+         Row({ space: 10 }) {
+           Button('Create room')
++            .id('create_room_button')
++            .onClick((): void => {
++              // Real creation flow is provided by other modules.
++            })
+           Button('Invite friends')
++            .id('invite_friends_button')
++            .onClick((): void => {
++              // Real invitation flow is provided by other modules.
++            })
++          Button('Join by address')
++            .id('join_by_address_button')
++            .onClick((): void => {
++              try {
++                router.pushUrl({ url: 'pages/JoinRoomByAddress' });
++              } catch (_e) {
++                // page registration missing or already on the destination
++              }
++            })
+         }
+         Text('People')
+           .fontSize(14)
+diff --git a/entry/src/main/ets/pages/JoinRoomByAddress.ets b/entry/src/main/ets/pages/JoinRoomByAddress.ets
+new file mode 100644
+index 0000000..ad3d6b8
+--- /dev/null
++++ b/entry/src/main/ets/pages/JoinRoomByAddress.ets
+@@ -0,0 +1,359 @@
++// SPDX-License-Identifier: Apache-2.0
++// "Join room by address" flow page.
++// Renders the address-entry form, the in-progress resolution state, the
++// resolved-room preview/join transition, and the failure/retry surfaces.
++
++import router from '@ohos.router';
++import {
++  AddressState,
++  ResolverError,
++  ResolverFailureKind,
++  ResolvedRoom,
++  parseRoomAlias
++} from '../features/JoinRoomByAddress/types';
++import {
++  JoinRoomByAddressPresenter,
++  NavigationParams
++} from '../features/JoinRoomByAddress/JoinRoomByAddressPresenter';
++
++const PLACEHOLDER_HINT: string = '#room:server.name';
++
++function describeResolverError(error: ResolverError): string {
++  const reason: ResolverFailureKind = error.reason;
++  if (reason === 'not_found') {
++    return 'No matching room was found for this address. Check the spelling and try again.';
++  }
++  if (reason === 'timeout') {
++    return 'Resolving the room took too long. Check your connection and retry.';
++  }
++  if (reason === 'network') {
++    return 'Could not reach the homeserver. Check your connection and retry.';
++  }
++  if (reason === 'server_error') {
++    return 'The homeserver reported an error. Please retry in a moment.';
++  }
++  if (reason === 'invalid_response') {
++    return 'The homeserver returned an unexpected response. Please retry.';
++  }
++  if (reason === 'cancelled') {
++    return 'Resolution was cancelled before it could finish.';
++  }
++  if (reason === 'unconfigured') {
++    return 'This build is not configured with a homeserver directory.';
++  }
++  return 'Unable to resolve this room address right now. Please retry.';
++}
++
++function describeInvalidSyntax(reason: string | undefined): string {
++  if (reason === 'empty') {
++    return 'Enter a room address to continue.';
++  }
++  if (reason === 'missing_hash') {
++    return 'A room address must start with #, for example #room:server.name.';
++  }
++  if (reason === 'missing_local_or_domain') {
++    return 'A room address needs both a local part and a server, like #room:server.name.';
++  }
++  if (reason === 'invalid_local_chars') {
++    return 'The local part of a room address may contain letters, digits, dots, dashes and underscores.';
++  }
++  if (reason === 'invalid_domain') {
++    return 'The server part must be a valid domain like matrix.example.org.';
++  }
++  if (reason === 'too_long') {
++    return 'That address is too long. Please shorten it and try again.';
++  }
++  return 'Enter a room address in the form #room:server.name.';
++}
++
++interface PreviewParams {
++  roomId: string;
++  address: string;
++  servers: string[];
++}
++
++@Entry
++@Component
++struct JoinRoomByAddress {
++  private presenter: JoinRoomByAddressPresenter = new JoinRoomByAddressPresenter();
++
++  @State private rawInput: string = '';
++  @State private address: string = '';
++  @State private addressState: AddressState = AddressState.Unknown;
++  @State private validationRequested: boolean = false;
++  @State private validationMessage: string = '';
++  @State private resolvedRoom: ResolvedRoom | null = null;
++  @State private lastError: ResolverError | null = null;
++  @State private pendingContinue: boolean = false;
++  @State private isResolving: boolean = false;
++  @State private pendingNavigation: NavigationParams | null = null;
++  @State private closed: boolean = false;
++  @State private errorMessage: string = '';
++  @State private foundRoomId: string = '';
++  @State private foundServers: string = '';
++
++  aboutToAppear(): void {
++    this.presenter.setOnStateChange((): void => this.syncFromPresenter());
++    this.presenter.reset();
++    const params: Object = router.getParams();
++    if (params !== null && typeof params === 'object') {
++      const record = params as Record<string, Object>;
++      const seed: Object = record['homeserverUrl'];
++      if (typeof seed === 'string' && seed.length > 0) {
++        this.presenter.setHomeserverUrl(seed);
++      }
++    }
++  }
++
++  aboutToDisappear(): void {
++    this.presenter.setOnStateChange(null);
++  }
++
++  private syncFromPresenter(): void {
++    this.rawInput = this.presenter.rawInput;
++    this.address = this.presenter.address;
++    this.addressState = this.presenter.addressState;
++    this.validationRequested = this.presenter.validationRequested;
++    this.resolvedRoom = this.presenter.resolvedRoom;
++    this.lastError = this.presenter.lastError;
++    this.pendingContinue = this.presenter.pendingContinue;
++    this.isResolving = this.presenter.isResolving;
++    this.pendingNavigation = this.presenter.pendingNavigation;
++    this.closed = this.presenter.closed;
++
++    if (this.lastError !== null) {
++      this.errorMessage = describeResolverError(this.lastError);
++    } else {
++      this.errorMessage = '';
++    }
++
++    const trimmed: string = this.rawInput.trim();
++    const showValidation: boolean = this.validationRequested
++      && (this.presenter.internalAddressState === AddressState.Invalid
++        || trimmed.length === 0);
++    if (showValidation) {
++      const parsed = parseRoomAlias(trimmed);
++      const failureView: Record<string, Object> = parsed as Object as Record<string, Object>;
++      const reasonValue: Object = failureView['reason'];
++      const reasonStr: string | undefined = typeof reasonValue === 'string' ? reasonValue : undefined;
++      this.validationMessage = describeInvalidSyntax(reasonStr);
++    } else {
++      this.validationMessage = '';
++    }
++
++    if (this.resolvedRoom !== null) {
++      this.foundRoomId = this.resolvedRoom.roomId;
++      this.foundServers = this.resolvedRoom.servers.join(', ');
++    } else {
++      this.foundRoomId = '';
++      this.foundServers = '';
++    }
++
++    if (this.pendingNavigation !== null) {
++      const nav: NavigationParams = this.pendingNavigation;
++      this.presenter.consumePendingNavigation();
++      const previewParams: PreviewParams = {
++        roomId: nav.roomId,
++        address: nav.address,
++        servers: nav.servers
++      };
++      try {
++        router.pushUrl({
++          url: 'pages/RoomPreviewPage',
++          params: previewParams
++        });
++      } catch (_e) {
++        // duplicate navigation or page missing - keep state intact
++      }
++    }
++
++    if (this.closed) {
++      try {
++        router.back();
++      } catch (_e) {
++        // already on root
++      }
++    }
++  }
++
++  build() {
++    Column() {
++      this.header()
++      this.formColumn()
++      this.footer()
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  @Builder
++  private header() {
++    Column({ space: 4 }) {
++      Text('Join a room by address')
++        .fontSize(22)
++        .fontWeight(FontWeight.Bold)
++      Text('Enter a Matrix room address like #room:server.name')
++        .fontSize(13)
++        .fontColor('#64748B')
++    }
++    .alignItems(HorizontalAlign.Start)
++    .padding({ left: 20, right: 20, top: 24, bottom: 16 })
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++  }
++
++  @Builder
++  private formColumn() {
++    Column({ space: 14 }) {
++      TextInput({ text: this.rawInput, placeholder: PLACEHOLDER_HINT })
++        .id('address_input')
++        .height(48)
++        .padding(12)
++        .backgroundColor('#FFFFFF')
++        .borderRadius(8)
++        .onChange((value: string) => {
++          this.presenter.updateAddress(value);
++          this.syncFromPresenter();
++        })
++
++      Row({ space: 12 }) {
++        if (this.isResolving || this.addressState === AddressState.Resolving) {
++          LoadingProgress()
++            .id('address_loading')
++            .width(20)
++            .height(20)
++          Text('Looking up the room…')
++            .fontSize(13)
++            .fontColor('#475569')
++        } else if (this.addressState === AddressState.RoomFound && this.resolvedRoom !== null) {
++          Text('Room found')
++            .id('address_found_label')
++            .fontSize(13)
++            .fontColor('#0F766E')
++        } else if (this.addressState === AddressState.NotFound) {
++          Text('No room found')
++            .id('address_notfound_label')
++            .fontSize(13)
++            .fontColor('#B91C1C')
++        } else {
++          Blank()
++        }
++      }
++      .width('100%')
++
++      if (this.errorMessage.length > 0) {
++        Text(this.errorMessage)
++          .id('address_error_message')
++          .fontSize(13)
++          .fontColor('#B91C1C')
++          .width('100%')
++      }
++
++      if (this.validationMessage.length > 0) {
++        Text(this.validationMessage)
++          .id('address_validation_message')
++          .fontSize(13)
++          .fontColor('#B91C1C')
++          .width('100%')
++      }
++
++      if (this.resolvedRoom !== null) {
++        this.foundCard()
++      }
++
++      if (this.addressState === AddressState.NotFound && this.errorMessage.length > 0) {
++        Button('Retry')
++          .id('address_retry_button')
++          .onClick((): void => {
++            this.presenter.retry();
++            this.syncFromPresenter();
++          })
++      }
++    }
++    .padding(20)
++    .width('100%')
++    .layoutWeight(1)
++  }
++
++  @Builder
++  private foundCard() {
++    Column({ space: 6 }) {
++      Text(this.address)
++        .id('address_found_value')
++        .fontSize(15)
++        .fontWeight(FontWeight.Medium)
++      Text(`Room ID: ${this.foundRoomId}`)
++        .fontSize(12)
++        .fontColor('#475569')
++      if (this.foundServers.length > 0) {
++        Text(`Servers: ${this.foundServers}`)
++          .fontSize(12)
++          .fontColor('#475569')
++      }
++    }
++    .alignItems(HorizontalAlign.Start)
++    .padding(14)
++    .width('100%')
++    .borderRadius(10)
++    .backgroundColor('#ECFDF5')
++    .borderWidth(1)
++    .borderColor('#A7F3D0')
++  }
++
++  @Builder
++  private footer() {
++    Column({ space: 12 }) {
++      Button(this.continueButtonLabel())
++        .id('address_continue_button')
++        .width('100%')
++        .height(48)
++        .backgroundColor(this.continueEnabled() ? '#0F766E' : '#94A3B8')
++        .enabled(this.continueEnabled())
++        .onClick((): void => {
++          this.presenter.requestContinue();
++          this.syncFromPresenter();
++        })
++
++      Button('Dismiss')
++        .id('address_dismiss_button')
++        .width('100%')
++        .height(44)
++        .backgroundColor('#FFFFFF')
++        .fontColor('#0F172A')
++        .onClick((): void => {
++          this.presenter.dismiss();
++          this.syncFromPresenter();
++        })
++    }
++    .padding(20)
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++  }
++
++  private continueEnabled(): boolean {
++    if (this.closed) {
++      return false;
++    }
++    if (this.isResolving || this.addressState === AddressState.Resolving) {
++      return true;
++    }
++    if (this.addressState === AddressState.RoomFound) {
++      return this.resolvedRoom !== null;
++    }
++    if (this.addressState === AddressState.Invalid) {
++      return false;
++    }
++    return this.rawInput.trim().length > 0 || this.addressState === AddressState.NotFound;
++  }
++
++  private continueButtonLabel(): string {
++    if (this.addressState === AddressState.RoomFound) {
++      return 'Continue';
++    }
++    if (this.addressState === AddressState.NotFound) {
++      return 'Try again';
++    }
++    return 'Continue';
++  }
++}
+diff --git a/entry/src/main/ets/pages/RoomPreviewPage.ets b/entry/src/main/ets/pages/RoomPreviewPage.ets
+new file mode 100644
+index 0000000..0c78260
+--- /dev/null
++++ b/entry/src/main/ets/pages/RoomPreviewPage.ets
+@@ -0,0 +1,149 @@
++// SPDX-License-Identifier: Apache-2.0
++// Room preview screen reached from the "join by address" flow.
++// Shows the resolved room identity and offers the join/return actions.
++
++import router from '@ohos.router';
++
++interface PreviewParams {
++  roomId: string;
++  address: string;
++  servers: string[];
++}
++
++@Entry
++@Component
++struct RoomPreviewPage {
++  @State private roomId: string = '';
++  @State private address: string = '';
++  @State private serversText: string = '';
++  @State private joined: boolean = false;
++  @State private hasServers: boolean = false;
++
++  aboutToAppear(): void {
++    const params: Object = router.getParams();
++    if (params !== null && typeof params === 'object') {
++      const record = params as Record<string, Object>;
++      const rid: Object = record['roomId'];
++      if (typeof rid === 'string') {
++        this.roomId = rid;
++      }
++      const addr: Object = record['address'];
++      if (typeof addr === 'string') {
++        this.address = addr;
++      }
++      const srvs: Object = record['servers'];
++      if (Array.isArray(srvs)) {
++        const collected: string[] = [];
++        for (const s of srvs as Object[]) {
++          if (typeof s === 'string' && s.length > 0) {
++            collected.push(s);
++          }
++        }
++        if (collected.length > 0) {
++          this.serversText = collected.join(', ');
++          this.hasServers = true;
++        }
++      }
++    }
++  }
++
++  build() {
++    Column() {
++      Column({ space: 4 }) {
++        Text('Room preview')
++          .fontSize(22)
++          .fontWeight(FontWeight.Bold)
++        Text(this.address.length > 0 ? this.address : 'Resolved room')
++          .fontSize(14)
++          .fontColor('#0F172A')
++      }
++      .alignItems(HorizontalAlign.Start)
++      .padding({ left: 20, right: 20, top: 24, bottom: 16 })
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++
++      Column({ space: 12 }) {
++        Column({ space: 6 }) {
++          Text('Room address')
++            .fontSize(12)
++            .fontColor('#64748B')
++          Text(this.address.length > 0 ? this.address : 'Unknown')
++            .id('preview_address')
++            .fontSize(16)
++            .fontWeight(FontWeight.Medium)
++        }
++        .alignItems(HorizontalAlign.Start)
++        .padding(14)
++        .width('100%')
++        .borderRadius(10)
++        .backgroundColor('#FFFFFF')
++
++        Column({ space: 6 }) {
++          Text('Room ID')
++            .fontSize(12)
++            .fontColor('#64748B')
++          Text(this.roomId.length > 0 ? this.roomId : 'Unknown')
++            .id('preview_room_id')
++            .fontSize(14)
++            .fontColor('#0F172A')
++        }
++        .alignItems(HorizontalAlign.Start)
++        .padding(14)
++        .width('100%')
++        .borderRadius(10)
++        .backgroundColor('#FFFFFF')
++
++        if (this.hasServers) {
++          Column({ space: 6 }) {
++            Text('Homeservers')
++              .fontSize(12)
++              .fontColor('#64748B')
++            Text(this.serversText)
++              .id('preview_servers')
++              .fontSize(14)
++              .fontColor('#0F172A')
++          }
++          .alignItems(HorizontalAlign.Start)
++          .padding(14)
++          .width('100%')
++          .borderRadius(10)
++          .backgroundColor('#FFFFFF')
++        }
++      }
++      .padding(20)
++      .width('100%')
++      .layoutWeight(1)
++
++      Column({ space: 12 }) {
++        Button(this.joined ? 'Joined' : 'Join room')
++          .id('preview_join_button')
++          .width('100%')
++          .height(48)
++          .backgroundColor(this.joined ? '#94A3B8' : '#0F766E')
++          .onClick((): void => {
++            this.joined = true;
++          })
++
++        Button('Back')
++          .id('preview_back_button')
++          .width('100%')
++          .height(44)
++          .backgroundColor('#FFFFFF')
++          .fontColor('#0F172A')
++          .onClick((): void => {
++            try {
++              router.back();
++            } catch (_e) {
++              // already on root
++            }
++          })
++      }
++      .padding(20)
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++}
+diff --git a/entry/src/main/module.json5 b/entry/src/main/module.json5
+index d2ee4df..d1f8b01 100644
+--- a/entry/src/main/module.json5
++++ b/entry/src/main/module.json5
+@@ -32,6 +32,11 @@
+           }
+         ]
+       }
++    ],
++    "requestPermissions": [
++      {
++        "name": "ohos.permission.INTERNET"
++      }
+     ]
+   }
+ }
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 1898d94..920ff10 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,5 +1,7 @@
+ {
+   "src": [
+-    "pages/Index"
++    "pages/Index",
++    "pages/JoinRoomByAddress",
++    "pages/RoomPreviewPage"
+   ]
+ }

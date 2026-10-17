@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "taskId": "08_threads",
+  "observationMode": "source_transition_conformance",
+  "reason": "Repair source-observer structural overfitting without changing the canonical transitions or candidate patches.",
+  "candidatePatches": {
+    "android": "eval_runs/new_tasks_opencode_minimax_m3_20261013/patches/android_08_threads.patch",
+    "arkts": "eval_runs/new_tasks_opencode_minimax_m3_20261013/patches/arkts_08_threads.patch"
+  },
+  "calibration": {
+    "android": {"base": "0/9", "final": "9/9"},
+    "arkts": {"base": "0/9", "final": "9/9"}
+  },
+  "agent": {
+    "android": {
+      "score": "7/9",
+      "passed": [
+        "th_state_001_open_thread",
+        "th_state_003_focus_failure_preserves_thread",
+        "th_state_004_send_thread_message",
+        "th_state_005_reply_remote_event",
+        "th_state_006_send_thread_attachment",
+        "th_state_007_restore_nested_context",
+        "th_state_008_retry_failed_send"
+      ],
+      "failed": {
+        "th_state_002_focus_reply": "Generic focusOnEvent replaces the threaded detached timeline and clears threadRootFlow, so focus does not preserve thread mode.",
+        "th_state_009_back_isolates_room": "MessagesFlowNode uses backstack.newRoot for the thread, removing the room entry instead of returning to an isolated room timeline."
+      }
+    },
+    "arkts": {
+      "score": "0/9",
+      "failed": {
+        "th_state_001_open_thread": "The thread presenter materializes only the root and does not project the root plus existing replies from the room timeline.",
+        "th_state_002_focus_reply": "No existing reply is loaded into the opened thread, so the canonical reply-focus transition is not reachable.",
+        "th_state_003_focus_failure_preserves_thread": "The no-op failure helper has no production event or UI wiring and exposes no failure state.",
+        "th_state_004_send_thread_message": "The gateway send effect does not carry threadRootId.",
+        "th_state_005_reply_remote_event": "The reply effect carries a target but not threadRootId, and the UI only selects materialized local events.",
+        "th_state_006_send_thread_attachment": "The attachment gateway effect does not carry threadRootId.",
+        "th_state_007_restore_nested_context": "There is no attachment-preview surface; returnToThread is an unwired no-op.",
+        "th_state_008_retry_failed_send": "failNextRequest is not connected to any production service or UI path, so the failure/retry transition is unreachable.",
+        "th_state_009_back_isolates_room": "closeThread preserves threadRootId and focusedEventId instead of clearing thread-owned state on return."
+      }
+    }
+  }
+}

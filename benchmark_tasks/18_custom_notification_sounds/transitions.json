@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "taskId": "18_custom_notification_sounds",
+  "owner": "evaluator",
+  "description": "Shared Android/ArkTS semantics for independent persistent message sounds and call ringtones",
+  "cases": [
+    {
+      "caseId": "ns_state_001_restore_independent_slots",
+      "key": "restore_independent_slots",
+      "functionalArea": "preference_persistence",
+      "given": {
+        "persistedMessageSound": "element_default",
+        "persistedCallRingtone": "silent"
+      },
+      "event": {
+        "name": "open_notification_settings"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "callRingtone": "silent",
+        "labelsResolved": true
+      },
+      "invariants": [
+        "message and call slots are loaded independently"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
+          "libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/NotificationSound.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "5ff3dfde4cfb7fddd6606d3481445c5733d8a41686055a1ad834e732e90741bb"
+    },
+    {
+      "caseId": "ns_state_002_message_preset",
+      "key": "message_preset",
+      "functionalArea": "preset_dialog",
+      "given": {
+        "messageSound": "system_default",
+        "callRingtone": "silent",
+        "messageDialog": "open"
+      },
+      "event": {
+        "name": "select_message_preset",
+        "value": "element_default"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "callRingtone": "silent",
+        "messageDialog": "closed",
+        "messageChannelVersion": 1,
+        "effects": [
+          "persist_message_sound",
+          "recreate_message_channel"
+        ]
+      },
+      "invariants": [
+        "changing the message sound does not change the call ringtone"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "5ebc94fafef6837216e2f85bf2038e72f1d8c20489d2d4222e1356db4b1a2f90"
+    },
+    {
+      "caseId": "ns_state_003_message_picker_launch",
+      "key": "message_picker_launch",
+      "functionalArea": "system_picker",
+      "given": {
+        "messageDialog": "open",
+        "messagePickerToken": 0
+      },
+      "event": {
+        "name": "launch_message_sound_picker"
+      },
+      "expected": {
+        "messageDialog": "closed",
+        "messagePickerToken": 1,
+        "effects": [
+          "open_audio_picker"
+        ]
+      },
+      "invariants": [
+        "no preference changes before the picker returns a value"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "cc2a53bac503f3b17888a3caf039d157a0de085c5838e6f109e5112990a3616a"
+    },
+    {
+      "caseId": "ns_state_004_message_custom_copy",
+      "key": "message_custom_copy",
+      "functionalArea": "sound_copy",
+      "given": {
+        "messageSound": "system_default",
+        "pickedUri": "content://media/message/42",
+        "displayName": "Message Tone"
+      },
+      "event": {
+        "name": "set_message_sound_from_picker"
+      },
+      "expected": {
+        "messageSound": "app_owned_custom_uri",
+        "messageDisplayName": "Message Tone",
+        "messageChannelVersion": 1,
+        "effects": [
+          "copy_to_app_storage",
+          "persist_message_sound",
+          "recreate_message_channel"
+        ]
+      },
+      "invariants": [
+        "the transient provider URI is not persisted as the effective sound"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt",
+          "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/sound/DefaultNotificationSoundCopierTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "2b76c922587cb222dc7173b2d75569fb670021d4da0440af084a99b5d65f9820"
+    },
+    {
+      "caseId": "ns_state_005_message_copy_failure",
+      "key": "message_copy_failure",
+      "functionalArea": "copy_failure",
+      "given": {
+        "messageSound": "element_default",
+        "pickedUri": "content://broken"
+      },
+      "event": {
+        "name": "set_message_sound_from_picker",
+        "copyResult": "failure"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "messageCopyError": true,
+        "channelRecreated": false,
+        "dismissible": true
+      },
+      "invariants": [
+        "copy failure preserves the previous effective sound and version"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "1b5b663f6cd00b4dc1052a46856c350158f25d79c874a711bbe86cb8ded5ea9d"
+    },
+    {
+      "caseId": "ns_state_006_call_preset",
+      "key": "call_preset",
+      "functionalArea": "preset_dialog",
+      "given": {
+        "messageSound": "element_default",
+        "callRingtone": "system_default",
+        "callDialog": "open"
+      },
+      "event": {
+        "name": "select_call_preset",
+        "value": "silent"
+      },
+      "expected": {
+        "messageSound": "element_default",
+        "callRingtone": "silent",
+        "callDialog": "closed",
+        "callChannelVersion": 1,
+        "effects": [
+          "persist_call_ringtone",
+          "recreate_call_channel"
+        ]
+      },
+      "invariants": [
+        "changing the call ringtone does not change the message sound"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "3a53bca2920e2611ce2049e8e42c202917b6079a22e66daa432aadc0f81a423f"
+    },
+    {
+      "caseId": "ns_state_007_call_custom_copy",
+      "key": "call_custom_copy",
+      "functionalArea": "sound_copy",
+      "given": {
+        "callRingtone": "system_default",
+        "pickedUri": "content://media/call/7",
+        "displayName": "Call Tone"
+      },
+      "event": {
+        "name": "set_call_ringtone_from_picker"
+      },
+      "expected": {
+        "callRingtone": "app_owned_custom_uri",
+        "callDisplayName": "Call Tone",
+        "callChannelVersion": 1,
+        "effects": [
+          "copy_to_app_storage",
+          "persist_call_ringtone",
+          "recreate_call_channel"
+        ]
+      },
+      "invariants": [
+        "the message sound and its channel version are unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
+          "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/sound/DefaultNotificationSoundCopier.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "fbffe9b6596b5c271ff589ece871e2a316124204e4d5e89201e157a41e51dc25"
+    },
+    {
+      "caseId": "ns_state_008_call_copy_failure",
+      "key": "call_copy_failure",
+      "functionalArea": "copy_failure",
+      "given": {
+        "callRingtone": "silent",
+        "pickedUri": "content://broken"
+      },
+      "event": {
+        "name": "set_call_ringtone_from_picker",
+        "copyResult": "failure"
+      },
+      "expected": {
+        "callRingtone": "silent",
+        "callCopyError": true,
+        "channelRecreated": false,
+        "dismissible": true
+      },
+      "invariants": [
+        "call-copy failure does not leak into message-sound error state"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "bbb861e9c0fd8e862057d5773092d474b5c1be3d538bf24329602da895aebcc0"
+    },
+    {
+      "caseId": "ns_state_009_latest_pick_wins",
+      "key": "latest_pick_wins",
+      "functionalArea": "channel_recreation",
+      "given": {
+        "messageSound": "system_default",
+        "messageChannelVersion": 0
+      },
+      "event": {
+        "name": "set_message_sounds_rapidly",
+        "values": [
+          "content://A",
+          "content://B"
+        ]
+      },
+      "expected": {
+        "messageSound": "app_owned_custom_uri_for_B",
+        "messageChannelVersion": 2,
+        "copyOrder": [
+          "content://A",
+          "content://B"
+        ],
+        "recreateOrder": [
+          1,
+          2
+        ]
+      },
+      "invariants": [
+        "per-slot updates are serialized and a late completion cannot restore an older pick"
+      ],
+      "evidence": {
+        "androidTests": [
+          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "08a3815e40952338770d37f90b7ddb7ce263d66caf8844a06c8aad468f91c6d6"
+    },
+    {
+      "caseId": "ns_state_010_legacy_migration_guard",
+      "key": "legacy_migration_guard",
+      "functionalArea": "legacy_migration",
+      "given": {
+        "persistedCallRingtone": "custom_explicit",
+        "callChannelVersion": 3,
+        "legacyChannelRingtone": "silent"
+      },
+      "event": {
+        "name": "migrate_legacy_channel_sound"
+      },
+      "expected": {
+        "callRingtone": "custom_explicit",
+        "callChannelVersion": 3,
+        "migrationApplied": false
+      },
+      "invariants": [
+        "legacy discovery never overwrites an explicit new preference"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
+          "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannels.kt"
+        ]
+      },
+      "taskId": "18_custom_notification_sounds",
+      "traceDigest": "82c4cff114d79e42989270376186861490867ed5c8ceb127f86b1d431298298e"
+    }
+  ]
+}

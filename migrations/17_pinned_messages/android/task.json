@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "taskId": "17_pinned_messages",
+  "title": "Browse and manage pinned messages",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v0.5.1",
+    "baseCommit": "4ecc9f46b6627f89184d66b758094a7c4a24c258",
+    "finalRef": "v0.5.3",
+    "finalCommit": "eff868ddf9e1caef8182e55ac59054e81526a68f"
+  },
+  "arkts": {
+    "platform": "OpenHarmony",
+    "apiVersion": 23,
+    "basePath": "17_pinned_messages_base_0_5_1",
+    "finalPath": "final_dev_nodes/17_pinned_messages_final_0_5_3",
+    "baseProject": "../../17_pinned_messages_base_0_5_1",
+    "finalProject": "../../final_dev_nodes/17_pinned_messages_final_0_5_3",
+    "baseVersion": "0.5.1-base",
+    "finalVersion": "0.5.3-final",
+    "baseBundle": "com.qingyu.elementx.pinnedmessages.base",
+    "finalBundle": "com.qingyu.elementx.pinnedmessages.final",
+    "productionRoots": ["entry/src/main/ets"],
+    "toolchain": {
+      "devEcoStudio": "6.1.1",
+      "openHarmonySdkApi": 23,
+      "hvigor": "6.24.5",
+      "ohpm": "6.1.2.285",
+      "node": "18.20.1",
+      "jdk": "21.0.8"
+    },
+    "effectMapping": {
+      "pinnedTimeline": "Preferences-backed room repository standing in for the server-authoritative Matrix pinned timeline",
+      "focusNavigation": "room timeline navigation state with focusedEventId"
+    }
+  },
+  "releaseNotes": [
+    {"text": "Pinned messages list", "source": "CHANGES.md v0.5.3 / PR #3392"},
+    {"text": "Pinned messages banner: adjust indicator to match design", "source": "CHANGES.md v0.5.3 / PR #3415"}
+  ],
+  "functionalAreas": ["pinned_timeline", "list_loading", "banner_navigation", "permission_gating", "unpin_action", "failure_state"],
+  "stateSurfaces": ["PinnedMessagesListState", "PinnedEventsTimelineProvider", "PinnedMessagesBannerState", "UserEventPermissions"],
+  "eventEntrypoints": ["OpenPinnedMessages", "LoadMore", "SelectMessage", "ShowActions", "Unpin", "Retry"],
+  "evidence": {
+    "productionPaths": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned", "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/timeline"],
+    "testPaths": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned", "libraries/eventformatter/impl/src/test"],
+    "commits": ["b802a196fc1db83a0cbd510fa3a8f83e1e06c48f", "87dbed98ea2d040ee5b1a29c06b59d6e37136546"]
+  },
+  "nonGoals": ["Changing server pin-event authorization", "Adding pin expiration", "Reordering pinned events manually"],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "transitionDraft": "transitions.draft.json",
+    "transitions": "transitions.json",
+    "observerRules": "observer_rules.json",
+    "arktsBindings": "arkts_bindings.json",
+    "migrationValidation": "migration_validation.json"
+  }
+}

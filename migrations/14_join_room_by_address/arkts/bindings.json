@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "taskId": "14_join_room_by_address",
+  "canonicalContract": "../canonical/transitions.json",
+  "cases": [
+    {
+      "caseId": "jr_state_001_entry_opens_address_flow",
+      "traceDigest": "c1c0dd85d1a3912dc4ae1dcb12c2a04769b7853ea5b2bbd1a2900c8a9252caf6",
+      "fixture": {
+        "surface": "start_chat",
+        "searchActive": false
+      },
+      "eventEntrypoint": {
+        "name": "select_join_by_address"
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$",
+        "pages/Index\\.ets$",
+        "pages/JoinRoomByAddress\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_002_update_trims_and_debounces",
+      "traceDigest": "59cd4003c86f35637c4c99e7a655e5a3d670cb5754be4d104a4fc8a036f11d17",
+      "fixture": {
+        "address": "",
+        "addressState": "unknown"
+      },
+      "eventEntrypoint": {
+        "name": "update_address",
+        "value": "  #team:example.org  "
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_003_invalid_after_continue",
+      "traceDigest": "9ff9e57e749aa5eaf6010b8979b37d560b94ede1d8f583e534938c0d36fe308a",
+      "fixture": {
+        "address": "not-a-room",
+        "internalAddressState": "invalid",
+        "validationRequested": false
+      },
+      "eventEntrypoint": {
+        "name": "continue"
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$",
+        "JoinRoomByAddressPresenter\\.ets$",
+        "pages/JoinRoomByAddress\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_004_valid_address_resolves",
+      "traceDigest": "639304c85bdb457b4610eae50cded6e9b8b6375ed599d825d7f54b9d1b2e3220",
+      "fixture": {
+        "address": "#team:example.org",
+        "addressState": "unknown"
+      },
+      "eventEntrypoint": {
+        "name": "debounce_elapsed",
+        "elapsedMs": 300
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_005_found_then_continue_navigates",
+      "traceDigest": "696c2bd5266843d7ae81a646a1b6a1dc773d7bc1ecee9bbeea1c80d33d116a1a",
+      "fixture": {
+        "addressState": "room_found",
+        "roomId": "!team:example.org",
+        "servers": [
+          "example.org"
+        ]
+      },
+      "eventEntrypoint": {
+        "name": "continue"
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_006_continue_waits_for_resolution",
+      "traceDigest": "039af5fc69c71a9916c0514c43176a43197a3a33169f13435259963c0059aba5",
+      "fixture": {
+        "address": "#team:example.org",
+        "addressState": "resolving",
+        "validationRequested": false
+      },
+      "eventEntrypoint": {
+        "name": "continue_then_resolution_succeeds",
+        "roomId": "!team:example.org",
+        "servers": [
+          "example.org"
+        ]
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_007_not_found_recovers",
+      "traceDigest": "6a5876bbe84235ec20b050a670e8e270dc90b9873887ec24d78207ebf4048d65",
+      "fixture": {
+        "address": "#missing:example.org",
+        "addressState": "resolving"
+      },
+      "eventEntrypoint": {
+        "name": "resolve_returns_empty_or_error"
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$",
+        "JoinRoomByAddressPresenter\\.ets$",
+        "pages/JoinRoomByAddress\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_008_timeout_recovers",
+      "traceDigest": "421e8f85cf81a2ae561ea1981ee03913b316373e34c7bcbd28a538d2a72a494e",
+      "fixture": {
+        "address": "#slow:example.org",
+        "addressState": "resolving"
+      },
+      "eventEntrypoint": {
+        "name": "resolve_timeout",
+        "elapsedSeconds": 10
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$"
+      ]
+    },
+    {
+      "caseId": "jr_state_009_dismiss_closes_flow",
+      "traceDigest": "ad877ad6d5caeb1d261f8a98c4a3677dcac7f615d1c44eb8c06749f0eb2cb831",
+      "fixture": {
+        "addressFlowVisible": true,
+        "addressState": "resolving"
+      },
+      "eventEntrypoint": {
+        "name": "dismiss"
+      },
+      "observations": [
+        "Index\\.ets$",
+        "JoinRoomByAddressFeature\\.ets$",
+        "JoinRoomByAddressPresenter\\.ets$",
+        "pages/JoinRoomByAddress\\.ets$"
+      ]
+    }
+  ]
+}

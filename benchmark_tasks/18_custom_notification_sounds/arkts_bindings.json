@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "taskId": "18_custom_notification_sounds",
+  "canonicalContract": "transitions.json",
+  "productionRoot": "../../final_dev_nodes/18_custom_notification_sounds_final_26_06_1/entry/src/main/ets",
+  "cases": [
+    {"caseId": "ns_state_001_restore_independent_slots", "traceDigest": "5ff3dfde4cfb7fddd6606d3481445c5733d8a41686055a1ad834e732e90741bb", "fixture": "independent persisted slot values", "eventEntrypoint": "NotificationSettingsPresenter.load", "observations": ["snapshot.messageSound", "snapshot.callRingtone", "both UI rows"]},
+    {"caseId": "ns_state_002_message_preset", "traceDigest": "5ebc94fafef6837216e2f85bf2038e72f1d8c20489d2d4222e1356db4b1a2f90", "fixture": "message dialog open", "eventEntrypoint": "NotificationSettingsPresenter.selectPreset(message)", "observations": ["message sound persisted", "message channel version", "call slot unchanged"]},
+    {"caseId": "ns_state_003_message_picker_launch", "traceDigest": "cc2a53bac503f3b17888a3caf039d157a0de085c5838e6f109e5112990a3616a", "fixture": "message dialog open", "eventEntrypoint": "Index.launchAudioPicker(message)", "observations": ["message dialog closed", "picker token incremented", "AudioViewPicker.select"]},
+    {"caseId": "ns_state_004_message_custom_copy", "traceDigest": "2b76c922587cb222dc7173b2d75569fb670021d4da0440af084a99b5d65f9820", "fixture": "readable provider-backed audio URI", "eventEntrypoint": "NotificationSettingsPresenter.setCustomSound(message)", "observations": ["fs.copyFile", "app-owned file URI", "display name", "message channel recreated"]},
+    {"caseId": "ns_state_005_message_copy_failure", "traceDigest": "1b5b663f6cd00b4dc1052a46856c350158f25d79c874a711bbe86cb8ded5ea9d", "fixture": "unreadable message audio URI", "eventEntrypoint": "NotificationSettingsPresenter.setCustomSound(message)", "observations": ["previous snapshot retained", "messageCopyError", "dismiss action"]},
+    {"caseId": "ns_state_006_call_preset", "traceDigest": "3a53bca2920e2611ce2049e8e42c202917b6079a22e66daa432aadc0f81a423f", "fixture": "call dialog open", "eventEntrypoint": "NotificationSettingsPresenter.selectPreset(call)", "observations": ["call ringtone persisted", "call channel version", "message slot unchanged"]},
+    {"caseId": "ns_state_007_call_custom_copy", "traceDigest": "fbffe9b6596b5c271ff589ece871e2a316124204e4d5e89201e157a41e51dc25", "fixture": "readable call audio URI", "eventEntrypoint": "NotificationSettingsPresenter.setCustomSound(call)", "observations": ["app-owned call file URI", "call display name", "call channel recreated"]},
+    {"caseId": "ns_state_008_call_copy_failure", "traceDigest": "bbb861e9c0fd8e862057d5773092d474b5c1be3d538bf24329602da895aebcc0", "fixture": "unreadable call audio URI", "eventEntrypoint": "NotificationSettingsPresenter.setCustomSound(call)", "observations": ["previous call ringtone retained", "callCopyError", "message error unchanged"]},
+    {"caseId": "ns_state_009_latest_pick_wins", "traceDigest": "08a3815e40952338770d37f90b7ddb7ce263d66caf8844a06c8aad468f91c6d6", "fixture": "two rapid message picks", "eventEntrypoint": "NotificationSettingsPresenter.setSound(message)", "observations": ["messageQueue serialization", "monotonic channel version", "second pick final"]},
+    {"caseId": "ns_state_010_legacy_migration_guard", "traceDigest": "82c4cff114d79e42989270376186861490867ed5c8ceb127f86b1d431298298e", "fixture": "explicit call preference and version", "eventEntrypoint": "NotificationSettingsPresenter.migrateLegacyCallRingtone", "observations": ["migration returns false", "explicit call ringtone retained", "channel version retained"]}
+  ]
+}

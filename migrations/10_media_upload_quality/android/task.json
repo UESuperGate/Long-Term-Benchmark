@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "10_media_upload_quality",
+  "title": "Choose upload quality within the homeserver media limit",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v25.08.2",
+    "baseCommit": "8b4b3217124e77f064c8e9fce6cbe6fd121a9a2c",
+    "finalRef": "v25.08.3",
+    "finalCommit": "4c67edf0582ea30b34f5469a6bb84e5617cea76e"
+  },
+  "arkts": {
+    "basePath": "10_media_upload_quality_base_25_08_2",
+    "finalPath": "final_dev_nodes/10_media_upload_quality_final_25_08_3",
+    "openHarmonyApi": 23,
+    "sdk": "6.1.0.32"
+  },
+  "releaseNotes": [{"text": "Add media file limit size warning and media quality selection", "source": "CHANGES.md v25.08.3 / PR #5131"}],
+  "functionalAreas": ["server_limit_loading", "image_optimization", "video_estimation", "quality_selection", "send_validation", "error_feedback"],
+  "stateSurfaces": ["AttachmentsPreviewState", "MediaOptimizationSelectorState", "VideoUploadEstimation", "media upload preferences"],
+  "eventEntrypoints": ["SelectImageOptimization", "OpenVideoPresetSelectorDialog", "SelectVideoPreset", "DismissVideoPresetSelectorDialog", "Send"],
+  "evidence": {
+    "productionPaths": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/attachments", "libraries/mediaupload/api/src/main/kotlin/io/element/android/libraries/mediaupload/api"],
+    "testPaths": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/attachments", "libraries/mediaupload/api/src/test"],
+    "commits": ["adc61b382610a1c6d65911cb16e1199992d2cc29"]
+  },
+  "nonGoals": ["Changing homeserver upload limits", "Adding new codecs", "Changing timeline media rendering"],
+  "handoff": {"requirement": "requirement.md", "evidence": "evidence.json", "transitions": "transitions.json"}
+}

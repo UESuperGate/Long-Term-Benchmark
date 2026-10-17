@@ -1,0 +1,1161 @@
+diff --git a/features/deactivateaccount/api/build.gradle.kts b/features/deactivateaccount/api/build.gradle.kts
+new file mode 100644
+index 0000000..67aeec0
+--- /dev/null
++++ b/features/deactivateaccount/api/build.gradle.kts
+@@ -0,0 +1,26 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++plugins {
++    id("io.element.android-compose-library")
++    alias(libs.plugins.anvil)
++}
++
++android {
++    namespace = "io.element.android.features.deactivateaccount.api"
++}
++
++anvil {
++    generateDaggerFactories.set(true)
++}
++
++dependencies {
++    implementation(projects.anvilannotations)
++    implementation(projects.libraries.androidutils)
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.uiStrings)
++}
+diff --git a/features/deactivateaccount/api/src/main/kotlin/io/element/android/features/deactivateaccount/api/DeactivateAccountEntryPoint.kt b/features/deactivateaccount/api/src/main/kotlin/io/element/android/features/deactivateaccount/api/DeactivateAccountEntryPoint.kt
+new file mode 100644
+index 0000000..60b391c
+--- /dev/null
++++ b/features/deactivateaccount/api/src/main/kotlin/io/element/android/features/deactivateaccount/api/DeactivateAccountEntryPoint.kt
+@@ -0,0 +1,26 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.api
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import io.element.android.libraries.architecture.FeatureEntryPoint
++
++interface DeactivateAccountEntryPoint : FeatureEntryPoint {
++    fun nodeBuilder(parentNode: Node, buildContext: BuildContext): NodeBuilder
++
++    interface NodeBuilder {
++        fun callback(callback: Callback): NodeBuilder
++        fun build(): Node
++    }
++
++    interface Callback : Plugin {
++        fun onDeactivateAccountSuccess()
++    }
++}
+diff --git a/features/deactivateaccount/impl/build.gradle.kts b/features/deactivateaccount/impl/build.gradle.kts
+new file mode 100644
+index 0000000..36e3156
+--- /dev/null
++++ b/features/deactivateaccount/impl/build.gradle.kts
+@@ -0,0 +1,48 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++plugins {
++    id("io.element.android-compose-library")
++    alias(libs.plugins.anvil)
++}
++
++android {
++    namespace = "io.element.android.features.deactivateaccount.impl"
++
++    testOptions {
++        unitTests {
++            isIncludeAndroidResources = true
++        }
++    }
++}
++
++anvil {
++    generateDaggerFactories.set(true)
++}
++
++dependencies {
++    implementation(projects.anvilannotations)
++    anvil(projects.anvilcodegen)
++    implementation(projects.libraries.androidutils)
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.designsystem)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.testtags)
++    implementation(projects.libraries.uiStrings)
++    implementation(projects.features.logout.api)
++    api(projects.features.deactivateaccount.api)
++
++    testImplementation(libs.test.junit)
++    testImplementation(libs.coroutines.test)
++    testImplementation(libs.molecule.runtime)
++    testImplementation(libs.test.truth)
++    testImplementation(libs.test.turbine)
++    testImplementation(libs.test.robolectric)
++    testImplementation(projects.libraries.matrix.test)
++    testImplementation(projects.tests.testutils)
++    testImplementation(libs.androidx.compose.ui.test.junit)
++    testReleaseImplementation(libs.androidx.compose.ui.test.manifest)
++}
+diff --git a/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountEvents.kt b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountEvents.kt
+new file mode 100644
+index 0000000..44cddd6
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountEvents.kt
+@@ -0,0 +1,15 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++sealed interface DeactivateAccountEvents {
++    data class SetPassword(val password: String) : DeactivateAccountEvents
++    data class SetEraseData(val eraseData: Boolean) : DeactivateAccountEvents
++    data class DeactivateAccount(val isRetry: Boolean) : DeactivateAccountEvents
++    data object CloseDialogs : DeactivateAccountEvents
++}
+diff --git a/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountNode.kt b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountNode.kt
+new file mode 100644
+index 0000000..5e29b3c
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountNode.kt
+@@ -0,0 +1,44 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.deactivateaccount.api.DeactivateAccountEntryPoint
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.di.SessionScope
++
++@ContributesNode(SessionScope::class)
++class DeactivateAccountNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    private val presenter: Presenter<DeactivateAccountState>,
++) : Node(buildContext, plugins = plugins) {
++
++    private val callbacks: List<DeactivateAccountEntryPoint.Callback> = plugins
++        .filterIsInstance<DeactivateAccountEntryPoint.Callback>()
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        val state = presenter.present()
++        DeactivateAccountView(
++            state = state,
++            onBackClick = ::navigateUp,
++            onSuccess = {
++                callbacks.forEach { it.onDeactivateAccountSuccess() }
++            },
++            modifier = modifier,
++        )
++    }
++}
+diff --git a/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountState.kt b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountState.kt
+new file mode 100644
+index 0000000..a25b7c7
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountState.kt
+@@ -0,0 +1,29 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++import io.element.android.libraries.architecture.AsyncAction
++
++data class DeactivateAccountState(
++    val password: String,
++    val eraseData: Boolean,
++    val deactivateAccountAction: AsyncAction<Unit>,
++    val eventSink: (DeactivateAccountEvents) -> Unit,
++) {
++    val canSubmit: Boolean
++        get() = password.isNotEmpty() && deactivateActionIsConfirming
++
++    /**
++     * Returns true while the form is currently sitting on the destructive confirmation
++     * dialog. The first press of the deactivate button puts the form into this state
++     * without sending any request to the homeserver.
++     */
++    val deactivateActionIsConfirming: Boolean
++        get() = deactivateAccountAction is AsyncAction.Confirming ||
++            deactivateAccountAction is AsyncAction.Loading
++}
+diff --git a/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountStateProvider.kt b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountStateProvider.kt
+new file mode 100644
+index 0000000..783778b
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountStateProvider.kt
+@@ -0,0 +1,33 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++import androidx.compose.ui.tooling.preview.PreviewParameterProvider
++import io.element.android.libraries.architecture.AsyncAction
++
++open class DeactivateAccountStateProvider : PreviewParameterProvider<DeactivateAccountState> {
++    override val values: Sequence<DeactivateAccountState>
++        get() = sequenceOf(
++            aDeactivateAccountState(),
++            aDeactivateAccountState(password = "secret", eraseData = true),
++            aDeactivateAccountState(password = "secret", eraseData = true, action = AsyncAction.Confirming),
++            aDeactivateAccountState(password = "secret", eraseData = true, action = AsyncAction.Loading),
++            aDeactivateAccountState(password = "secret", eraseData = true, action = AsyncAction.Failure(IllegalStateException("Error"))),
++        )
++}
++
++fun aDeactivateAccountState(
++    password: String = "",
++    eraseData: Boolean = false,
++    action: AsyncAction<Unit> = AsyncAction.Uninitialized,
++) = DeactivateAccountState(
++    password = password,
++    eraseData = eraseData,
++    deactivateAccountAction = action,
++    eventSink = {},
++)
+diff --git a/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountView.kt b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountView.kt
+new file mode 100644
+index 0000000..5c9a030
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DeactivateAccountView.kt
+@@ -0,0 +1,143 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.text.input.KeyboardType
++import androidx.compose.ui.tooling.preview.PreviewParameter
++import androidx.compose.ui.unit.dp
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.designsystem.components.dialogs.ConfirmationDialog
++import io.element.android.libraries.designsystem.components.dialogs.ProgressDialog
++import io.element.android.libraries.designsystem.components.dialogs.RetryDialog
++import io.element.android.libraries.designsystem.components.preferences.PreferenceCheckbox
++import io.element.android.libraries.designsystem.components.preferences.PreferencePage
++import io.element.android.libraries.designsystem.components.preferences.PreferenceTextField
++import io.element.android.libraries.designsystem.preview.ElementPreview
++import io.element.android.libraries.designsystem.preview.PreviewsDayNight
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.Text
++import io.element.android.libraries.testtags.TestTags
++import io.element.android.libraries.testtags.testTag
++import io.element.android.libraries.ui.strings.CommonStrings
++
++@Composable
++fun DeactivateAccountView(
++    state: DeactivateAccountState,
++    onBackClick: () -> Unit,
++    onSuccess: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val eventSink = state.eventSink
++    val isFormDisabled = state.deactivateAccountAction.isLoading() || state.deactivateAccountAction.isSuccess()
++    val isLoading = state.deactivateAccountAction.isLoading()
++
++    PreferencePage(
++        modifier = modifier,
++        onBackClick = onBackClick,
++        title = stringResource(id = R.string.screen_deactivate_account_title),
++    ) {
++        Column(
++            modifier = Modifier
++                .fillMaxWidth()
++                .padding(horizontal = 16.dp, vertical = 8.dp)
++                .verticalScroll(rememberScrollState()),
++            verticalArrangement = Arrangement.spacedBy(16.dp),
++        ) {
++            Text(text = stringResource(id = R.string.screen_deactivate_account_description))
++            PreferenceTextField(
++                headline = stringResource(id = R.string.screen_deactivate_account_password),
++                value = state.password,
++                onChange = { eventSink(DeactivateAccountEvents.SetPassword(it.orEmpty())) },
++                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
++                enabled = !isFormDisabled,
++            )
++            PreferenceCheckbox(
++                title = stringResource(id = R.string.screen_deactivate_account_erase_data),
++                isChecked = state.eraseData,
++                onCheckedChange = { eventSink(DeactivateAccountEvents.SetEraseData(it)) },
++                enabled = !isFormDisabled,
++            )
++            Button(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .testTag(TestTags.deactivateAccountSubmit),
++                text = stringResource(id = R.string.screen_deactivate_account_submit),
++                destructive = true,
++                enabled = !isFormDisabled && state.password.isNotEmpty(),
++                showProgress = isLoading,
++                onClick = {
++                    eventSink(DeactivateAccountEvents.DeactivateAccount(isRetry = false))
++                },
++            )
++        }
++    }
++
++    when (val action = state.deactivateAccountAction) {
++        is AsyncAction.Confirming -> {
++            ConfirmationDialog(
++                title = stringResource(id = R.string.screen_deactivate_account_confirm_title),
++                content = stringResource(id = R.string.screen_deactivate_account_confirm_content),
++                submitText = stringResource(id = R.string.screen_deactivate_account_confirm_submit),
++                cancelText = stringResource(CommonStrings.action_cancel),
++                destructiveSubmit = true,
++                onSubmitClick = {
++                    eventSink(DeactivateAccountEvents.DeactivateAccount(isRetry = false))
++                },
++                onDismiss = {
++                    eventSink(DeactivateAccountEvents.CloseDialogs)
++                },
++            )
++        }
++        is AsyncAction.Loading -> {
++            ProgressDialog(text = stringResource(id = R.string.screen_deactivate_account_in_progress))
++        }
++        is AsyncAction.Failure -> {
++            RetryDialog(
++                title = stringResource(CommonStrings.dialog_title_error),
++                content = stringResource(id = R.string.screen_deactivate_account_error),
++                retryText = stringResource(CommonStrings.action_retry),
++                cancelText = stringResource(CommonStrings.action_cancel),
++                onRetry = {
++                    eventSink(DeactivateAccountEvents.DeactivateAccount(isRetry = true))
++                },
++                onDismiss = {
++                    eventSink(DeactivateAccountEvents.CloseDialogs)
++                },
++            )
++        }
++        is AsyncAction.Success -> {
++            LaunchedEffect(action) {
++                onSuccess()
++            }
++        }
++        AsyncAction.Uninitialized -> Unit
++    }
++}
++
++@PreviewsDayNight
++@Composable
++internal fun DeactivateAccountViewPreview(
++    @PreviewParameter(DeactivateAccountStateProvider::class) state: DeactivateAccountState,
++) = ElementPreview {
++    DeactivateAccountView(
++        state = state,
++        onBackClick = {},
++        onSuccess = {},
++    )
++}
+diff --git a/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountEntryPoint.kt b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountEntryPoint.kt
+new file mode 100644
+index 0000000..75b8f36
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountEntryPoint.kt
+@@ -0,0 +1,37 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.features.deactivateaccount.api.DeactivateAccountEntryPoint
++import io.element.android.libraries.architecture.createNode
++import io.element.android.libraries.di.AppScope
++import javax.inject.Inject
++
++@ContributesBinding(AppScope::class)
++class DefaultDeactivateAccountEntryPoint @Inject constructor() : DeactivateAccountEntryPoint {
++
++    override fun nodeBuilder(parentNode: Node, buildContext: BuildContext): DeactivateAccountEntryPoint.NodeBuilder {
++        val plugins = ArrayList<Plugin>()
++
++        return object : DeactivateAccountEntryPoint.NodeBuilder {
++
++            override fun callback(callback: DeactivateAccountEntryPoint.Callback): DeactivateAccountEntryPoint.NodeBuilder {
++                plugins += callback
++                return this
++            }
++
++            override fun build(): Node {
++                return parentNode.createNode<DeactivateAccountNode>(buildContext, plugins)
++            }
++        }
++    }
++}
+diff --git a/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountPresenter.kt b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountPresenter.kt
+new file mode 100644
+index 0000000..921f341
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountPresenter.kt
+@@ -0,0 +1,111 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.MutableState
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.libraries.architecture.AsyncAction
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.architecture.runCatchingUpdatingState
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.auth.MatrixAuth
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.launch
++import javax.inject.Inject
++
++@ContributesBinding(SessionScope::class)
++class DefaultDeactivateAccountPresenter @Inject constructor(
++    private val matrixClient: MatrixClient,
++) : Presenter<DeactivateAccountState> {
++
++    @Composable
++    override fun present(): DeactivateAccountState {
++        val localCoroutineScope = rememberCoroutineScope()
++
++        val passwordState: MutableState<String> = remember { mutableStateOf("") }
++        val eraseDataState: MutableState<Boolean> = remember { mutableStateOf(false) }
++        val deactivateAccountAction: MutableState<AsyncAction<Unit>> = remember {
++            mutableStateOf(AsyncAction.Uninitialized)
++        }
++
++        // Reset the password once the homeserver reports a successful deactivation.
++        LaunchedEffect(deactivateAccountAction.value) {
++            if (deactivateAccountAction.value.isSuccess()) {
++                passwordState.value = ""
++            }
++        }
++
++        fun handleEvents(event: DeactivateAccountEvents) {
++            when (event) {
++                is DeactivateAccountEvents.SetPassword -> {
++                    // Pasted newline characters are stripped so that copy/paste from
++                    // password managers does not poison the field with extra whitespace.
++                    passwordState.value = event.password.replace("\n", "")
++                }
++                is DeactivateAccountEvents.SetEraseData -> {
++                    eraseDataState.value = event.eraseData
++                }
++                is DeactivateAccountEvents.DeactivateAccount -> {
++                    when {
++                        // Once the homeserver reports a successful deactivation the form
++                        // is disabled and we cannot, and must not, send another request.
++                        deactivateAccountAction.value.isSuccess() -> Unit
++                        // Retries bypass the confirmation dialog and re-use the form
++                        // payload, so we send the request straight away.
++                        event.isRetry -> runDeactivation(
++                            localCoroutineScope,
++                            passwordState.value,
++                            eraseDataState.value,
++                            deactivateAccountAction,
++                        )
++                        // The first submit only opens the destructive confirmation
++                        // dialog. No request is sent yet.
++                        passwordState.value.isEmpty() -> Unit
++                        else -> deactivateAccountAction.value = AsyncAction.Confirming
++                    }
++                }
++                DeactivateAccountEvents.CloseDialogs -> {
++                    if (deactivateAccountAction.value.isLoading()) return
++                    deactivateAccountAction.value = AsyncAction.Uninitialized
++                }
++            }
++        }
++
++        return DeactivateAccountState(
++            password = passwordState.value,
++            eraseData = eraseDataState.value,
++            deactivateAccountAction = deactivateAccountAction.value,
++            eventSink = ::handleEvents,
++        )
++    }
++
++    private fun runDeactivation(
++        scope: CoroutineScope,
++        password: String,
++        eraseData: Boolean,
++        action: MutableState<AsyncAction<Unit>>,
++    ) {
++        if (password.isEmpty()) {
++            return
++        }
++        scope.launch {
++            suspend {
++                matrixClient.deactivateAccount(
++                    auth = MatrixAuth.Password(matrixClient.sessionId, password),
++                    eraseData = eraseData,
++                )
++            }.runCatchingUpdatingState(action)
++        }
++    }
++}
+diff --git a/features/deactivateaccount/impl/src/main/res/values/localazy.xml b/features/deactivateaccount/impl/src/main/res/values/localazy.xml
+new file mode 100644
+index 0000000..e6445ba
+--- /dev/null
++++ b/features/deactivateaccount/impl/src/main/res/values/localazy.xml
+@@ -0,0 +1,13 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++  <string name="screen_deactivate_account_title">"Deactivate account"</string>
++  <string name="screen_deactivate_account_description">"Deactivating your account will permanently delete your account data. You will not be able to recover your account or its data."</string>
++  <string name="screen_deactivate_account_password">"Account"</string>
++  <string name="screen_deactivate_account_erase_data">"Erase my data"</string>
++  <string name="screen_deactivate_account_submit">"Deactivate account"</string>
++  <string name="screen_deactivate_account_confirm_title">"Deactivate account"</string>
++  <string name="screen_deactivate_account_confirm_content">"Are you sure you want to deactivate your account? This is permanent and cannot be undone."</string>
++  <string name="screen_deactivate_account_confirm_submit">"Deactivate"</string>
++  <string name="screen_deactivate_account_in_progress">"Deactivating account…"</string>
++  <string name="screen_deactivate_account_error">"We could not deactivate your account. Please try again."</string>
++</resources>
+diff --git a/features/featuresaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountStateProvider.kt b/features/featuresaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountStateProvider.kt
+new file mode 100644
+index 0000000..783778b
+--- /dev/null
++++ b/features/featuresaccount/impl/src/main/kotlin/io/element/android/features/deactivateaccount/impl/DefaultDeactivateAccountStateProvider.kt
+@@ -0,0 +1,33 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.features.deactivateaccount.impl
++
++import androidx.compose.ui.tooling.preview.PreviewParameterProvider
++import io.element.android.libraries.architecture.AsyncAction
++
++open class DeactivateAccountStateProvider : PreviewParameterProvider<DeactivateAccountState> {
++    override val values: Sequence<DeactivateAccountState>
++        get() = sequenceOf(
++            aDeactivateAccountState(),
++            aDeactivateAccountState(password = "secret", eraseData = true),
++            aDeactivateAccountState(password = "secret", eraseData = true, action = AsyncAction.Confirming),
++            aDeactivateAccountState(password = "secret", eraseData = true, action = AsyncAction.Loading),
++            aDeactivateAccountState(password = "secret", eraseData = true, action = AsyncAction.Failure(IllegalStateException("Error"))),
++        )
++}
++
++fun aDeactivateAccountState(
++    password: String = "",
++    eraseData: Boolean = false,
++    action: AsyncAction<Unit> = AsyncAction.Uninitialized,
++) = DeactivateAccountState(
++    password = password,
++    eraseData = eraseData,
++    deactivateAccountAction = action,
++    eventSink = {},
++)
+diff --git a/features/preferences/impl/build.gradle.kts b/features/preferences/impl/build.gradle.kts
+index a75b920..df89a91 100644
+--- a/features/preferences/impl/build.gradle.kts
++++ b/features/preferences/impl/build.gradle.kts
+@@ -55,6 +55,7 @@ dependencies {
+     implementation(projects.features.ftue.api)
+     implementation(projects.features.licenses.api)
+     implementation(projects.features.logout.api)
++    implementation(projects.features.deactivateaccount.api)
+     implementation(projects.features.roomlist.api)
+     implementation(projects.services.analytics.api)
+     implementation(projects.services.toolbox.api)
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/PreferencesFlowNode.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/PreferencesFlowNode.kt
+index ad3673b..9ca0f2c 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/PreferencesFlowNode.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/PreferencesFlowNode.kt
+@@ -20,6 +20,7 @@ import com.bumble.appyx.navmodel.backstack.operation.push
+ import dagger.assisted.Assisted
+ import dagger.assisted.AssistedInject
+ import io.element.android.anvilannotations.ContributesNode
++import io.element.android.features.deactivateaccount.api.DeactivateAccountEntryPoint
+ import io.element.android.features.licenses.api.OpenSourceLicensesEntryPoint
+ import io.element.android.features.lockscreen.api.LockScreenEntryPoint
+ import io.element.android.features.logout.api.LogoutEntryPoint
+@@ -52,6 +53,7 @@ class PreferencesFlowNode @AssistedInject constructor(
+     private val notificationTroubleShootEntryPoint: NotificationTroubleShootEntryPoint,
+     private val logoutEntryPoint: LogoutEntryPoint,
+     private val openSourceLicensesEntryPoint: OpenSourceLicensesEntryPoint,
++    private val deactivateAccountEntryPoint: DeactivateAccountEntryPoint,
+ ) : BaseFlowNode<PreferencesFlowNode.NavTarget>(
+     backstack = BackStack(
+         initialElement = plugins.filterIsInstance<PreferencesEntryPoint.Params>().first().initialElement.toNavTarget(),
+@@ -100,6 +102,9 @@ class PreferencesFlowNode @AssistedInject constructor(
+         @Parcelize
+         data object SignOut : NavTarget
+ 
++        @Parcelize
++        data object DeactivateAccount : NavTarget
++
+         @Parcelize
+         data object OssLicenses : NavTarget
+     }
+@@ -151,6 +156,10 @@ class PreferencesFlowNode @AssistedInject constructor(
+                     override fun onSignOutClick() {
+                         backstack.push(NavTarget.SignOut)
+                     }
++
++                    override fun onDeactivateAccountClick() {
++                        backstack.push(NavTarget.DeactivateAccount)
++                    }
+                 }
+                 createNode<PreferencesRootNode>(buildContext, plugins = listOf(callback))
+             }
+@@ -233,6 +242,22 @@ class PreferencesFlowNode @AssistedInject constructor(
+                     .callback(callBack)
+                     .build()
+             }
++            NavTarget.DeactivateAccount -> {
++                deactivateAccountEntryPoint.nodeBuilder(this, buildContext)
++                    .callback(object : DeactivateAccountEntryPoint.Callback {
++                        override fun onDeactivateAccountSuccess() {
++                            // The user has been logged out by the homeserver; pop back to
++                            // the settings root so the flow does not keep an obsolete
++                            // session visible to the user.
++                            if (backstack.canPop()) {
++                                backstack.pop()
++                            } else {
++                                navigateUp()
++                            }
++                        }
++                    })
++                    .build()
++            }
+             is NavTarget.OssLicenses -> {
+                 openSourceLicensesEntryPoint.getNode(this, buildContext)
+             }
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootNode.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootNode.kt
+index 266fddb..54a82bf 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootNode.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootNode.kt
+@@ -45,6 +45,7 @@ class PreferencesRootNode @AssistedInject constructor(
+         fun onOpenUserProfile(matrixUser: MatrixUser)
+         fun onOpenBlockedUsers()
+         fun onSignOutClick()
++        fun onDeactivateAccountClick()
+     }
+ 
+     private fun onOpenBugReport() {
+@@ -105,6 +106,10 @@ class PreferencesRootNode @AssistedInject constructor(
+         plugins<Callback>().forEach { it.onSignOutClick() }
+     }
+ 
++    private fun onDeactivateAccountClick() {
++        plugins<Callback>().forEach { it.onDeactivateAccountClick() }
++    }
++
+     @Composable
+     override fun View(modifier: Modifier) {
+         val state = presenter.present()
+@@ -132,6 +137,7 @@ class PreferencesRootNode @AssistedInject constructor(
+                     onSignOutClick()
+                 }
+             },
++            onDeactivateAccountClick = ::onDeactivateAccountClick,
+         )
+ 
+         directLogoutView.Render(
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootPresenter.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootPresenter.kt
+index 5005704..8997e7c 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootPresenter.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootPresenter.kt
+@@ -75,6 +75,9 @@ class PreferencesRootPresenter @Inject constructor(
+         val devicesManagementUrl: MutableState<String?> = remember {
+             mutableStateOf(null)
+         }
++        val canDeactivateAccount: MutableState<Boolean> = remember {
++            mutableStateOf(false)
++        }
+ 
+         val showBlockedUsersItem by produceState(initialValue = false) {
+             matrixClient.ignoredUsersFlow
+@@ -82,6 +85,10 @@ class PreferencesRootPresenter @Inject constructor(
+                 .launchIn(this)
+         }
+ 
++        LaunchedEffect(Unit) {
++            canDeactivateAccount.value = matrixClient.canDeactivateAccount().getOrDefault(false)
++        }
++
+         val directLogoutState = directLogoutPresenter.present()
+ 
+         LaunchedEffect(Unit) {
+@@ -111,6 +118,7 @@ class PreferencesRootPresenter @Inject constructor(
+             showNotificationSettings = showNotificationSettings.value,
+             showLockScreenSettings = showLockScreenSettings.value,
+             showBlockedUsersItem = showBlockedUsersItem,
++            showDeactivateAccountItem = canDeactivateAccount.value,
+             directLogoutState = directLogoutState,
+             snackbarMessage = snackbarMessage,
+             eventSink = ::handleEvent,
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootState.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootState.kt
+index f6db1cb..ed9c6ed 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootState.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootState.kt
+@@ -25,6 +25,7 @@ data class PreferencesRootState(
+     val showLockScreenSettings: Boolean,
+     val showNotificationSettings: Boolean,
+     val showBlockedUsersItem: Boolean,
++    val showDeactivateAccountItem: Boolean,
+     val directLogoutState: DirectLogoutState,
+     val snackbarMessage: SnackbarMessage?,
+     val eventSink: (PreferencesRootEvents) -> Unit,
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootStateProvider.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootStateProvider.kt
+index 464288f..4661ad7 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootStateProvider.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootStateProvider.kt
+@@ -29,6 +29,7 @@ fun aPreferencesRootState(
+     showNotificationSettings = true,
+     showLockScreenSettings = true,
+     showBlockedUsersItem = true,
++    showDeactivateAccountItem = true,
+     snackbarMessage = SnackbarMessage(CommonStrings.common_verification_complete),
+     directLogoutState = aDirectLogoutState(),
+     eventSink = eventSink,
+diff --git a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootView.kt b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootView.kt
+index 4f47c7e..cf7147d 100644
+--- a/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootView.kt
++++ b/features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootView.kt
+@@ -57,6 +57,7 @@ fun PreferencesRootView(
+     onOpenUserProfile: (MatrixUser) -> Unit,
+     onOpenBlockedUsers: () -> Unit,
+     onSignOutClick: () -> Unit,
++    onDeactivateAccountClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val snackbarHostState = rememberSnackbarHostState(snackbarMessage = state.snackbarMessage)
+@@ -99,6 +100,7 @@ fun PreferencesRootView(
+             onOpenAdvancedSettings = onOpenAdvancedSettings,
+             onOpenDeveloperSettings = onOpenDeveloperSettings,
+             onSignOutClick = onSignOutClick,
++            onDeactivateAccountClick = onDeactivateAccountClick,
+         )
+ 
+         Footer(
+@@ -193,6 +195,7 @@ private fun ColumnScope.GeneralSection(
+     onOpenAdvancedSettings: () -> Unit,
+     onOpenDeveloperSettings: () -> Unit,
+     onSignOutClick: () -> Unit,
++    onDeactivateAccountClick: () -> Unit,
+ ) {
+     ListItem(
+         headlineContent = { Text(stringResource(id = CommonStrings.common_about)) },
+@@ -225,6 +228,14 @@ private fun ColumnScope.GeneralSection(
+         style = ListItemStyle.Destructive,
+         onClick = onSignOutClick,
+     )
++    if (state.showDeactivateAccountItem) {
++        ListItem(
++            headlineContent = { Text(stringResource(id = R.string.screen_deactivate_account_title)) },
++            leadingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.Delete())),
++            style = ListItemStyle.Destructive,
++            onClick = onDeactivateAccountClick,
++        )
++    }
+ }
+ 
+ @Composable
+@@ -292,5 +303,6 @@ private fun ContentToPreview(matrixUser: MatrixUser) {
+         onOpenUserProfile = {},
+         onOpenBlockedUsers = {},
+         onSignOutClick = {},
++        onDeactivateAccountClick = {},
+     )
+ }
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
+index ca44838..49da45e 100644
+--- a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/MatrixClient.kt
+@@ -7,6 +7,7 @@
+ 
+ package io.element.android.libraries.matrix.api
+ 
++import io.element.android.libraries.matrix.api.auth.MatrixAuth
+ import io.element.android.libraries.matrix.api.core.DeviceId
+ import io.element.android.libraries.matrix.api.core.ProgressCallback
+ import io.element.android.libraries.matrix.api.core.RoomAlias
+@@ -92,6 +93,23 @@ interface MatrixClient : Closeable {
+      */
+     suspend fun getUserProfile(): Result<MatrixUser>
+     suspend fun getAccountManagementUrl(action: AccountManagementAction?): Result<String?>
++
++    /**
++     * Returns true if the current homeserver supports native account deactivation.
++     *
++     * The check is performed by issuing a probe against the homeserver's account management
++     * capability which, when supported, is always accompanied by `/account/deactivate`.
++     */
++    suspend fun canDeactivateAccount(): Result<Boolean>
++
++    /**
++     * Deactivate the account on the homeserver.
++     *
++     * @param auth the authentication payload to send to the server, typically a `m.login.password`
++     * session identifier and password.
++     * @param eraseData if true, the user's account data on the homeserver will also be erased.
++     */
++    suspend fun deactivateAccount(auth: MatrixAuth, eraseData: Boolean): Result<Unit>
+     suspend fun uploadMedia(mimeType: String, data: ByteArray, progressCallback: ProgressCallback?): Result<String>
+     fun roomMembershipObserver(): RoomMembershipObserver
+     fun getRoomInfoFlow(roomId: RoomId): Flow<Optional<MatrixRoomInfo>>
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/AccountDeactivator.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/AccountDeactivator.kt
+new file mode 100644
+index 0000000..6966d68
+--- /dev/null
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/AccountDeactivator.kt
+@@ -0,0 +1,24 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.libraries.matrix.api.auth
++
++/**
++ * Performs the actual account deactivation request against the homeserver.
++ *
++ * Lives behind an interface so that the [io.element.android.libraries.matrix.api.MatrixClient]
++ * does not need to know about the underlying HTTP plumbing.
++ */
++interface AccountDeactivator {
++    /**
++     * Deactivate the current account.
++     *
++     * @param auth the authentication payload to send as part of the request body.
++     * @param eraseData if true, the user's account data on the homeserver is also erased.
++     */
++    suspend fun deactivate(auth: MatrixAuth, eraseData: Boolean): Result<Unit>
++}
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/MatrixAuth.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/MatrixAuth.kt
+new file mode 100644
+index 0000000..c37ed2d
+--- /dev/null
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/auth/MatrixAuth.kt
+@@ -0,0 +1,25 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.libraries.matrix.api.auth
++
++import io.element.android.libraries.matrix.api.core.SessionId
++
++/**
++ * Authentication payload sent as part of the `auth` field of the deactivation request.
++ *
++ * See https://spec.matrix.org/v1.10/client-server-api/#post_matrixclientv3accountdeactivate
++ */
++sealed interface MatrixAuth {
++    /**
++     * Password-based authentication, as defined by `m.login.password`.
++     */
++    data class Password(
++        val userId: SessionId,
++        val password: String,
++    ) : MatrixAuth
++}
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
+index 9e77dcf..a507682 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt
+@@ -12,6 +12,8 @@ import io.element.android.libraries.androidutils.file.safeDelete
+ import io.element.android.libraries.core.coroutine.CoroutineDispatchers
+ import io.element.android.libraries.core.coroutine.childScope
+ import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.auth.AccountDeactivator
++import io.element.android.libraries.matrix.api.auth.MatrixAuth
+ import io.element.android.libraries.matrix.api.core.DeviceId
+ import io.element.android.libraries.matrix.api.core.ProgressCallback
+ import io.element.android.libraries.matrix.api.core.RoomAlias
+@@ -120,6 +122,7 @@ class RustMatrixClient(
+     baseCacheDirectory: File,
+     private val clock: SystemClock,
+     sessionDelegate: RustClientSessionDelegate,
++    private val accountDeactivator: AccountDeactivator,
+ ) : MatrixClient {
+     override val sessionId: UserId = UserId(client.userId())
+     override val deviceId: DeviceId = DeviceId(client.deviceId())
+@@ -500,6 +503,17 @@ class RustMatrixClient(
+         }
+     }
+ 
++    override suspend fun canDeactivateAccount(): Result<Boolean> = withContext(sessionDispatcher) {
++        // The Rust SDK currently doesn't expose a dedicated capability check, but every
++        // homeserver that supports the deactivation endpoint also supports the account
++        // management capability, so we probe the latter and treat Ok as supported.
++        getAccountManagementUrl(null).map { true }
++    }
++
++    override suspend fun deactivateAccount(auth: MatrixAuth, eraseData: Boolean): Result<Unit> = withContext(sessionDispatcher) {
++        accountDeactivator.deactivate(auth, eraseData)
++    }
++
+     override suspend fun uploadMedia(mimeType: String, data: ByteArray, progressCallback: ProgressCallback?): Result<String> = withContext(sessionDispatcher) {
+         runCatching {
+             client.uploadMedia(mimeType, data, progressCallback?.toProgressWatcher())
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClientFactory.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClientFactory.kt
+index 512b6e8..0aef1c8 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClientFactory.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClientFactory.kt
+@@ -18,6 +18,7 @@ import io.element.android.libraries.matrix.impl.paths.getSessionPaths
+ import io.element.android.libraries.matrix.impl.proxy.ProxyProvider
+ import io.element.android.libraries.matrix.impl.util.anonymizedTokens
+ import io.element.android.libraries.network.useragent.UserAgentProvider
++import io.element.android.libraries.matrix.api.auth.AccountDeactivator
+ import io.element.android.libraries.sessionstorage.api.SessionData
+ import io.element.android.libraries.sessionstorage.api.SessionStore
+ import io.element.android.services.toolbox.api.systemclock.SystemClock
+@@ -32,6 +33,7 @@ import timber.log.Timber
+ import uniffi.matrix_sdk_crypto.CollectStrategy
+ import java.io.File
+ import javax.inject.Inject
++import javax.inject.Provider
+ 
+ class RustMatrixClientFactory @Inject constructor(
+     private val baseDirectory: File,
+@@ -45,6 +47,7 @@ class RustMatrixClientFactory @Inject constructor(
+     private val clock: SystemClock,
+     private val utdTracker: UtdTracker,
+     private val featureFlagService: FeatureFlagService,
++    private val accountDeactivator: Provider<AccountDeactivator>,
+ ) {
+     suspend fun create(sessionData: SessionData): RustMatrixClient = withContext(coroutineDispatchers.io) {
+         val sessionDelegate = RustClientSessionDelegate(sessionStore, appCoroutineScope, coroutineDispatchers)
+@@ -76,6 +79,7 @@ class RustMatrixClientFactory @Inject constructor(
+             baseCacheDirectory = cacheDirectory,
+             clock = clock,
+             sessionDelegate = sessionDelegate,
++            accountDeactivator = accountDeactivator.get(),
+         ).also {
+             Timber.tag(it.toString()).d("Creating Client with access token '$anonymizedAccessToken' and refresh token '$anonymizedRefreshToken'")
+         }
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/auth/HttpAccountDeactivator.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/auth/HttpAccountDeactivator.kt
+new file mode 100644
+index 0000000..6510fe9
+--- /dev/null
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/auth/HttpAccountDeactivator.kt
+@@ -0,0 +1,76 @@
++/*
++ * Copyright 2024 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Please see LICENSE in the repository root for full details.
++ */
++
++package io.element.android.libraries.matrix.impl.auth
++
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.libraries.core.uri.ensureTrailingSlash
++import io.element.android.libraries.di.SessionScope
++import io.element.android.libraries.matrix.api.auth.AccountDeactivator
++import io.element.android.libraries.matrix.api.auth.MatrixAuth
++import io.element.android.libraries.sessionstorage.api.SessionStore
++import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.JsonPrimitive
++import kotlinx.serialization.json.buildJsonObject
++import okhttp3.MediaType.Companion.toMediaType
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import okhttp3.RequestBody.Companion.toRequestBody
++import timber.log.Timber
++import javax.inject.Inject
++import javax.inject.Provider
++
++/**
++ * Performs account deactivation by issuing a direct HTTP request to the homeserver.
++ *
++ * The current Rust SDK doesn't expose a high-level deactivation API, so we fall back to
++ * sending a POST request to `/account/deactivate` ourselves using the user access token
++ * stored in the [SessionStore].
++ */
++@ContributesBinding(SessionScope::class)
++class HttpAccountDeactivator @Inject constructor(
++    private val okHttpClient: Provider<OkHttpClient>,
++    private val sessionStore: SessionStore,
++) : AccountDeactivator {
++
++    override suspend fun deactivate(auth: MatrixAuth, eraseData: Boolean): Result<Unit> = runCatching {
++        val password = (auth as? MatrixAuth.Password)?.password
++            ?: error("Unsupported authentication type for account deactivation: ${auth::class.simpleName}")
++        val sessionData = sessionStore.getLatestSession()
++            ?: error("No active session for account deactivation")
++        val url = sessionData.homeserverUrl.ensureTrailingSlash() + "_matrix/client/v3/account/deactivate"
++        val body = buildJsonObject {
++            put(
++                "auth",
++                JsonObject(
++                    mapOf(
++                        "type" to JsonPrimitive("m.login.password"),
++                        "user" to JsonPrimitive(sessionData.userId),
++                        "password" to JsonPrimitive(password),
++                    )
++                )
++            )
++            put("erase", JsonPrimitive(eraseData))
++        }
++        val request = Request.Builder()
++            .url(url)
++            .addHeader("Authorization", "Bearer ${sessionData.accessToken}")
++            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
++            .build()
++        okHttpClient.get().newCall(request).execute().use { response ->
++            if (!response.isSuccessful) {
++                val errorMessage = response.body?.string() ?: "HTTP ${response.code}"
++                Timber.w("Account deactivation failed: HTTP ${response.code} - $errorMessage")
++                throw RuntimeException("Account deactivation failed: HTTP ${response.code}")
++            }
++        }
++    }
++
++    companion object {
++        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
++    }
++}
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
+index 908cb44..200fdcc 100644
+--- a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/FakeMatrixClient.kt
+@@ -8,6 +8,7 @@
+ package io.element.android.libraries.matrix.test
+ 
+ import io.element.android.libraries.matrix.api.MatrixClient
++import io.element.android.libraries.matrix.api.auth.MatrixAuth
+ import io.element.android.libraries.matrix.api.core.DeviceId
+ import io.element.android.libraries.matrix.api.core.ProgressCallback
+ import io.element.android.libraries.matrix.api.core.RoomAlias
+@@ -74,6 +75,8 @@ class FakeMatrixClient(
+     private val encryptionService: FakeEncryptionService = FakeEncryptionService(),
+     private val roomDirectoryService: RoomDirectoryService = FakeRoomDirectoryService(),
+     private val accountManagementUrlString: Result<String?> = Result.success(null),
++    private val canDeactivateAccountLambda: suspend () -> Result<Boolean> = { Result.success(true) },
++    private val deactivateAccountLambda: suspend (MatrixAuth, Boolean) -> Result<Unit> = { _, _ -> Result.success(Unit) },
+     private val resolveRoomAliasResult: (RoomAlias) -> Result<ResolvedRoomAlias> = { Result.success(ResolvedRoomAlias(A_ROOM_ID, emptyList())) },
+     private val getRoomPreviewResult: (RoomIdOrAlias, List<String>) -> Result<RoomPreview> = { _, _ -> Result.failure(AN_EXCEPTION) },
+     private val clearCacheLambda: () -> Unit = { lambdaError() },
+@@ -187,6 +190,10 @@ class FakeMatrixClient(
+         return accountManagementUrlString
+     }
+ 
++    override suspend fun canDeactivateAccount(): Result<Boolean> = canDeactivateAccountLambda()
++
++    override suspend fun deactivateAccount(auth: MatrixAuth, eraseData: Boolean): Result<Unit> = deactivateAccountLambda(auth, eraseData)
++
+     override suspend fun uploadMedia(
+         mimeType: String,
+         data: ByteArray,
+@@ -288,6 +295,14 @@ class FakeMatrixClient(
+         removeAvatarResult = result
+     }
+ 
++    fun givenCanDeactivateAccountResult(result: Result<Boolean>) {
++        canDeactivateAccountLambda = { result }
++    }
++
++    fun givenDeactivateAccountLambda(lambda: suspend (MatrixAuth, Boolean) -> Result<Unit>) {
++        deactivateAccountLambda = lambda
++    }
++
+     private val visitedRoomsId: MutableList<RoomId> = mutableListOf()
+ 
+     override suspend fun trackRecentlyVisitedRoom(roomId: RoomId): Result<Unit> {
+diff --git a/libraries/testtags/src/main/kotlin/io/element/android/libraries/testtags/TestTags.kt b/libraries/testtags/src/main/kotlin/io/element/android/libraries/testtags/TestTags.kt
+index 95228b9..44b328e 100644
+--- a/libraries/testtags/src/main/kotlin/io/element/android/libraries/testtags/TestTags.kt
++++ b/libraries/testtags/src/main/kotlin/io/element/android/libraries/testtags/TestTags.kt
+@@ -34,6 +34,11 @@ object TestTags {
+      */
+     val signOut = TestTag("sign-out-submit")
+ 
++    /**
++     * Deactivate account screen.
++     */
++    val deactivateAccountSubmit = TestTag("deactivate-account-submit")
++
+     /**
+      * Change server screen.
+      */

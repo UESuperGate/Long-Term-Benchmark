@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "taskId": "13_user_verification",
+  "owner": "evaluator",
+  "description": "Shared Android/ArkTS semantics for cross-user SAS verification and identity-change warnings",
+  "cases": [
+    {
+      "caseId": "uv_state_001_profile_routes_user_request",
+      "key": "profile_routes_user_request",
+      "functionalArea": "profile_and_room_integration",
+      "given": {
+        "profileUserId": "@alice:example.org",
+        "isCurrentUser": false,
+        "verificationAvailable": true
+      },
+      "event": {
+        "name": "verify_user_from_profile"
+      },
+      "expected": {
+        "route": "verify_user",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        }
+      },
+      "invariants": [
+        "self-session verification remains a distinct request type"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/userprofile/impl/src/main/kotlin/io/element/android/features/userprofile/impl/UserProfileFlowNode.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "f8ee9048171bb4f23e7476653f4b3e2f81c2f733bec817eb32d402153b3e8162"
+    },
+    {
+      "caseId": "uv_state_002_request_targets_user",
+      "key": "request_targets_user",
+      "functionalArea": "verification_request",
+      "given": {
+        "step": "initial",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        }
+      },
+      "event": {
+        "name": "request_verification"
+      },
+      "expected": {
+        "step": "awaiting_other_device_response",
+        "effect": "request_user_verification",
+        "userId": "@alice:example.org",
+        "requestCalls": 1
+      },
+      "invariants": [
+        "current-session verification is not requested"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "c050e5b7ef8d43335092cbb7f560f39373d0585595a16ac848fd495644da527f"
+    },
+    {
+      "caseId": "uv_state_003_start_sas_after_acceptance",
+      "key": "start_sas_after_acceptance",
+      "functionalArea": "sas_challenge",
+      "given": {
+        "step": "ready",
+        "requestAccepted": true
+      },
+      "event": {
+        "name": "start_sas_verification"
+      },
+      "expected": {
+        "step": "awaiting_other_device_response",
+        "effect": "start_verification",
+        "startCalls": 1
+      },
+      "invariants": [
+        "the target user request remains active"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "7956b81a95ba3415a3518253fa1b9058a554c79627adb0d769a8ab420ad0380d"
+    },
+    {
+      "caseId": "uv_state_004_challenge_is_stable",
+      "key": "challenge_is_stable",
+      "functionalArea": "sas_challenge",
+      "given": {
+        "step": "awaiting_other_device_response",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ]
+      },
+      "event": {
+        "name": "receive_challenge"
+      },
+      "expected": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "replyState": "uninitialized"
+      },
+      "invariants": [
+        "the challenge data is preserved until a response is sent"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "2233f9d6e9726146c2b20f26d23e88059b348e2796d033cb4f845f07089f111f"
+    },
+    {
+      "caseId": "uv_state_005_accept_challenge_once",
+      "key": "accept_challenge_once",
+      "functionalArea": "accept_decline",
+      "given": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "approveCalls": 0
+      },
+      "event": {
+        "name": "accept_challenge"
+      },
+      "expected": {
+        "step": "verifying",
+        "replyState": "loading",
+        "effect": "approve_verification",
+        "approveCalls": 1
+      },
+      "invariants": [
+        "the SAS challenge is unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "6b15ba85baae338af5c0ef6e8564a4d2ea5a1145c0901bfc0f2ad2fea9bc916f"
+    },
+    {
+      "caseId": "uv_state_006_decline_challenge_once",
+      "key": "decline_challenge_once",
+      "functionalArea": "accept_decline",
+      "given": {
+        "step": "verifying",
+        "sas": [
+          "Dog",
+          "Tree",
+          "Rocket"
+        ],
+        "declineCalls": 0
+      },
+      "event": {
+        "name": "decline_challenge"
+      },
+      "expected": {
+        "step": "verifying",
+        "replyState": "loading",
+        "effect": "decline_verification",
+        "declineCalls": 1
+      },
+      "invariants": [
+        "the user is not marked verified"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "742660b82b52d06617d49a719a96969ba9c74831c95c5f4f394e642a4fde0ff3"
+    },
+    {
+      "caseId": "uv_state_007_finish_clears_violation",
+      "key": "finish_clears_violation",
+      "functionalArea": "identity_badges",
+      "given": {
+        "step": "verifying",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "verification_finished"
+      },
+      "expected": {
+        "step": "completed",
+        "identityState": "verified",
+        "warningVisible": false
+      },
+      "invariants": [
+        "the warning clears only after successful completion"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt",
+          "features/userprofile/shared/src/main/kotlin/io/element/android/features/userprofile/shared/UserProfileHeaderSection.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "29ebcee9e82a925a089fa27242eba50f359f5266dd399c435d432b5030d95a3f"
+    },
+    {
+      "caseId": "uv_state_008_local_cancel",
+      "key": "local_cancel",
+      "functionalArea": "cancel_failure",
+      "given": {
+        "step": "awaiting_other_device_response",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "cancel"
+      },
+      "expected": {
+        "step": "canceled",
+        "effect": "cancel_verification",
+        "cancelCalls": 1,
+        "identityState": "verification_violation"
+      },
+      "invariants": [
+        "cancellation never marks the user verified"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "d48207c07a6a7137cceb1869ede911f246be1ed420693fd1270ffdb20aeb871a"
+    },
+    {
+      "caseId": "uv_state_009_failure_reset",
+      "key": "failure_reset",
+      "functionalArea": "cancel_failure",
+      "given": {
+        "step": "canceled",
+        "failure": "sdk_failure",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "reset"
+      },
+      "expected": {
+        "step": "initial",
+        "effect": "reset_verification",
+        "cancelPending": false,
+        "identityState": "verification_violation"
+      },
+      "invariants": [
+        "reset creates no false success"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "features/verifysession/impl/src/main/kotlin/io/element/android/features/verifysession/impl/outgoing/VerifySelfSessionStateMachine.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "e9ef89f47bd0219ec2679da15c71736d93ad8ae377d38c88af4111c217c6e5c8"
+    },
+    {
+      "caseId": "uv_state_010_identity_violation_surfaces",
+      "key": "identity_violation_surfaces",
+      "functionalArea": "identity_badges",
+      "given": {
+        "encryptedRoom": true,
+        "userId": "@alice:example.org",
+        "identityState": "verification_violation"
+      },
+      "event": {
+        "name": "observe_identity_change"
+      },
+      "expected": {
+        "profileBadge": "verification_violation",
+        "timelineWarning": true,
+        "roomMemberWarning": true,
+        "verifyActionVisible": true
+      },
+      "invariants": [
+        "unrelated member identities are unchanged"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "libraries/matrixui/src/main/kotlin/io/element/android/libraries/matrix/ui/room/ObserveRoomMemberIdentityStateChange.kt",
+          "features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/members/details/RoomMemberDetailsPresenter.kt"
+        ]
+      },
+      "taskId": "13_user_verification",
+      "traceDigest": "31f3780972bcd5c3cd0aee8f7a2d69f68e86a4d5185063bd39a1caa324f905a2"
+    }
+  ]
+}

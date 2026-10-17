@@ -1,0 +1,96 @@
+{
+  "taskId": "08_threads",
+  "description": "Shared Android/ArkTS semantics for opening, navigating and participating in message threads",
+  "cases": [
+    {
+      "caseId": "th_state_001_open_thread",
+      "key": "open_thread",
+      "functionalArea": "thread_navigation",
+      "given": {"roomTimeline": ["$root", "$reply"], "threadRootId": "$root"},
+      "event": {"name": "open_thread", "rootEventId": "$root"},
+      "expected": {"surface": "thread", "timelineMode": "thread", "threadRootId": "$root", "visibleEvents": ["$root", "$reply"]},
+      "invariants": ["the main room timeline remains available and unchanged"],
+      "evidence": {"androidProduction": ["ThreadedMessagesNode.kt", "CreateTimelineParams.kt"], "androidTests": ["MessagesPresenterTest.kt"]}
+    },
+    {
+      "caseId": "th_state_002_focus_reply",
+      "key": "focus_reply",
+      "functionalArea": "thread_timeline",
+      "given": {"threadRootId": "$root", "visibleEvents": ["$root", "$reply"], "focusedEventId": null},
+      "event": {"name": "focus_event", "eventId": "$reply"},
+      "expected": {"focusedEventId": "$reply", "focusState": "success", "timelineMode": "thread"},
+      "invariants": ["focus does not replace the threaded timeline with the main-room timeline"],
+      "evidence": {"androidProduction": ["ThreadedMessagesNode.kt", "TimelineEvents.kt"], "androidTests": ["TimelineControllerTest.kt"]}
+    },
+    {
+      "caseId": "th_state_003_focus_failure_preserves_thread",
+      "key": "focus_failure_preserves_thread",
+      "functionalArea": "failure_recovery",
+      "given": {"threadRootId": "$root", "visibleEvents": ["$root", "$reply"], "focusedEventId": "$reply"},
+      "event": {"name": "focus_event_failed", "eventId": "$missing"},
+      "expected": {"focusedEventId": "$reply", "focusState": "failure", "timelineMode": "thread", "visibleEvents": ["$root", "$reply"]},
+      "invariants": ["a failed out-of-window focus never corrupts the current thread"],
+      "evidence": {"androidProduction": ["TimelineController.kt", "ThreadedMessagesNode.kt"], "androidTests": ["TimelineControllerTest.kt"]}
+    },
+    {
+      "caseId": "th_state_004_send_thread_message",
+      "key": "send_thread_message",
+      "functionalArea": "reply_composer",
+      "given": {"threadRootId": "$root", "composerText": "hello", "sendState": "idle"},
+      "event": {"name": "send_message"},
+      "expected": {"sendState": "success", "effect": "send_message", "body": "hello", "threadRootId": "$root", "composerText": ""},
+      "invariants": ["the message is not emitted on the main-room timeline"],
+      "evidence": {"androidProduction": ["ThreadedMessagesNode.kt", "MessageComposerPresenter.kt"], "androidTests": ["MessageComposerPresenterTest.kt"]}
+    },
+    {
+      "caseId": "th_state_005_reply_remote_event",
+      "key": "reply_remote_event",
+      "functionalArea": "reply_composer",
+      "given": {"threadRootId": "$root", "replyTargetId": "$remote", "composerText": "reply"},
+      "event": {"name": "send_reply"},
+      "expected": {"effect": "reply_message", "replyTargetId": "$remote", "threadRootId": "$root", "sendState": "success", "composerMode": "normal"},
+      "invariants": ["any valid remote event can be the reply target"],
+      "evidence": {"androidProduction": ["MessagesPresenter.kt", "MessageComposerPresenter.kt"], "androidTests": ["MessagesPresenterTest.kt", "MessageComposerPresenterTest.kt"]}
+    },
+    {
+      "caseId": "th_state_006_send_thread_attachment",
+      "key": "send_thread_attachment",
+      "functionalArea": "attachment_and_voice_send",
+      "given": {"threadRootId": "$root", "attachmentId": "image-1", "caption": "diagram"},
+      "event": {"name": "send_attachment"},
+      "expected": {"effect": "send_attachment", "attachmentId": "image-1", "caption": "diagram", "threadRootId": "$root", "sendState": "success"},
+      "invariants": ["attachment relation remains scoped to the thread"],
+      "evidence": {"androidProduction": ["AttachmentsPreviewPresenter.kt", "ThreadedMessagesNode.kt", "MediaSender.kt"], "androidTests": ["AttachmentsPreviewPresenterTest.kt"]}
+    },
+    {
+      "caseId": "th_state_007_restore_nested_context",
+      "key": "restore_nested_context",
+      "functionalArea": "thread_navigation",
+      "given": {"threadRootId": "$root", "composerText": "draft", "replyTargetId": "$reply", "surface": "attachment_preview"},
+      "event": {"name": "return_to_thread"},
+      "expected": {"surface": "thread", "threadRootId": "$root", "composerText": "draft", "replyTargetId": "$reply"},
+      "invariants": ["nested media, location and poll flows do not reset thread context"],
+      "evidence": {"androidProduction": ["MessagesFlowNode.kt", "ThreadedMessagesNode.kt", "MessageComposerPresenter.kt"], "androidTests": ["MessageComposerPresenterTest.kt"]}
+    },
+    {
+      "caseId": "th_state_008_retry_failed_send",
+      "key": "retry_failed_send",
+      "functionalArea": "failure_recovery",
+      "given": {"threadRootId": "$root", "composerText": "retry me", "sendState": "failure", "attempts": 1},
+      "event": {"name": "retry_send"},
+      "expected": {"sendState": "success", "attempts": 2, "effect": "send_message", "body": "retry me", "threadRootId": "$root"},
+      "invariants": ["failure keeps the original body and relation until retry succeeds"],
+      "evidence": {"androidProduction": ["MessageComposerPresenter.kt", "ThreadedMessagesNode.kt"], "androidTests": ["MessageComposerPresenterTest.kt"]}
+    },
+    {
+      "caseId": "th_state_009_back_isolates_room",
+      "key": "back_isolates_room",
+      "functionalArea": "thread_navigation",
+      "given": {"surface": "thread", "threadRootId": "$root", "focusedEventId": "$reply", "mainRoomFocus": null},
+      "event": {"name": "navigate_back"},
+      "expected": {"surface": "room", "threadRootId": null, "mainRoomFocus": null},
+      "invariants": ["thread focus and composer state do not leak into the room timeline"],
+      "evidence": {"androidProduction": ["MessagesFlowNode.kt", "ThreadedMessagesNode.kt"], "androidTests": ["MessagesPresenterTest.kt"]}
+    }
+  ]
+}

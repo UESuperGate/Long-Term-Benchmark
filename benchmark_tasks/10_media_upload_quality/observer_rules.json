@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "taskId": "10_media_upload_quality",
+  "android": {
+    "roots": [
+      "features/messages/impl/src/main/kotlin",
+      "libraries/mediaupload/api/src/main/kotlin",
+      "libraries/mediaupload/impl/src/main/kotlin"
+    ],
+    "cases": {
+      "mq_state_001_async_loading": [
+        {"options": [{"path": ".*DefaultMediaOptimizationSelectorPresenter\\.kt$", "patterns": ["produceState<Boolean\\?>\\(null\\)", "AsyncData\\.Loading", "maxUploadSizeProvider", "videoSizeEstimations"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["mutableStateOf<SendActionState>\\(SendActionState\\.Idle\\)", "MutableStateFlow<MediaUploadState>\\(MediaUploadState\\.Loading\\)", "mediaUploadConfigService\\.getMaxUploadSize", "mediaUploadConfigService\\.getMediaMetadata"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["mutableStateOf<SendActionState>\\(SendActionState\\.Idle\\)", "mediaUploadMaxSizeProvider\\.ensureLoaded", "videoMetadataExtractor\\.extract", "LaunchedEffect"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["AttachmentsPreviewView", "ImageOptimizationSelector", "VideoPresetSelector", "state\\.textEditorState"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["AttachmentsPreviewView", "state\\.textEditorState", "BackHandler", "CancelAndDismiss"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_002_limit_fallback": [
+        {"options": [{"path": ".*DefaultMediaOptimizationSelectorPresenter\\.kt$", "patterns": ["100 \\* 1024 \\* 1024", "Failed to retrieve max upload size", "AsyncData\\.Success"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["mediaOptimizationSelectorPresenterFactory\\.create", "mediaOptimizationSelectorState\\.maxUploadSize"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "mq_state_003_image_optimization": [
+        {"options": [{"path": ".*DefaultMediaOptimizationSelectorPresenter\\.kt$", "patterns": ["SelectImageOptimization", "selectedImageOptimization = AsyncData\\.Success", "doesOptimizeImages"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["ImageOptimizationSelector", "SelectImageOptimization", "isImageOptimizationEnabled"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "mq_state_004_estimate_video_presets": [
+        {"options": [{"path": ".*DefaultMediaOptimizationSelectorPresenter\\.kt$", "patterns": ["calculateOptimalBitrate", "duration / 8 \\* 1\\.1", "calculatedSize <=", "VideoUploadEstimation"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["VideoPresetSelector", "videoSizeEstimations", "sizeInBytes", "canUpload"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "mq_state_005_choose_best_preset": [
+        {"options": [{"path": ".*DefaultMediaOptimizationSelectorPresenter\\.kt$", "patterns": ["findBestVideoPreset", "preset\\.ordinal >= defaultVideoPreset\\.ordinal", "it\\.canUpload", "AsyncData\\.Success"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["needsFallback", "allowed\\.last\\(\\)\\.preset", "setVideoCompressionPreset", "canUpload"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["selectedVideoPreset", "videoSizeEstimations", "VideoPresetSelector"], "forbid": ["state_probe_snapshot"]}, {"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["selectedVideoPreset", "availableVideoPresets", "VideoQualitySelectorDialog"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_006_dismiss_preserves_selection": [
+        {"options": [{"path": ".*DefaultMediaOptimizationSelectorPresenter\\.kt$", "patterns": ["OpenVideoPresetSelectorDialog", "DismissVideoPresetSelectorDialog", "displayVideoPresetSelectorDialog"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["OpenVideoQualitySelector", "DismissVideoQualitySelector", "isVideoQualitySelectorOpenState\\.value"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["OpenVideoPresetSelectorDialog", "DismissVideoPresetSelectorDialog", "selectedPreset"], "forbid": ["state_probe_snapshot"]}, {"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["OpenVideoQualitySelector", "DismissVideoQualitySelector", "selectedVideoPreset"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_007_reject_oversized_preset": [
+        {"options": [{"path": ".*DefaultMediaOptimizationSelectorPresenter\\.kt$", "patterns": ["SelectVideoPreset", "!preset\\.canUpload", "return", "selectedVideoOptimizationPreset"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["SelectVideoCompressionPreset", "info\\?\\.canUpload == true", "setVideoCompressionPreset", "else"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["VideoPresetSelector", "onSubmit", "SelectVideoPreset", "maxFileUploadSize"], "forbid": ["state_probe_snapshot"]}, {"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["presetInfo\\.canUpload", "onSelect\\(presetInfo\\.preset\\)", "onDismiss\\(\\)"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_008_block_when_all_oversized": [
+        {"options": [{"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["videoSizeEstimations\\.none \\{ it\\.canUpload \\}", "displayFileTooLargeError"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["displayFileTooLargeError", "dialog_file_too_large_to_upload", "CancelAndDismiss"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "mq_state_009_failure_cancel_retry": [
+        {"options": [{"path": ".*AttachmentsPreviewPresenter\\.kt$", "patterns": ["CancelAndClearSendState", "ReadyToUpload", "SendActionState\\.Failure", "sendPreProcessedMedia", "mediaOptimizationSelectorState\\.selectedVideoPreset"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*AttachmentsPreviewView\\.kt$", "patterns": ["AttachmentSendStateView", "onRetryClick", "postClearSendState", "VideoPresetSelector"], "forbid": ["state_probe_snapshot"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "mq_state_001_async_loading": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["openPreview", "limitState = MediaAsyncState\\.Loading", "estimationState = MediaAsyncState\\.Loading", "sendState = MediaAsyncState\\.Idle"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MediaQualityPresenter\\.ets$", "patterns": ["openAttachmentPreview", "serverLimit\\.beginLoad", "metadata\\.beginLoad", "this\\.cancelled = false"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["aboutToAppear", "presenter\\.openPreview", "media_caption", "Cancel"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["aboutToAppear", "openPreview", "AttachmentSendState\\.Idle", "attachment_caption", "cancelPreview"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_002_limit_fallback": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["DEFAULT_MAX_UPLOAD_SIZE", "100 \\* 1024 \\* 1024", "fallbackUsed", "serverLimit < 0"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*ServerLimitFeature\\.ets$", "patterns": ["FALLBACK_MAX_UPLOAD_SIZE_BYTES.*100 \\* 1024 \\* 1024", "if \\(this\\.failNextRequest\\)", "fallback: true", "this\\.maxUploadSize = result\\.maxUploadSize", "this\\.fallback = result\\.fallback"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*ServerLimitFeature\\.ets$", "patterns": ["FALLBACK_MAX_UPLOAD_SIZE = 100 \\* 1024 \\* 1024", "if \\(this\\.failNextRequest\\)", "fromFallback: true", "maxUploadSize: FALLBACK_MAX_UPLOAD_SIZE"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Limit failure", "failLimitRequest", "media_upload_limit"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["serverLimitFallback", "Fallback limit", "serverLimitMaxUploadSize"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["serverLimitFromFallback", "formatLimitLine", "homeserver unreachable, fallback"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_003_image_optimization": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["selectImageOptimization", "saveImageOptimization", "MediaAsyncState\\.Uninitialized", "optimizeImages"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*AttachmentFeature\\.ets$", "patterns": ["selectImageOptimization", "preferences\\.setOptimizeImages", "describeQuality", "image:original"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["image_optimization_toggle", "presenter\\.selectImageOptimization", "MediaType\\.Image"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["attachment_optimize_images", "presenter\\.selectImageOptimization", "MediaType\\.Image"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_004_estimate_video_presets": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["calculateVideoEstimations", "8_000_000", "4_000_000", "1_000_000", "durationSeconds / 8 \\* 1\\.1"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["this\\.estimations", "sizeInBytes", "item\\.canUpload", "video_quality_selector"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "mq_state_005_choose_best_preset": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["chooseBestPreset", "ordered\\.indexOf", "candidate\\.canUpload", "saveVideoPreset"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*VideoQualityFeature\\.ets$", "patterns": ["chooseBestFromPreference", "preferred.*canUpload", "for \\(const preset of VIDEO_PRESET_ORDER\\)", "candidate.*canUpload", "this\\.selectedPreset = candidate\\.preset"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*AttachmentFeature\\.ets$", "patterns": ["loadPreferencesAndEstimations", "chooseInitialPreset", "preferredEst", "est\\.canUpload"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["selectedPreset", "video_quality_selector", "presenter\\.openPreview"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["videoQualitySelected", "openVideoQualityChooser", "selectVideoPreset", "attachment_quality_open"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["selectedPreset", "attachment_quality_chooser", "presenter\\.openSelector"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["preferences\\.videoPreset", "saveVideoPreset"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MediaQualityPresenter\\.ets$", "patterns": ["videoPreference\\.getDefault", "chooseBestFromPreference", "videoPreference\\.setDefault"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*AttachmentFeature\\.ets$", "patterns": ["preferences\\.videoPreset", "preferences\\.setVideoPreset", "chooseInitialPreset"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_006_dismiss_preserves_selection": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["openSelector", "dismissSelector", "selectorOpen", "selectedPreset"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*VideoQualityFeature\\.ets$", "patterns": ["selectedPreset", "openSelector", "this\\.selectorOpen = true", "dismissSelector", "this\\.selectorOpen = false"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*AttachmentFeature\\.ets$", "patterns": ["openSelector", "closeSelector", "selectorOpen", "selectedPreset"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Dismiss quality chooser", "presenter\\.dismissSelector", "presenter\\.openSelector"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["attachment_quality_open", "attachment_quality_dismiss", "openVideoQualityChooser", "dismissVideoQualityChooser"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["attachment_quality_chooser", "attachment_chooser_cancel", "presenter\\.closeSelector"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_007_reject_oversized_preset": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["selectVideoPreset", "!estimation\\.canUpload", "return false", "selectorOpen = false"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*VideoQualityFeature\\.ets$", "patterns": ["trySelect", "candidate === undefined \\|\\| !candidate\\.canUpload", "return this\\.selectedPreset", "this\\.selectedPreset = preset"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*AttachmentFeature\\.ets$", "patterns": ["selectVideoPreset", "estimation === undefined \\|\\| !estimation\\.canUpload", "return false", "selectedPreset = preset"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["item\\.canUpload", "presenter\\.selectVideoPreset", "too large"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["selectVideoPreset", "presetEnabled", "est !== null && est\\.canUpload", "attachment_preset_"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["est\\.canUpload", "enabled\\(est\\.canUpload\\)", "presenter\\.selectVideoPreset", "attachment_preset_"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_008_block_when_all_oversized": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["estimations\\.every", "fileTooLargeError", "selectedPreset === undefined"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*VideoQualityFeature\\.ets$", "patterns": ["this\\.selectedPreset = null", "hasAnyValidPreset", "this\\.estimations\\.some.*canUpload"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["media_too_large_error", "enabled\\(!this\\.fileTooLargeError\\)", "every available quality"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["hasAnyValidPreset", "isSendEnabled", "attachment_send", "this\\.showError"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["fileTooLargeError", "estimations\\.every"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*MediaQualityPresenter\\.ets$", "patterns": ["!this\\.chooser\\.hasAnyValidPreset\\(\\)", "Every quality exceeds the upload limit"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "mq_state_009_failure_cancel_retry": [
+        {"options": [{"path": ".*MediaQualityFeature\\.ets$", "patterns": ["clearFailure", "preparedMedia", "ReadyToUpload", "gateway\\.upload", "attempts"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*AttachmentFeature\\.ets$", "patterns": ["clearFailure", "AttachmentSendState\\.Failure", "AttachmentSendState\\.Idle", "preparedMediaUri", "gateway\\.send", "sendCount"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Fail upload", "Clear / retry", "presenter\\.clearFailure", "presenter\\.send"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["attachment_retry", "presenter\\.clearFailure", "presenter\\.send", "attachment_caption"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ]
+    }
+  }
+}

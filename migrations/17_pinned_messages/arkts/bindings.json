@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "taskId": "17_pinned_messages",
+  "canonicalContract": "../canonical/transitions.json",
+  "cases": [
+    {
+      "caseId": "pm_state_001_open_loading",
+      "traceDigest": "c15a7e08ce803419b47ba43d877c935d394b82405a80803a728ad94df2daeceb",
+      "fixture": {
+        "screen": "room_timeline",
+        "pinnedList": "closed"
+      },
+      "eventEntrypoint": {
+        "name": "open_pinned_messages"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_002_load_failure",
+      "traceDigest": "bf7e3e8806a4cb9801b281b3f16935552e96f6f0a7e8d91802788d72b43a9456",
+      "fixture": {
+        "listState": "loading",
+        "pinnedTimelineResult": "failure"
+      },
+      "eventEntrypoint": {
+        "name": "timeline_load_completed"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$",
+        ".*pages/PinnedMessagesPage\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_003_empty_success",
+      "traceDigest": "0848f056c3d15e7e25ad5d4038e3118286bc6e232124202d066b12027429fd96",
+      "fixture": {
+        "listState": "loading",
+        "pinnedTimelineItems": []
+      },
+      "eventEntrypoint": {
+        "name": "timeline_load_completed"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$",
+        ".*pages/PinnedMessagesPage\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_004_filled_list",
+      "traceDigest": "7893735f28fb51b79c1584ad8206259ce78a3b8e4b3cf31d26650f864b22a092",
+      "fixture": {
+        "pinnedTimelineItems": [
+          {
+            "eventId": "$a",
+            "body": "Alpha"
+          },
+          {
+            "eventId": "$b",
+            "body": "Beta"
+          }
+        ]
+      },
+      "eventEntrypoint": {
+        "name": "timeline_items_updated"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$",
+        ".*pages/PinnedMessagesPage\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_005_unpin_permission_denied",
+      "traceDigest": "e3e03fc3649656f40bbc10afa3d90bfcc89c9ad1992f04eb1b76f7664f91e893",
+      "fixture": {
+        "listState": "filled",
+        "canPinUnpin": false,
+        "eventId": "$a"
+      },
+      "eventEntrypoint": {
+        "name": "show_message_actions"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$",
+        ".*pages/PinnedMessagesPage\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_006_unpin_permission_allowed",
+      "traceDigest": "d61b1169c138481addf4fb68a91c1e05a0f0788eaa03a2af5c8d38184f8beb84",
+      "fixture": {
+        "listState": "filled",
+        "canPinUnpin": true,
+        "eventId": "$a"
+      },
+      "eventEntrypoint": {
+        "name": "show_message_actions"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$",
+        ".*pages/PinnedMessagesPage\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_007_view_in_timeline",
+      "traceDigest": "f2782909361f68c36f316f43e0b59dcaa46e10150ce8a8caabc56b12f8f45ae9",
+      "fixture": {
+        "screen": "pinned_messages",
+        "eventId": "$a"
+      },
+      "eventEntrypoint": {
+        "name": "view_in_timeline"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$",
+        ".*pages/PinnedMessagesPage\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_008_unpin_success",
+      "traceDigest": "9d7e9c79c84138ca4632fb4b07d6e4b0ff69490fbc3e7f55a4349a0274449317",
+      "fixture": {
+        "visibleEventIds": [
+          "$a",
+          "$b"
+        ],
+        "canPinUnpin": true
+      },
+      "eventEntrypoint": {
+        "name": "unpin",
+        "eventId": "$a",
+        "result": "success"
+      },
+      "observations": [
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$"
+      ]
+    },
+    {
+      "caseId": "pm_state_009_unpin_failure_recovery",
+      "traceDigest": "1ac5e7082921bacf5495c8310c631e409e3e337cd882e6a6095711774ccf072b",
+      "fixture": {
+        "visibleEventIds": [
+          "$a",
+          "$b"
+        ],
+        "canPinUnpin": true
+      },
+      "eventEntrypoint": {
+        "name": "unpin",
+        "eventId": "$a",
+        "result": "failure"
+      },
+      "observations": [
+        ".*features/PinnedMessagesBase\\.ets$",
+        ".*features/PinnedMessagesFeature\\.ets$",
+        ".*pages/Index\\.ets$",
+        ".*pages/PinnedMessagesPage\\.ets$"
+      ]
+    }
+  ]
+}

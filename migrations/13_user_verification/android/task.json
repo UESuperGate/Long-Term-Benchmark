@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "taskId": "13_user_verification",
+  "title": "Verify another user and surface identity violations",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v25.03.1",
+    "baseCommit": "232f1db645b5710d1eee451c9c8cee1525dc38d6",
+    "finalRef": "v25.03.2",
+    "finalCommit": "bee248e2d59149d0deab4da4b8265199cb722ffe"
+  },
+  "arkts": {
+    "platform": "OpenHarmony",
+    "apiVersion": 23,
+    "basePath": "13_user_verification_base_25_03_1",
+    "finalPath": "final_dev_nodes/13_user_verification_final_25_03_2",
+    "baseVersion": "25.03.1-base",
+    "finalVersion": "25.03.2-final",
+    "baseBundle": "com.qingyu.elementx.userverification.base",
+    "finalBundle": "com.qingyu.elementx.userverification.final",
+    "productionRoots": ["entry/src/main/ets"],
+    "toolchain": {"devEcoStudio": "6.1.1", "openHarmonySdk": "6.1.0.32", "openHarmonySdkApi": 23, "hvigor": "6.24.5", "ohpm": "6.1.2.285", "node": "18.20.1", "jdk": "21.0.8"}
+  },
+  "releaseNotes": [
+    {"text": "Implement user verification", "source": "CHANGES.md v25.03.2 / PR #4294"},
+    {"text": "Add user verification and verification state violation badges", "source": "CHANGES.md v25.03.2 / PR #4392"}
+  ],
+  "functionalAreas": ["verification_request", "sas_challenge", "accept_decline", "cancel_failure", "identity_badges", "profile_and_room_integration"],
+  "stateSurfaces": ["incoming and outgoing verification state machines", "UserProfileState", "IdentityChangeState", "room-member identity state"],
+  "eventEntrypoints": ["RequestVerification", "StartSasVerification", "AcceptChallenge", "DeclineChallenge", "Cancel", "Reset"],
+  "evidence": {
+    "productionPaths": ["features/verifysession", "features/userprofile", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/crypto/identity", "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/verification"],
+    "testPaths": ["features/verifysession/impl/src/test", "features/userprofile/impl/src/test", "features/roomdetails/impl/src/test"],
+    "commits": ["f73c0e42a4c812c274571f93772cac7692d241a7", "fd50ce4daf38664631e39010ee88ee1ff8ef0a67"]
+  },
+  "nonGoals": ["Session recovery or identity reset", "Changing cryptographic SAS generation", "Automatically trusting changed identities"],
+  "handoff": {"requirement": "requirement.md", "evidence": "evidence.json", "transitionDraft": "transitions.draft.json", "transitions": "transitions.json", "observerRules": "observer_rules.json"}
+}

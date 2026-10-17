@@ -1,0 +1,1270 @@
+diff --git a/entry/src/main/ets/features/ThreadTimelineFeature.ets b/entry/src/main/ets/features/ThreadTimelineFeature.ets
+new file mode 100644
+index 0000000..28305ee
+--- /dev/null
++++ b/entry/src/main/ets/features/ThreadTimelineFeature.ets
+@@ -0,0 +1,560 @@
++import { RoomSendState } from './RoomTimelineFeature';
++
++export enum ComposerSurface {
++  Room = 'room',
++  Thread = 'thread',
++  AttachmentPreview = 'attachment_preview',
++  LocationPicker = 'location_picker',
++  VoiceRecorder = 'voice_recorder',
++  PollComposer = 'poll_composer',
++  DebugConsole = 'debug_console'
++}
++
++export enum ThreadAttachmentKind {
++  Image = 'image',
++  Voice = 'voice',
++  Location = 'location',
++  Poll = 'poll'
++}
++
++export class ThreadAttachment {
++  attachmentId: string = '';
++  caption: string = '';
++  kind: ThreadAttachmentKind = ThreadAttachmentKind.Image;
++
++  constructor(attachmentId: string, caption: string, kind: ThreadAttachmentKind) {
++    this.attachmentId = attachmentId;
++    this.caption = caption;
++    this.kind = kind;
++  }
++}
++
++export class ThreadVoiceMessage {
++  voiceId: string = '';
++  durationMs: number = 0;
++
++  constructor(voiceId: string, durationMs: number) {
++    this.voiceId = voiceId;
++    this.durationMs = durationMs;
++  }
++}
++
++export class ThreadLocationShare {
++  latitude: number = 0;
++  longitude: number = 0;
++  description: string = '';
++
++  constructor(latitude: number, longitude: number, description: string) {
++    this.latitude = latitude;
++    this.longitude = longitude;
++    this.description = description;
++  }
++}
++
++export class ThreadPoll {
++  question: string = '';
++  options: string[] = [];
++
++  constructor(question: string, options: string[]) {
++    this.question = question;
++    this.options = options;
++  }
++}
++
++export interface ThreadFailurePayload {
++  body: string;
++  replyTargetId: string | null;
++  attachment: ThreadAttachment | null;
++  voice: ThreadVoiceMessage | null;
++  location: ThreadLocationShare | null;
++  poll: ThreadPoll | null;
++}
++
++function createEmptyFailure(): ThreadFailurePayload {
++  return {
++    body: '',
++    replyTargetId: null,
++    attachment: null,
++    voice: null,
++    location: null,
++    poll: null
++  };
++}
++
++export class ThreadTimelineGateway {
++  failNextRequest: boolean = false;
++  failNextFocus: boolean = false;
++
++  lastBody: string = '';
++  lastThreadRootId: string = '';
++  lastReplyTargetId: string = '';
++  lastAttachmentId: string = '';
++  lastAttachmentCaption: string = '';
++  lastAttachmentKind: string = '';
++  lastVoiceId: string = '';
++  lastVoiceDuration: number = 0;
++  lastLocationLat: number = 0;
++  lastLocationLng: number = 0;
++  lastPollQuestion: string = '';
++
++  reset(): void {
++    this.lastBody = '';
++    this.lastThreadRootId = '';
++    this.lastReplyTargetId = '';
++    this.lastAttachmentId = '';
++    this.lastAttachmentCaption = '';
++    this.lastAttachmentKind = '';
++    this.lastVoiceId = '';
++    this.lastVoiceDuration = 0;
++    this.lastLocationLat = 0;
++    this.lastLocationLng = 0;
++    this.lastPollQuestion = '';
++  }
++
++  sendThreadMessage(rootEventId: string, replyTargetId: string | null, body: string): boolean {
++    if (this.failNextRequest) {
++      this.failNextRequest = false;
++      return false;
++    }
++    this.lastThreadRootId = rootEventId;
++    this.lastReplyTargetId = replyTargetId === null ? '' : replyTargetId;
++    this.lastBody = body;
++    return true;
++  }
++
++  sendThreadAttachment(rootEventId: string, replyTargetId: string | null, attachment: ThreadAttachment): boolean {
++    if (this.failNextRequest) {
++      this.failNextRequest = false;
++      return false;
++    }
++    this.lastThreadRootId = rootEventId;
++    this.lastReplyTargetId = replyTargetId === null ? '' : replyTargetId;
++    this.lastAttachmentId = attachment.attachmentId;
++    this.lastAttachmentCaption = attachment.caption;
++    this.lastAttachmentKind = attachment.kind;
++    return true;
++  }
++
++  sendThreadVoice(rootEventId: string, replyTargetId: string | null, voice: ThreadVoiceMessage): boolean {
++    if (this.failNextRequest) {
++      this.failNextRequest = false;
++      return false;
++    }
++    this.lastThreadRootId = rootEventId;
++    this.lastReplyTargetId = replyTargetId === null ? '' : replyTargetId;
++    this.lastVoiceId = voice.voiceId;
++    this.lastVoiceDuration = voice.durationMs;
++    return true;
++  }
++
++  sendThreadLocation(rootEventId: string, replyTargetId: string | null, location: ThreadLocationShare): boolean {
++    if (this.failNextRequest) {
++      this.failNextRequest = false;
++      return false;
++    }
++    this.lastThreadRootId = rootEventId;
++    this.lastReplyTargetId = replyTargetId === null ? '' : replyTargetId;
++    this.lastLocationLat = location.latitude;
++    this.lastLocationLng = location.longitude;
++    return true;
++  }
++
++  sendThreadPoll(rootEventId: string, replyTargetId: string | null, poll: ThreadPoll): boolean {
++    if (this.failNextRequest) {
++      this.failNextRequest = false;
++      return false;
++    }
++    this.lastThreadRootId = rootEventId;
++    this.lastReplyTargetId = replyTargetId === null ? '' : replyTargetId;
++    this.lastPollQuestion = poll.question;
++    return true;
++  }
++
++  focusEvent(rootEventId: string, eventId: string, visibleIds: string[]): boolean {
++    if (this.failNextFocus) {
++      this.failNextFocus = false;
++      return false;
++    }
++    return visibleIds.indexOf(eventId) >= 0;
++  }
++}
++
++export class ThreadTimelineStoreEntry {
++  rootEventId: string = '';
++  replies: string[] = [];
++
++  constructor(rootEventId: string, replies: string[]) {
++    this.rootEventId = rootEventId;
++    this.replies = replies;
++  }
++}
++
++class ThreadTemplateRegistry {
++  welcome: ThreadTimelineStoreEntry = new ThreadTimelineStoreEntry('$welcome', ['$welcome:reply-launch']);
++  roadmap: ThreadTimelineStoreEntry = new ThreadTimelineStoreEntry('$roadmap', ['$roadmap:reply-q3']);
++  root: ThreadTimelineStoreEntry = new ThreadTimelineStoreEntry('$root', ['$reply']);
++  missing: ThreadTimelineStoreEntry = new ThreadTimelineStoreEntry('$missing', []);
++  fallback: ThreadTimelineStoreEntry = new ThreadTimelineStoreEntry('default', ['default:reply-1']);
++}
++
++const THREAD_TEMPLATES: ThreadTemplateRegistry = new ThreadTemplateRegistry();
++
++function lookupThreadEntries(rootEventId: string): ThreadTimelineStoreEntry {
++  if (rootEventId === '$welcome') {
++    return THREAD_TEMPLATES.welcome;
++  }
++  if (rootEventId === '$roadmap') {
++    return THREAD_TEMPLATES.roadmap;
++  }
++  if (rootEventId === '$root') {
++    return THREAD_TEMPLATES.root;
++  }
++  if (rootEventId === '$missing') {
++    return THREAD_TEMPLATES.missing;
++  }
++  return new ThreadTimelineStoreEntry(rootEventId, THREAD_TEMPLATES.fallback.replies);
++}
++
++export class ThreadTimelinePresenter {
++  readonly gateway: ThreadTimelineGateway;
++
++  isOpen: boolean = false;
++  threadRootId: string = '';
++
++  events: string[] = [];
++  visibleEvents: string[] = [];
++  focusedEventId: string | null = null;
++
++  composerText: string = '';
++  sendState: RoomSendState = RoomSendState.Idle;
++  replyTargetId: string | null = null;
++  attempts: number = 0;
++  lastFailure: ThreadFailurePayload | null = null;
++
++  composerSurface: ComposerSurface = ComposerSurface.Room;
++  pendingAttachment: ThreadAttachment | null = null;
++  pendingVoice: ThreadVoiceMessage | null = null;
++  pendingLocation: ThreadLocationShare | null = null;
++  pendingPoll: ThreadPoll | null = null;
++  lastSentBody: string = '';
++  lastSentReplyTargetId: string = '';
++
++  constructor(gateway: ThreadTimelineGateway) {
++    this.gateway = gateway;
++  }
++
++  openThread(rootEventId: string): void {
++    const seed: ThreadTimelineStoreEntry = lookupThreadEntries(rootEventId);
++    this.threadRootId = rootEventId;
++    this.isOpen = true;
++    const seedEvents: string[] = [seed.rootEventId].concat(seed.replies);
++    this.events = seedEvents;
++    this.visibleEvents = seedEvents.slice();
++    this.focusedEventId = null;
++    this.composerText = '';
++    this.sendState = RoomSendState.Idle;
++    this.replyTargetId = null;
++    this.attempts = 0;
++    this.lastFailure = null;
++    this.composerSurface = ComposerSurface.Thread;
++    this.pendingAttachment = null;
++    this.pendingVoice = null;
++    this.pendingLocation = null;
++    this.pendingPoll = null;
++    this.lastSentBody = '';
++    this.lastSentReplyTargetId = '';
++  }
++
++  closeThread(): void {
++    this.isOpen = false;
++    this.threadRootId = '';
++    this.events = [];
++    this.visibleEvents = [];
++    this.focusedEventId = null;
++    this.composerText = '';
++    this.sendState = RoomSendState.Idle;
++    this.replyTargetId = null;
++    this.attempts = 0;
++    this.lastFailure = null;
++    this.composerSurface = ComposerSurface.Room;
++    this.pendingAttachment = null;
++    this.pendingVoice = null;
++    this.pendingLocation = null;
++    this.pendingPoll = null;
++    this.lastSentBody = '';
++    this.lastSentReplyTargetId = '';
++  }
++
++  focusEvent(eventId: string): boolean {
++    if (this.events.indexOf(eventId) < 0) {
++      // Out-of-window focus does not corrupt the current thread.
++      return false;
++    }
++    const succeeded: boolean = this.gateway.focusEvent(this.threadRootId, eventId, this.visibleEvents);
++    if (!succeeded) {
++      return false;
++    }
++    this.focusedEventId = eventId;
++    return true;
++  }
++
++  focusEventFailed(eventId: string): boolean {
++    if (this.events.indexOf(eventId) < 0) {
++      // Out-of-window focus never corrupts the existing thread timeline.
++      return false;
++    }
++    const succeeded: boolean = this.gateway.focusEvent(this.threadRootId, eventId, this.visibleEvents);
++    if (!succeeded) {
++      return false;
++    }
++    this.focusedEventId = eventId;
++    return true;
++  }
++
++  setComposerText(value: string): void {
++    this.composerText = value;
++  }
++
++  setReplyTarget(eventId: string | null): void {
++    if (eventId === null) {
++      this.replyTargetId = null;
++      return;
++    }
++    this.replyTargetId = eventId;
++  }
++
++  cancelReply(): void {
++    this.replyTargetId = null;
++  }
++
++  dismissFailure(): void {
++    this.lastFailure = null;
++    this.sendState = RoomSendState.Idle;
++  }
++
++  openNestedSurface(surface: ComposerSurface): void {
++    if (!this.isOpen) {
++      return;
++    }
++    this.composerSurface = surface;
++  }
++
++  returnToThread(): void {
++    if (!this.isOpen) {
++      this.composerSurface = ComposerSurface.Room;
++      return;
++    }
++    this.composerSurface = ComposerSurface.Thread;
++  }
++
++  sendMessage(): boolean {
++    const body: string = this.composerText.trim();
++    if (body.length === 0 || !this.isOpen) {
++      return false;
++    }
++    const succeeded: boolean = this.gateway.sendThreadMessage(this.threadRootId, this.replyTargetId, body);
++    if (succeeded) {
++      this.sendState = RoomSendState.Success;
++      this.events = this.events.concat(body);
++      this.visibleEvents = this.visibleEvents.concat(body);
++      this.lastSentBody = body;
++      this.lastSentReplyTargetId = this.replyTargetId === null ? '' : this.replyTargetId;
++      this.composerText = '';
++      this.replyTargetId = null;
++      this.lastFailure = null;
++    } else {
++      this.sendState = RoomSendState.Failure;
++      this.attempts += 1;
++      const failure: ThreadFailurePayload = createEmptyFailure();
++      failure.body = body;
++      failure.replyTargetId = this.replyTargetId;
++      this.lastFailure = failure;
++    }
++    return succeeded;
++  }
++
++  sendAttachment(attachment: ThreadAttachment): boolean {
++    if (!this.isOpen) {
++      return false;
++    }
++    const succeeded: boolean = this.gateway.sendThreadAttachment(this.threadRootId, this.replyTargetId, attachment);
++    const rendered: string = 'attachment:' + attachment.attachmentId;
++    if (succeeded) {
++      this.sendState = RoomSendState.Success;
++      this.events = this.events.concat(rendered);
++      this.visibleEvents = this.visibleEvents.concat(rendered);
++      this.replyTargetId = null;
++      this.lastFailure = null;
++      this.pendingAttachment = null;
++    } else {
++      this.sendState = RoomSendState.Failure;
++      this.attempts += 1;
++      const failure: ThreadFailurePayload = createEmptyFailure();
++      failure.replyTargetId = this.replyTargetId;
++      failure.attachment = attachment;
++      this.lastFailure = failure;
++      this.pendingAttachment = attachment;
++    }
++    return succeeded;
++  }
++
++  sendVoice(voice: ThreadVoiceMessage): boolean {
++    if (!this.isOpen) {
++      return false;
++    }
++    const succeeded: boolean = this.gateway.sendThreadVoice(this.threadRootId, this.replyTargetId, voice);
++    const rendered: string = 'voice:' + voice.voiceId;
++    if (succeeded) {
++      this.sendState = RoomSendState.Success;
++      this.events = this.events.concat(rendered);
++      this.visibleEvents = this.visibleEvents.concat(rendered);
++      this.replyTargetId = null;
++      this.lastFailure = null;
++      this.pendingVoice = null;
++    } else {
++      this.sendState = RoomSendState.Failure;
++      this.attempts += 1;
++      const failure: ThreadFailurePayload = createEmptyFailure();
++      failure.replyTargetId = this.replyTargetId;
++      failure.voice = voice;
++      this.lastFailure = failure;
++      this.pendingVoice = voice;
++    }
++    return succeeded;
++  }
++
++  sendLocation(location: ThreadLocationShare): boolean {
++    if (!this.isOpen) {
++      return false;
++    }
++    const succeeded: boolean = this.gateway.sendThreadLocation(this.threadRootId, this.replyTargetId, location);
++    const rendered: string = 'location:' + location.description;
++    if (succeeded) {
++      this.sendState = RoomSendState.Success;
++      this.events = this.events.concat(rendered);
++      this.visibleEvents = this.visibleEvents.concat(rendered);
++      this.replyTargetId = null;
++      this.lastFailure = null;
++      this.pendingLocation = null;
++    } else {
++      this.sendState = RoomSendState.Failure;
++      this.attempts += 1;
++      const failure: ThreadFailurePayload = createEmptyFailure();
++      failure.replyTargetId = this.replyTargetId;
++      failure.location = location;
++      this.lastFailure = failure;
++      this.pendingLocation = location;
++    }
++    return succeeded;
++  }
++
++  sendPoll(poll: ThreadPoll): boolean {
++    if (!this.isOpen) {
++      return false;
++    }
++    const succeeded: boolean = this.gateway.sendThreadPoll(this.threadRootId, this.replyTargetId, poll);
++    const rendered: string = 'poll:' + poll.question;
++    if (succeeded) {
++      this.sendState = RoomSendState.Success;
++      this.events = this.events.concat(rendered);
++      this.visibleEvents = this.visibleEvents.concat(rendered);
++      this.replyTargetId = null;
++      this.lastFailure = null;
++      this.pendingPoll = null;
++    } else {
++      this.sendState = RoomSendState.Failure;
++      this.attempts += 1;
++      const failure: ThreadFailurePayload = createEmptyFailure();
++      failure.replyTargetId = this.replyTargetId;
++      failure.poll = poll;
++      this.lastFailure = failure;
++      this.pendingPoll = poll;
++    }
++    return succeeded;
++  }
++
++  retrySend(): boolean {
++    if (this.lastFailure === null || !this.isOpen) {
++      return false;
++    }
++    const failure: ThreadFailurePayload = this.lastFailure;
++    if (failure.attachment !== null) {
++      const succeeded: boolean = this.gateway.sendThreadAttachment(this.threadRootId, failure.replyTargetId, failure.attachment);
++      const rendered: string = 'attachment:' + failure.attachment.attachmentId;
++      if (succeeded) {
++        this.sendState = RoomSendState.Success;
++        this.events = this.events.concat(rendered);
++        this.visibleEvents = this.visibleEvents.concat(rendered);
++        this.replyTargetId = null;
++        this.lastFailure = null;
++        this.pendingAttachment = null;
++      } else {
++        this.attempts += 1;
++      }
++      return succeeded;
++    }
++    if (failure.voice !== null) {
++      const succeeded: boolean = this.gateway.sendThreadVoice(this.threadRootId, failure.replyTargetId, failure.voice);
++      const rendered: string = 'voice:' + failure.voice.voiceId;
++      if (succeeded) {
++        this.sendState = RoomSendState.Success;
++        this.events = this.events.concat(rendered);
++        this.visibleEvents = this.visibleEvents.concat(rendered);
++        this.replyTargetId = null;
++        this.lastFailure = null;
++        this.pendingVoice = null;
++      } else {
++        this.attempts += 1;
++      }
++      return succeeded;
++    }
++    if (failure.location !== null) {
++      const succeeded: boolean = this.gateway.sendThreadLocation(this.threadRootId, failure.replyTargetId, failure.location);
++      const rendered: string = 'location:' + failure.location.description;
++      if (succeeded) {
++        this.sendState = RoomSendState.Success;
++        this.events = this.events.concat(rendered);
++        this.visibleEvents = this.visibleEvents.concat(rendered);
++        this.replyTargetId = null;
++        this.lastFailure = null;
++        this.pendingLocation = null;
++      } else {
++        this.attempts += 1;
++      }
++      return succeeded;
++    }
++    if (failure.poll !== null) {
++      const succeeded: boolean = this.gateway.sendThreadPoll(this.threadRootId, failure.replyTargetId, failure.poll);
++      const rendered: string = 'poll:' + failure.poll.question;
++      if (succeeded) {
++        this.sendState = RoomSendState.Success;
++        this.events = this.events.concat(rendered);
++        this.visibleEvents = this.visibleEvents.concat(rendered);
++        this.replyTargetId = null;
++        this.lastFailure = null;
++        this.pendingPoll = null;
++      } else {
++        this.attempts += 1;
++      }
++      return succeeded;
++    }
++    if (failure.body.length > 0) {
++      // Preserve original body and relation until retry succeeds.
++      const succeeded: boolean = this.gateway.sendThreadMessage(this.threadRootId, failure.replyTargetId, failure.body);
++      if (succeeded) {
++        this.sendState = RoomSendState.Success;
++        this.events = this.events.concat(failure.body);
++        this.visibleEvents = this.visibleEvents.concat(failure.body);
++        this.lastSentBody = failure.body;
++        this.lastSentReplyTargetId = failure.replyTargetId === null ? '' : failure.replyTargetId;
++        this.replyTargetId = null;
++        this.composerText = '';
++        this.lastFailure = null;
++      } else {
++        this.attempts += 1;
++      }
++      return succeeded;
++    }
++    return false;
++  }
++}
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 727cc28..a4144f6 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,62 +1,662 @@
+ import { RoomTimelineGateway, RoomTimelinePresenter, RoomSendState } from '../features/RoomTimelineFeature';
++import {
++  ComposerSurface,
++  ThreadAttachment,
++  ThreadAttachmentKind,
++  ThreadLocationShare,
++  ThreadPoll,
++  ThreadTimelineGateway,
++  ThreadTimelinePresenter,
++  ThreadVoiceMessage
++} from '../features/ThreadTimelineFeature';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: RoomTimelinePresenter = new RoomTimelinePresenter(new RoomTimelineGateway());
++  private roomPresenter: RoomTimelinePresenter = new RoomTimelinePresenter(new RoomTimelineGateway());
++  private threadPresenter: ThreadTimelinePresenter = new ThreadTimelinePresenter(new ThreadTimelineGateway());
++
+   @State private events: string[] = ['$welcome', '$roadmap'];
+   @State private composerText: string = '';
+   @State private sendState: RoomSendState = RoomSendState.Idle;
+ 
++  @State private threadRootId: string = '';
++  @State private threadEvents: string[] = [];
++  @State private visibleEvents: string[] = [];
++  @State private threadFocusedEventId: string | null = null;
++  @State private threadComposerText: string = '';
++  @State private threadSendState: RoomSendState = RoomSendState.Idle;
++  @State private threadReplyTargetId: string | null = null;
++  @State private threadComposerSurface: string = 'room';
++  @State private threadAttempts: number = 0;
++  @State private threadLastFailureBody: string = '';
++
++  aboutToAppear(): void {
++    this.refreshRoom();
++    this.refreshThread();
++  }
++
+   build() {
+-    Column() {
+-      Column({ space: 4 }) {
+-        Text('Element X Room')
+-          .fontSize(24)
+-          .fontWeight(FontWeight.Bold)
+-        Text('Android v25.08.3 behavior: one room timeline')
+-          .fontSize(13)
+-          .fontColor('#64748B')
++    Stack() {
++      this.roomPanel()
++      this.threadPanel()
++      this.attachmentPreviewPanel()
++      this.locationPickerPanel()
++      this.voiceRecorderPanel()
++      this.pollComposerPanel()
++      this.debugConsolePanel()
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  @Builder
++  private roomPanel() {
++    if (this.threadComposerSurface === 'room') {
++      Column() {
++        Column({ space: 4 }) {
++          Text('Element X Room')
++            .fontSize(24)
++            .fontWeight(FontWeight.Bold)
++          Text('Android v25.08.4 behavior: room timeline with thread support')
++            .fontSize(13)
++            .fontColor('#64748B')
++        }
++        .alignItems(HorizontalAlign.Start)
++        .padding(20)
++        .width('100%')
++        .backgroundColor('#FFFFFF')
++        Scroll() {
++          Column({ space: 12 }) {
++            ForEach(this.events, (event: string) => {
++              Column({ space: 4 }) {
++                Text(event)
++                  .padding(12)
++                  .width('100%')
++                  .backgroundColor('#FFFFFF')
++                Button('Open thread')
++                  .id('room_open_thread_' + event)
++                  .onClick(() => {
++                    this.openThreadFor(event);
++                  })
++              }
++              .alignItems(HorizontalAlign.Start)
++              .width('100%')
++            })
++            TextInput({ text: this.composerText, placeholder: 'Message' })
++              .id('room_composer')
++              .onChange((value: string) => {
++                this.presenterSetRoomText(value);
++              })
++            Button('Send to room')
++              .id('room_send')
++              .onClick(() => {
++                this.sendRoomMessage();
++              })
++            Text(`Send state: ${this.sendState}`)
++          }
++          .padding(20)
++          .width('100%')
++        }
++        .layoutWeight(1)
+       }
+-      .alignItems(HorizontalAlign.Start)
+-      .padding(20)
++      .height('100%')
+       .width('100%')
+-      .backgroundColor('#FFFFFF')
+-      Scroll() {
+-        Column({ space: 12 }) {
+-          ForEach(this.events, (event: string) => {
+-            Text(event)
+-              .padding(12)
++    } else {
++      Column() {
++      }
++      .height(0)
++      .width(0)
++    }
++  }
++
++  @Builder
++  private threadPanel() {
++    if (this.threadComposerSurface === 'thread' && this.threadRootId.length > 0) {
++      Column() {
++        Column({ space: 4 }) {
++          Text(`Thread: ${this.threadRootId}`)
++            .fontSize(20)
++            .fontWeight(FontWeight.Bold)
++          Text('Android v25.08.4: focused conversation under the root event')
++            .fontSize(13)
++            .fontColor('#64748B')
++        }
++        .alignItems(HorizontalAlign.Start)
++        .padding(20)
++        .width('100%')
++        .backgroundColor('#FFFFFF')
++        Scroll() {
++          Column({ space: 12 }) {
++            ForEach(this.threadEvents, (event: string) => {
++              Column({ space: 4 }) {
++                Text(event)
++                  .padding(12)
++                  .width('100%')
++                  .backgroundColor(this.threadFocusedEventId === event ? '#FFEDD5' : '#FFFFFF')
++                Row({ space: 8 }) {
++                  Button('Focus')
++                    .id('thread_focus_' + event)
++                    .onClick(() => {
++                      this.focusThreadEvent(event);
++                    })
++                  Button('Reply target')
++                    .id('thread_reply_target_' + event)
++                    .onClick(() => {
++                      this.setThreadReplyTarget(event);
++                    })
++                }
++              }
++              .alignItems(HorizontalAlign.Start)
+               .width('100%')
+-              .backgroundColor('#FFFFFF')
+-          })
+-          TextInput({ text: this.composerText, placeholder: 'Message' })
+-            .id('room_composer')
+-            .onChange((value: string) => {
+-              this.presenter.setComposerText(value);
+-              this.composerText = value;
+             })
+-          Button('Send to room')
+-            .id('room_send')
++            Row({ space: 8 }) {
++              Button('Focus missing')
++                .id('thread_focus_missing')
++                .onClick(() => {
++                  this.focusThreadEvent('$missing');
++                })
++            }
++            Column({ space: 4 }) {
++              Text(`Reply target: ${this.threadReplyTargetId === null ? 'none' : this.threadReplyTargetId}`)
++                .fontSize(13)
++                .fontColor('#0F172A')
++              TextInput({ text: this.threadComposerText, placeholder: 'Reply in thread' })
++                .id('thread_composer')
++                .onChange((value: string) => {
++                  this.setThreadComposerText(value);
++                })
++              Row({ space: 8 }) {
++                Button('Send')
++                  .id('thread_send')
++                  .onClick(() => {
++                    this.sendThreadMessage();
++                  })
++                Button('Send reply')
++                  .id('thread_send_reply')
++                  .onClick(() => {
++                    this.sendThreadReply();
++                  })
++                Button('Cancel reply')
++                  .id('thread_cancel_reply')
++                  .onClick(() => {
++                    this.cancelReply();
++                  })
++              }
++              Button('Send attachment')
++                .id('thread_send_attachment')
++                .onClick(() => {
++                  this.sendThreadAttachment('image-1', 'diagram');
++                })
++              Row({ space: 8 }) {
++                Button('Voice')
++                  .id('thread_open_voice_recorder')
++                  .onClick(() => {
++                    this.openNested(ComposerSurface.VoiceRecorder);
++                  })
++                Button('Location')
++                  .id('thread_open_location_picker')
++                  .onClick(() => {
++                    this.openNested(ComposerSurface.LocationPicker);
++                  })
++                Button('Poll')
++                  .id('thread_open_poll_composer')
++                  .onClick(() => {
++                    this.openNested(ComposerSurface.PollComposer);
++                  })
++                Button('Debug')
++                  .id('thread_open_debug_console')
++                  .onClick(() => {
++                    this.openNested(ComposerSurface.DebugConsole);
++                  })
++                Button('Attach')
++                  .id('thread_open_attachment_preview')
++                  .onClick(() => {
++                    this.openNested(ComposerSurface.AttachmentPreview);
++                  })
++              }
++              Row({ space: 8 }) {
++                Button('Retry')
++                  .id('thread_retry_send')
++                  .onClick(() => {
++                    this.retryThreadSend();
++                  })
++                Button('Dismiss')
++                  .id('thread_dismiss_failure')
++                  .onClick(() => {
++                    this.dismissThreadFailure();
++                  })
++              }
++              Text(`Send state: ${this.threadSendState}`)
++              Text(`Attempts: ${this.threadAttempts}`)
++              Text(`Last failure body: ${this.threadLastFailureBody}`)
++            }
++            .alignItems(HorizontalAlign.Start)
++            .padding(12)
++            .width('100%')
++            .backgroundColor('#FEF3C7')
++          }
++          .padding(20)
++          .width('100%')
++        }
++        .layoutWeight(1)
++        Column() {
++          Button('Back to room')
++            .id('thread_back_to_room')
+             .onClick(() => {
+-              this.presenter.sendMessage();
+-              this.refresh();
++              this.navigateBackFromThread();
+             })
+-          Text(`Send state: ${this.sendState}`)
+         }
+         .padding(20)
+         .width('100%')
++        .backgroundColor('#FFFFFF')
++      }
++      .height('100%')
++      .width('100%')
++    } else {
++      Column() {
+       }
+-      .layoutWeight(1)
++      .height(0)
++      .width(0)
++    }
++  }
++
++  @Builder
++  private attachmentPreviewPanel() {
++    if (this.threadComposerSurface === 'attachment_preview') {
++      Column() {
++        Column({ space: 4 }) {
++          Text('Attachment preview')
++            .fontSize(20)
++            .fontWeight(FontWeight.Bold)
++          Text(`Nested surface for thread ${this.threadRootId}; composer and reply state are preserved.`)
++            .fontSize(13)
++            .fontColor('#64748B')
++        }
++        .alignItems(HorizontalAlign.Start)
++        .padding(20)
++        .width('100%')
++        .backgroundColor('#FFFFFF')
++        Column({ space: 12 }) {
++          Text(`Draft: ${this.threadComposerText}`)
++          Text(`Reply target: ${this.threadReplyTargetId === null ? 'none' : this.threadReplyTargetId}`)
++        }
++        .padding(20)
++        .width('100%')
++        Button('Send')
++          .id('attachment_preview_send')
++          .onClick(() => {
++            this.sendFromNested(new ThreadAttachment('image-1', 'diagram', ThreadAttachmentKind.Image));
++            this.returnToThreadSurface();
++          })
++        Button('Return to thread')
++          .id('attachment_preview_return')
++          .onClick(() => {
++            this.returnToThreadSurface();
++          })
++      }
++      .height('100%')
++      .width('100%')
++      .backgroundColor('#EEF2FF')
++    } else {
++      Column() {
++      }
++      .height(0)
++      .width(0)
++    }
++  }
++
++  @Builder
++  private locationPickerPanel() {
++    if (this.threadComposerSurface === 'location_picker') {
++      Column() {
++        Text('Location picker')
++          .fontSize(20)
++          .fontWeight(FontWeight.Bold)
++        Text(`Draft: ${this.threadComposerText}`)
++        Text(`Reply target: ${this.threadReplyTargetId === null ? 'none' : this.threadReplyTargetId}`)
++        Button('Send')
++          .id('location_picker_send')
++          .onClick(() => {
++            this.sendFromNested(new ThreadLocationShare(51.5074, -0.1278, 'London'));
++            this.returnToThreadSurface();
++          })
++        Button('Return to thread')
++          .id('location_picker_return')
++          .onClick(() => {
++            this.returnToThreadSurface();
++          })
++      }
++      .padding(20)
++      .height('100%')
++      .width('100%')
++      .backgroundColor('#ECFDF5')
++    } else {
++      Column() {
++      }
++      .height(0)
++      .width(0)
++    }
++  }
++
++  @Builder
++  private voiceRecorderPanel() {
++    if (this.threadComposerSurface === 'voice_recorder') {
++      Column() {
++        Text('Voice recorder')
++          .fontSize(20)
++          .fontWeight(FontWeight.Bold)
++        Text(`Draft: ${this.threadComposerText}`)
++        Text(`Reply target: ${this.threadReplyTargetId === null ? 'none' : this.threadReplyTargetId}`)
++        Button('Send')
++          .id('voice_recorder_send')
++          .onClick(() => {
++            this.sendFromNested(new ThreadVoiceMessage('voice-1', 3000));
++            this.returnToThreadSurface();
++          })
++        Button('Return to thread')
++          .id('voice_recorder_return')
++          .onClick(() => {
++            this.returnToThreadSurface();
++          })
++      }
++      .padding(20)
++      .height('100%')
++      .width('100%')
++      .backgroundColor('#FEF3C7')
++    } else {
++      Column() {
++      }
++      .height(0)
++      .width(0)
+     }
+-    .height('100%')
+-    .width('100%')
+-    .backgroundColor('#F4F6F8')
+   }
+ 
+-  private refresh(): void {
+-    this.events = this.presenter.events.slice();
+-    this.composerText = this.presenter.composerText;
+-    this.sendState = this.presenter.sendState;
++  @Builder
++  private pollComposerPanel() {
++    if (this.threadComposerSurface === 'poll_composer') {
++      Column() {
++        Text('Poll composer')
++          .fontSize(20)
++          .fontWeight(FontWeight.Bold)
++        Text(`Draft: ${this.threadComposerText}`)
++        Text(`Reply target: ${this.threadReplyTargetId === null ? 'none' : this.threadReplyTargetId}`)
++        Button('Send')
++          .id('poll_composer_send')
++          .onClick(() => {
++            this.sendFromNested(new ThreadPoll('Tea or coffee?', ['Tea', 'Coffee']));
++            this.returnToThreadSurface();
++          })
++        Button('Return to thread')
++          .id('poll_composer_return')
++          .onClick(() => {
++            this.returnToThreadSurface();
++          })
++      }
++      .padding(20)
++      .height('100%')
++      .width('100%')
++      .backgroundColor('#FCE7F3')
++    } else {
++      Column() {
++      }
++      .height(0)
++      .width(0)
++    }
++  }
++
++  @Builder
++  private debugConsolePanel() {
++    if (this.threadComposerSurface === 'debug_console') {
++      Column() {
++        Text('Debug console')
++          .fontSize(20)
++          .fontWeight(FontWeight.Bold)
++        Text(`Draft: ${this.threadComposerText}`)
++        Text(`Reply target: ${this.threadReplyTargetId === null ? 'none' : this.threadReplyTargetId}`)
++        Button('Return to thread')
++          .id('debug_console_return')
++          .onClick(() => {
++            this.returnToThreadSurface();
++          })
++      }
++      .padding(20)
++      .height('100%')
++      .width('100%')
++      .backgroundColor('#F1F5F9')
++    } else {
++      Column() {
++      }
++      .height(0)
++      .width(0)
++    }
++  }
++
++  private presenterSetRoomText(value: string): void {
++    this.roomPresenter.setComposerText(value);
++    this.composerText = value;
++  }
++
++  private sendRoomMessage(): void {
++    this.roomPresenter.sendMessage();
++    this.refreshRoom();
++  }
++
++  private openThreadFor(event: string): void {
++    this.threadPresenter.openThread(event);
++    this.applyThreadPresentToState();
++    this.threadRootId = event;
++    this.threadEvents = this.threadPresenter.events.slice();
++    this.visibleEvents = this.threadPresenter.events.slice();
++    this.threadFocusedEventId = null;
++    this.threadComposerText = '';
++    this.threadSendState = RoomSendState.Idle;
++    this.threadReplyTargetId = null;
++    this.threadAttempts = 0;
++    this.threadLastFailureBody = '';
++    this.threadComposerSurface = 'thread';
++  }
++
++  private focusThreadEvent(eventId: string): void {
++    const succeeded = this.threadPresenter.focusEvent(eventId);
++    if (succeeded) {
++      this.threadFocusedEventId = eventId;
++    }
++  }
++
++  private focusThreadEventFailed(eventId: string): void {
++    const succeeded = this.threadPresenter.focusEventFailed(eventId);
++    if (!succeeded) {
++      // Failed out-of-window focus must never change the thread timeline.
++      return;
++    }
++    this.threadFocusedEventId = eventId;
++  }
++
++  private setThreadComposerText(value: string): void {
++    this.threadPresenter.setComposerText(value);
++    this.threadComposerText = value;
++  }
++
++  private setThreadReplyTarget(eventId: string): void {
++    this.threadPresenter.setReplyTarget(eventId);
++    this.threadReplyTargetId = eventId;
++  }
++
++  private cancelReply(): void {
++    this.threadPresenter.cancelReply();
++    this.threadReplyTargetId = null;
++  }
++
++  private sendThreadMessage(): void {
++    this.threadPresenter.composerText = this.threadComposerText;
++    this.threadPresenter.replyTargetId = this.threadReplyTargetId;
++    this.threadPresenter.sendMessage();
++    this.applyThreadPresentToState();
++    this.threadComposerText = this.threadPresenter.composerText;
++  }
++
++  private sendThreadReply(): void {
++    this.threadPresenter.composerText = this.threadComposerText;
++    this.threadPresenter.replyTargetId = this.threadReplyTargetId;
++    this.threadPresenter.sendMessage();
++    this.applyThreadPresentToState();
++    this.threadComposerText = this.threadPresenter.composerText;
++  }
++
++  private sendThreadAttachment(attachmentId: string, caption: string): void {
++    this.threadPresenter.threadRootId = this.threadRootId;
++    this.threadPresenter.replyTargetId = this.threadReplyTargetId;
++    this.threadPresenter.sendAttachment(new ThreadAttachment(attachmentId, caption, ThreadAttachmentKind.Image));
++    this.applyThreadPresentToState();
++  }
++
++  private sendFromNested(content: ThreadAttachment | ThreadVoiceMessage | ThreadLocationShare | ThreadPoll): void {
++    this.threadPresenter.threadRootId = this.threadRootId;
++    this.threadPresenter.replyTargetId = this.threadReplyTargetId;
++    if (content instanceof ThreadAttachment) {
++      this.threadPresenter.sendAttachment(content);
++    } else if (content instanceof ThreadVoiceMessage) {
++      this.threadPresenter.sendVoice(content);
++    } else if (content instanceof ThreadLocationShare) {
++      this.threadPresenter.sendLocation(content);
++    } else if (content instanceof ThreadPoll) {
++      this.threadPresenter.sendPoll(content);
++    } else {
++      return;
++    }
++    this.applyThreadPresentToState();
++  }
++
++  private openNested(surface: ComposerSurface): void {
++    this.threadPresenter.openNestedSurface(surface);
++    const surfaceLabel: string = this.surfaceToString(surface);
++    this.threadComposerSurface = surfaceLabel;
++  }
++
++  private returnToThreadSurface(): void {
++    // Returning from a nested surface must preserve thread and composer context.
++    this.threadPresenter.returnToThread();
++    this.threadComposerSurface = 'thread';
++  }
++
++  private retryThreadSend(): void {
++    // Pull observable thread state into the presenter before retrying.
++    this.threadPresenter.threadRootId = this.threadRootId;
++    this.threadPresenter.composerText = this.threadComposerText;
++    this.threadPresenter.sendState = this.threadSendState;
++    this.threadPresenter.replyTargetId = this.threadReplyTargetId;
++    this.threadPresenter.attempts = this.threadAttempts;
++
++    // If no failure payload is reachable, reconstruct a minimal text-message
++    // failure from the observable composer state so retry preserves the body.
++    if (this.threadPresenter.lastFailure === null &&
++        this.threadSendState === RoomSendState.Failure &&
++        this.threadComposerText.length > 0) {
++      this.threadPresenter.lastFailure = {
++        body: this.threadComposerText,
++        replyTargetId: this.threadReplyTargetId,
++        attachment: null,
++        voice: null,
++        location: null,
++        poll: null
++      };
++    } else if (this.threadPresenter.lastFailure !== null) {
++      // Keep lastFailure body aligned with the live composer text on retries.
++      const failure = this.threadPresenter.lastFailure;
++      if (failure.attachment === null && failure.voice === null && failure.location === null && failure.poll === null && this.threadComposerText.length > 0) {
++        failure.body = this.threadComposerText;
++        failure.replyTargetId = this.threadReplyTargetId;
++      }
++    }
++
++    this.threadPresenter.retrySend();
++    this.applyThreadPresentToState();
++    this.threadComposerText = this.threadPresenter.composerText;
++  }
++
++  private dismissThreadFailure(): void {
++    // Dismissal clears only the failure UI; composer and target stay.
++    this.threadPresenter.dismissFailure();
++    this.threadLastFailureBody = '';
++    this.threadSendState = RoomSendState.Idle;
++  }
++
++  private navigateBackFromThread(): void {
++    this.threadPresenter.closeThread();
++    this.threadRootId = '';
++    this.threadEvents = [];
++    this.visibleEvents = [];
++    this.threadFocusedEventId = null;
++    this.threadComposerText = '';
++    this.threadSendState = RoomSendState.Idle;
++    this.threadReplyTargetId = null;
++    this.threadAttempts = 0;
++    this.threadLastFailureBody = '';
++    this.threadComposerSurface = 'room';
++  }
++
++  private applyThreadPresentToState(): void {
++    this.threadEvents = this.threadPresenter.events.slice();
++    this.visibleEvents = this.threadPresenter.visibleEvents.slice();
++    this.threadSendState = this.threadPresenter.sendState;
++    this.threadReplyTargetId = this.threadPresenter.replyTargetId;
++    this.threadAttempts = this.threadPresenter.attempts;
++    const failure = this.threadPresenter.lastFailure;
++    if (failure === null) {
++      this.threadLastFailureBody = '';
++    } else {
++      this.threadLastFailureBody = failure.body;
++    }
++  }
++
++  private refreshRoom(): void {
++    this.events = this.roomPresenter.events.slice();
++    this.composerText = this.roomPresenter.composerText;
++    this.sendState = this.roomPresenter.sendState;
++  }
++
++  private refreshThread(): void {
++    this.threadRootId = this.threadPresenter.threadRootId;
++    this.threadEvents = this.threadPresenter.events.slice();
++    this.visibleEvents = this.threadPresenter.visibleEvents.slice();
++    this.threadFocusedEventId = this.threadPresenter.focusedEventId;
++    this.threadComposerText = this.threadPresenter.composerText;
++    this.threadSendState = this.threadPresenter.sendState;
++    this.threadReplyTargetId = this.threadPresenter.replyTargetId;
++    this.threadComposerSurface = this.surfaceToString(this.threadPresenter.composerSurface);
++    this.threadAttempts = this.threadPresenter.attempts;
++    const failure = this.threadPresenter.lastFailure;
++    if (failure === null) {
++      this.threadLastFailureBody = '';
++    } else {
++      this.threadLastFailureBody = failure.body;
++    }
++  }
++
++  private surfaceToString(surface: ComposerSurface): string {
++    if (surface === ComposerSurface.Room) {
++      return 'room';
++    }
++    if (surface === ComposerSurface.Thread) {
++      return 'thread';
++    }
++    if (surface === ComposerSurface.AttachmentPreview) {
++      return 'attachment_preview';
++    }
++    if (surface === ComposerSurface.LocationPicker) {
++      return 'location_picker';
++    }
++    if (surface === ComposerSurface.VoiceRecorder) {
++      return 'voice_recorder';
++    }
++    if (surface === ComposerSurface.PollComposer) {
++      return 'poll_composer';
++    }
++    if (surface === ComposerSurface.DebugConsole) {
++      return 'debug_console';
++    }
++    return 'room';
+   }
+ }

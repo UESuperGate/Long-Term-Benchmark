@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "taskId": "15_account_deactivation",
+  "android": {
+    "roots": ["features/deactivation/impl/src/main", "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootPresenter.kt", "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/root/PreferencesRootView.kt"],
+    "cases": {
+      "ad_state_001_capability_gates_entry": [
+        {"options": [{"path": "PreferencesRootPresenter\\.kt$", "patterns": ["canDeactivateAccount", "matrixClient.canDeactivateAccount\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "PreferencesRootView\\.kt$", "patterns": ["if \\(state.canDeactivateAccount\\)", "action_deactivate_account", "ListItemStyle.Destructive", "onDeactivateClick"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "PreferencesRootView\\.kt$", "patterns": ["if \\(state.showDeactivateAccountItem\\)", "ListItemStyle.Destructive", "onDeactivateAccountClick"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "DefaultAccountDeactivationEntryPoint\\.kt$", "patterns": ["AccountDeactivationEntryPoint", "createNode<AccountDeactivationNode>"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DefaultDeactivateAccountEntryPoint\\.kt$", "patterns": ["DeactivateAccountEntryPoint", "createNode<DeactivateAccountNode>"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_002_default_form_blocks_submit": [
+        {"options": [{"path": "AccountDeactivationState\\.kt$", "patterns": ["DeactivateFormState\\(false, \"\"\\)", "password.isNotEmpty\\(\\)", "AsyncAction.Uninitialized"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DeactivateAccountStateProvider\\.kt$", "patterns": ["password: String = \"\"", "eraseData: Boolean = false", "AsyncAction.Uninitialized"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationView\\.kt$", "patterns": ["enabled = state.submitEnabled", "CommonStrings.action_deactivate"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DeactivateAccountView\\.kt$", "patterns": ["destructive = true", "enabled = !isFormDisabled && state.password.isNotEmpty\\(\\)", "DeactivateAccountEvents.DeactivateAccount\\(isRetry = false\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_003_password_enables_submit": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["SetPassword", "copy\\(password = event.password\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DefaultDeactivateAccountPresenter\\.kt$", "patterns": ["DeactivateAccountEvents.SetPassword", "event.password.replace\\(\"\\\\n\", \"\"\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationView\\.kt$", "patterns": ["fun String.sanitize", "replace\\(\"\\\\n\", \"\"\\)", "SetPassword\\(sanitized\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DeactivateAccountView\\.kt$", "patterns": ["PreferenceTextField", "DeactivateAccountEvents.SetPassword", "enabled = !isFormDisabled"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_004_erase_data_option": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["SetEraseData", "copy\\(eraseData = event.eraseData\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DefaultDeactivateAccountPresenter\\.kt$", "patterns": ["DeactivateAccountEvents.SetEraseData", "eraseDataState.value = event.eraseData"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationView\\.kt$", "patterns": ["SwitchListItem", "SetEraseData\\(it\\)", "enabled = !isLoading"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DeactivateAccountView\\.kt$", "patterns": ["PreferenceCheckbox", "DeactivateAccountEvents.SetEraseData\\(it\\)", "enabled = !isFormDisabled"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_005_first_submit_confirms": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["DeactivateAccount", "action.value.isConfirming\\(\\) \\|\\| event.isRetry", "action.value = AsyncAction.Confirming"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DefaultDeactivateAccountPresenter\\.kt$", "patterns": ["DeactivateAccountEvents.DeactivateAccount", "passwordState.value.isEmpty\\(\\) -> Unit", "deactivateAccountAction.value = AsyncAction.Confirming"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationConfirmationDialog\\.kt$", "patterns": ["ConfirmationDialog", "destructiveSubmit = true", "onSubmitClick"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "DeactivateAccountView\\.kt$", "patterns": ["is AsyncAction.Confirming", "ConfirmationDialog", "destructiveSubmit = true", "DeactivateAccountEvents.DeactivateAccount\\(isRetry = false\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_006_confirm_sends_payload": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["matrixClient.deactivateAccount", "password = formState.password", "eraseData = formState.eraseData", "runCatchingUpdatingState"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationView\\.kt$", "patterns": ["AsyncAction.Loading", "readOnly = isLoading", "enabled = !isLoading"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_007_success_completes": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["deactivateAccount", "getOrThrow\\(\\)", "runCatchingUpdatingState\\(action\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationActionDialog\\.kt$", "patterns": ["is AsyncAction.Success -> Unit", "is AsyncAction.Loading", "ProgressDialog"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_008_failure_preserves_form": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["val formState = remember", "runCatchingUpdatingState\\(action\\)", "DeactivateFormState"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationActionDialog\\.kt$", "patterns": ["is AsyncAction.Failure", "RetryDialog", "onRetry = onRetryClick"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_009_retry_bypasses_confirmation": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["event.isRetry", "localCoroutineScope.deactivateAccount", "formState = formState.value"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationView\\.kt$", "patterns": ["onRetryClick", "DeactivateAccount\\(isRetry = true\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_010_close_dialog_resets_action": [
+        {"options": [{"path": "AccountDeactivationPresenter\\.kt$", "patterns": ["CloseDialogs", "action.value = AsyncAction.Uninitialized"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "AccountDeactivationView\\.kt$", "patterns": ["onDismissDialog", "AccountDeactivationEvents.CloseDialogs"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "ad_state_001_capability_gates_entry": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["canDeactivateAccount", "loadCapability", "capability.canDeactivateAccount"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "SessionState\\.ets$", "patterns": ["serverCanDeactivateAccount", "setServerCanDeactivateAccount", "this.serverCanDeactivateAccount = !!canDeactivate"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["presenter.loadCapability", "if \\(this.canDeactivate\\)", "deactivate_account_entry"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/Index\\.ets$", "patterns": ["if \\(this.canDeactivateAccount\\)", "Button\\('Deactivate account'\\)", "router.pushUrl\\(\\{ url: 'pages/DeactivateAccount' \\}\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_002_default_form_blocks_submit": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["password: string = ''", "eraseData: boolean = false", "action: DeactivationAction = DeactivationAction.Uninitialized", "password.length > 0"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["deactivate_submit", "presenter.submitEnabled", "Confirm password"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_003_password_enables_submit": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["setPassword", "value.replace\\(/\\\\n/g, ''\\)", "submitEnabled"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "Deactivation\\.ets$", "patterns": ["setPassword\\(value: string\\)", "replace\\(/\\[\\\\r\\\\n\\]\\+/g, ''\\)", "canSubmit\\(\\): boolean", "password.length > 0"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["deactivation_password", "presenter.setPassword", "this.refresh"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/DeactivateAccount\\.ets$", "patterns": ["TextInput", "presenter.setPassword\\(value\\)", "shouldEnableDeactivateButton\\(\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_004_erase_data_option": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["setEraseData", "this.eraseData = value"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "Deactivation\\.ets$", "patterns": ["setEraseData\\(value: boolean\\)", "this.eraseData = !!value"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Erase all messages", "presenter.setEraseData", "DeactivationAction.Loading"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/DeactivateAccount\\.ets$", "patterns": ["Checkbox", "presenter.eraseData", "presenter.setEraseData\\(value\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_005_first_submit_confirms": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["action !== DeactivationAction.Confirming && !isRetry", "action = DeactivationAction.Confirming", "return"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "Deactivation\\.ets$", "patterns": ["action === DeactivationAction.UNINITIALIZED", "action = DeactivationAction.CONFIRMING", "confirmationPromptVisible = true", "return"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["DeactivationAction.Confirming", "Confirm deactivation", "submitDeactivation\\(false\\)"], "forbid": ["caseId|traceDigest|testcase"]}, {"path": "pages/DeactivateAccount\\.ets$", "patterns": ["presenter.confirmationPromptVisible", "Confirm deactivation", "presenter.requestDeactivation\\(false\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_006_confirm_sends_payload": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["action = DeactivationAction.Loading", "service.deactivateAccount\\(this.password, this.eraseData\\)"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Deactivating...", "DeactivationAction.Loading", "presenter.deactivateAccount"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_007_success_completes": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["await this.service.deactivateAccount", "action = DeactivationAction.Success"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["DeactivationAction.Success", "Account deactivated"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_008_failure_preserves_form": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["catch \\(error\\)", "action = DeactivationAction.Failure", "Account deactivation failed"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["DeactivationAction.Failure", "Button\\('Retry'\\)", "this.errorMessage"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_009_retry_bypasses_confirmation": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["!isRetry", "action = DeactivationAction.Loading", "service.deactivateAccount"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Button\\('Retry'\\)", "submitDeactivation\\(true\\)"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ],
+      "ad_state_010_close_dialog_resets_action": [
+        {"options": [{"path": "AccountDeactivationFeature\\.ets$", "patterns": ["closeDialogs", "action = DeactivationAction.Uninitialized", "errorMessage = ''"], "forbid": ["caseId|traceDigest|testcase"]}]},
+        {"options": [{"path": "Index\\.ets$", "patterns": ["Button\\('Close'\\)", "presenter.closeDialogs", "this.refresh"], "forbid": ["caseId|traceDigest|testcase"]}]}
+      ]
+    }
+  }
+}

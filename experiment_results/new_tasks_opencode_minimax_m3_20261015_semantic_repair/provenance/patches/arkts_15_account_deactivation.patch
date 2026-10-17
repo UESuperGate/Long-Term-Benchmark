@@ -1,0 +1,534 @@
+diff --git a/entry/src/main/ets/features/Deactivation.ets b/entry/src/main/ets/features/Deactivation.ets
+new file mode 100644
+index 0000000..67dcf47
+--- /dev/null
++++ b/entry/src/main/ets/features/Deactivation.ets
+@@ -0,0 +1,193 @@
++// Account-deactivation presenter.
++//
++// Implements the destructive flow described in the v0.6.1 -> v0.6.3 task:
++//   - The first submit from the form opens a confirmation state; no
++//     destructive request is sent until the user confirms.
++//   - Confirming produces exactly one request carrying the current
++//     password and erase-data choice.
++//   - A failed request keeps the form values, surfaces failure, and
++//     permits retry without another preliminary confirmation.
++//   - A successful request exits the session and cannot be retried.
++//
++// The presenter is plain (no UI dependencies) so it can be exercised
++// directly. All fields are public to remain observable.
++
++export enum DeactivationAction {
++  UNINITIALIZED = 'uninitialized',
++  CONFIRMING = 'confirming',
++  LOADING = 'loading',
++  FAILURE = 'failure',
++  SUCCESS = 'success'
++}
++
++export interface DeactivationRequest {
++  password: string;
++  eraseData: boolean;
++}
++
++export class DeactivationPresenter {
++  serverCanDeactivateAccount: boolean = true;
++  password: string = '';
++  eraseData: boolean = false;
++  action: DeactivationAction = DeactivationAction.UNINITIALIZED;
++  errorMessage: string = '';
++  requestCount: number = 0;
++  confirmationPromptVisible: boolean = false;
++  errorDialogVisible: boolean = false;
++  loadingIndicatorVisible: boolean = false;
++  successNoticeVisible: boolean = false;
++  successNoticeText: string = '';
++  formControlsDisabled: boolean = false;
++  signedOut: boolean = false;
++  sessionEnded: boolean = false;
++
++  private pendingPayload: DeactivationRequest | null = null;
++
++  setServerCapability(canDeactivate: boolean): void {
++    this.serverCanDeactivateAccount = !!canDeactivate;
++  }
++
++  // Reset the presenter's local state. Used when the user opens the page.
++  reset(): void {
++    this.password = '';
++    this.eraseData = false;
++    this.action = DeactivationAction.UNINITIALIZED;
++    this.errorMessage = '';
++    this.requestCount = 0;
++    this.confirmationPromptVisible = false;
++    this.errorDialogVisible = false;
++    this.loadingIndicatorVisible = false;
++    this.successNoticeVisible = false;
++    this.successNoticeText = '';
++    this.formControlsDisabled = false;
++    this.signedOut = false;
++    this.sessionEnded = false;
++    this.pendingPayload = null;
++  }
++
++  // Form events ----------------------------------------------------------
++
++  setPassword(value: string): void {
++    // Strip CR/LF pasted from clipboard so accidental newlines do not end
++    // up in the password field.
++    this.password = (value ?? '').replace(/[\r\n]+/g, '');
++  }
++
++  setEraseData(value: boolean): void {
++    // Intentionally does not touch this.password - the password should be
++    // preserved when the user toggles the erase-data option.
++    this.eraseData = !!value;
++  }
++
++  canSubmit(): boolean {
++    return this.password.length > 0;
++  }
++
++  // Unified entry point used both for the first submit and for retries.
++  //
++  //   - First submit (UNINITIALIZED) opens the confirmation state.
++  //   - Confirming in the dialog sends one request.
++  //   - Retrying from a failure state reuses the preserved form payload
++  //     and skips the preliminary confirmation.
++  requestDeactivation(isRetry: boolean): void {
++    if (this.action === DeactivationAction.UNINITIALIZED) {
++      if (!this.canSubmit()) {
++        // Empty credentials never produce a local success; surface
++        // an inline error and stay on the form.
++        this.action = DeactivationAction.FAILURE;
++        this.errorMessage = 'Enter your password to continue.';
++        this.errorDialogVisible = true;
++        return;
++      }
++      this.action = DeactivationAction.CONFIRMING;
++      this.confirmationPromptVisible = true;
++      return;
++    }
++    if (this.action === DeactivationAction.CONFIRMING) {
++      this.confirmationPromptVisible = false;
++      this.beginRequest();
++      return;
++    }
++    if (this.action === DeactivationAction.FAILURE && isRetry) {
++      this.errorDialogVisible = false;
++      this.errorMessage = '';
++      this.beginRequest();
++      return;
++    }
++    // LOADING / SUCCESS: ignore further deactivation attempts.
++  }
++
++  cancelConfirmation(): void {
++    if (this.action !== DeactivationAction.CONFIRMING) {
++      return;
++    }
++    this.confirmationPromptVisible = false;
++    this.action = DeactivationAction.UNINITIALIZED;
++    // Form values (password, eraseData) are preserved.
++  }
++
++  reportSuccess(): void {
++    if (this.action !== DeactivationAction.LOADING) {
++      // Defensive: only a single in-flight request can resolve to
++      // success; duplicate callbacks are ignored to avoid duplication.
++      return;
++    }
++    this.action = DeactivationAction.SUCCESS;
++    this.loadingIndicatorVisible = false;
++    this.errorDialogVisible = false;
++    this.successNoticeVisible = true;
++    this.successNoticeText = 'Account deactivated.';
++    this.signedOut = true;
++    this.sessionEnded = true;
++    this.formControlsDisabled = true;
++    // requestCount is not incremented here; the outgoing request was
++    // already counted when it was dispatched.
++  }
++
++  reportFailure(message: string): void {
++    if (this.action !== DeactivationAction.LOADING) {
++      return;
++    }
++    this.action = DeactivationAction.FAILURE;
++    this.loadingIndicatorVisible = false;
++    this.errorDialogVisible = true;
++    this.errorMessage = message;
++    this.formControlsDisabled = false;
++    // Password and eraseData choices are intentionally preserved.
++  }
++
++  closeDialogs(): void {
++    if (this.action === DeactivationAction.FAILURE) {
++      this.action = DeactivationAction.UNINITIALIZED;
++      this.errorDialogVisible = false;
++      this.errorMessage = '';
++      this.confirmationPromptVisible = false;
++      // Form values preserved.
++    }
++  }
++
++  getLastRequestPayload(): DeactivationRequest | null {
++    return this.pendingPayload;
++  }
++
++  // Internal ----------------------------------------------------------
++
++  private beginRequest(): void {
++    if (this.password.length === 0) {
++      // Belt-and-braces guard for rejected credentials. We never report
++      // success locally.
++      this.action = DeactivationAction.FAILURE;
++      this.errorMessage = 'Password is required.';
++      this.errorDialogVisible = true;
++      this.formControlsDisabled = false;
++      return;
++    }
++    this.action = DeactivationAction.LOADING;
++    this.loadingIndicatorVisible = true;
++    this.errorDialogVisible = false;
++    this.errorMessage = '';
++    this.formControlsDisabled = true;
++    this.pendingPayload = { password: this.password, eraseData: this.eraseData };
++    this.requestCount = this.requestCount + 1;
++  }
++}
+diff --git a/entry/src/main/ets/features/SessionState.ets b/entry/src/main/ets/features/SessionState.ets
+new file mode 100644
+index 0000000..fcf86cd
+--- /dev/null
++++ b/entry/src/main/ets/features/SessionState.ets
+@@ -0,0 +1,37 @@
++// Shared, long-lived settings/session state reused across settings pages.
++// Holds capability flags surfaced from the server and post-deactivation
++// completion state that callers (e.g. Settings) consume after the
++// deactivation flow returns.
++
++export class SessionState {
++  private static _instance: SessionState = new SessionState();
++
++  static shared(): SessionState {
++    return SessionState._instance;
++  }
++
++  serverCanDeactivateAccount: boolean = true;
++  signedOut: boolean = false;
++  deactivationCompleted: boolean = false;
++  deactivationStatusText: string = '';
++
++  setServerCanDeactivateAccount(canDeactivate: boolean): void {
++    this.serverCanDeactivateAccount = !!canDeactivate;
++  }
++
++  signOut(): void {
++    this.signedOut = true;
++  }
++
++  markDeactivationCompleted(text: string): void {
++    this.deactivationCompleted = true;
++    this.deactivationStatusText = text;
++    // Exiting the active session through the normal sign-out path.
++    this.signedOut = true;
++  }
++
++  resetDeactivationCompletion(): void {
++    this.deactivationCompleted = false;
++    this.deactivationStatusText = '';
++  }
++}
+diff --git a/entry/src/main/ets/pages/DeactivateAccount.ets b/entry/src/main/ets/pages/DeactivateAccount.ets
+new file mode 100644
+index 0000000..d30414d
+--- /dev/null
++++ b/entry/src/main/ets/pages/DeactivateAccount.ets
+@@ -0,0 +1,224 @@
++import router from '@ohos.router';
++import {
++  DeactivationAction,
++  DeactivationPresenter
++} from '../features/Deactivation';
++import { SessionState } from '../features/SessionState';
++
++@Entry
++@Component
++struct DeactivateAccount {
++  private presenter: DeactivationPresenter = new DeactivationPresenter();
++  private session: SessionState = SessionState.shared();
++
++  aboutToAppear(): void {
++    this.presenter.reset();
++    this.presenter.setServerCapability(this.session.serverCanDeactivateAccount);
++    if (!this.session.serverCanDeactivateAccount) {
++      // The capability gate hides this entry from settings; defend in depth
++      // so an unsupported server never observes a deactivation request.
++      router.back();
++    }
++  }
++
++  aboutToDisappear(): void {
++    if (this.presenter.action === DeactivationAction.SUCCESS) {
++      // Hand control back to the normal post-deactivation flow.
++      this.session.markDeactivationCompleted('Account deactivated. Signed out.');
++    }
++  }
++
++  build() {
++    Stack({ alignContent: Alignment.TopStart }) {
++      this.buildForm()
++      if (this.presenter.confirmationPromptVisible) {
++        this.buildConfirmationOverlay()
++      }
++      if (this.presenter.errorDialogVisible) {
++        this.buildErrorOverlay()
++      }
++      if (this.presenter.loadingIndicatorVisible) {
++        this.buildLoadingOverlay()
++      }
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  @Builder
++  private buildForm() {
++    Column({ space: 12 }) {
++      Text('Deactivate account')
++        .fontSize(22)
++        .fontWeight(FontWeight.Bold)
++      Text('Deactivating your account is permanent. Sign-in is disabled and the account cannot be recovered.')
++        .fontSize(13)
++        .fontColor('#64748B')
++
++      Text('Current password')
++        .fontSize(13)
++        .fontColor('#64748B')
++        .margin({ top: 8 })
++      TextInput({ placeholder: 'Password', text: this.presenter.password })
++        .type(InputType.Password)
++        .enabled(!this.presenter.formControlsDisabled)
++        .onChange((value: string) => {
++          this.presenter.setPassword(value);
++        })
++
++      Row({ space: 8 }) {
++        Checkbox()
++          .select(this.presenter.eraseData)
++          .enabled(!this.presenter.formControlsDisabled)
++          .onChange((value: boolean) => {
++            this.presenter.setEraseData(value);
++          })
++        Text('Erase my discoverable data after deactivation')
++          .fontSize(13)
++      }
++      .alignItems(VerticalAlign.Center)
++
++      Button('Deactivate account')
++        .width('100%')
++        .height(40)
++        .backgroundColor('#DC2626')
++        .fontColor('#FFFFFF')
++        .enabled(this.shouldEnableDeactivateButton())
++        .onClick(() => {
++          this.presenter.requestDeactivation(false);
++        })
++
++      if (this.presenter.action === DeactivationAction.FAILURE && !this.presenter.errorDialogVisible) {
++        Text('Last attempt failed. Tap Deactivate to retry without reconfirming.')
++          .fontColor('#DC2626')
++          .fontSize(12)
++      }
++
++      if (this.presenter.successNoticeVisible) {
++        Text(this.presenter.successNoticeText)
++          .fontColor('#0F766E')
++          .fontSize(13)
++        Button('Back to settings')
++          .width('100%')
++          .height(40)
++          .onClick(() => {
++            router.back();
++          })
++      }
++    }
++    .padding(20)
++    .width('100%')
++  }
++
++  private shouldEnableDeactivateButton(): boolean {
++    if (this.presenter.formControlsDisabled) {
++      return false;
++    }
++    const state = this.presenter.action;
++    if (state === DeactivationAction.SUCCESS || state === DeactivationAction.LOADING) {
++      return false;
++    }
++    return true;
++  }
++
++  @Builder
++  private buildConfirmationOverlay() {
++    Stack({ alignContent: Alignment.Center }) {
++      Column() {
++        Text('Confirm deactivation')
++          .fontSize(18)
++          .fontWeight(FontWeight.Bold)
++        Text('This action is permanent. Your account will be deactivated and existing credentials disabled.')
++          .fontSize(13)
++          .fontColor('#64748B')
++          .margin({ top: 8 })
++        Row({ space: 12 }) {
++          Button('Cancel')
++            .layoutWeight(1)
++            .height(40)
++            .onClick(() => {
++              this.presenter.cancelConfirmation();
++            })
++          Button('Confirm')
++            .layoutWeight(1)
++            .height(40)
++            .backgroundColor('#DC2626')
++            .fontColor('#FFFFFF')
++            .onClick(() => {
++              this.presenter.requestDeactivation(false);
++            })
++        }
++        .margin({ top: 16 })
++        .width('100%')
++      }
++      .padding(20)
++      .backgroundColor('#FFFFFF')
++      .borderRadius(12)
++      .width('85%')
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor('#80000000')
++  }
++
++  @Builder
++  private buildErrorOverlay() {
++    Stack({ alignContent: Alignment.Center }) {
++      Column() {
++        Text('Deactivation failed')
++          .fontSize(18)
++          .fontWeight(FontWeight.Bold)
++        Text(this.presenter.errorMessage)
++          .fontSize(13)
++          .fontColor('#64748B')
++          .margin({ top: 8 })
++        Row({ space: 12 }) {
++          Button('Close')
++            .layoutWeight(1)
++            .height(40)
++            .onClick(() => {
++              this.presenter.closeDialogs();
++            })
++          Button('Retry')
++            .layoutWeight(1)
++            .height(40)
++            .backgroundColor('#DC2626')
++            .fontColor('#FFFFFF')
++            .onClick(() => {
++              this.presenter.requestDeactivation(true);
++            })
++        }
++        .margin({ top: 16 })
++        .width('100%')
++      }
++      .padding(20)
++      .backgroundColor('#FFFFFF')
++      .borderRadius(12)
++      .width('85%')
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor('#80000000')
++  }
++
++  @Builder
++  private buildLoadingOverlay() {
++    Stack({ alignContent: Alignment.Center }) {
++      Column({ space: 8 }) {
++        LoadingProgress()
++          .width(36)
++          .height(36)
++        Text('Deactivating your account…')
++          .fontSize(13)
++          .fontColor('#64748B')
++      }
++      .padding(24)
++      .backgroundColor('#FFFFFF')
++      .borderRadius(12)
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor('#80FFFFFF')
++  }
++}
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 37e1a8f..d425501 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,10 +1,33 @@
++import router from '@ohos.router';
+ import { PreferencesBasePresenter } from '../features/PreferencesBase';
++import { SessionState } from '../features/SessionState';
+ 
+ @Entry
+ @Component
+ struct Index {
+   private presenter: PreferencesBasePresenter = new PreferencesBasePresenter();
++  private session: SessionState = SessionState.shared();
+   @State private status: string = '';
++  @State private canDeactivateAccount: boolean = true;
++
++  aboutToAppear(): void {
++    this.canDeactivateAccount = this.session.serverCanDeactivateAccount;
++    if (this.session.deactivationCompleted) {
++      // Returning from a successful deactivation flow; surface the
++      // post-deactivation status through the normal sign-out path.
++      this.presenter.signOut();
++      this.status = this.session.deactivationStatusText;
++    }
++  }
++
++  onPageShow(): void {
++    // Refresh when the user returns from the deactivation flow.
++    this.canDeactivateAccount = this.session.serverCanDeactivateAccount;
++    if (this.session.deactivationCompleted) {
++      this.presenter.signOut();
++      this.status = this.session.deactivationStatusText;
++    }
++  }
+ 
+   build() {
+     Column() {
+@@ -23,6 +46,11 @@ struct Index {
+         })
+         Button('Chat backup').width('100%')
+         Button('Blocked users').width('100%')
++        if (this.canDeactivateAccount) {
++          Button('Deactivate account').width('100%').fontColor('#DC2626').onClick(() => {
++            router.pushUrl({ url: 'pages/DeactivateAccount' });
++          })
++        }
+         Button('Sign out').width('100%').onClick(() => {
+           this.presenter.signOut();
+           this.status = 'Signed out';
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 1898d94..2a8f7a6 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,5 +1,6 @@
+ {
+   "src": [
+-    "pages/Index"
++    "pages/Index",
++    "pages/DeactivateAccount"
+   ]
+ }

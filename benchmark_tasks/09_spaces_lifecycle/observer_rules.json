@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "taskId": "09_spaces_lifecycle",
+  "android": {
+    "roots": [
+      "features/home/impl/src/main/kotlin",
+      "features/space/impl/src/main/kotlin",
+      "features/spaces/impl/src/main/kotlin",
+      "libraries/matrix/api/src/main/kotlin",
+      "libraries/matrix/impl/src/main/kotlin"
+    ],
+    "cases": {
+      "sp_state_001_open_space": [
+        {"options": [{"path": ".*HomeSpacesPresenter\\.kt$", "patterns": ["spaceService\\.spaceRoomsFlow", "seenInvitesStore", "HomeSpacesState"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*SpacesPresenter\\.kt$", "patterns": ["SpacesEvents\\.OpenSpace", "selectedSpaceIdState\\.value = event\\.spaceId", "isLoadingChildrenState\\.value = true", "loadFirstPage"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*SpaceFlowNode\\.kt$", "patterns": ["SpaceNode", "BackstackView", "createNode"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*HomeView\\.kt$", "patterns": ["HomeNavigationBarItem\\.Spaces", "SpacesView", "state\\.spacesState"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_002_paginate_children": [
+        {"options": [{"path": ".*SpacePresenter\\.kt$", "patterns": ["SpaceEvents\\.LoadMore", "spaceRoomList\\.paginate", "spaceRoomsFlow", "hasMoreToLoad"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpacesPresenter\\.kt$", "patterns": ["SpacesEvents\\.LoadMoreChildren", "existingIds", "current \\+ appended", "hasMoreToLoadState\\.value"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*SpaceView\\.kt$", "patterns": ["LoadingMoreIndicator", "latestEventSink\\(SpaceEvents\\.LoadMore\\)", "state\\.children"], "forbid": ["state_probe_snapshot"]}, {"path": ".*SpacesView\\.kt$", "patterns": ["state\\.hasMoreToLoad", "onLoadMore", "SpacesEvents\\.LoadMoreChildren"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_003_join_child_success": [
+        {"options": [{"path": ".*SpacePresenter\\.kt$", "patterns": ["SpaceEvents\\.Join", "AsyncAction\\.Loading", "joinRoom\\.invoke", "joinedChildren"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*SpaceView\\.kt$", "patterns": ["JoinButton", "state\\.eventSink\\(SpaceEvents\\.Join", "isCurrentlyJoining"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "sp_state_004_join_failure_retry": [
+        {"options": [{"path": ".*SpacePresenter\\.kt$", "patterns": ["AsyncAction\\.Failure", "SpaceEvents\\.ClearFailures", "mapValues \\{ AsyncAction\\.Uninitialized", "joinActions"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*SpaceView\\.kt$", "patterns": ["JoinRoomFailureEffect", "hasAnyFailure", "state\\.eventSink"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "sp_state_005_accept_invite": [
+        {"options": [{"path": ".*SpacePresenter\\.kt$", "patterns": ["SpaceEvents\\.AcceptInvite", "AcceptDeclineInviteEvents\\.AcceptInvite", "seenInvitesStore"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpaceListPresenter\\.kt$", "patterns": ["SpaceListEvents\\.AcceptSpaceInvite", "AcceptDeclineInviteEvents\\.AcceptInvite", "seenInvitesStore"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*SpacesPresenter\\.kt$", "patterns": ["SpacesEvents\\.AcceptSpaceInvite", "AcceptDeclineInviteEvents\\.AcceptInvite", "seenInvitesStore\\.markAsSeen"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*SpaceView\\.kt$", "patterns": ["inviteButtons", "SpaceEvents\\.AcceptInvite", "SpaceEvents\\.DeclineInvite"], "forbid": ["state_probe_snapshot"]}, {"path": ".*HomeView\\.kt$", "patterns": ["SpaceListView", "onAcceptInvite", "SpaceListEvents\\.AcceptSpaceInvite"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*SpacesView\\.kt$", "patterns": ["SpaceInviteRow", "SpacesEvents\\.AcceptSpaceInvite", "SpacesEvents\\.DeclineSpaceInvite"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_006_default_leave_selection": [
+        {"options": [{"path": ".*LeaveSpacePresenter\\.kt$", "patterns": ["isDirect != true", "isLastAdmin\\.not", "selectedRoomIds", "otherRoomsExcludingDm"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*LeaveSpaceView\\.kt$", "patterns": ["selectableSpaceRooms", "isLastAdmin", "ToggleRoomSelection"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "sp_state_007_bulk_and_toggle_selection": [
+        {"options": [{"path": ".*LeaveSpacePresenter\\.kt$", "patterns": ["DeselectAllRooms", "SelectAllRooms", "ToggleRoomSelection", "isLastAdmin\\.not"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpacesPresenter\\.kt$", "patterns": ["SpacesEvents\\.SelectAllChildren", "SpacesEvents\\.DeselectAllChildren", "SpacesEvents\\.ToggleChildSelection", "canBeLeftWhenLeavingSpace"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*LeaveSpaceView\\.kt$", "patterns": ["action_deselect_all", "action_select_all", "LeaveSpaceEvents\\.ToggleRoomSelection"], "forbid": ["state_probe_snapshot"]}, {"path": ".*SpacesView\\.kt$", "patterns": ["LeaveSpaceSheet", "onSelectAll", "onDeselectAll", "onToggle"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_008_leave_failure_retry": [
+        {"options": [{"path": ".*LeaveSpacePresenter\\.kt$", "patterns": ["LeaveSpaceEvents\\.Retry", "AsyncData\\.Loading", "LeaveSpaceEvents\\.CloseError", "AsyncAction\\.Uninitialized"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*LeaveSpaceView\\.kt$", "patterns": ["AsyncFailure", "onRetry", "onErrorDismiss", "LeaveSpaceEvents\\.CloseError"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "sp_state_009_leave_selected_rooms": [
+        {"options": [{"path": ".*LeaveSpacePresenter\\.kt$", "patterns": ["LeaveSpaceEvents\\.LeaveSpace", "leaveSpaceHandle\\.leave\\(selectedRoomIds\\.toList", "runUpdatingState"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*LeaveSpaceView\\.kt$", "patterns": ["LeaveSpaceButtons", "LeaveSpaceEvents\\.LeaveSpace", "selectedRoomsCount"], "forbid": ["state_probe_snapshot"]}]}
+      ]
+    }
+  },
+  "arkts": {
+    "roots": ["entry/src/main/ets"],
+    "cases": {
+      "sp_state_001_open_space": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["openSpace\\(", "selectedSpaceId", "SpaceSurface\\.Space", "childrenState"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.openSpace", "space_", "SpaceSurface\\.Home"], "forbid": ["caseId", "semanticFacts"]}]}
+      ],
+      "sp_state_002_paginate_children": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["loadMore", "paginationState", "children\\.some", "hasMoreToLoad = false"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["loadMoreChildren", "existingIds", "merged\\.push", "hasMoreBySpaceId\\[spaceId\\] = false"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["space_load_more", "presenter\\.loadMore", "hasMoreToLoad"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["Load more children", "presenter\\.loadMoreChildren", "presenter\\.hasMore"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_003_join_child_success": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["joinChild", "AsyncOperationState\\.Loading", "gateway\\.joinRoom", "membership = 'joined'"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["joinChild", "JOIN_LOADING", "markChildMembership", "MEMBERSHIP_JOINED"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["join_", "presenter\\.joinChild", "joinLabel"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["renderChildJoinControl", "presenter\\.joinChild", "JOIN_LOADING"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_004_join_failure_retry": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["failNextJoin", "AsyncOperationState\\.Failure", "clearJoinFailures", "attempts"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Fail next join", "Clear failures", "presenter\\.joinChild"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "sp_state_005_accept_invite": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["acceptInvite", "seenInviteIds", "membership = 'joined'", "invites\\.filter"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["acceptInvite", "seenInvites\\.push", "spaceInvites = filtered", "joinedSpaces\\.unshift"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["acceptInvite", "inviteSeen\\.add", "spaceInvites = filtered", "joinedSpaces = next"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["accept_space_", "presenter\\.acceptInvite", "presenter\\.invites"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["renderInviteRow", "presenter\\.acceptInvite", "spaceInvites"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["InvitesSection", "presenter\\.acceptInvite", "spaceInvites"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_006_default_leave_selection": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["openLeaveSpace", "leaveCandidates", "!room\\.isDirect", "!room\\.isLastAdmin"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["openLeaveSpace", "applyDefaultLeaveSelection", "isEligibleForLeave", "isDirect", "isLastAdmin"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["openLeaveSpace", "if \\(c\\.isDirect\\)", "isLastAdmin", "defaultSelected\\.add"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["open_leave_space", "presenter\\.openLeaveSpace", "presenter\\.leaveCandidates"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["renderLeaveSpaceFlow", "presenter\\.openLeaveSpace", "presenter\\.isEligibleForLeave"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.openLeaveSpace", "eligibleLeaveRooms", "enabled\\(!option\\.isLastAdmin\\)"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_007_bulk_and_toggle_selection": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["deselectAllRooms", "selectAllRooms", "toggleRoomSelection", "room\\.isLastAdmin"], "forbid": ["caseId", "semanticFacts"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["deselectAll", "selectAllEligible", "toggleRoomSelection", "target\\.isLastAdmin"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*SpacesPresenter\\.ets$", "patterns": ["deselectAllLeave", "selectAllLeave", "toggleLeaveRoom", "lastAdminRooms\\.has"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Select all", "Deselect all", "presenter\\.toggleRoomSelection"], "forbid": ["state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.selectAllEligible", "presenter\\.deselectAll", "presenter\\.toggleRoomSelection"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}, {"path": ".*pages/Index\\.ets$", "patterns": ["presenter\\.selectAllLeave", "presenter\\.deselectAllLeave", "presenter\\.toggleLeaveRoom"], "forbid": ["caseId", "semanticFacts", "state_probe_snapshot"]}]}
+      ],
+      "sp_state_008_leave_failure_retry": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["failNextLeave", "leaveAttempts", "AsyncOperationState\\.Failure", "closeLeaveError"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["Fail next leave", "Retry leave", "selection kept", "presenter\\.closeLeaveError"], "forbid": ["state_probe_snapshot"]}]}
+      ],
+      "sp_state_009_leave_selected_rooms": [
+        {"options": [{"path": ".*SpacesFeature\\.ets$", "patterns": ["leaveSpace\\(", "gateway\\.leaveSpace\\(this\\.selectedLeaveRoomIds", "SpaceSurface\\.Home", "lastLeftRoomIds"], "forbid": ["caseId", "semanticFacts"]}]},
+        {"options": [{"path": ".*pages/Index\\.ets$", "patterns": ["confirm_leave_space", "presenter\\.leaveSpace", "selectedLeaveRoomIds"], "forbid": ["state_probe_snapshot"]}]}
+      ]
+    }
+  }
+}

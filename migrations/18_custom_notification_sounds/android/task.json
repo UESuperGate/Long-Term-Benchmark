@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "taskId": "18_custom_notification_sounds",
+  "title": "Choose and persist message sounds and call ringtones",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/element-hq/element-x-android.git",
+    "baseRef": "v26.05.2",
+    "baseCommit": "20d0d115d4d115ed5bce8c97bf3a1cc9f9e19865",
+    "finalRef": "v26.06.1",
+    "finalCommit": "8bafc84210a7e744f4a53d85c092f146b0fbb832"
+  },
+  "arkts": {
+    "platform": "OpenHarmony",
+    "apiVersion": 23,
+    "basePath": "18_custom_notification_sounds_base_26_05_2",
+    "finalPath": "final_dev_nodes/18_custom_notification_sounds_final_26_06_1",
+    "baseProject": "../../18_custom_notification_sounds_base_26_05_2",
+    "finalProject": "../../final_dev_nodes/18_custom_notification_sounds_final_26_06_1",
+    "baseVersion": "26.05.2-base",
+    "finalVersion": "26.06.1-final",
+    "baseBundle": "com.qingyu.elementx.notificationsounds.base",
+    "finalBundle": "com.qingyu.elementx.notificationsounds.final",
+    "productionRoots": ["entry/src/main/ets"],
+    "toolchain": {
+      "devEcoStudio": "6.1.1",
+      "openHarmonySdkApi": 23,
+      "hvigor": "6.24.5",
+      "ohpm": "6.1.2.285",
+      "node": "18.20.1",
+      "jdk": "21.0.8"
+    },
+    "effectMapping": {
+      "systemPicker": "OpenHarmony AudioViewPicker",
+      "appOwnedCopy": "@ohos.file.fs copy into Context.filesDir",
+      "notificationChannel": "versioned app-managed notification delivery channel configuration persisted per sound slot"
+    }
+  },
+  "releaseNotes": [{"text": "Notification settings: pick custom sounds for messages and call ringtones", "source": "CHANGES.md v26.06.1 / PR #6897"}],
+  "functionalAreas": ["preset_dialog", "system_picker", "sound_copy", "preference_persistence", "channel_recreation", "legacy_migration", "copy_failure"],
+  "stateSurfaces": ["NotificationSettingsState", "NotificationSound", "AppPreferencesStore", "NotificationChannels", "NotificationSoundCopier"],
+  "eventEntrypoints": ["ShowMessageSoundDialog", "SelectMessageSoundPreset", "SetMessageSound", "SetCallRingtone", "DismissCopyError", "ResetToDefault"],
+  "evidence": {
+    "productionPaths": ["features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications", "libraries/preferences", "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications"],
+    "testPaths": ["features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications", "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications"],
+    "commits": ["c88edc9621d342152795b4fcff70545363f91417"]
+  },
+  "nonGoals": ["Per-room sound selection", "Downloading remote ringtones", "Changing Matrix push-rule semantics"],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "transitionDraft": "transitions.draft.json",
+    "transitions": "transitions.json",
+    "observerRules": "observer_rules.json",
+    "arktsBindings": "arkts_bindings.json",
+    "migrationValidation": "migration_validation.json"
+  }
+}

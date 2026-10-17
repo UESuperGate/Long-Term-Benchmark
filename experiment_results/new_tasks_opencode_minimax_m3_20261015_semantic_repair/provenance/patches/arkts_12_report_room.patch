@@ -1,0 +1,636 @@
+diff --git a/AppScope/app.json5 b/AppScope/app.json5
+index 29cc1f7..9515881 100644
+--- a/AppScope/app.json5
++++ b/AppScope/app.json5
+@@ -3,7 +3,7 @@
+     "bundleName": "com.qingyu.elementx.reportroom.base",
+     "vendor": "qingyu",
+     "versionCode": 1,
+-    "versionName": "25.04.3-base",
++    "versionName": "25.05.0",
+     "icon": "$media:app_icon",
+     "minAPIVersion": 23,
+     "targetAPIVersion": 23,
+diff --git a/entry/src/main/ets/features/ReportRoomFeature.ets b/entry/src/main/ets/features/ReportRoomFeature.ets
+new file mode 100644
+index 0000000..9fb85cc
+--- /dev/null
++++ b/entry/src/main/ets/features/ReportRoomFeature.ets
+@@ -0,0 +1,244 @@
++/**
++ * ReportRoomFeature
++ *
++ * Production state machine used by Element X to report a Matrix room and,
++ * optionally, leave it in the same submission.
++ *
++ * Design rationale
++ * - The visible UI is driven entirely by `phase`, `reason`, and `leaveRoom`.
++ * - Gateway side effects are encapsulated in `ReportRoomGateway`; only the
++ *   presenter ever calls the gateway, so forms cannot leak network traffic.
++ * - The state machine is explicit: each public method corresponds to one user
++ *   intent (edit reason, toggle leave, submit, retry, clear, cancel, dismiss).
++ *   Concurrent submissions are blocked by gating writes on the active phase.
++ * - A partial failure (report sent, leave failed) is recoverable: `retry()`
++ *   re-runs only the leave step while the report success is preserved.
++ * - Editing or clearing errors never re-emits network effects.
++ */
++
++export type ReportRoomPhase =
++  | 'idle'
++  | 'editing'
++  | 'submitting_report'
++  | 'submitting_leave'
++  | 'report_failed'
++  | 'leave_failed'
++  | 'success';
++
++export interface ReportRoomOutcome {
++  reported: boolean;
++  left: boolean;
++  phase: ReportRoomPhase;
++}
++
++export class ReportRoomGateway {
++  reportCalls: number = 0;
++  leaveCalls: number = 0;
++
++  reportRoom(roomId: string, reason: string): boolean {
++    this.reportCalls += 1;
++    return true;
++  }
++
++  leaveRoom(roomId: string): boolean {
++    this.leaveCalls += 1;
++    return true;
++  }
++}
++
++export class ReportRoomPresenter {
++  readonly gateway: ReportRoomGateway;
++  roomId: string = '';
++  reason: string = '';
++  leaveRoom: boolean = false;
++  phase: ReportRoomPhase = 'idle';
++  reportCalls: number = 0;
++  leaveCalls: number = 0;
++  lastOutcome: ReportRoomOutcome | null = null;
++
++  constructor(gateway: ReportRoomGateway) {
++    this.gateway = gateway;
++  }
++
++  private isEditable(): boolean {
++    return this.phase === 'idle'
++      || this.phase === 'editing'
++      || this.phase === 'report_failed'
++      || this.phase === 'leave_failed';
++  }
++
++  private isInFlight(): boolean {
++    return this.phase === 'submitting_report' || this.phase === 'submitting_leave';
++  }
++
++  openReportRoom(roomId: string): void {
++    if (this.isInFlight()) {
++      return;
++    }
++    this.roomId = roomId;
++    this.reason = '';
++    this.leaveRoom = false;
++    this.lastOutcome = null;
++    this.phase = 'editing';
++  }
++
++  updateReason(value: string): void {
++    if (!this.isEditable()) {
++      return;
++    }
++    this.reason = value;
++    this.phase = 'editing';
++  }
++
++  toggleLeaveRoom(): void {
++    if (!this.isEditable()) {
++      return;
++    }
++    this.leaveRoom = !this.leaveRoom;
++    this.phase = 'editing';
++  }
++
++  setLeaveRoom(value: boolean): void {
++    if (!this.isEditable()) {
++      return;
++    }
++    this.leaveRoom = value;
++    this.phase = 'editing';
++  }
++
++  submitReport(): void {
++    if (this.isInFlight()) {
++      return;
++    }
++    if (this.phase === 'leave_failed') {
++      // Partial failure path: only `retry` may resume; submit must not re-report.
++      return;
++    }
++    if (!this.isEditable()) {
++      return;
++    }
++    if (this.reason.trim().length === 0) {
++      return;
++    }
++
++    this.phase = 'submitting_report';
++    const reported = this.gateway.reportRoom(this.roomId, this.reason);
++    this.reportCalls += 1;
++
++    if (!reported) {
++      this.phase = 'report_failed';
++      this.lastOutcome = { reported: false, left: false, phase: this.phase };
++      return;
++    }
++
++    if (this.leaveRoom) {
++      this.phase = 'submitting_leave';
++      const left = this.gateway.leaveRoom(this.roomId);
++      this.leaveCalls += 1;
++      if (!left) {
++        this.phase = 'leave_failed';
++        this.lastOutcome = { reported: true, left: false, phase: this.phase };
++        return;
++      }
++    }
++
++    this.phase = 'success';
++    this.lastOutcome = {
++      reported: true,
++      left: this.leaveRoom,
++      phase: this.phase
++    };
++  }
++
++  retry(): void {
++    if (this.phase !== 'leave_failed') {
++      return;
++    }
++    if (this.isInFlight()) {
++      return;
++    }
++    this.phase = 'submitting_leave';
++    const left = this.gateway.leaveRoom(this.roomId);
++    this.leaveCalls += 1;
++    if (!left) {
++      this.phase = 'leave_failed';
++      this.lastOutcome = { reported: true, left: false, phase: this.phase };
++      return;
++    }
++    this.phase = 'success';
++    this.lastOutcome = {
++      reported: true,
++      left: true,
++      phase: this.phase
++    };
++  }
++
++  clearReportAction(): void {
++    if (this.phase !== 'report_failed' && this.phase !== 'leave_failed') {
++      return;
++    }
++    // Pure UI reset: no network effects, reason and leaveRoom are preserved.
++    this.phase = 'editing';
++  }
++
++  cancel(): void {
++    if (this.isInFlight()) {
++      // Cancellation is rejected while a side-effecting step is mid-flight so
++      // we never silently drop a matrix report or leave during submit.
++      return;
++    }
++    this.phase = 'idle';
++    this.lastOutcome = null;
++  }
++
++  reset(): void {
++    this.reason = '';
++    this.leaveRoom = false;
++    this.reportCalls = 0;
++    this.leaveCalls = 0;
++    this.phase = 'idle';
++    this.lastOutcome = null;
++  }
++
++  canEditReason(): boolean {
++    return this.isEditable();
++  }
++
++  canSubmit(): boolean {
++    return this.reason.trim().length > 0
++      && (this.phase === 'editing' || this.phase === 'idle' || this.phase === 'report_failed');
++  }
++
++  canRetry(): boolean {
++    return this.phase === 'leave_failed' && !this.isInFlight();
++  }
++
++  canClear(): boolean {
++    return this.phase === 'report_failed' || this.phase === 'leave_failed';
++  }
++
++  canCancel(): boolean {
++    return !this.isInFlight();
++  }
++
++  inFlight(): boolean {
++    return this.isInFlight();
++  }
++
++  statusText(): string {
++    switch (this.phase) {
++      case 'submitting_report':
++        return 'Sending report';
++      case 'submitting_leave':
++        return 'Leaving room';
++      case 'report_failed':
++        return 'Could not send the report. Try again.';
++      case 'leave_failed':
++        return 'Report sent. Leaving the room failed. Retry to leave only.';
++      case 'success':
++        return this.leaveRoom ? 'Report sent. You left the room.' : 'Report sent.';
++      default:
++        return '';
++    }
++  }
++}
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index f6ba63b..2b0bffa 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,3 +1,4 @@
++import router from '@ohos.router';
+ import { RoomDetailsGateway, RoomDetailsPresenter } from '../features/RoomDetailsFeature';
+ 
+ @Entry
+@@ -5,6 +6,8 @@ import { RoomDetailsGateway, RoomDetailsPresenter } from '../features/RoomDetail
+ struct Index {
+   private presenter: RoomDetailsPresenter = new RoomDetailsPresenter(new RoomDetailsGateway());
+   @State private statusText: string = 'Room details';
++  @State private roomId: string = '!room:example.org';
++  @State private roomName: string = 'Community support';
+ 
+   build() {
+     Column() {
+@@ -21,25 +24,51 @@ struct Index {
+       .width('100%')
+       .backgroundColor('#FFFFFF')
+ 
+-      Column({ space: 12 }) {
+-        Button('Notifications')
+-          .width('100%')
+-        Button('Members')
+-          .width('100%')
+-        Button('Leave room')
+-          .id('leave_room')
+-          .width('100%')
+-          .onClick(() => {
+-            this.presenter.leaveRoom();
+-            this.statusText = this.presenter.leaveSucceeded ? 'Left room' : 'Unable to leave room';
+-          })
+-        Text(this.statusText)
+-          .fontSize(13)
+-          .fontColor('#64748B')
+-          .width('100%')
++      Scroll() {
++        Column({ space: 12 }) {
++          Button('Notifications')
++            .width('100%')
++          Button('Members')
++            .width('100%')
++          Button('Invites')
++            .id('open_invite_decline')
++            .width('100%')
++            .onClick(() => {
++              router.pushUrl({
++                url: 'pages/InviteDeclinePage',
++                params: {
++                  roomId: this.roomId,
++                  roomName: this.roomName,
++                  inviter: '@alice:example.org'
++                }
++              });
++            })
++          Button('Leave room')
++            .id('leave_room')
++            .width('100%')
++            .onClick(() => {
++              this.presenter.leaveRoom();
++              this.statusText = this.presenter.leaveSucceeded ? 'Left room' : 'Unable to leave room';
++            })
++          Button('Report room')
++            .id('open_report_room')
++            .width('100%')
++            .backgroundColor('#FEE2E2')
++            .fontColor('#B91C1C')
++            .onClick(() => {
++              router.pushUrl({
++                url: 'pages/ReportRoomPage',
++                params: { roomId: this.roomId }
++              });
++            })
++          Text(this.statusText)
++            .fontSize(13)
++            .fontColor('#64748B')
++            .width('100%')
++        }
++        .padding(20)
++        .width('100%')
+       }
+-      .padding(20)
+-      .width('100%')
+       .layoutWeight(1)
+     }
+     .height('100%')
+diff --git a/entry/src/main/ets/pages/InviteDeclinePage.ets b/entry/src/main/ets/pages/InviteDeclinePage.ets
+new file mode 100644
+index 0000000..8412c17
+--- /dev/null
++++ b/entry/src/main/ets/pages/InviteDeclinePage.ets
+@@ -0,0 +1,103 @@
++import router from '@ohos.router';
++
++interface InviteDeclineParams {
++  roomId?: string;
++  roomName?: string;
++  inviter?: string;
++}
++
++@Entry
++@Component
++struct InviteDeclinePage {
++  @State private roomId: string = '!room:example.org';
++  @State private roomName: string = 'Community support';
++  @State private inviter: string = '@alice:example.org';
++  @State private reason: string = '';
++
++  aboutToAppear(): void {
++    const params = router.getParams() as InviteDeclineParams | undefined;
++    if (params) {
++      if (params.roomId) {
++        this.roomId = String(params.roomId);
++      }
++      if (params.roomName) {
++        this.roomName = String(params.roomName);
++      }
++      if (params.inviter) {
++        this.inviter = String(params.inviter);
++      }
++    }
++  }
++
++  build() {
++    Column() {
++      Column({ space: 4 }) {
++        Text('Decline invite')
++          .fontSize(20)
++          .fontWeight(FontWeight.Bold)
++        Text(`${this.roomName} invited by ${this.inviter}`)
++          .fontSize(12)
++          .fontColor('#64748B')
++      }
++      .alignItems(HorizontalAlign.Start)
++      .padding(20)
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++
++      Scroll() {
++        Column({ space: 12 }) {
++          Text('Optional note for the inviter')
++            .fontSize(13)
++            .fontColor('#64748B')
++            .width('100%')
++          TextInput({ text: this.reason, placeholder: 'Let the inviter know why (optional)' })
++            .id('invite_decline_reason_input')
++            .width('100%')
++            .onChange((value: string) => {
++              this.reason = value;
++            })
++
++          Button('Decline and leave')
++            .id('invite_decline_only')
++            .width('100%')
++            .onClick(() => {
++              router.back();
++            })
++
++          Button('Report and decline')
++            .id('invite_report_and_decline')
++            .width('100%')
++            .backgroundColor('#FEE2E2')
++            .fontColor('#B91C1C')
++            .onClick(() => {
++              router.pushUrl({
++                url: 'pages/ReportRoomPage',
++                params: {
++                  roomId: this.roomId,
++                  leaveRoom: true,
++                  initialReason: this.reason
++                }
++              });
++            })
++
++          Button('Back')
++            .id('invite_decline_back')
++            .width('100%')
++            .backgroundColor('#F1F5F9')
++            .fontColor('#0F172A')
++            .onClick(() => {
++              router.back();
++            })
++        }
++        .padding(20)
++        .width('100%')
++        .alignItems(HorizontalAlign.Start)
++      }
++      .layoutWeight(1)
++      .width('100%')
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++}
+diff --git a/entry/src/main/ets/pages/ReportRoomPage.ets b/entry/src/main/ets/pages/ReportRoomPage.ets
+new file mode 100644
+index 0000000..9ddc90a
+--- /dev/null
++++ b/entry/src/main/ets/pages/ReportRoomPage.ets
+@@ -0,0 +1,157 @@
++import router from '@ohos.router';
++import {
++  ReportRoomGateway,
++  ReportRoomPhase,
++  ReportRoomPresenter
++} from '../features/ReportRoomFeature';
++
++interface ReportRoomNavigationParams {
++  roomId?: string;
++  initialReason?: string;
++  leaveRoom?: boolean;
++}
++
++@Entry
++@Component
++struct ReportRoomPage {
++  private presenter: ReportRoomPresenter = new ReportRoomPresenter(new ReportRoomGateway());
++  @State private reason: string = '';
++  @State private leaveRoom: boolean = false;
++  @State private phase: ReportRoomPhase = 'editing';
++  @State private statusText: string = '';
++
++  aboutToAppear(): void {
++    const params = router.getParams() as ReportRoomNavigationParams | undefined;
++    const roomId: string = (params && params.roomId) ? String(params.roomId) : '!room:example.org';
++    this.presenter.openReportRoom(roomId);
++    if (params && params.initialReason) {
++      this.presenter.updateReason(String(params.initialReason));
++    }
++    if (params && typeof params.leaveRoom === 'boolean') {
++      this.presenter.setLeaveRoom(params.leaveRoom);
++    }
++    this.syncFromPresenter();
++  }
++
++  private syncFromPresenter(): void {
++    this.reason = this.presenter.reason;
++    this.leaveRoom = this.presenter.leaveRoom;
++    this.phase = this.presenter.phase;
++    this.statusText = this.presenter.statusText();
++  }
++
++  build() {
++    Column() {
++      Column({ space: 4 }) {
++        Text('Report room')
++          .fontSize(20)
++          .fontWeight(FontWeight.Bold)
++        Text(this.presenter.roomId)
++          .fontSize(12)
++          .fontColor('#64748B')
++      }
++      .alignItems(HorizontalAlign.Start)
++      .padding(20)
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++
++      Scroll() {
++        Column({ space: 12 }) {
++          Text('Reason')
++            .fontSize(13)
++            .fontColor('#64748B')
++            .width('100%')
++          TextInput({ text: this.reason, placeholder: 'Why are you reporting this room?' })
++            .id('report_reason_input')
++            .width('100%')
++            .enabled(this.presenter.canEditReason())
++            .onChange((value: string) => {
++              this.presenter.updateReason(value);
++              this.syncFromPresenter();
++            })
++
++          Row({ space: 8 }) {
++            Toggle({ type: ToggleType.Checkbox, isOn: this.leaveRoom })
++              .id('leave_room_toggle')
++              .enabled(this.presenter.canEditReason())
++              .onChange((isOn: boolean) => {
++                this.presenter.setLeaveRoom(isOn);
++                this.syncFromPresenter();
++              })
++            Text('Also leave this room')
++              .fontSize(14)
++          }
++          .width('100%')
++
++          if (this.presenter.canRetry()) {
++            Button('Retry leave only')
++              .id('retry_leave_only')
++              .width('100%')
++              .onClick(() => {
++                this.presenter.retry();
++                this.syncFromPresenter();
++              })
++          }
++
++          if (this.presenter.canClear()) {
++            Button('Dismiss error')
++              .id('clear_report_action')
++              .width('100%')
++              .backgroundColor('#F1F5F9')
++              .fontColor('#0F172A')
++              .onClick(() => {
++                this.presenter.clearReportAction();
++                this.syncFromPresenter();
++              })
++          }
++
++          Button(this.presenter.inFlight() ? 'Submitting…' : 'Send report')
++            .id('submit_report')
++            .width('100%')
++            .enabled(this.presenter.canSubmit() && !this.presenter.inFlight())
++            .onClick(() => {
++              this.presenter.submitReport();
++              this.syncFromPresenter();
++            })
++
++          Button('Cancel')
++            .id('cancel_report')
++            .width('100%')
++            .backgroundColor('#F1F5F9')
++            .fontColor('#0F172A')
++            .enabled(this.presenter.canCancel())
++            .onClick(() => {
++              this.presenter.cancel();
++              this.syncFromPresenter();
++              router.back();
++            })
++
++          Text(this.statusText)
++            .id('report_status')
++            .fontSize(13)
++            .fontColor('#64748B')
++            .width('100%')
++
++          if (this.phase === 'success') {
++            Text('Done')
++              .id('report_done')
++              .fontSize(13)
++              .fontColor('#16A34A')
++              .width('100%')
++              .onClick(() => {
++                router.back();
++              })
++          }
++        }
++        .padding(20)
++        .width('100%')
++        .alignItems(HorizontalAlign.Start)
++      }
++      .layoutWeight(1)
++      .width('100%')
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++}
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 1898d94..790b329 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,5 +1,7 @@
+ {
+   "src": [
+-    "pages/Index"
++    "pages/Index",
++    "pages/ReportRoomPage",
++    "pages/InviteDeclinePage"
+   ]
+ }

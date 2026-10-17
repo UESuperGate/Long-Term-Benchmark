@@ -36,7 +36,7 @@ Normalize `taskId`, `key`, `given`, `event`, and `expected` as JSON with sorted 
 - Include negative assertions when absence matters, such as no duplicate dispatch or no leaked status text.
 - Exercise async completion explicitly: request, loading, success/failure, and cleanup are separate phases when observable.
 - Keep unchanged regression tests outside the polarity set because base must fail every scored case.
-- Prefer runtime tests. A source observer is acceptable only when runtime execution is unavailable and must be labeled `observationMode: source_transition_conformance`.
+- Prefer runtime tests. A source observer is acceptable only when runtime execution is unavailable and must be labeled `observationMode: source_transition_conformance`. It scans configured production roots plus changed production files and accepts equivalent implementation structures. If no production source is observed, every case is `not_scored`, never `fail`.
 
 ## Result Format
 

@@ -1,0 +1,984 @@
+diff --git a/features/reportroom/api/build.gradle.kts b/features/reportroom/api/build.gradle.kts
+new file mode 100644
+index 0000000..05a5f6a
+--- /dev/null
++++ b/features/reportroom/api/build.gradle.kts
+@@ -0,0 +1,18 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++plugins {
++    id("io.element.android-compose-library")
++}
++
++android {
++    namespace = "io.element.android.features.reportroom.api"
++}
++
++dependencies {
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++}
+diff --git a/features/reportroom/api/src/main/AndroidManifest.xml b/features/reportroom/api/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..77a2178
+--- /dev/null
++++ b/features/reportroom/api/src/main/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?><!--
++  ~ Copyright 2025 New Vector Ltd.
++  ~
++  ~ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++  ~ Please see LICENSE files in the repository root for full details.
++  -->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+diff --git a/features/reportroom/api/src/main/kotlin/io/element/android/features/reportroom/api/ReportRoomEntryPoint.kt b/features/reportroom/api/src/main/kotlin/io/element/android/features/reportroom/api/ReportRoomEntryPoint.kt
+new file mode 100644
+index 0000000..1e76d96
+--- /dev/null
++++ b/features/reportroom/api/src/main/kotlin/io/element/android/features/reportroom/api/ReportRoomEntryPoint.kt
+@@ -0,0 +1,31 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.api
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import io.element.android.libraries.architecture.FeatureEntryPoint
++import io.element.android.libraries.architecture.NodeInputs
++import io.element.android.libraries.matrix.api.core.RoomId
++
++interface ReportRoomEntryPoint : FeatureEntryPoint {
++    data class Params(val roomId: RoomId) : NodeInputs
++
++    interface Callback : Plugin {
++        fun onSuccess()
++    }
++
++    interface NodeBuilder {
++        fun params(params: Params): NodeBuilder
++        fun callback(callback: Callback): NodeBuilder
++        fun build(): Node
++    }
++
++    fun nodeBuilder(parentNode: Node, buildContext: BuildContext): NodeBuilder
++}
+diff --git a/features/reportroom/impl/build.gradle.kts b/features/reportroom/impl/build.gradle.kts
+new file mode 100644
+index 0000000..d965f93
+--- /dev/null
++++ b/features/reportroom/impl/build.gradle.kts
+@@ -0,0 +1,35 @@
++import extension.setupAnvil
++
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++plugins {
++    id("io.element.android-compose-library")
++}
++
++android {
++    namespace = "io.element.android.features.reportroom.impl"
++}
++
++setupAnvil()
++
++dependencies {
++    implementation(projects.libraries.core)
++    implementation(projects.libraries.architecture)
++    implementation(projects.libraries.matrix.api)
++    implementation(projects.libraries.designsystem)
++    implementation(projects.libraries.uiStrings)
++    implementation(projects.libraries.androidutils)
++    api(projects.features.reportroom.api)
++
++    testImplementation(libs.test.junit)
++    testImplementation(libs.coroutines.test)
++    testImplementation(libs.molecule.runtime)
++    testImplementation(libs.test.truth)
++    testImplementation(libs.test.turbine)
++    testImplementation(projects.libraries.matrix.test)
++    testImplementation(projects.tests.testutils)
++}
+diff --git a/features/reportroom/impl/src/main/AndroidManifest.xml b/features/reportroom/impl/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..77a2178
+--- /dev/null
++++ b/features/reportroom/impl/src/main/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?><!--
++  ~ Copyright 2025 New Vector Ltd.
++  ~
++  ~ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++  ~ Please see LICENSE files in the repository root for full details.
++  -->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/DefaultReportRoomEntryPoint.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/DefaultReportRoomEntryPoint.kt
+new file mode 100644
+index 0000000..41a4cf2
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/DefaultReportRoomEntryPoint.kt
+@@ -0,0 +1,39 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl
++
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import com.squareup.anvil.annotations.ContributesBinding
++import io.element.android.features.reportroom.api.ReportRoomEntryPoint
++import io.element.android.libraries.architecture.createNode
++import io.element.android.libraries.di.AppScope
++import javax.inject.Inject
++
++@ContributesBinding(AppScope::class)
++class DefaultReportRoomEntryPoint @Inject constructor() : ReportRoomEntryPoint {
++    override fun nodeBuilder(parentNode: Node, buildContext: BuildContext): ReportRoomEntryPoint.NodeBuilder {
++        val plugins = ArrayList<Plugin>()
++        return object : ReportRoomEntryPoint.NodeBuilder {
++            override fun params(params: ReportRoomEntryPoint.Params): ReportRoomEntryPoint.NodeBuilder {
++                plugins += params
++                return this
++            }
++
++            override fun callback(callback: ReportRoomEntryPoint.Callback): ReportRoomEntryPoint.NodeBuilder {
++                plugins += callback
++                return this
++            }
++
++            override fun build(): Node {
++                return parentNode.createNode<ReportRoomNode>(buildContext, plugins)
++            }
++        }
++    }
++}
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomEvents.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomEvents.kt
+new file mode 100644
+index 0000000..f5bc017
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomEvents.kt
+@@ -0,0 +1,16 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl
++
++sealed interface ReportRoomEvents {
++    data class UpdateReason(val reason: String) : ReportRoomEvents
++    data class ToggleLeaveRoom(val leaveRoom: Boolean) : ReportRoomEvents
++    data object Report : ReportRoomEvents
++    data object Retry : ReportRoomEvents
++    data object ClearError : ReportRoomEvents
++}
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomNode.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomNode.kt
+new file mode 100644
+index 0000000..bbd2119
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomNode.kt
+@@ -0,0 +1,52 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.ui.Modifier
++import com.bumble.appyx.core.modality.BuildContext
++import com.bumble.appyx.core.node.Node
++import com.bumble.appyx.core.plugin.Plugin
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedInject
++import io.element.android.anvilannotations.ContributesNode
++import io.element.android.libraries.di.RoomScope
++import io.element.android.libraries.matrix.api.room.MatrixRoom
++
++@ContributesNode(RoomScope::class)
++class ReportRoomNode @AssistedInject constructor(
++    @Assisted buildContext: BuildContext,
++    @Assisted plugins: List<Plugin>,
++    presenterFactory: ReportRoomPresenter.Factory,
++    private val room: MatrixRoom,
++) : Node(buildContext, plugins = plugins) {
++    interface Callback : Plugin {
++        fun onReportRoomSuccess()
++    }
++
++    private val callback = plugins.filterIsInstance<Callback>().firstOrNull()
++
++    private val presenter = presenterFactory.create(room)
++
++    @Composable
++    override fun View(modifier: Modifier) {
++        val state = presenter.present()
++        // Once the presenter reports success, collapse the screen.
++        LaunchedEffect(state.action) {
++            if (state.action is ReportRoomAction.Success) {
++                callback?.onReportRoomSuccess()
++            }
++        }
++        ReportRoomView(
++            state = state,
++            onBackClick = ::navigateUp,
++            modifier = modifier,
++        )
++    }
++}
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt
+new file mode 100644
+index 0000000..ec61b13
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenter.kt
+@@ -0,0 +1,181 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.MutableState
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import androidx.compose.runtime.saveable.rememberSaveable
++import dagger.assisted.Assisted
++import dagger.assisted.AssistedFactory
++import dagger.assisted.AssistedInject
++import io.element.android.libraries.architecture.Presenter
++import io.element.android.libraries.designsystem.utils.snackbar.SnackbarDispatcher
++import io.element.android.libraries.designsystem.utils.snackbar.SnackbarMessage
++import io.element.android.libraries.matrix.api.room.MatrixRoom
++import io.element.android.libraries.ui.strings.CommonStrings
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.launch
++import timber.log.Timber
++
++class ReportRoomPresenter @AssistedInject constructor(
++    @Assisted private val room: MatrixRoom,
++    private val snackbarDispatcher: SnackbarDispatcher,
++) : Presenter<ReportRoomState> {
++
++    @AssistedFactory
++    interface Factory {
++        fun create(room: MatrixRoom): ReportRoomPresenter
++    }
++
++    @Composable
++    override fun present(): ReportRoomState {
++        val localCoroutineScope = rememberCoroutineScope()
++        // Saving form input across configuration changes / process death is desirable for a
++        // destructive flow where the user has typed a multi-sentence reason.
++        val reason = rememberSaveable { mutableStateOf("") }
++        val leaveRoom = rememberSaveable { mutableStateOf(false) }
++        val action: MutableState<ReportRoomAction> = remember { mutableStateOf(ReportRoomAction.Uninitialized) }
++
++        fun handleEvents(event: ReportRoomEvents) {
++            when (event) {
++                is ReportRoomEvents.UpdateReason -> {
++                    // Editing the reason MUST NOT toggle the leave preference – the toggle is independent.
++                    reason.value = event.reason
++                }
++                is ReportRoomEvents.ToggleLeaveRoom -> {
++                    // The leave preference is independent of the reason text.
++                    leaveRoom.value = event.leaveRoom
++                }
++                ReportRoomEvents.Report -> {
++                    // Prevent duplicate concurrent submissions.
++                    if (action.value is ReportRoomAction.InProgress) return
++                    when (action.value) {
++                        is ReportRoomAction.LeaveAfterReportFailed -> {
++                            // The user is re-submitting after a partial failure; only leave is pending.
++                            localCoroutineScope.runLeaveOnly(
++                                room = room,
++                                leaveRoom = leaveRoom.value,
++                                action = action,
++                                snackbarDispatcher = snackbarDispatcher,
++                            )
++                        }
++                        else -> localCoroutineScope.runFullReport(
++                            room = room,
++                            reason = reason.value.trim(),
++                            leaveRoom = leaveRoom.value,
++                            action = action,
++                            snackbarDispatcher = snackbarDispatcher,
++                        )
++                    }
++                }
++                ReportRoomEvents.Retry -> {
++                    when (val current = action.value) {
++                        is ReportRoomAction.ReportFailed -> localCoroutineScope.runFullReport(
++                            room = room,
++                            reason = reason.value.trim(),
++                            leaveRoom = leaveRoom.value,
++                            action = action,
++                            snackbarDispatcher = snackbarDispatcher,
++                        )
++                        is ReportRoomAction.LeaveAfterReportFailed -> localCoroutineScope.runLeaveOnly(
++                            room = room,
++                            leaveRoom = leaveRoom.value,
++                            action = action,
++                            snackbarDispatcher = snackbarDispatcher,
++                        )
++                        else -> Timber.w("Retry invoked in an unexpected state: $current")
++                    }
++                }
++                ReportRoomEvents.ClearError -> {
++                    // Returning to the editable state must not discard the reason or the leave choice.
++                    when (action.value) {
++                        is ReportRoomAction.ReportFailed,
++                        is ReportRoomAction.LeaveAfterReportFailed -> action.value = ReportRoomAction.Uninitialized
++                        else -> Unit
++                    }
++                }
++            }
++        }
++
++        return ReportRoomState(
++            reason = reason.value,
++            leaveRoom = leaveRoom.value,
++            action = action.value,
++            eventSink = ::handleEvents,
++        )
++    }
++}
++
++/**
++ * Walk through the report flow: report the room first; only attempt to leave the room if the report
++ * succeeded AND the leave option was toggled. Any failure leaves the state recoverable: the form
++ * values are preserved by the caller.
++ */
++internal fun CoroutineScope.runFullReport(
++    room: MatrixRoom,
++    reason: String,
++    leaveRoom: Boolean,
++    action: MutableState<ReportRoomAction>,
++    snackbarDispatcher: SnackbarDispatcher,
++) = launch {
++    action.value = ReportRoomAction.InProgress
++    val reportResult = room.reportRoom(reason = reason)
++    if (reportResult.isFailure) {
++        val error = reportResult.exceptionOrNull() ?: RuntimeException("Unknown failure")
++        Timber.e(error, "Failed to report room ${room.roomId}")
++        action.value = ReportRoomAction.ReportFailed(error)
++        return@launch
++    }
++    // Report succeeded.
++    if (!leaveRoom) {
++        action.value = ReportRoomAction.Success
++        snackbarDispatcher.post(SnackbarMessage(CommonStrings.common_report_submitted))
++        return@launch
++    }
++    val leaveResult = room.leave()
++    if (leaveResult.isFailure) {
++        val error = leaveResult.exceptionOrNull() ?: RuntimeException("Unknown failure")
++        Timber.e(error, "Reported room ${room.roomId} but failed to leave it")
++        // Surface partial failure: the report was already sent, so retry must only attempt the leave.
++        action.value = ReportRoomAction.LeaveAfterReportFailed(error)
++        return@launch
++    }
++    action.value = ReportRoomAction.Success
++    snackbarDispatcher.post(SnackbarMessage(CommonStrings.common_report_submitted))
++}
++
++/**
++ * Re-run only the leave step – the report has already been submitted successfully, so we must
++ * never re-send it.
++ */
++internal fun CoroutineScope.runLeaveOnly(
++    room: MatrixRoom,
++    leaveRoom: Boolean,
++    action: MutableState<ReportRoomAction>,
++    snackbarDispatcher: SnackbarDispatcher,
++) = launch {
++    if (!leaveRoom) {
++        // Nothing to do; the report is already done.
++        action.value = ReportRoomAction.Success
++        snackbarDispatcher.post(SnackbarMessage(CommonStrings.common_report_submitted))
++        return@launch
++    }
++    action.value = ReportRoomAction.InProgress
++    val leaveResult = room.leave()
++    if (leaveResult.isFailure) {
++        val error = leaveResult.exceptionOrNull() ?: RuntimeException("Unknown failure")
++        Timber.e(error, "Failed to leave already-reported room ${room.roomId}")
++        action.value = ReportRoomAction.LeaveAfterReportFailed(error)
++        return@launch
++    }
++    action.value = ReportRoomAction.Success
++    snackbarDispatcher.post(SnackbarMessage(CommonStrings.common_report_submitted))
++}
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomState.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomState.kt
+new file mode 100644
+index 0000000..70db6bd
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomState.kt
+@@ -0,0 +1,53 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl
++
++/**
++ * State model for the Report Room flow.
++ *
++ * The form has two independent pieces of user input – [reason] (a free-form note to the homeserver
++ * admins) and [leaveRoom] (whether the user wants to also leave the room after the report is sent).
++ *
++ * The submission goes through an [action] state machine that:
++ *   - prevents duplicate concurrent reports
++ *   - performs the report first, then leaves the room only if the report succeeded
++ *   - preserves the form values across failures
++ *   - models a "reported, but leaving failed" partial-failure so retry only re-runs the leave
++ *     step without re-sending the report.
++ */
++data class ReportRoomState(
++    val reason: String,
++    val leaveRoom: Boolean,
++    val action: ReportRoomAction,
++    val eventSink: (ReportRoomEvents) -> Unit,
++)
++
++/**
++ * The current lifecycle status of the report-then-leave submission.
++ */
++sealed interface ReportRoomAction {
++    /** The user hasn't pressed "Report" yet, or the previous error has been dismissed. */
++    data object Uninitialized : ReportRoomAction
++
++    /** A report or a leave attempt is currently being sent over the network. */
++    data object InProgress : ReportRoomAction
++
++    /** The report (and optional leave) completed successfully. */
++    data object Success : ReportRoomAction
++
++    /**
++     * Sending the report failed. The form is still editable so the user can retry the full action.
++     */
++    data class ReportFailed(val error: Throwable) : ReportRoomAction
++
++    /**
++     * The report was sent successfully but the optional leave step failed. The form must remember
++     * that the report has already been submitted so a retry only attempts to leave the room.
++     */
++    data class LeaveAfterReportFailed(val error: Throwable) : ReportRoomAction
++}
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomStateProvider.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomStateProvider.kt
+new file mode 100644
+index 0000000..a6e0963
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomStateProvider.kt
+@@ -0,0 +1,42 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl
++
++import androidx.compose.ui.tooling.preview.PreviewParameterProvider
++
++open class ReportRoomStateProvider : PreviewParameterProvider<ReportRoomState> {
++    override val values: Sequence<ReportRoomState>
++        get() = sequenceOf(
++            aReportRoomState(),
++            aReportRoomState(reason = "Spam"),
++            aReportRoomState(reason = "Spam", leaveRoom = true),
++            aReportRoomState(reason = "Spam", leaveRoom = true, action = ReportRoomAction.InProgress),
++            aReportRoomState(reason = "Spam", leaveRoom = true, action = ReportRoomAction.ReportFailed(RuntimeException("boom"))),
++            aReportRoomState(
++                reason = "Spam",
++                leaveRoom = true,
++                action = ReportRoomAction.LeaveAfterReportFailed(RuntimeException("boom")),
++            ),
++            aReportRoomState(
++                reason = "Spam",
++                leaveRoom = true,
++                action = ReportRoomAction.Success,
++            ),
++        )
++}
++
++fun aReportRoomState(
++    reason: String = "",
++    leaveRoom: Boolean = false,
++    action: ReportRoomAction = ReportRoomAction.Uninitialized,
++) = ReportRoomState(
++    reason = reason,
++    leaveRoom = leaveRoom,
++    action = action,
++    eventSink = {},
++)
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomView.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomView.kt
+new file mode 100644
+index 0000000..6e3df79
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/ReportRoomView.kt
+@@ -0,0 +1,184 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.consumeWindowInsets
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.layout.imePadding
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.Switch
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.tooling.preview.PreviewParameter
++import androidx.compose.ui.unit.dp
++import io.element.android.compound.theme.ElementTheme
++import io.element.android.libraries.designsystem.components.button.BackButton
++import io.element.android.libraries.designsystem.components.dialogs.ConfirmationDialog
++import io.element.android.libraries.designsystem.preview.ElementPreview
++import io.element.android.libraries.designsystem.preview.PreviewsDayNight
++import io.element.android.libraries.designsystem.theme.aliasScreenTitle
++import io.element.android.libraries.designsystem.theme.components.Button
++import io.element.android.libraries.designsystem.theme.components.Scaffold
++import io.element.android.libraries.designsystem.theme.components.Text
++import io.element.android.libraries.designsystem.theme.components.TextField
++import io.element.android.libraries.designsystem.theme.components.TopAppBar
++import io.element.android.libraries.ui.strings.CommonStrings
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun ReportRoomView(
++    state: ReportRoomState,
++    onBackClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val focusManager = LocalFocusManager.current
++    val isInProgress = state.action is ReportRoomAction.InProgress
++    val partialFailure = state.action as? ReportRoomAction.LeaveAfterReportFailed
++
++    // The "couldn't leave the room" confirmation renders as an overlay over the editable form, so
++    // the user can decide to retry without losing their input.
++    partialFailure?.let {
++        ConfirmationDialog(
++            title = stringResource(CommonStrings.screen_report_room_leave_failed_alert_title),
++            content = stringResource(CommonStrings.screen_report_room_leave_failed_alert_message),
++            submitText = stringResource(CommonStrings.action_retry),
++            cancelText = stringResource(CommonStrings.action_back),
++            destructiveSubmit = true,
++            onSubmitClick = { state.eventSink(ReportRoomEvents.Retry) },
++            onDismiss = { state.eventSink(ReportRoomEvents.ClearError) },
++        )
++    }
++
++    Scaffold(
++        topBar = {
++            TopAppBar(
++                title = {
++                    Text(
++                        text = stringResource(CommonStrings.screen_report_room_title),
++                        style = ElementTheme.typography.aliasScreenTitle,
++                    )
++                },
++                navigationIcon = { BackButton(onClick = onBackClick) }
++            )
++        },
++        modifier = modifier,
++    ) { padding ->
++        Column(
++            modifier = Modifier
++                .padding(padding)
++                .consumeWindowInsets(padding)
++                .imePadding()
++                .fillMaxSize()
++                .verticalScroll(rememberScrollState())
++                .padding(16.dp)
++        ) {
++            Spacer(modifier = Modifier.height(20.dp))
++            TextField(
++                value = state.reason,
++                onValueChange = { state.eventSink(ReportRoomEvents.UpdateReason(it)) },
++                placeholder = stringResource(CommonStrings.screen_report_room_reason_placeholder),
++                minLines = 3,
++                enabled = !isInProgress,
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .heightIn(min = 90.dp),
++                supportingText = stringResource(CommonStrings.screen_report_room_reason_footer),
++            )
++
++            Row(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .padding(vertical = 12.dp),
++                verticalAlignment = Alignment.CenterVertically,
++            ) {
++                Column(
++                    modifier = Modifier.weight(1f),
++                    verticalArrangement = Arrangement.spacedBy(4.dp)
++                ) {
++                    Text(
++                        text = stringResource(R.string.screen_report_room_leave_room_label),
++                        style = ElementTheme.typography.fontBodyLgRegular,
++                    )
++                    Text(
++                        text = stringResource(R.string.screen_report_room_leave_room_hint),
++                        style = ElementTheme.typography.fontBodyMdRegular,
++                        color = ElementTheme.colors.textSecondary,
++                    )
++                }
++                Switch(
++                    enabled = !isInProgress,
++                    checked = state.leaveRoom,
++                    onCheckedChange = { state.eventSink(ReportRoomEvents.ToggleLeaveRoom(it)) },
++                )
++            }
++
++            Spacer(modifier = Modifier.height(24.dp))
++
++            val buttonText = stringResource(
++                id = when (state.action) {
++                    is ReportRoomAction.ReportFailed,
++                    is ReportRoomAction.LeaveAfterReportFailed -> CommonStrings.action_retry
++                    else -> CommonStrings.action_send
++                }
++            )
++            Button(
++                text = buttonText,
++                enabled = state.reason.isNotBlank() && !isInProgress,
++                showProgress = isInProgress,
++                onClick = {
++                    focusManager.clearFocus(force = true)
++                    state.eventSink(
++                        when (state.action) {
++                            is ReportRoomAction.ReportFailed,
++                            is ReportRoomAction.LeaveAfterReportFailed -> ReportRoomEvents.Retry
++                            else -> ReportRoomEvents.Report
++                        }
++                    )
++                },
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .padding(horizontal = 4.dp),
++            )
++
++            // Surface a non-fatal failure inline (after report failure: form values survived, just
++            // show the text below the button). For the partial-failure case we already showed an
++            // overlay dialog above.
++            if (state.action is ReportRoomAction.ReportFailed) {
++                Spacer(modifier = Modifier.height(16.dp))
++                Text(
++                    text = stringResource(R.string.screen_report_room_generic_error),
++                    color = ElementTheme.colors.textCriticalPrimary,
++                    style = ElementTheme.typography.fontBodyMdRegular,
++                    modifier = Modifier.padding(horizontal = 4.dp),
++                )
++            }
++        }
++    }
++}
++
++@PreviewsDayNight
++@Composable
++internal fun ReportRoomViewPreview(@PreviewParameter(ReportRoomStateProvider::class) state: ReportRoomState) = ElementPreview {
++    ReportRoomView(
++        state = state,
++        onBackClick = {},
++    )
++}
+diff --git a/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/di/ReportRoomModule.kt b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/di/ReportRoomModule.kt
+new file mode 100644
+index 0000000..a849be3
+--- /dev/null
++++ b/features/reportroom/impl/src/main/kotlin/io/element/android/features/reportroom/impl/di/ReportRoomModule.kt
+@@ -0,0 +1,21 @@
++/*
++ * Copyright 2025 New Vector Ltd.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++ * Please see LICENSE files in the repository root for full details.
++ */
++
++package io.element.android.features.reportroom.impl.di
++
++import com.squareup.anvil.annotations.ContributesTo
++import dagger.Module
++import io.element.android.libraries.di.RoomScope
++
++@ContributesTo(RoomScope::class)
++@Module
++interface ReportRoomModule {
++    // The ReportRoomPresenter.Factory wiring is generated automatically from the @AssistedFactory
++    // annotation, and the entry-point implementation is contributed via @ContributesBinding on
++    // DefaultReportRoomEntryPoint. This empty module exists so Anvil knows there is at least one
++    // contribution to the RoomScope from this feature.
++}
+diff --git a/features/reportroom/impl/src/main/res/values/localazy.xml b/features/reportroom/impl/src/main/res/values/localazy.xml
+new file mode 100644
+index 0000000..7885e50
+--- /dev/null
++++ b/features/reportroom/impl/src/main/res/values/localazy.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++  <string name="screen_report_room_leave_room_label">"Leave room"</string>
++  <string name="screen_report_room_leave_room_hint">"Check if you want to leave the room after sending the report"</string>
++  <string name="screen_report_room_generic_error">"Unable to submit the report. Please try again."</string>
++</resources>
+diff --git a/features/roomdetails/impl/build.gradle.kts b/features/roomdetails/impl/build.gradle.kts
+index 315b00b..87ca1af 100644
+--- a/features/roomdetails/impl/build.gradle.kts
++++ b/features/roomdetails/impl/build.gradle.kts
+@@ -53,6 +53,7 @@ dependencies {
+     implementation(projects.features.roomcall.api)
+     implementation(projects.features.knockrequests.api)
+     implementation(projects.features.verifysession.api)
++    implementation(projects.features.reportroom.api)
+ 
+     testImplementation(libs.test.junit)
+     testImplementation(libs.coroutines.test)
+diff --git a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt
+index b7cc868..9969276 100644
+--- a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt
++++ b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsFlowNode.kt
+@@ -28,6 +28,7 @@ import io.element.android.features.call.api.ElementCallEntryPoint
+ import io.element.android.features.knockrequests.api.list.KnockRequestsListEntryPoint
+ import io.element.android.features.messages.api.MessagesEntryPoint
+ import io.element.android.features.poll.api.history.PollHistoryEntryPoint
++import io.element.android.features.reportroom.api.ReportRoomEntryPoint
+ import io.element.android.features.roomdetails.api.RoomDetailsEntryPoint
+ import io.element.android.features.roomdetails.impl.edit.RoomDetailsEditNode
+ import io.element.android.features.roomdetails.impl.invite.RoomInviteMembersNode
+@@ -71,6 +72,7 @@ class RoomDetailsFlowNode @AssistedInject constructor(
+     private val mediaViewerEntryPoint: MediaViewerEntryPoint,
+     private val mediaGalleryEntryPoint: MediaGalleryEntryPoint,
+     private val verifySessionEntryPoint: VerifySessionEntryPoint,
++    private val reportRoomEntryPoint: ReportRoomEntryPoint,
+ ) : BaseFlowNode<RoomDetailsFlowNode.NavTarget>(
+     backstack = BackStack(
+         initialElement = plugins.filterIsInstance<RoomDetailsEntryPoint.Params>().first().initialElement.toNavTarget(),
+@@ -125,6 +127,9 @@ class RoomDetailsFlowNode @AssistedInject constructor(
+         @Parcelize
+         data object SecurityAndPrivacy : NavTarget
+ 
++        @Parcelize
++        data object ReportRoom : NavTarget
++
+         @Parcelize
+         data class VerifyUser(val userId: UserId) : NavTarget
+     }
+@@ -177,6 +182,10 @@ class RoomDetailsFlowNode @AssistedInject constructor(
+                         backstack.push(NavTarget.SecurityAndPrivacy)
+                     }
+ 
++                    override fun openReportRoom() {
++                        backstack.push(NavTarget.ReportRoom)
++                    }
++
+                     override fun openDmUserProfile(userId: UserId) {
+                         backstack.push(NavTarget.RoomMemberDetails(userId))
+                     }
+@@ -318,6 +327,17 @@ class RoomDetailsFlowNode @AssistedInject constructor(
+             NavTarget.SecurityAndPrivacy -> {
+                 createNode<SecurityAndPrivacyFlowNode>(buildContext)
+             }
++            NavTarget.ReportRoom -> {
++                val callback = object : ReportRoomEntryPoint.Callback {
++                    override fun onSuccess() {
++                        backstack.pop()
++                    }
++                }
++                reportRoomEntryPoint.nodeBuilder(this, buildContext)
++                    .params(ReportRoomEntryPoint.Params(roomId = room.roomId))
++                    .callback(callback)
++                    .build()
++            }
+             is NavTarget.VerifyUser -> {
+                 val params = VerifySessionEntryPoint.Params(
+                     showDeviceVerifiedScreen = true,
+diff --git a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsNode.kt b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsNode.kt
+index c3a0a3d..0e6e084 100644
+--- a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsNode.kt
++++ b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsNode.kt
+@@ -53,6 +53,7 @@ class RoomDetailsNode @AssistedInject constructor(
+         fun openSecurityAndPrivacy()
+         fun openDmUserProfile(userId: UserId)
+         fun onJoinCall()
++        fun openReportRoom()
+     }
+ 
+     private val callbacks = plugins<Callback>()
+@@ -132,6 +133,10 @@ class RoomDetailsNode @AssistedInject constructor(
+         callbacks.forEach { it.openDmUserProfile(userId) }
+     }
+ 
++    private fun openReportRoom() {
++        callbacks.forEach { it.openReportRoom() }
++    }
++
+     @Composable
+     override fun View(modifier: Modifier) {
+         val context = LocalContext.current
+@@ -166,6 +171,7 @@ class RoomDetailsNode @AssistedInject constructor(
+             onKnockRequestsClick = ::openKnockRequestsLists,
+             onSecurityAndPrivacyClick = ::openSecurityAndPrivacy,
+             onProfileClick = ::onProfileClick,
++            onReportRoomClick = ::openReportRoom,
+         )
+     }
+ }
+diff --git a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsView.kt b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsView.kt
+index 381f94a..01f4bf8 100644
+--- a/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsView.kt
++++ b/features/roomdetails/impl/src/main/kotlin/io/element/android/features/roomdetails/impl/RoomDetailsView.kt
+@@ -107,6 +107,7 @@ fun RoomDetailsView(
+     onKnockRequestsClick: () -> Unit,
+     onSecurityAndPrivacyClick: () -> Unit,
+     onProfileClick: (UserId) -> Unit,
++    onReportRoomClick: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val snackbarHostState = rememberSnackbarHostState(snackbarMessage = state.snackbarMessage)
+@@ -256,6 +257,7 @@ fun RoomDetailsView(
+ 
+             OtherActionsSection(
+                 isDm = state.roomType is RoomDetailsType.Dm,
++                onReportRoom = onReportRoomClick,
+                 onLeaveRoom = { state.eventSink(RoomDetailsEvent.LeaveRoom) }
+             )
+         }
+@@ -669,8 +671,20 @@ private fun MediaGalleryItem(
+ }
+ 
+ @Composable
+-private fun OtherActionsSection(isDm: Boolean, onLeaveRoom: () -> Unit) {
++private fun OtherActionsSection(
++    isDm: Boolean,
++    onReportRoom: () -> Unit,
++    onLeaveRoom: () -> Unit,
++) {
+     PreferenceCategory(showTopDivider = true) {
++        ListItem(
++            headlineContent = {
++                Text(stringResource(id = CommonStrings.action_report_room))
++            },
++            leadingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.ChatProblem())),
++            style = ListItemStyle.Destructive,
++            onClick = onReportRoom,
++        )
+         ListItem(
+             headlineContent = {
+                 val leaveText = stringResource(
+@@ -719,5 +733,6 @@ private fun ContentToPreview(state: RoomDetailsState) {
+         onKnockRequestsClick = {},
+         onSecurityAndPrivacyClick = {},
+         onProfileClick = {},
++        onReportRoomClick = {},
+     )
+ }
+diff --git a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/MatrixRoom.kt b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/MatrixRoom.kt
+index a2a737a..2b2ab16 100644
+--- a/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/MatrixRoom.kt
++++ b/libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/MatrixRoom.kt
+@@ -241,6 +241,8 @@ interface MatrixRoom : Closeable {
+ 
+     suspend fun reportContent(eventId: EventId, reason: String, blockUserId: UserId?): Result<Unit>
+ 
++    suspend fun reportRoom(reason: String): Result<Unit>
++
+     suspend fun kickUser(userId: UserId, reason: String? = null): Result<Unit>
+ 
+     suspend fun banUser(userId: UserId, reason: String? = null): Result<Unit>
+diff --git a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RustMatrixRoom.kt b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RustMatrixRoom.kt
+index 7ed2ad5..dd72ce7 100644
+--- a/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RustMatrixRoom.kt
++++ b/libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RustMatrixRoom.kt
+@@ -638,6 +638,16 @@ class RustMatrixRoom(
+         }
+     }
+ 
++    override suspend fun reportRoom(reason: String): Result<Unit> = withContext(roomDispatcher) {
++        runCatching {
++            innerRoom.reportContent(
++                eventId = roomId.value,
++                score = null,
++                reason = reason,
++            )
++        }
++    }
++
+     override suspend fun clearEventCacheStorage(): Result<Unit> = withContext(roomDispatcher) {
+         runCatching {
+             innerRoom.clearEventCacheStorage()
+diff --git a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/FakeMatrixRoom.kt b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/FakeMatrixRoom.kt
+index b7d226d..d4c7ad2 100644
+--- a/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/FakeMatrixRoom.kt
++++ b/libraries/matrix/test/src/main/kotlin/io/element/android/libraries/matrix/test/room/FakeMatrixRoom.kt
+@@ -109,6 +109,7 @@ class FakeMatrixRoom(
+     private val cancelSendResult: (TransactionId) -> Result<Unit> = { lambdaError() },
+     private val forwardEventResult: (EventId, List<RoomId>) -> Result<Unit> = { _, _ -> lambdaError() },
+     private val reportContentResult: (EventId, String, UserId?) -> Result<Unit> = { _, _, _ -> lambdaError() },
++    private val reportRoomResult: (String) -> Result<Unit> = { lambdaError() },
+     private val kickUserResult: (UserId, String?) -> Result<Unit> = { _, _ -> lambdaError() },
+     private val banUserResult: (UserId, String?) -> Result<Unit> = { _, _ -> lambdaError() },
+     private val unBanUserResult: (UserId, String?) -> Result<Unit> = { _, _ -> lambdaError() },
+@@ -475,6 +476,10 @@ class FakeMatrixRoom(
+         return reportContentResult(eventId, reason, blockUserId)
+     }
+ 
++    override suspend fun reportRoom(reason: String): Result<Unit> = simulateLongTask {
++        return reportRoomResult(reason)
++    }
++
+     override suspend fun kickUser(userId: UserId, reason: String?): Result<Unit> {
+         return kickUserResult(userId, reason)
+     }

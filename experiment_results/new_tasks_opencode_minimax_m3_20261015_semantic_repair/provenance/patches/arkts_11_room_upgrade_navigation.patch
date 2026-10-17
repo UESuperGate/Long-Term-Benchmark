@@ -1,0 +1,891 @@
+diff --git a/entry/src/main/ets/features/RoomFeature.ets b/entry/src/main/ets/features/RoomFeature.ets
+index cd45d31..bcb9208 100644
+--- a/entry/src/main/ets/features/RoomFeature.ets
++++ b/entry/src/main/ets/features/RoomFeature.ets
+@@ -1,51 +1,413 @@
++/**
++ * Room upgrade navigation model.
++ *
++ * Maps predecessor and successor metadata from room state into stable
++ * application state. A room with a successor is a tombstone and is
++ * rendered read-only. The replacement room exposes its predecessor at the
++ * beginning of the timeline.
++ */
++export class PredecessorInfo {
++  roomId: string;
++  lastEventId: string;
++
++  constructor(roomId: string, lastEventId: string) {
++    this.roomId = roomId;
++    this.lastEventId = lastEventId;
++  }
++}
++
++export class SuccessorInfo {
++  roomId: string;
++  reason: string;
++
++  constructor(roomId: string, reason: string) {
++    this.roomId = roomId;
++    this.reason = reason;
++  }
++}
++
++export interface SuccessorMetadata {
++  roomId: string;
++  reason: string | null;
++}
++
++export interface PredecessorMetadata {
++  roomId: string;
++  lastEventId: string | null;
++}
++
++export interface SentMessage {
++  roomId: string;
++  message: string;
++}
++
++export class RoomState {
++  roomId: string;
++  name: string;
++  history: string[];
++  predecessor: PredecessorInfo | null;
++  successor: SuccessorInfo | null;
++
++  constructor(roomId: string, name: string, history: string[]) {
++    this.roomId = roomId;
++    this.name = name;
++    this.history = history;
++    this.predecessor = null;
++    this.successor = null;
++  }
++
++  isTombstoned(): boolean {
++    return this.successor !== null;
++  }
++
++  composerEnabled(): boolean {
++    return !this.isTombstoned();
++  }
++
++  lastMessage(): string {
++    if (this.history.length === 0) {
++      return '';
++    }
++    return this.history[this.history.length - 1];
++  }
++
++  successorRoomId(): string {
++    return this.successor === null ? '' : this.successor.roomId;
++  }
++
++  successorReason(): string {
++    return this.successor === null ? '' : this.successor.reason;
++  }
++
++  predecessorRoomId(): string {
++    return this.predecessor === null ? '' : this.predecessor.roomId;
++  }
++
++  predecessorLastEventId(): string {
++    return this.predecessor === null ? '' : this.predecessor.lastEventId;
++  }
++}
++
+ export class RoomSummary {
+   roomId: string;
+   name: string;
+   lastMessage: string;
++  tombstoned: boolean;
+ 
+-  constructor(roomId: string, name: string, lastMessage: string) {
++  constructor(roomId: string, name: string, lastMessage: string, tombstoned: boolean) {
+     this.roomId = roomId;
+     this.name = name;
+     this.lastMessage = lastMessage;
++    this.tombstoned = tombstoned;
+   }
+ }
+ 
++/**
++ * Side effects for room navigation and message sending. Tracks the last
++ * opened room, navigation errors, navigation count, and dispatched
++ * messages. The presenter relies on these signals when it coordinates
++ * state changes.
++ */
+ export class RoomGateway {
+   lastOpenedRoomId: string = '';
+-  sentMessages: string[] = [];
++  lastNavigationError: string = '';
++  navigationCount: number = 0;
++  sentMessages: SentMessage[] = [];
+ 
+-  openRoom(roomId: string): void {
+-    this.lastOpenedRoomId = roomId;
++  openRoom(roomId: string): boolean {
++    const normalized: string = (roomId === null || roomId === undefined) ? '' : roomId;
++    if (normalized.length === 0) {
++      this.lastNavigationError = 'navigation_failed_invalid_target';
++      return false;
++    }
++    this.lastOpenedRoomId = normalized;
++    this.lastNavigationError = '';
++    this.navigationCount++;
++    return true;
+   }
+ 
+-  sendMessage(message: string): boolean {
+-    const normalized = message.trim();
+-    if (normalized.length === 0) {
++  sendMessage(roomId: string, message: string): boolean {
++    if (roomId.length === 0) {
++      return false;
++    }
++    const trimmed: string = (message === null || message === undefined) ? '' : message.trim();
++    if (trimmed.length === 0) {
++      return false;
++    }
++    const record: SentMessage = { roomId: roomId, message: trimmed };
++    this.sentMessages.push(record);
++    return true;
++  }
++
++  reset(): void {
++    this.lastOpenedRoomId = '';
++    this.lastNavigationError = '';
++    this.navigationCount = 0;
++    this.sentMessages = [];
++  }
++}
++
++/**
++ * Persistent application state for rooms. Holds the registry of rooms,
++ * their histories, and the predecessor / successor metadata that drives
++ * upgrade navigation. Selections are guarded against same-room
++ * navigation so the current room remains stable.
++ */
++export class RoomStore {
++  private rooms: Map<string, RoomState> = new Map();
++  private currentRoomId: string = '';
++  private selectionErrors: string[] = [];
++
++  ensureRoom(roomId: string, name: string): RoomState {
++    const existing: RoomState | null = this.lookup(roomId);
++    if (existing === null) {
++      const initialName: string = name.length === 0 ? roomId : name;
++      const room0: RoomState = new RoomState(roomId, initialName, []);
++      this.rooms.set(roomId, room0);
++      return room0;
++    }
++    if (name.length > 0 && existing.name !== name) {
++      existing.name = name;
++    }
++    return existing;
++  }
++
++  applySuccessor(roomId: string, successorRoomId: string, reason: string): boolean {
++    const room: RoomState | null = this.lookup(roomId);
++    if (room === null) {
++      return false;
++    }
++    if (successorRoomId.length === 0) {
++      return false;
++    }
++    room.successor = new SuccessorInfo(successorRoomId, reason);
++    return true;
++  }
++
++  applyPredecessor(roomId: string, predecessorRoomId: string, lastEventId: string): boolean {
++    const room: RoomState | null = this.lookup(roomId);
++    if (room === null) {
++      return false;
++    }
++    if (predecessorRoomId.length === 0) {
++      return false;
++    }
++    room.predecessor = new PredecessorInfo(predecessorRoomId, lastEventId);
++    return true;
++  }
++
++  setRoomHistory(roomId: string, history: string[]): boolean {
++    const room: RoomState | null = this.lookup(roomId);
++    if (room === null) {
++      return false;
++    }
++    room.history = history.slice();
++    return true;
++  }
++
++  appendRoomHistory(roomId: string, message: string): boolean {
++    const room: RoomState | null = this.lookup(roomId);
++    if (room === null) {
++      return false;
++    }
++    if (room.isTombstoned()) {
++      return false;
++    }
++    const trimmed: string = message.trim();
++    if (trimmed.length === 0) {
+       return false;
+     }
+-    this.sentMessages.push(normalized);
++    room.history.push(trimmed);
+     return true;
+   }
++
++  hasRoom(roomId: string): boolean {
++    return this.rooms.has(roomId);
++  }
++
++  getRoom(roomId: string): RoomState | null {
++    return this.lookup(roomId);
++  }
++
++  currentRoom(): RoomState | null {
++    if (this.currentRoomId.length === 0) {
++      return null;
++    }
++    return this.lookup(this.currentRoomId);
++  }
++
++  currentRoomIdValue(): string {
++    return this.currentRoomId;
++  }
++
++  /**
++   * Same-room navigation guard. Returns true when the selection changes,
++   * false when the target matches the current room or is unknown.
++   */
++  selectRoom(roomId: string): boolean {
++    if (!this.rooms.has(roomId)) {
++      this.selectionErrors.push('select_failed_unknown_room');
++      return false;
++    }
++    if (this.currentRoomId === roomId) {
++      this.selectionErrors.push('select_failed_same_room');
++      return false;
++    }
++    this.currentRoomId = roomId;
++    return true;
++  }
++
++  summaries(): RoomSummary[] {
++    const list: RoomSummary[] = [];
++    this.rooms.forEach((room: RoomState) => {
++      list.push(new RoomSummary(room.roomId, room.name, room.lastMessage(), room.isTombstoned()));
++    });
++    return list;
++  }
++
++  selectionErrorsSnapshot(): string[] {
++    return this.selectionErrors.slice();
++  }
++
++  clearSelectionErrors(): void {
++    this.selectionErrors = [];
++  }
++
++  private lookup(roomId: string): RoomState | null {
++    const value: RoomState | undefined = this.rooms.get(roomId);
++    if (value === undefined) {
++      return null;
++    }
++    return value;
++  }
+ }
+ 
++/**
++ * Orchestrates the room store and gateway. Owns the policy for how
++ * predecessor / successor metadata is mapped from observation events
++ * and how upgrade navigation is performed safely.
++ */
+ export class RoomPresenter {
+   readonly gateway: RoomGateway;
+-  readonly room: RoomSummary = new RoomSummary('!old:example.org', 'Product planning', 'Earlier message');
+-  history: string[] = ['Earlier message'];
++  readonly store: RoomStore;
+ 
+-  constructor(gateway: RoomGateway) {
++  constructor(gateway: RoomGateway, store: RoomStore) {
+     this.gateway = gateway;
++    this.store = store;
+   }
+ 
+-  openRoom(): void {
+-    this.gateway.openRoom(this.room.roomId);
++  observeRoomInfo(roomId: string, name: string): void {
++    this.store.ensureRoom(roomId, name);
+   }
+ 
+-  sendMessage(message: string): boolean {
+-    if (!this.gateway.sendMessage(message)) {
++  observeTimelineRoomInfo(roomId: string, name: string): void {
++    this.store.ensureRoom(roomId, name);
++  }
++
++  applySuccessorMetadata(roomId: string, successor: SuccessorMetadata | null): void {
++    if (successor === null || successor === undefined) {
++      return;
++    }
++    const successorRoomId: string = successor.roomId;
++    const reason: string = (successor.reason === null || successor.reason === undefined) ? '' : successor.reason;
++    if (successorRoomId.length === 0) {
++      return;
++    }
++    this.store.ensureRoom(successorRoomId, '');
++    this.store.applySuccessor(roomId, successorRoomId, reason);
++  }
++
++  applyPredecessorMetadata(roomId: string, predecessor: PredecessorMetadata | null): void {
++    if (predecessor === null || predecessor === undefined) {
++      return;
++    }
++    const predecessorRoomId: string = predecessor.roomId;
++    const lastEventId: string = (predecessor.lastEventId === null || predecessor.lastEventId === undefined) ? '' : predecessor.lastEventId;
++    if (predecessorRoomId.length === 0) {
++      return;
++    }
++    this.store.ensureRoom(predecessorRoomId, '');
++    this.store.applyPredecessor(roomId, predecessorRoomId, lastEventId);
++  }
++
++  /**
++   * Safe navigation. Rejects unknown targets and same-room navigation.
++   * On failure the current room is preserved and the gateway error is
++   * surfaced for diagnostics.
++   */
++  navigateToRoom(roomId: string): boolean {
++    if (!this.store.hasRoom(roomId)) {
++      this.gateway.lastNavigationError = 'navigation_failed_unknown_room';
++      return false;
++    }
++    if (this.store.currentRoomIdValue() === roomId) {
++      this.gateway.lastNavigationError = 'navigation_failed_same_room';
++      return false;
++    }
++    if (!this.gateway.openRoom(roomId)) {
++      return false;
++    }
++    const changed: boolean = this.store.selectRoom(roomId);
++    if (!changed) {
++      this.gateway.lastNavigationError = 'navigation_failed_same_room';
+       return false;
+     }
+-    this.history.push(message.trim());
+     return true;
+   }
++
++  openSuccessor(): boolean {
++    const current: RoomState | null = this.store.currentRoom();
++    if (current === null) {
++      this.gateway.lastNavigationError = 'navigation_failed_no_current';
++      return false;
++    }
++    const successorId: string = current.successorRoomId();
++    if (successorId.length === 0) {
++      this.gateway.lastNavigationError = 'navigation_failed_no_successor';
++      return false;
++    }
++    return this.navigateToRoom(successorId);
++  }
++
++  openPredecessor(): boolean {
++    const current: RoomState | null = this.store.currentRoom();
++    if (current === null) {
++      this.gateway.lastNavigationError = 'navigation_failed_no_current';
++      return false;
++    }
++    const predecessorId: string = current.predecessorRoomId();
++    if (predecessorId.length === 0) {
++      this.gateway.lastNavigationError = 'navigation_failed_no_predecessor';
++      return false;
++    }
++    return this.navigateToRoom(predecessorId);
++  }
++
++  sendMessage(message: string): boolean {
++    const current: RoomState | null = this.store.currentRoom();
++    if (current === null) {
++      return false;
++    }
++    if (!current.composerEnabled()) {
++      return false;
++    }
++    if (!this.gateway.sendMessage(current.roomId, message)) {
++      return false;
++    }
++    return this.store.appendRoomHistory(current.roomId, message);
++  }
++
++  summaries(): RoomSummary[] {
++    return this.store.summaries();
++  }
++
++  currentRoom(): RoomState | null {
++    return this.store.currentRoom();
++  }
+ }
++
++/**
++ * App-wide singletons shared across pages so navigation preserves state.
++ */
++export const sharedGateway: RoomGateway = new RoomGateway();
++export const sharedStore: RoomStore = new RoomStore();
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index bedf1f6..6299cd7 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,20 +1,62 @@
+-import { RoomGateway, RoomPresenter } from '../features/RoomFeature';
++import { router } from '@kit.ArkUI';
++import {
++  PredecessorMetadata,
++  RoomGateway,
++  RoomPresenter,
++  RoomSummary,
++  SuccessorMetadata,
++  sharedGateway,
++  sharedStore
++} from '../features/RoomFeature';
++
++interface RoomDetailParams {
++  roomId: string;
++}
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: RoomPresenter = new RoomPresenter(new RoomGateway());
+-  @State private history: string[] = ['Earlier message'];
+-  @State private composerText: string = '';
+-  @State private statusText: string = 'Room is writable';
++  private presenter: RoomPresenter = new RoomPresenter(sharedGateway, sharedStore);
++  @State private summaries: RoomSummary[] = [];
++  @State private statusText: string = '';
++  private seeded: boolean = false;
++
++  aboutToAppear(): void {
++    if (!this.seeded) {
++      this.presenter.observeRoomInfo('!old:example.org', 'Product planning');
++      this.presenter.observeRoomInfo('!new:example.org', 'Product planning v2');
++      const successor: SuccessorMetadata = { roomId: '!new:example.org', reason: null };
++      const predecessor: PredecessorMetadata = { roomId: '!old:example.org', lastEventId: '$last:example.org' };
++      this.presenter.applySuccessorMetadata('!old:example.org', successor);
++      this.presenter.applyPredecessorMetadata('!new:example.org', predecessor);
++      const initialHistory: string[] = ['Earlier message'];
++      this.presenter.store.setRoomHistory('!old:example.org', initialHistory);
++      this.presenter.store.setRoomHistory('!new:example.org', ['Welcome to the upgraded room.']);
++      this.seeded = true;
++    }
++    this.refresh();
++  }
++
++  refresh(): void {
++    this.summaries = this.presenter.summaries();
++    const gateway: RoomGateway = this.presenter.gateway;
++    const selected: string = this.presenter.store.currentRoomIdValue();
++    if (selected.length === 0) {
++      this.statusText = 'Pick a room to open.';
++    } else if (gateway.lastNavigationError.length > 0) {
++      this.statusText = `Navigation error: ${gateway.lastNavigationError}`;
++    } else {
++      this.statusText = `Last opened: ${gateway.lastOpenedRoomId}`;
++    }
++  }
+ 
+   build() {
+     Column() {
+       Column({ space: 4 }) {
+-        Text('Product planning')
++        Text('Element X rooms')
+           .fontSize(24)
+           .fontWeight(FontWeight.Bold)
+-        Text('Element X room timeline')
++        Text('v25.06.3 - room upgrade navigation')
+           .fontSize(13)
+           .fontColor('#64748B')
+       }
+@@ -29,37 +71,50 @@ struct Index {
+             .fontSize(18)
+             .fontWeight(FontWeight.Bold)
+             .width('100%')
+-          Button('Product planning - Earlier message')
+-            .id('room_list_old_room')
+-            .width('100%')
+-            .onClick(() => this.presenter.openRoom())
+ 
+-          Divider()
+-          Text('Timeline')
+-            .fontSize(18)
+-            .fontWeight(FontWeight.Bold)
+-            .width('100%')
+-          ForEach(this.history, (message: string) => {
+-            Text(message)
++          if (this.summaries.length === 0) {
++            Text('No rooms are available yet.')
++              .fontSize(14)
++              .fontColor('#64748B')
++              .width('100%')
++          } else {
++            ForEach(this.summaries, (item: RoomSummary) => {
++              Row({ space: 8 }) {
++                Column({ space: 2 }) {
++                  Text(item.name)
++                    .fontSize(16)
++                    .fontWeight(FontWeight.Medium)
++                    .fontColor(item.tombstoned ? '#475569' : '#0F172A')
++                  Text(item.lastMessage.length === 0 ? 'No messages yet' : item.lastMessage)
++                    .fontSize(12)
++                    .fontColor('#64748B')
++                    .maxLines(1)
++                    .textOverflow({ overflow: TextOverflow.Ellipsis })
++                  if (item.tombstoned) {
++                    Text('Replaced room')
++                      .fontSize(11)
++                      .fontColor('#B91C1C')
++                  }
++                }
++                .layoutWeight(1)
++                .alignItems(HorizontalAlign.Start)
++
++                Button('Open')
++                  .id(`room_list_open_${this.sanitizeId(item.roomId)}`)
++                  .fontSize(13)
++                  .onClick(() => {
++                    this.openRoom(item.roomId);
++                  })
++              }
+               .padding(14)
+               .width('100%')
+-              .backgroundColor('#FFFFFF')
++              .backgroundColor(item.tombstoned ? '#F1F5F9' : '#FFFFFF')
+               .borderRadius(6)
+-          })
++            }, (item: RoomSummary) => item.roomId)
++          }
++
++          Divider()
+ 
+-          TextInput({ text: this.composerText, placeholder: 'Write a message' })
+-            .id('message_composer')
+-            .onChange((value: string) => this.composerText = value)
+-          Button('Send')
+-            .id('send_message')
+-            .enabled(this.composerText.trim().length > 0)
+-            .onClick(() => {
+-              if (this.presenter.sendMessage(this.composerText)) {
+-                this.history = this.presenter.history.slice();
+-                this.composerText = '';
+-                this.statusText = 'Message sent';
+-              }
+-            })
+           Text(this.statusText)
+             .fontSize(13)
+             .fontColor('#64748B')
+@@ -74,4 +129,17 @@ struct Index {
+     .width('100%')
+     .backgroundColor('#F4F6F8')
+   }
+-}
++
++  private openRoom(roomId: string): void {
++    const opened: boolean = this.presenter.navigateToRoom(roomId);
++    this.refresh();
++    if (opened) {
++      const params: RoomDetailParams = { roomId: roomId };
++      router.pushUrl({ url: 'pages/RoomDetail', params: params });
++    }
++  }
++
++  private sanitizeId(roomId: string): string {
++    return roomId.replace(/[:!]/g, '_');
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/RoomDetail.ets b/entry/src/main/ets/pages/RoomDetail.ets
+new file mode 100644
+index 0000000..f7a1ba5
+--- /dev/null
++++ b/entry/src/main/ets/pages/RoomDetail.ets
+@@ -0,0 +1,264 @@
++import { router } from '@kit.ArkUI';
++import {
++  RoomPresenter,
++  sharedGateway,
++  sharedStore
++} from '../features/RoomFeature';
++
++interface RoomDetailParams {
++  roomId: string;
++}
++
++@Entry
++@Component
++struct RoomDetail {
++  private presenter: RoomPresenter = new RoomPresenter(sharedGateway, sharedStore);
++  @State private history: string[] = [];
++  @State private composerText: string = '';
++  @State private statusText: string = '';
++  @State private roomName: string = '';
++  @State private tombstoned: boolean = false;
++  @State private composerEnabled: boolean = false;
++  @State private successorRoomId: string = '';
++  @State private successorReason: string = '';
++  @State private predecessorRoomId: string = '';
++  @State private predecessorLastEventId: string = '';
++  @State private predecessorRoomName: string = '';
++  private roomId: string = '';
++
++  aboutToAppear(): void {
++    const params = router.getParams() as RoomDetailParams;
++    const target: string = (params === null || params === undefined || params.roomId === undefined || params.roomId === null) ? '' : params.roomId;
++    if (target.length === 0) {
++      this.statusText = 'No room id provided.';
++      return;
++    }
++    this.roomId = target;
++    const opened = this.presenter.navigateToRoom(this.roomId);
++    if (!opened) {
++      const gateway = this.presenter.gateway;
++      this.statusText = gateway.lastNavigationError.length === 0 ? `Could not open ${this.roomId}.` : `Could not open ${this.roomId}: ${gateway.lastNavigationError}`;
++    } else {
++      this.statusText = '';
++    }
++    this.refresh();
++  }
++
++  refresh(): void {
++    const current = this.presenter.currentRoom();
++    if (current === null) {
++      this.history = [];
++      this.roomName = this.roomId;
++      this.tombstoned = false;
++      this.composerEnabled = false;
++      this.successorRoomId = '';
++      this.successorReason = '';
++      this.predecessorRoomId = '';
++      this.predecessorLastEventId = '';
++      this.predecessorRoomName = '';
++      return;
++    }
++    this.history = current.history.slice();
++    this.roomName = current.name;
++    this.tombstoned = current.isTombstoned();
++    this.composerEnabled = current.composerEnabled();
++    this.successorRoomId = current.successorRoomId();
++    this.successorReason = current.successorReason();
++    this.predecessorRoomId = current.predecessorRoomId();
++    this.predecessorLastEventId = current.predecessorLastEventId();
++    const predecessor = this.predecessorRoomId.length === 0 ? null : this.presenter.store.getRoom(this.predecessorRoomId);
++    this.predecessorRoomName = predecessor === null ? this.predecessorRoomId : predecessor.name;
++    if (this.statusText.length === 0) {
++      this.statusText = `Opened ${current.roomId}`;
++    }
++  }
++
++  build() {
++    Column() {
++      Row({ space: 8 }) {
++        Button('Back')
++          .id('room_detail_back')
++          .fontSize(13)
++          .onClick(() => {
++            router.back();
++          })
++        Column({ space: 2 }) {
++          Text(this.roomName)
++            .fontSize(20)
++            .fontWeight(FontWeight.Bold)
++          Text(this.tombstoned ? 'Replaced room (read-only)' : 'Element X room timeline')
++            .fontSize(12)
++            .fontColor(this.tombstoned ? '#B91C1C' : '#64748B')
++        }
++        .layoutWeight(1)
++        .alignItems(HorizontalAlign.Start)
++      }
++      .padding(20)
++      .width('100%')
++      .backgroundColor('#FFFFFF')
++
++      Scroll() {
++        Column({ space: 12 }) {
++          if (this.predecessorRoomId.length > 0) {
++            Column({ space: 6 }) {
++              Text('Predecessor room')
++                .fontSize(13)
++                .fontWeight(FontWeight.Medium)
++                .fontColor('#1D4ED8')
++              Text(this.predecessorRoomName)
++                .fontSize(15)
++                .fontWeight(FontWeight.Bold)
++                .fontColor('#0F172A')
++              if (this.predecessorLastEventId.length > 0) {
++                Text(`Last event id: ${this.predecessorLastEventId}`)
++                  .fontSize(11)
++                  .fontColor('#64748B')
++              }
++              Button('Open predecessor room')
++                .id('open_predecessor')
++                .width('100%')
++                .fontSize(13)
++                .onClick(() => {
++                  this.openPredecessor();
++                })
++            }
++            .padding(12)
++            .backgroundColor('#EFF6FF')
++            .borderRadius(6)
++            .width('100%')
++            .alignItems(HorizontalAlign.Start)
++          }
++
++          if (this.tombstoned) {
++            Column({ space: 6 }) {
++              Text('This room was replaced')
++                .fontSize(15)
++                .fontWeight(FontWeight.Bold)
++                .fontColor('#B91C1C')
++              Text(this.successorReason.length === 0 ? 'A replacement room is available.' : this.successorReason)
++                .fontSize(13)
++                .fontColor('#64748B')
++              Button('Open replacement room')
++                .id('open_successor')
++                .width('100%')
++                .fontSize(13)
++                .backgroundColor('#1D4ED8')
++                .fontColor('#FFFFFF')
++                .onClick(() => {
++                  this.openSuccessor();
++                })
++            }
++            .padding(12)
++            .backgroundColor('#FEF2F2')
++            .borderRadius(6)
++            .width('100%')
++            .alignItems(HorizontalAlign.Start)
++          }
++
++          Text('Timeline')
++            .fontSize(18)
++            .fontWeight(FontWeight.Bold)
++            .width('100%')
++
++          if (this.history.length === 0) {
++            Text('No messages yet.')
++              .fontSize(14)
++              .fontColor('#64748B')
++              .width('100%')
++          } else {
++            ForEach(this.history, (message: string) => {
++              Text(message)
++                .padding(14)
++                .width('100%')
++                .backgroundColor('#FFFFFF')
++                .borderRadius(6)
++            }, (message: string) => message)
++          }
++
++          if (this.composerEnabled) {
++            TextInput({ text: this.composerText, placeholder: 'Write a message' })
++              .id('message_composer')
++              .onChange((value: string) => {
++                this.composerText = value;
++              })
++            Button('Send')
++              .id('send_message')
++              .enabled(this.composerText.trim().length > 0)
++              .width('100%')
++              .onClick(() => {
++                this.sendCurrent();
++              })
++          } else if (this.tombstoned) {
++            Text('This room is read-only because it has been replaced.')
++              .id('tombstone_readonly_hint')
++              .fontSize(13)
++              .fontColor('#64748B')
++              .width('100%')
++          }
++
++          Text(this.statusText)
++            .fontSize(12)
++            .fontColor('#64748B')
++            .width('100%')
++        }
++        .padding(20)
++        .width('100%')
++      }
++      .layoutWeight(1)
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  private sendCurrent(): void {
++    if (this.presenter.sendMessage(this.composerText)) {
++      this.composerText = '';
++      this.statusText = 'Message sent';
++      this.refresh();
++    } else {
++      this.statusText = 'Message was rejected.';
++      this.refresh();
++    }
++  }
++
++  private openSuccessor(): void {
++    const target: string = this.successorRoomId;
++    if (target.length === 0) {
++      this.statusText = 'No replacement room available.';
++      return;
++    }
++    const opened = this.presenter.openSuccessor();
++    if (opened) {
++      this.roomId = target;
++      const params: RoomDetailParams = { roomId: target };
++      router.replaceUrl({ url: 'pages/RoomDetail', params: params });
++      this.statusText = '';
++      this.refresh();
++    } else {
++      this.statusText = 'Could not open the replacement room.';
++      this.refresh();
++    }
++  }
++
++  private openPredecessor(): void {
++    const target: string = this.predecessorRoomId;
++    if (target.length === 0) {
++      this.statusText = 'No predecessor room available.';
++      return;
++    }
++    const opened = this.presenter.openPredecessor();
++    if (opened) {
++      this.roomId = target;
++      const params: RoomDetailParams = { roomId: target };
++      router.replaceUrl({ url: 'pages/RoomDetail', params: params });
++      this.statusText = '';
++      this.refresh();
++    } else {
++      this.statusText = 'Could not open the predecessor room.';
++      this.refresh();
++    }
++  }
++}
++
++export default RoomDetail;
+\ No newline at end of file
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 1898d94..4f67ac5 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,5 +1,6 @@
+ {
+   "src": [
+-    "pages/Index"
++    "pages/Index",
++    "pages/RoomDetail"
+   ]
+-}
++}
+\ No newline at end of file

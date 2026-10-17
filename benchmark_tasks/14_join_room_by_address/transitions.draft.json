@@ -1,0 +1,96 @@
+{
+  "taskId": "14_join_room_by_address",
+  "description": "Shared Android/ArkTS semantics for resolving and joining a Matrix room by address",
+  "cases": [
+    {
+      "caseId": "jr_state_001_entry_opens_address_flow",
+      "key": "entry_opens_address_flow",
+      "functionalArea": "address_entry",
+      "given": {"surface": "start_chat", "searchActive": false},
+      "event": {"name": "select_join_by_address"},
+      "expected": {"addressFlowVisible": true, "address": "", "addressState": "unknown"},
+      "invariants": ["existing create-room and direct-message actions remain available"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/root/CreateRoomRootView.kt", "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/CreateRoomFlowNode.kt"]}
+    },
+    {
+      "caseId": "jr_state_002_update_trims_and_debounces",
+      "key": "update_trims_and_debounces",
+      "functionalArea": "syntax_validation",
+      "given": {"address": "", "addressState": "unknown"},
+      "event": {"name": "update_address", "value": "  #team:example.org  "},
+      "expected": {"address": "#team:example.org", "addressStateBefore300ms": "unknown", "resolveAfterMs": 300},
+      "invariants": ["each address change invalidates the previous resolution"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"]}
+    },
+    {
+      "caseId": "jr_state_003_invalid_after_continue",
+      "key": "invalid_after_continue",
+      "functionalArea": "syntax_validation",
+      "given": {"address": "not-a-room", "internalAddressState": "invalid", "validationRequested": false},
+      "event": {"name": "continue"},
+      "expected": {"addressState": "invalid", "errorVisible": true, "navigationCount": 0},
+      "invariants": ["invalid feedback is suppressed before validation is requested"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt", "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressView.kt"]}
+    },
+    {
+      "caseId": "jr_state_004_valid_address_resolves",
+      "key": "valid_address_resolves",
+      "functionalArea": "alias_resolution",
+      "given": {"address": "#team:example.org", "addressState": "unknown"},
+      "event": {"name": "debounce_elapsed", "elapsedMs": 300},
+      "expected": {"addressState": "resolving", "effect": "resolve_room_alias", "alias": "#team:example.org"},
+      "invariants": ["only syntactically valid room aliases are resolved"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"]}
+    },
+    {
+      "caseId": "jr_state_005_found_then_continue_navigates",
+      "key": "found_then_continue_navigates",
+      "functionalArea": "join_navigation",
+      "given": {"addressState": "room_found", "roomId": "!team:example.org", "servers": ["example.org"]},
+      "event": {"name": "continue"},
+      "expected": {"dismissAddressFlow": true, "openRoom": {"roomIdOrAlias": "!team:example.org", "serverNames": ["example.org"]}},
+      "invariants": ["room navigation happens once"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt", "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/CreateRoomNavigator.kt"]}
+    },
+    {
+      "caseId": "jr_state_006_continue_waits_for_resolution",
+      "key": "continue_waits_for_resolution",
+      "functionalArea": "join_navigation",
+      "given": {"address": "#team:example.org", "addressState": "resolving", "validationRequested": false},
+      "event": {"name": "continue_then_resolution_succeeds", "roomId": "!team:example.org", "servers": ["example.org"]},
+      "expected": {"validationRequested": true, "dismissAddressFlow": true, "navigationCount": 1},
+      "invariants": ["continue does not issue a second alias-resolution request"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"]}
+    },
+    {
+      "caseId": "jr_state_007_not_found_recovers",
+      "key": "not_found_recovers",
+      "functionalArea": "failure_recovery",
+      "given": {"address": "#missing:example.org", "addressState": "resolving"},
+      "event": {"name": "resolve_returns_empty_or_error"},
+      "expected": {"addressState": "room_not_found", "errorVisible": true, "navigationCount": 0, "editingEnabled": true},
+      "invariants": ["resolution failures do not close the flow"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"]}
+    },
+    {
+      "caseId": "jr_state_008_timeout_recovers",
+      "key": "timeout_recovers",
+      "functionalArea": "failure_recovery",
+      "given": {"address": "#slow:example.org", "addressState": "resolving"},
+      "event": {"name": "resolve_timeout", "elapsedSeconds": 10},
+      "expected": {"addressState": "room_not_found", "navigationCount": 0, "retryByEditing": true},
+      "invariants": ["the resolver cannot leave the UI loading indefinitely"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressPresenter.kt"]}
+    },
+    {
+      "caseId": "jr_state_009_dismiss_closes_flow",
+      "key": "dismiss_closes_flow",
+      "functionalArea": "failure_recovery",
+      "given": {"addressFlowVisible": true, "addressState": "resolving"},
+      "event": {"name": "dismiss"},
+      "expected": {"addressFlowVisible": false, "openRoomCount": 0},
+      "invariants": ["dismissing never joins a room"],
+      "evidence": {"androidProduction": ["features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/impl/joinbyaddress/JoinRoomByAddressView.kt", "features/createroom/impl/src/main/kotlin/io/element/android/features/createroom/CreateRoomNavigator.kt"]}
+    }
+  ]
+}

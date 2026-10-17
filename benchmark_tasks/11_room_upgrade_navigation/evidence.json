@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "11_room_upgrade_navigation",
+  "releaseEvidence": ["CHANGES.md v25.06.3: Feature: room version upgrade"],
+  "implementationEvidence": {
+    "symbols": ["PredecessorRoom", "SuccessorRoom", "RoomInfo.successorRoom", "MessagesState.isTombstoned", "SuccessorRoomBanner", "TimelineItemRoomBeginningView"],
+    "productionPaths": ["libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/room/tombstone", "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/tombstone", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl"],
+    "testPaths": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/MessagesPresenterTest.kt", "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/MessagesViewTest.kt", "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/timeline/TimelinePresenterTest.kt"]
+  },
+  "baseFailureEvidence": ["The base has no predecessor/successor room model exposed through the Matrix adapter.", "The base renders an upgraded room like a writable room and offers no successor navigation.", "The base timeline has no predecessor link at room beginning."],
+  "longHorizonSignals": ["The change maps SDK tombstone metadata through domain state into room list, composer, banner, timeline, and navigation.", "A tombstoned room must be read-only without hiding its history.", "Navigation must tolerate a predecessor without an event id and a successor without a reason."],
+  "rawEvidence": "raw_release_evidence.json"
+}

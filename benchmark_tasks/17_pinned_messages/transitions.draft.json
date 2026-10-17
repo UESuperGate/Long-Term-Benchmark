@@ -1,0 +1,96 @@
+{
+  "taskId": "17_pinned_messages",
+  "description": "Shared Android/ArkTS semantics for browsing and managing a room's pinned-message list",
+  "cases": [
+    {
+      "caseId": "pm_state_001_open_loading",
+      "key": "open_loading",
+      "functionalArea": "list_loading",
+      "given": {"screen": "room_timeline", "pinnedList": "closed"},
+      "event": {"name": "open_pinned_messages"},
+      "expected": {"screen": "pinned_messages", "listState": "loading", "effects": ["open_pinned_timeline"]},
+      "invariants": ["the room timeline remains the navigation parent"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/PinnedEventsTimelineProvider.kt", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListNode.kt"]}
+    },
+    {
+      "caseId": "pm_state_002_load_failure",
+      "key": "load_failure",
+      "functionalArea": "failure_state",
+      "given": {"listState": "loading", "pinnedTimelineResult": "failure"},
+      "event": {"name": "timeline_load_completed"},
+      "expected": {"listState": "failed", "emptyStateVisible": false, "errorVisible": true},
+      "invariants": ["a load failure is never rendered as an empty collection"],
+      "evidence": {"androidTests": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"]}
+    },
+    {
+      "caseId": "pm_state_003_empty_success",
+      "key": "empty_success",
+      "functionalArea": "list_loading",
+      "given": {"listState": "loading", "pinnedTimelineItems": []},
+      "event": {"name": "timeline_load_completed"},
+      "expected": {"listState": "empty", "loadedPinnedMessagesCount": 0, "failureVisible": false},
+      "invariants": ["the empty state is a successful load"],
+      "evidence": {"androidTests": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"]}
+    },
+    {
+      "caseId": "pm_state_004_filled_list",
+      "key": "filled_list",
+      "functionalArea": "pinned_timeline",
+      "given": {"pinnedTimelineItems": [{"eventId": "$a", "body": "Alpha"}, {"eventId": "$b", "body": "Beta"}]},
+      "event": {"name": "timeline_items_updated"},
+      "expected": {"listState": "filled", "visibleEventIds": ["$a", "$b"], "loadedPinnedMessagesCount": 2},
+      "invariants": ["event identity and server order are preserved"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenter.kt", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListState.kt"]}
+    },
+    {
+      "caseId": "pm_state_005_unpin_permission_denied",
+      "key": "unpin_permission_denied",
+      "functionalArea": "permission_gating",
+      "given": {"listState": "filled", "canPinUnpin": false, "eventId": "$a"},
+      "event": {"name": "show_message_actions"},
+      "expected": {"actionsVisible": ["view_in_timeline"], "actionsHidden": ["unpin"]},
+      "invariants": ["opening the action menu does not mutate the pinned list"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenter.kt", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListTimelineActionPostProcessor.kt"]}
+    },
+    {
+      "caseId": "pm_state_006_unpin_permission_allowed",
+      "key": "unpin_permission_allowed",
+      "functionalArea": "permission_gating",
+      "given": {"listState": "filled", "canPinUnpin": true, "eventId": "$a"},
+      "event": {"name": "show_message_actions"},
+      "expected": {"actionsVisible": ["view_in_timeline", "unpin"]},
+      "invariants": ["server permissions remain authoritative"],
+      "evidence": {"androidTests": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"]}
+    },
+    {
+      "caseId": "pm_state_007_view_in_timeline",
+      "key": "view_in_timeline",
+      "functionalArea": "banner_navigation",
+      "given": {"screen": "pinned_messages", "eventId": "$a"},
+      "event": {"name": "view_in_timeline"},
+      "expected": {"screen": "room_timeline", "focusedEventId": "$a", "effects": ["navigate_to_event"]},
+      "invariants": ["the pinned event remains pinned"],
+      "evidence": {"androidTests": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"]}
+    },
+    {
+      "caseId": "pm_state_008_unpin_success",
+      "key": "unpin_success",
+      "functionalArea": "unpin_action",
+      "given": {"visibleEventIds": ["$a", "$b"], "canPinUnpin": true},
+      "event": {"name": "unpin", "eventId": "$a", "result": "success"},
+      "expected": {"visibleEventIds": ["$b"], "effects": ["unpin_event", "persist_pinned_state"], "errorVisible": false},
+      "invariants": ["unrelated pinned events remain in server order"],
+      "evidence": {"androidProduction": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenter.kt"]}
+    },
+    {
+      "caseId": "pm_state_009_unpin_failure_recovery",
+      "key": "unpin_failure_recovery",
+      "functionalArea": "failure_state",
+      "given": {"visibleEventIds": ["$a", "$b"], "canPinUnpin": true},
+      "event": {"name": "unpin", "eventId": "$a", "result": "failure"},
+      "expected": {"visibleEventIds": ["$a", "$b"], "effects": ["show_error"], "retryEnabled": true},
+      "invariants": ["a failed unpin never removes the item optimistically"],
+      "evidence": {"androidTests": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/pinned/list/PinnedMessagesListPresenterTest.kt"]}
+    }
+  ]
+}
