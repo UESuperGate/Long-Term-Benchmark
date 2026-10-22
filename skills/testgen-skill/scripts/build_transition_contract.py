@@ -14,13 +14,25 @@ REQUIRED_CASE_FIELDS = ("caseId", "key", "given", "event", "expected")
 
 
 def canonical(task_id: str, case: dict[str, Any]) -> dict[str, Any]:
-    return {
+    version = case.get('traceSchemaVersion', 1)
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError('Unsupported traceSchemaVersion')
+    semantic = {
         "taskId": task_id,
         "key": case["key"],
         "given": case["given"],
         "event": case["event"],
         "expected": case["expected"],
     }
+    if 'setup' in case:
+        semantic['setup'] = case['setup']
+    if 'setup' in case or version == 2:
+        if not isinstance(case.get('invariants'), list):
+            raise ValueError('Versioned action-prefix contracts require an invariants list')
+        semantic['invariants'] = case['invariants']
+    if version == 2:
+        semantic['traceSchemaVersion'] = version
+    return semantic
 
 
 def digest(value: dict[str, Any]) -> str:
@@ -63,7 +75,8 @@ def build(draft: dict[str, Any]) -> dict[str, Any]:
         cases.append(case)
 
     return {
-        "schemaVersion": 1,
+        **draft,
+        "schemaVersion": draft.get('schemaVersion', 1),
         "taskId": task_id,
         "owner": "evaluator",
         "description": draft.get("description", "Platform-neutral state transition contract"),

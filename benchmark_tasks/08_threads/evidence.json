@@ -1,13 +1,55 @@
 {
   "schemaVersion": 1,
   "taskId": "08_threads",
-  "releaseEvidence": ["CHANGES.md v25.08.4: Threads - first iteration", "CHANGES.md v25.08.4: Allow replying to any remote message in a thread"],
+  "releaseEvidence": [
+    "CHANGES.md v25.08.4: Threads - first iteration",
+    "CHANGES.md v25.08.4: Allow replying to any remote message in a thread"
+  ],
   "implementationEvidence": {
-    "symbols": ["ThreadedMessagesNode", "CreateTimelineParams.Threaded", "ThreadSummary", "TimelineEvents.FocusOnEvent", "MessageComposerMode.Reply"],
-    "productionPaths": ["features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/threads", "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline", "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/timeline"],
-    "testPaths": ["features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/MessagesPresenterTest.kt", "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/TimelineControllerTest.kt", "libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/timeline/RustTimelineTest.kt"]
+    "symbols": [
+      "ThreadedMessagesNode",
+      "CreateTimelineParams.Threaded",
+      "ThreadSummary",
+      "TimelineEvents.FocusOnEvent",
+      "MessageComposerMode.Reply"
+    ],
+    "productionPaths": [
+      "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/threads",
+      "features/messages/impl/src/main/kotlin/io/element/android/features/messages/impl/timeline",
+      "libraries/matrix/api/src/main/kotlin/io/element/android/libraries/matrix/api/timeline"
+    ],
+    "testPaths": [
+      "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/MessagesPresenterTest.kt",
+      "features/messages/impl/src/test/kotlin/io/element/android/features/messages/impl/TimelineControllerTest.kt",
+      "libraries/matrix/impl/src/test/kotlin/io/element/android/libraries/matrix/impl/timeline/RustTimelineTest.kt"
+    ]
   },
-  "baseFailureEvidence": ["The base has no ThreadedMessagesNode or threaded timeline creation path.", "The base cannot open a thread root and keep reply, voice, location, poll, and attachment actions scoped to that thread.", "The base cannot reply to an arbitrary remote thread event."],
-  "longHorizonSignals": ["The change touches navigation, timeline construction, composer modes, media/location/poll send paths, and SDK timeline adapters.", "The thread must preserve focus and reply targets while handling remote events and send failures.", "The implementation commit changes 119 files and includes 38 test files."],
-  "rawEvidence": "raw_release_evidence.json"
+  "baseFailureEvidence": [
+    "The base has no ThreadedMessagesNode or threaded timeline creation path.",
+    "The base cannot open a thread root and keep reply, voice, location, poll, and attachment actions scoped to that thread.",
+    "The base cannot reply to an arbitrary remote thread event."
+  ],
+  "longHorizonSignals": [
+    "The change touches navigation, timeline construction, composer modes, media/location/poll send paths, and SDK timeline adapters.",
+    "The thread must preserve focus and reply targets while handling remote events and send failures.",
+    "The implementation commit changes 119 files and includes 38 test files."
+  ],
+  "rawEvidence": "raw_release_evidence.json",
+  "contractRevisions": [
+    {
+      "revision": "task08_focus_failure_null_v1",
+      "caseId": "th_state_003_focus_failure_preserves_thread",
+      "field": "expected.focusedEventId",
+      "before": "$reply",
+      "after": null,
+      "authorization": "User explicitly approved Task08 case003 expected.focusedEventId from $reply to null on both platforms, retaining other assertions, production, old evidence and agent patch.",
+      "audit": "experiment_results/runtime_transition_20261021/task08_focus_contract_revision_v1_20261021T055158Z/revision.json",
+      "immutableAndroidCommit": "5048d05e4f912585cd6100b1cbf505eac29d409f",
+      "reason": "TimelineState.focusedEventId delegates to FocusRequestState.eventId(); Failure returns null. The runtime records successful $reply focus followed by Failure/null without replacing the thread.",
+      "oldCanonicalSha256": "6506ae92f9191f5d91118af1872cfad2fd2fb42e15110dac16a031613956320f",
+      "newCanonicalSha256": "0fe3e3808be4b7a20d5cee961842d574990614190ebb2137415825daef0706d2",
+      "newRuntimeExecution": false,
+      "freshBothPlatformCalibrationRequired": true
+    }
+  ]
 }

@@ -42,7 +42,34 @@ export class RoomSnapshot {
   }
 }
 
+export interface RoomInfoSource {
+  requestRoomInfo(roomId: string): Promise<RoomSnapshot | undefined>;
+}
+
+export class DemoRoomInfoSource implements RoomInfoSource {
+  async requestRoomInfo(roomId: string): Promise<RoomSnapshot | undefined> {
+    if (roomId === '!old:example.org') {
+      return new RoomSnapshot(roomId, 'Product planning', ['Earlier message'], new SuccessorRoom('!new:example.org'));
+    }
+    if (roomId === '!new:example.org') {
+      return new RoomSnapshot(roomId, 'Product planning v2', ['Welcome to the replacement room'], undefined,
+        new PredecessorRoom('!old:example.org', '$last:example.org'));
+    }
+    return undefined;
+  }
+}
+
 export class RoomNavigationGateway {
+  private roomInfoSource?: RoomInfoSource;
+
+  constructor(roomInfoSource?: RoomInfoSource) {
+    this.roomInfoSource = roomInfoSource;
+  }
+
+  async requestRoomInfo(roomId: string): Promise<RoomSnapshot | undefined> {
+    return this.roomInfoSource?.requestRoomInfo(roomId);
+  }
+
   failNextNavigation: boolean = false;
   navigationCount: number = 0;
   lastOpenedRoomId: string = '';
@@ -63,23 +90,50 @@ export class RoomUpgradePresenter {
   readonly oldRoom: RoomSnapshot = new RoomSnapshot(
     '!old:example.org',
     'Product planning',
-    ['Earlier message'],
-    new SuccessorRoom('!new:example.org')
+    ['Earlier message']
   );
   readonly replacementRoom: RoomSnapshot = new RoomSnapshot(
     '!new:example.org',
     'Product planning v2',
-    ['Welcome to the replacement room'],
-    undefined,
-    new PredecessorRoom('!old:example.org', '$last:example.org')
+    ['Welcome to the replacement room']
   );
   currentRoom: RoomSnapshot;
   navigationState: NavigationState = NavigationState.Idle;
   sameRoomNoticeVisible: boolean = false;
+  private rooms: Map<string, RoomSnapshot> = new Map();
+  private roomInfoGenerations: Map<string, number> = new Map();
 
   constructor(gateway: RoomNavigationGateway) {
     this.gateway = gateway;
     this.currentRoom = this.oldRoom;
+    this.rooms.set(this.oldRoom.roomId, this.oldRoom);
+    this.rooms.set(this.replacementRoom.roomId, this.replacementRoom);
+  }
+
+  async observeTimelineRoomInfo(roomId: string = this.currentRoom.roomId): Promise<void> {
+    const generation = (this.roomInfoGenerations.get(roomId) ?? 0) + 1;
+    this.roomInfoGenerations.set(roomId, generation);
+    const info = await this.gateway.requestRoomInfo(roomId);
+    if (info === undefined || info.roomId !== roomId || this.roomInfoGenerations.get(roomId) !== generation) return;
+    let room = this.rooms.get(roomId);
+    if (room === undefined) {
+      room = new RoomSnapshot(roomId, info.name, []);
+      this.rooms.set(roomId, room);
+    }
+    room.name = info.name;
+    room.history = info.history.slice();
+    room.successorRoom = info.successorRoom === undefined ? undefined :
+      new SuccessorRoom(info.successorRoom.roomId, info.successorRoom.reason);
+    room.predecessorRoom = info.predecessorRoom === undefined ? undefined :
+      new PredecessorRoom(info.predecessorRoom.roomId, info.predecessorRoom.lastEventId);
+  }
+
+  selectRoom(roomId: string): boolean {
+    const room = this.rooms.get(roomId);
+    if (room === undefined) return false;
+    this.currentRoom = room;
+    this.navigationState = NavigationState.Idle;
+    return true;
   }
 
   get isTombstoned(): boolean {
@@ -95,13 +149,11 @@ export class RoomUpgradePresenter {
   }
 
   selectOldRoom(): void {
-    this.currentRoom = this.oldRoom;
-    this.navigationState = NavigationState.Idle;
+    this.selectRoom(this.oldRoom.roomId);
   }
 
   selectReplacementRoom(): void {
-    this.currentRoom = this.replacementRoom;
-    this.navigationState = NavigationState.Idle;
+    this.selectRoom(this.replacementRoom.roomId);
   }
 
   openSuccessorRoom(): void {
@@ -128,7 +180,9 @@ export class RoomUpgradePresenter {
     const succeeded = this.gateway.navigateToRoom(roomId);
     this.navigationState = succeeded ? NavigationState.Success : NavigationState.Failure;
     if (succeeded) {
-      this.currentRoom = roomId === this.replacementRoom.roomId ? this.replacementRoom : this.oldRoom;
+      const room = this.rooms.get(roomId);
+      // Navigation may target a room whose data has not arrived yet.
+      if (room !== undefined) this.currentRoom = room;
     }
   }
 }

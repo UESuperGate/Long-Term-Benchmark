@@ -17,6 +17,19 @@ SPEC.loader.exec_module(MODULE)
 
 
 class SemanticMetricTest(unittest.TestCase):
+    def test_withdrawn_semantics_cannot_be_republished_from_original_success_envelope(self):
+        for unavailable in ({'semanticWithdrawal': {'audit': 'bound-original-evidence'}},
+                            {'semanticReassessmentWithdrawal': {'fullSemanticScoreEligible': False},
+                             'metricAvailability': {'codeGeneration': True, 'compile': True,
+                                                    'semanticTestcase': True}},
+                            {'metricAvailability': {'codeGeneration': True, 'compile': True,
+                                                    'semanticTestcase': False}}):
+            manifest = {'tasks': [{'taskId': 'task', 'platform': 'arkts', 'availability': 'available',
+                                   'compile': 'passed', 'codeGenerated': True, **unavailable}]}
+            with self.assertRaisesRegex(ValueError, 'withdrawn or unavailable semantic metric'):
+                MODULE.require_semantic_manifest_eligibility(manifest, ['task'])
+            MODULE.require_semantic_manifest_eligibility(manifest, ['another'])
+
     def test_not_scored_cases_are_excluded_from_metric_denominator(self) -> None:
         payload = {
             "semantic": {
@@ -48,11 +61,13 @@ class SemanticMetricTest(unittest.TestCase):
             output = root / "output"
             (evaluation / "patches").mkdir(parents=True)
             (evaluation / "logs").mkdir()
+            (evaluation / "manifest_history").mkdir()
             calibration.mkdir()
             output.mkdir()
             (evaluation / "eval_manifest.json").write_text('{"runId":"test"}\n', encoding="utf-8")
             (evaluation / "patches" / "android_task.patch").write_text("patch\n", encoding="utf-8")
             (evaluation / "logs" / "android_task.jsonl").write_text("log\n", encoding="utf-8")
+            (evaluation / 'manifest_history/old.json').write_text('{"status":"partial"}\n')
             (calibration / "calibration_summary.json").write_text('{"allPolarityValid":true}\n', encoding="utf-8")
 
             MODULE.archive_provenance(evaluation, calibration, output)
@@ -65,6 +80,8 @@ class SemanticMetricTest(unittest.TestCase):
             self.assertFalse(log["published"])
             self.assertEqual(len(patch["sha256"]), 64)
             self.assertEqual(len(log["sha256"]), 64)
+            history = next(row for row in index['artifacts'] if row['kind'] == 'evaluation_manifest_checkpoint')
+            self.assertTrue((output / history['path']).is_file())
 
 
 if __name__ == "__main__":

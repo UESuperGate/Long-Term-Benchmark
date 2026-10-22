@@ -25,6 +25,18 @@ def metric(passed: int, total: int) -> dict[str, Any]:
     return {"passed": passed, "total": total, "rate": round(passed / total, 6) if total else 0.0}
 
 
+def scoped_calibration(summary: dict[str, Any], ids: list[str]) -> dict[str, Any]:
+    tasks = {task_id: summary["tasks"][task_id] for task_id in ids}
+    return {**summary, "tasks": tasks,
+            "allPolarityValid": bool(tasks) and all(row.get("valid") is True for row in tasks.values())}
+
+
+def active_calibration_filenames(ids: list[str]) -> set[str]:
+    return {f"{platform}_{task_id}_{role}.json" for task_id in ids
+            for platform in ("android", "arkts") for role in ("base", "final")} | {
+                f"{task_id}_parity.json" for task_id in ids}
+
+
 def semantic(report: Path) -> dict[str, Any]:
     rows = load(report)["semantic"]["cases"]
     counts = Counter(row["status"] for row in rows)
@@ -37,6 +49,55 @@ def semantic(report: Path) -> dict[str, Any]:
         "available": counts["not_scored"] == 0,
         "failedCaseIds": [row["caseId"] for row in rows if row["status"] != "pass"],
     }
+
+
+def require_runtime(report: Path) -> dict[str, Any]:
+    data = load(report)
+    if data.get('observationMode') != 'runtime_state_transition':
+        raise ValueError(f'{report}: source conformance cannot be published as runtime semantic testcases')
+    return data
+
+
+def require_semantic_manifest_eligibility(manifest: dict[str, Any], ids: list[str]) -> None:
+    for row in manifest.get('tasks', []):
+        if row.get('taskId') not in ids:
+            continue
+        metrics = row.get('metricAvailability') or {}
+        if (row.get('semanticWithdrawal') or row.get('semanticReassessmentWithdrawal') or
+                metrics.get('semanticTestcase') is False):
+            raise ValueError(f"{row.get('platform')}/{row.get('taskId')}: withdrawn or unavailable semantic metric")
+
+
+def validate_runtime_publication(calibration: Path, evaluation: Path, ids: list[str]) -> None:
+    if __package__:
+        from .run_runtime_transition_matrix import archived_agent_input_conflict, calibrates, validate_report
+    else:
+        from run_runtime_transition_matrix import archived_agent_input_conflict, calibrates, validate_report
+
+    manifest = evaluation / 'eval_manifest.json'
+    if not manifest.exists():
+        manifest = evaluation / 'eval_manifest.partial.json'
+    if manifest.exists():
+        require_semantic_manifest_eligibility(load(manifest), ids)
+
+    for task_id in ids:
+        contract = load(ROOT / 'benchmark_tasks' / task_id / 'transitions.json')
+        poles = {}
+        for platform in ('android', 'arkts'):
+            for role in ('base', 'final', 'agent'):
+                directory = evaluation if role == 'agent' else calibration
+                path = directory / 'reports' / f'{platform}_{task_id}_{role}.json'
+                report = require_runtime(path)
+                if (report.get('taskId'), report.get('platform'), report.get('role')) != (task_id, platform, role):
+                    raise ValueError(f'{path}: runtime candidate identity mismatch')
+                validate_report(report, contract)
+                if archived_agent_input_conflict(report, contract):
+                    raise ValueError(f'{path}: archived agent public inputs differ from the revised contract')
+                if any(row['status'] == 'not_scored' for row in report['semantic']['cases']):
+                    raise ValueError(f'{path}: incomplete runtime coverage cannot be published as a benchmark score')
+                poles[(platform, role)] = report
+        if not calibrates(poles, len(contract['cases'])):
+            raise ValueError(f'{task_id}: actual runtime reports fail four-way polarity')
 
 
 def sha256(path: Path) -> str:
@@ -96,6 +157,22 @@ def archive_provenance(evaluation: Path, calibration: Path, output: Path) -> Non
                 "published": False,
                 "localArchive": relative_to_root(source),
             })
+    for source in sorted((evaluation / 'inputs').rglob('*')):
+        if not source.is_file():
+            continue
+        destination = provenance / 'inputs' / source.relative_to(evaluation / 'inputs')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        evidence.append({'kind': 'candidate_baseline_input', 'name': source.name,
+                         'sha256': sha256(source), 'bytes': source.stat().st_size,
+                         'published': True, 'path': str(destination.relative_to(output))})
+    for source in sorted((evaluation / 'manifest_history').glob('*.json')):
+        destination = provenance / 'manifest_history' / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        evidence.append({'kind': 'evaluation_manifest_checkpoint', 'name': source.name,
+                         'sha256': sha256(source), 'bytes': source.stat().st_size,
+                         'published': True, 'path': str(destination.relative_to(output))})
     (provenance / "evidence_index.json").write_text(
         json.dumps({"schemaVersion": 1, "artifacts": evidence}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -107,21 +184,31 @@ def main() -> int:
     parser.add_argument("--calibration", type=Path, required=True)
     parser.add_argument("--evaluation", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--historical-source-diagnostics", action="store_true",
+                        help="Explicitly rebuild a legacy source-conformance archive; never runtime validation")
     args = parser.parse_args()
     calibration = args.calibration.resolve()
     evaluation = args.evaluation.resolve()
     output = args.output.resolve()
+    ids = [str(item) for item in load(CATALOG)["acceptedTaskIds"]]
+    calibration_summary = scoped_calibration(load(calibration / "calibration_summary.json"), ids)
+    manifest_path = evaluation / 'eval_manifest.json'
+    if not manifest_path.exists():
+        manifest_path = evaluation / 'eval_manifest.partial.json'
+    eval_manifest = load(manifest_path)
+    require_semantic_manifest_eligibility(eval_manifest, ids)
+    if not args.historical_source_diagnostics:
+        if calibration_summary.get('observationMode') != 'runtime_state_transition':
+            raise ValueError('Calibration must execute runtime transitions; legacy archive requires --historical-source-diagnostics')
+        if not calibration_summary.get('allPolarityValid'):
+            raise ValueError('Cannot publish benchmark metrics before runtime base/final calibration passes')
+        validate_runtime_publication(calibration, evaluation, ids)
+    # Reject invalid evidence before touching an existing published archive.
     output.mkdir(parents=True, exist_ok=True)
     reports_out = output / "reports"
     if reports_out.exists():
         shutil.rmtree(reports_out)
     reports_out.mkdir()
-    calibration_summary = load(calibration / "calibration_summary.json")
-    manifest_path = evaluation / "eval_manifest.json"
-    if not manifest_path.exists():
-        manifest_path = evaluation / "eval_manifest.partial.json"
-    eval_manifest = load(manifest_path)
-    ids = [str(item) for item in load(CATALOG)["acceptedTaskIds"]]
     run_rows = {(row.get("platform"), row.get("taskId")): row for row in eval_manifest["tasks"]}
     tasks: list[dict[str, Any]] = []
     diagnostics: list[dict[str, Any]] = []
@@ -137,6 +224,8 @@ def main() -> int:
             run = run_rows.get((platform, task_id), {})
             available = run.get("availability", "available") == "available" and bool(run)
             source = evaluation / "reports" / f"{platform}_{task_id}_agent.json"
+            if available and source.exists() and not args.historical_source_diagnostics:
+                require_runtime(source)
             result = semantic(source) if available and source.exists() else {
                 "passed": 0,
                 "failed": 0,
@@ -191,12 +280,15 @@ def main() -> int:
         tasks.append(task_row)
 
     for source in (calibration / "reports").glob("*.json"):
-        shutil.copy2(source, reports_out / source.name)
+        if source.name in active_calibration_filenames(ids):
+            shutil.copy2(source, reports_out / source.name)
     archive_provenance(evaluation, calibration, output)
     expected_runs = len(ids) * 2
     total_runs = expected_runs - unavailable
     summary = {
         "schemaVersion": 1,
+        "observationMode": calibration_summary['observationMode'],
+        "historicalDiagnosticOnly": args.historical_source_diagnostics,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "runId": eval_manifest["runId"],
         "status": eval_manifest.get("status", "complete"),
@@ -222,6 +314,7 @@ def main() -> int:
             "extremeRuns": semantic_available_runs - discriminative,
         },
         "tasks": tasks,
+        "benchmarkScope": {"taskIds": ids, "excludedTaskIds": load(CATALOG).get("excludedTaskIds", [])},
         "timing": {
             "startedAt": eval_manifest["startedAt"],
             "finishedAt": eval_manifest["finishedAt"],
@@ -271,6 +364,11 @@ def main() -> int:
             f"| `{task['id']}` | {task_meta['title']} | {task['caseCountPerPlatform']} | {cell(android)} | {cell(arkts)} |"
         )
     task_rows = "\n".join(task_table)
+    mode_note = (
+        'Historical source-pattern diagnostics only. These scores do not establish runtime transition correctness.'
+        if args.historical_source_diagnostics else
+        'Runtime transitions were executed. Consult each report for its runtime and observation scope; domain tests do not establish device UI or OS-service behavior.'
+    )
     readme = f"""# Element X tasks 08-18 benchmark
 
 This bundle records {len(ids)} tasks calibrated on Android and migrated to ArkTS with one shared transition contract per task.
@@ -295,7 +393,7 @@ This bundle records {len(ids)} tasks calibrated on Android and migrated to ArkTS
 
 Four-way polarity valid: `{str(calibration_summary['allPolarityValid']).lower()}`. Agent discrimination is reported as evidence and is not forced by changing semantic expectations.
 
-The authoritative semantic mode for this repair is `source_transition_conformance`; no Android emulator or ArkTS device was used for these semantic scores. Base/final polarity is `0/N -> N/N` on both platforms, with no unscored cases. Toolchain details are in `environment.json`. `provenance/` contains the run manifest, calibration and rescore summaries, all 22 reconstructable candidate patches, and an evidence index. Full OpenCode/build logs remain in the ignored local run archive; their SHA-256 digests are recorded in the index without publishing credentials or bulky logs.
+Observation mode: `{calibration_summary['observationMode']}`. {mode_note} Toolchain details are in `environment.json`. `provenance/` contains the run manifest, calibration and rescore summaries, candidate patches, and an evidence index. Full OpenCode/build logs remain in the ignored local run archive; their SHA-256 digests are recorded in the index.
 """
     (output / "README.md").write_text(readme, encoding="utf-8")
     return 0

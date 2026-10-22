@@ -1,0 +1,2179 @@
+diff --git a/entry/oh-package.json5 b/entry/oh-package.json5
+index 87de2d6bac7086a9b6509df834cd90e73da3e2bd..801da627cede2a651c17119d116bf19254cbc41d 100644
+--- a/entry/oh-package.json5
++++ b/entry/oh-package.json5
+@@ -1,7 +1,7 @@
+ {
+   "name": "entry",
+   "version": "1.0.0",
+-  "description": "Element X pinned messages base entry module",
++  "description": "Element X pinned messages entry module",
+   "main": "",
+   "author": "qingyu",
+   "license": "Apache-2.0",
+diff --git a/entry/src/main/ets/Application/AbilityStage.ets b/entry/src/main/ets/Application/AbilityStage.ets
+index c0c7954c9dac8e36e14ae9362657361983e3e89e..8e975a1da1b7c2551856f8c42cdd783f02b9dff9 100644
+--- a/entry/src/main/ets/Application/AbilityStage.ets
++++ b/entry/src/main/ets/Application/AbilityStage.ets
+@@ -1,6 +1,8 @@
+ import AbilityStage from '@ohos.app.ability.AbilityStage';
++import { configureRoomBackend } from '../features/PinnedMessagesSession';
+ 
+ export default class EntryAbilityStage extends AbilityStage {
+   onCreate(): void {
++    configureRoomBackend();
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/FailureReason.ets b/entry/src/main/ets/features/FailureReason.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..a82fbb21b8f9e1285328aa2eaa89295de6eb2d63
+--- /dev/null
++++ b/entry/src/main/ets/features/FailureReason.ets
+@@ -0,0 +1,11 @@
++/**
++ * Builds user facing text for a failed request. Every failure reported by the
++ * Matrix ports has to stay recoverable, so the caller always receives a message
++ * that can be shown next to a retry action.
++ */
++export function describeFailure(error: Error, fallback: string): string {
++  if (error instanceof Error && typeof error.message === 'string' && error.message.length > 0) {
++    return error.message;
++  }
++  return fallback;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/LocalMatrixRoom.ets b/entry/src/main/ets/features/LocalMatrixRoom.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..6dd0a18efb7213b2288b1a5219f90888ac116d04
+--- /dev/null
++++ b/entry/src/main/ets/features/LocalMatrixRoom.ets
+@@ -0,0 +1,282 @@
++import {
++  PinnedEventAvailability,
++  PinnedItemsListener,
++  PinnedMessage,
++  PinnedRoomPort,
++  PinnedSummary,
++  PinnedSummaryListener,
++  PinnedTimelinePage,
++  PinnedTimelinePort,
++  RoomSyncListener,
++  Unsubscribe
++} from './MatrixRoomServices';
++
++/** Number of pinned events the relation timeline serves per page. */
++export const PINNED_PAGE_SIZE: number = 2;
++
++/** Number of room timeline events kept around a focused event. */
++const TIMELINE_WINDOW: number = 7;
++
++/**
++ * Room backing store used by the application. It keeps the room timeline and the
++ * pinned relation of the room locally and applies relation changes to that state,
++ * which is what the pinned collection observes: unpinning removes the event from
++ * the pinned relation and every timeline re-syncs from it.
++ */
++export class LocalMatrixRoom implements PinnedRoomPort {
++  roomId: string;
++  private timelineEvents: PinnedMessage[];
++  private pinnedEventIds: string[];
++  private summaryListeners: PinnedSummaryListener[];
++  private syncListeners: RoomSyncListener[];
++
++  constructor(roomId: string = '$design-team:matrix.org') {
++    this.roomId = roomId;
++    this.timelineEvents = createRoomTimeline();
++    this.pinnedEventIds = [
++      '$roadmap',
++      '$incident',
++      '$rules',
++      '$giphy',
++      '$launch',
++      '$welcome'
++    ];
++    this.summaryListeners = [];
++    this.syncListeners = [];
++  }
++
++  pinnedEventsTimeline(): Promise<PinnedTimelinePort> {
++    return Promise.resolve(new LocalPinnedTimeline(this));
++  }
++
++  canPinUnpin(): Promise<boolean> {
++    return Promise.resolve(true);
++  }
++
++  subscribeSync(listener: RoomSyncListener): Unsubscribe {
++    this.syncListeners.push(listener);
++    return (): void => {
++      const index = this.syncListeners.indexOf(listener);
++      if (index >= 0) {
++        this.syncListeners.splice(index, 1);
++      }
++    };
++  }
++
++  loadTimeline(focusedEventId: string | undefined): Promise<PinnedMessage[]> {
++    return Promise.resolve(this.timelineWindow(focusedEventId));
++  }
++
++  loadPinnedSummary(): Promise<PinnedSummary> {
++    return Promise.resolve(this.pinnedSummary());
++  }
++
++  subscribePinnedSummary(listener: PinnedSummaryListener): Unsubscribe {
++    this.summaryListeners.push(listener);
++    return (): void => {
++      const index = this.summaryListeners.indexOf(listener);
++      if (index >= 0) {
++        this.summaryListeners.splice(index, 1);
++      }
++    };
++  }
++
++  /** Pinned events in the order the server returned them. */
++  pinnedEventsSnapshot(): PinnedMessage[] {
++    const pinned: PinnedMessage[] = [];
++    for (const eventId of this.pinnedEventIds) {
++      const event = this.eventById(eventId);
++      if (event !== undefined) {
++        pinned.push(event);
++      }
++    }
++    return pinned;
++  }
++
++  containsEvent(eventId: string): boolean {
++    return this.eventById(eventId) !== undefined;
++  }
++
++  /**
++   * Applies an unpin request to the room state. Returns false when the relation
++   * no longer contains the event, in which case nothing is removed locally.
++   */
++  unpin(eventId: string): boolean {
++    const index = this.pinnedEventIds.indexOf(eventId);
++    if (index < 0) {
++      return false;
++    }
++    this.pinnedEventIds.splice(index, 1);
++    this.notifyRoomUpdated();
++    return true;
++  }
++
++  /** Applies a pin request. The relation only accepts room events. */
++  pinEvent(eventId: string): Promise<boolean> {
++    if (!this.containsEvent(eventId)) {
++      return Promise.resolve(false);
++    }
++    if (this.pinnedEventIds.indexOf(eventId) >= 0) {
++      return Promise.resolve(false);
++    }
++    this.pinnedEventIds.push(eventId);
++    this.notifyRoomUpdated();
++    return Promise.resolve(true);
++  }
++
++  private eventById(eventId: string): PinnedMessage | undefined {
++    for (const event of this.timelineEvents) {
++      if (event.eventId === eventId) {
++        return event;
++      }
++    }
++    return undefined;
++  }
++
++  private pinnedSummary(): PinnedSummary {
++    const items = this.pinnedEventsSnapshot();
++    return new PinnedSummary(items.length, items);
++  }
++
++  private notifyRoomUpdated(): void {
++    const syncSnapshot = this.syncListeners.slice();
++    for (const listener of syncSnapshot) {
++      listener();
++    }
++    const summary = this.pinnedSummary();
++    const summarySnapshot = this.summaryListeners.slice();
++    for (const listener of summarySnapshot) {
++      listener(summary);
++    }
++  }
++
++  private timelineWindow(focusedEventId: string | undefined): PinnedMessage[] {
++    if (focusedEventId === undefined || focusedEventId.length === 0) {
++      return this.timelineEvents.slice();
++    }
++    const index = this.indexOfEvent(focusedEventId);
++    if (index < 0) {
++      return this.timelineEvents.slice();
++    }
++    const start = Math.max(0, index - 1);
++    const end = Math.min(this.timelineEvents.length, start + TIMELINE_WINDOW);
++    return this.timelineEvents.slice(start, end);
++  }
++
++  private indexOfEvent(eventId: string): number {
++    for (let index = 0; index < this.timelineEvents.length; index++) {
++      if (this.timelineEvents[index].eventId === eventId) {
++        return index;
++      }
++    }
++    return -1;
++  }
++}
++
++/**
++ * Paginated view over the pinned relation of a room. It only serves events that
++ * the server currently reports as pinned, so an unpin is reflected by the next
++ * emission instead of by a local guess.
++ */
++class LocalPinnedTimeline implements PinnedTimelinePort {
++  private room: LocalMatrixRoom;
++  private pageSize: number;
++  private loadedEventIds: string[];
++  private listeners: PinnedItemsListener[];
++
++  constructor(room: LocalMatrixRoom, pageSize: number = PINNED_PAGE_SIZE) {
++    this.room = room;
++    this.pageSize = pageSize;
++    this.loadedEventIds = [];
++    this.listeners = [];
++  }
++
++  subscribeItems(listener: PinnedItemsListener): Unsubscribe {
++    this.listeners.push(listener);
++    return (): void => {
++      const index = this.listeners.indexOf(listener);
++      if (index >= 0) {
++        this.listeners.splice(index, 1);
++      }
++    };
++  }
++
++  /**
++   * Serves the next events that were not served yet. Paging walks the current
++   * relation instead of a positional offset, so an event that is unpinned or
++   * added by somebody else while paging cannot make this timeline skip or repeat
++   * an event.
++   */
++  async loadNextPage(): Promise<PinnedTimelinePage> {
++    const pinned = this.room.pinnedEventsSnapshot();
++    const page: PinnedMessage[] = [];
++    let hasMore = false;
++    for (const message of pinned) {
++      if (this.loadedEventIds.indexOf(message.eventId) >= 0) {
++        continue;
++      }
++      if (page.length >= this.pageSize) {
++        hasMore = true;
++        break;
++      }
++      this.loadedEventIds.push(message.eventId);
++      page.push(message);
++    }
++    this.emitItems();
++    return new PinnedTimelinePage(page, hasMore);
++  }
++
++  async unpinEvent(eventId: string): Promise<boolean> {
++    const removed = this.room.unpin(eventId);
++    if (!removed) {
++      return false;
++    }
++    const index = this.loadedEventIds.indexOf(eventId);
++    if (index >= 0) {
++      this.loadedEventIds.splice(index, 1);
++    }
++    this.emitItems();
++    return true;
++  }
++
++  close(): void {
++    this.listeners = [];
++    this.loadedEventIds = [];
++  }
++
++  private emitItems(): void {
++    if (this.listeners.length === 0) {
++      return;
++    }
++    const items: PinnedMessage[] = [];
++    const pinned = this.room.pinnedEventsSnapshot();
++    for (const message of pinned) {
++      if (this.loadedEventIds.indexOf(message.eventId) >= 0) {
++        items.push(message);
++      }
++    }
++    const snapshot = this.listeners.slice();
++    for (const listener of snapshot) {
++      listener(items);
++    }
++  }
++}
++
++function createRoomTimeline(): PinnedMessage[] {
++  const events: PinnedMessage[] = [];
++  events.push(new PinnedMessage(
++    '$welcome', 'Alice', 'Welcome to the room! Say hi when you are around.', 1712000000000));
++  events.push(new PinnedMessage(
++    '$roadmap', 'Alice', 'Q3 roadmap: offline sync, faster search, pinned messages.', 1712000600000));
++  events.push(new PinnedMessage(
++    '$incident', 'Dana', '', 1712001200000, PinnedEventAvailability.Redacted));
++  events.push(new PinnedMessage(
++    '$rules', 'Bob', 'Please read the room rules before posting links.', 1712001800000));
++  events.push(new PinnedMessage(
++    '$giphy', 'Dana', '', 1712002400000, PinnedEventAvailability.Unavailable));
++  events.push(new PinnedMessage(
++    '$launch', 'Bob', 'Release 0.5.3 ships the pinned-message collection.', 1712003000000));
++  events.push(new PinnedMessage(
++    '$lunch', 'Bob', 'Anyone up for lunch at the cafeteria at noon?', 1712003600000));
++  return events;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/MatrixRoomServices.ets b/entry/src/main/ets/features/MatrixRoomServices.ets
+index dc2800c9a45671b39df1e0369ffcbdabb3604de3..469529dfb608f741e64ead87865beb198a357b61 100644
+--- a/entry/src/main/ets/features/MatrixRoomServices.ets
++++ b/entry/src/main/ets/features/MatrixRoomServices.ets
+@@ -1,17 +1,105 @@
++/*
++ * Matrix room ports used by the pinned-message collection.
++ *
++ * The homeserver stays authoritative for this feature: the pinned-event relation
++ * timeline decides which events are pinned and in which order, and the room
++ * power-level decides whether the local user may pin or unpin. The UI layer only
++ * mirrors the state updates reported through these ports.
++ */
++
++export enum PinnedEventAvailability {
++  Available = 0,
++  Redacted = 1,
++  Unavailable = 2
++}
++
++/**
++ * A single event of the room, reused both by the room timeline and by the
++ * pinned collection. Events that can no longer be rendered (redacted by their
++ * sender or unreadable for this device) still travel through the model so that
++ * the list never drops or crashes on them.
++ */
+ export class PinnedMessage {
+   eventId: string;
+   sender: string;
+   body: string;
++  timestamp: number;
++  availability: PinnedEventAvailability;
+ 
+-  constructor(eventId: string, sender: string, body: string) {
++  constructor(eventId: string,
++    sender: string,
++    body: string,
++    timestamp: number = 0,
++    availability: PinnedEventAvailability = PinnedEventAvailability.Available) {
+     this.eventId = eventId;
+     this.sender = sender;
+     this.body = body;
++    this.timestamp = timestamp;
++    this.availability = availability;
++  }
++
++  isRenderable(): boolean {
++    return this.availability === PinnedEventAvailability.Available;
++  }
++
++  displayBody(): string {
++    if (this.availability === PinnedEventAvailability.Redacted) {
++      return 'Message removed';
++    }
++    if (this.availability === PinnedEventAvailability.Unavailable) {
++      return 'This message could not be loaded';
++    }
++    return this.body.length > 0 ? this.body : 'Attachment';
++  }
++
++  timestampLabel(): string {
++    const moment = new Date(this.timestamp);
++    return `${this.pad(moment.getHours())}:${this.pad(moment.getMinutes())}`;
++  }
++
++  private pad(value: number): string {
++    return value < 10 ? `0${value}` : `${value}`;
++  }
++}
++
++/** One page of the pinned-event relation timeline. */
++export class PinnedTimelinePage {
++  items: PinnedMessage[];
++  hasMore: boolean;
++
++  constructor(items: PinnedMessage[], hasMore: boolean) {
++    this.items = items;
++    this.hasMore = hasMore;
+   }
+ }
+ 
++/** Snapshot of the room's pinned relation, used by the room banner. */
++export class PinnedSummary {
++  count: number;
++  items: PinnedMessage[];
++
++  constructor(count: number, items: PinnedMessage[]) {
++    this.count = count;
++    this.items = items;
++  }
++
++  hasPinnedMessages(): boolean {
++    return this.count > 0;
++  }
++}
++
++export type PinnedItemsListener = (items: PinnedMessage[]) => void;
++export type PinnedSummaryListener = (summary: PinnedSummary) => void;
++export type RoomSyncListener = () => void;
++export type Unsubscribe = () => void;
++
++/**
++ * The room's pinned-event relation timeline. Events are delivered through
++ * `subscribeItems`; pagination is driven by `loadNextPage`.
++ */
+ export interface PinnedTimelinePort {
+-  subscribeItems(listener: (items: PinnedMessage[]) => void): () => void;
++  subscribeItems(listener: PinnedItemsListener): Unsubscribe;
++  loadNextPage(): Promise<PinnedTimelinePage>;
+   unpinEvent(eventId: string): Promise<boolean>;
+   close(): void;
+ }
+@@ -20,11 +108,14 @@ export interface PinnedRoomPort {
+   roomId: string;
+   pinnedEventsTimeline(): Promise<PinnedTimelinePort>;
+   canPinUnpin(): Promise<boolean>;
+-  subscribeSync(listener: () => void): () => void;
++  subscribeSync(listener: RoomSyncListener): Unsubscribe;
+   loadTimeline(focusedEventId: string | undefined): Promise<PinnedMessage[]>;
++  loadPinnedSummary(): Promise<PinnedSummary>;
++  subscribePinnedSummary(listener: PinnedSummaryListener): Unsubscribe;
++  pinEvent(eventId: string): Promise<boolean>;
+ }
+ 
+-// v0.5.1 already exposes these SDK operations; no collection UI/provider here.
++/** Thin application-facing wrapper over the raw Matrix room port. */
+ export class MatrixRoomService implements PinnedRoomPort {
+   readonly port: PinnedRoomPort;
+   readonly roomId: string;
+@@ -42,13 +133,25 @@ export class MatrixRoomService implements PinnedRoomPort {
+     return this.port.canPinUnpin();
+   }
+ 
+-  subscribeSync(listener: () => void): () => void {
++  subscribeSync(listener: RoomSyncListener): Unsubscribe {
+     return this.port.subscribeSync(listener);
+   }
+ 
+   loadTimeline(focusedEventId: string | undefined): Promise<PinnedMessage[]> {
+     return this.port.loadTimeline(focusedEventId);
+   }
++
++  loadPinnedSummary(): Promise<PinnedSummary> {
++    return this.port.loadPinnedSummary();
++  }
++
++  subscribePinnedSummary(listener: PinnedSummaryListener): Unsubscribe {
++    return this.port.subscribePinnedSummary(listener);
++  }
++
++  pinEvent(eventId: string): Promise<boolean> {
++    return this.port.pinEvent(eventId);
++  }
+ }
+ 
+ export class RoomSession {
+@@ -61,4 +164,4 @@ export class RoomSession {
+   static createService(): MatrixRoomService | undefined {
+     return RoomSession.room === undefined ? undefined : new MatrixRoomService(RoomSession.room);
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/PinnedMessagesBase.ets b/entry/src/main/ets/features/PinnedMessagesBase.ets
+index 14f73835a9e06be498fc04752be81d5c49693c1d..543d2f1fb2f0a74270f0d3714a47c6fa83f27aca 100644
+--- a/entry/src/main/ets/features/PinnedMessagesBase.ets
++++ b/entry/src/main/ets/features/PinnedMessagesBase.ets
+@@ -1,24 +1,69 @@
++import { PinnedEventAvailability, PinnedMessage } from './MatrixRoomServices';
++
+ export class PinnedBannerMessage {
+   eventId: string;
+   body: string;
++  sender: string;
+ 
+-  constructor(eventId: string, body: string) {
++  constructor(eventId: string, body: string, sender: string = '') {
+     this.eventId = eventId;
+     this.body = body;
++    this.sender = sender;
+   }
+ }
+ 
++/**
++ * Presents the room banner. It is a pure projection of the pinned relation of
++ * the room, so the banner disappears as soon as the last pinned event is removed
++ * and never invents pins of its own.
++ */
+ export class PinnedMessagesBannerPresenter {
+-  pinnedMessages: PinnedBannerMessage[] = [
+-    new PinnedBannerMessage('$welcome', 'Welcome to the room'),
+-    new PinnedBannerMessage('$rules', 'Please read the room rules')
+-  ];
+-  currentIndex: number = 1;
++  pinnedMessages: PinnedBannerMessage[];
++  currentIndex: number;
++
++  constructor() {
++    this.pinnedMessages = [];
++    this.currentIndex = 0;
++  }
++
++  updateFrom(events: PinnedMessage[]): void {
++    const next: PinnedBannerMessage[] = [];
++    for (const event of events) {
++      const label = event.availability === PinnedEventAvailability.Redacted
++        ? 'Removed message'
++        : event.displayBody();
++      next.push(new PinnedBannerMessage(event.eventId, label, event.sender));
++    }
++    this.pinnedMessages = next;
++    if (this.currentIndex >= this.pinnedMessages.length || this.currentIndex < 0) {
++      this.currentIndex = 0;
++    }
++  }
++
++  count(): number {
++    return this.pinnedMessages.length;
++  }
++
++  hasPinnedMessages(): boolean {
++    return this.pinnedMessages.length > 0;
++  }
++
++  hasEvent(eventId: string): boolean {
++    for (const message of this.pinnedMessages) {
++      if (message.eventId === eventId) {
++        return true;
++      }
++    }
++    return false;
++  }
+ 
+   current(): PinnedBannerMessage | null {
+     if (this.pinnedMessages.length === 0) {
+       return null;
+     }
++    if (this.currentIndex >= this.pinnedMessages.length || this.currentIndex < 0) {
++      this.currentIndex = 0;
++    }
+     return this.pinnedMessages[this.currentIndex];
+   }
+ 
+@@ -26,6 +71,6 @@ export class PinnedMessagesBannerPresenter {
+     if (this.pinnedMessages.length === 0) {
+       return;
+     }
+-    this.currentIndex = (this.currentIndex - 1 + this.pinnedMessages.length) % this.pinnedMessages.length;
++    this.currentIndex = (this.currentIndex + 1) % this.pinnedMessages.length;
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/PinnedMessagesList.ets b/entry/src/main/ets/features/PinnedMessagesList.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..acf6e0fbabaaecc7f5ba71214e4bd2d263fed396
+--- /dev/null
++++ b/entry/src/main/ets/features/PinnedMessagesList.ets
+@@ -0,0 +1,406 @@
++import { describeFailure } from './FailureReason';
++import {
++  MatrixRoomService,
++  PinnedEventAvailability,
++  PinnedMessage,
++  PinnedTimelinePage,
++  PinnedTimelinePort,
++  Unsubscribe
++} from './MatrixRoomServices';
++
++/**
++ * The pinned collection distinguishes loading, empty, filled and failed. A failed
++ * load is never rendered as an empty collection: only a successful load that
++ * returned no event may produce the empty state.
++ */
++export enum PinnedListState {
++  Closed = 0,
++  Loading = 1,
++  Empty = 2,
++  Filled = 3,
++  Failed = 4
++}
++
++/**
++ * One rendered row of the collection. Per item action state (open action menu,
++ * running unpin, recoverable failure) lives here and is keyed by event id, so it
++ * survives further pages being appended to the list.
++ */
++@Observed
++export class PinnedMessageRow {
++  eventId: string;
++  sender: string;
++  body: string;
++  availability: PinnedEventAvailability;
++  timeLabel: string;
++  actionsExpanded: boolean;
++  busy: boolean;
++  errorMessage: string;
++
++  constructor(message: PinnedMessage) {
++    this.eventId = message.eventId;
++    this.sender = message.sender;
++    this.body = message.displayBody();
++    this.availability = message.availability;
++    this.timeLabel = message.timestampLabel();
++    this.actionsExpanded = false;
++    this.busy = false;
++    this.errorMessage = '';
++  }
++
++  refreshFrom(message: PinnedMessage): void {
++    this.sender = message.sender;
++    this.body = message.displayBody();
++    this.availability = message.availability;
++    this.timeLabel = message.timestampLabel();
++  }
++
++  isRenderable(): boolean {
++    return this.availability === PinnedEventAvailability.Available;
++  }
++
++  hasError(): boolean {
++    return this.errorMessage.length > 0;
++  }
++}
++
++export type PinnedListListener = () => void;
++
++/** Outcome of an unpin request, so the UI can give the right feedback. */
++export enum PinnedUnpinResult {
++  Confirmed = 0,
++  Rejected = 1,
++  NotPermitted = 2,
++  Busy = 3
++}
++
++/**
++ * View model of the pinned-message collection of a room.
++ *
++ * It opens a scoped pinned-event timeline, mirrors the events the timeline
++ * reports, paginates without duplicating events, gates the pin/unpin actions on
++ * the room permission and only removes an item once the underlying state update
++ * confirmed the unpin.
++ */
++export class PinnedMessagesList {
++  private room: MatrixRoomService | undefined;
++  private timeline: PinnedTimelinePort | undefined;
++  private unsubscribeItems: Unsubscribe | undefined;
++  private unsubscribeSync: Unsubscribe | undefined;
++  private listeners: PinnedListListener[];
++  private rows: PinnedMessageRow[];
++
++  state: PinnedListState;
++  canPinUnpin: boolean;
++  hasMore: boolean;
++  loadingMore: boolean;
++  failureMessage: string;
++  paginationErrorMessage: string;
++
++  constructor(room: MatrixRoomService | undefined) {
++    this.room = room;
++    this.timeline = undefined;
++    this.unsubscribeItems = undefined;
++    this.unsubscribeSync = undefined;
++    this.listeners = [];
++    this.rows = [];
++    this.state = PinnedListState.Closed;
++    this.canPinUnpin = false;
++    this.hasMore = false;
++    this.loadingMore = false;
++    this.failureMessage = '';
++    this.paginationErrorMessage = '';
++  }
++
++  subscribe(listener: PinnedListListener): Unsubscribe {
++    this.listeners.push(listener);
++    return (): void => {
++      const index = this.listeners.indexOf(listener);
++      if (index >= 0) {
++        this.listeners.splice(index, 1);
++      }
++    };
++  }
++
++  /** Rows currently rendered, in server order. */
++  items(): PinnedMessageRow[] {
++    return this.rows;
++  }
++
++  /** Opens the collection and loads its first page of pinned events. */
++  async open(): Promise<void> {
++    this.releaseTimeline();
++    this.state = PinnedListState.Loading;
++    this.failureMessage = '';
++    this.paginationErrorMessage = '';
++    this.loadingMore = false;
++    this.hasMore = false;
++    this.notify();
++
++    const room = this.room;
++    if (room === undefined) {
++      this.failCollection('This room is not available any more.');
++      return;
++    }
++
++    try {
++      const timeline = await room.pinnedEventsTimeline();
++      this.timeline = timeline;
++      this.unsubscribeItems = timeline.subscribeItems((items: PinnedMessage[]): void => {
++        this.onTimelineItems(items);
++      });
++      this.unsubscribeSync = room.subscribeSync((): void => {
++        this.refreshPermission();
++      });
++      await this.refreshPermission();
++      const page: PinnedTimelinePage = await timeline.loadNextPage();
++      this.hasMore = page.hasMore;
++      this.resolveLoadedState();
++    } catch (error) {
++      this.failCollection(describeFailure(error, 'The pinned messages could not be loaded.'));
++    }
++  }
++
++  /** Releases the collection when the page is closed; it can be opened again. */
++  close(): void {
++    this.releaseTimeline();
++    this.collapseAllActions();
++    this.rows = [];
++    this.canPinUnpin = false;
++    this.hasMore = false;
++    this.loadingMore = false;
++    this.state = PinnedListState.Closed;
++    this.notify();
++  }
++
++  /** Recovers from a failed load, or retries a failed page. */
++  async retry(): Promise<void> {
++    if (this.state === PinnedListState.Failed) {
++      await this.open();
++      return;
++    }
++    this.paginationErrorMessage = '';
++    await this.loadMore();
++  }
++
++  /** Loads the next page of the pinned timeline. */
++  async loadMore(): Promise<void> {
++    const timeline = this.timeline;
++    if (timeline === undefined || this.loadingMore || !this.hasMore) {
++      return;
++    }
++    if (this.state !== PinnedListState.Filled) {
++      return;
++    }
++    this.loadingMore = true;
++    this.paginationErrorMessage = '';
++    this.notify();
++    try {
++      const page: PinnedTimelinePage = await timeline.loadNextPage();
++      this.appendPage(page.items);
++      this.hasMore = page.hasMore;
++      this.resolveLoadedState();
++    } catch (error) {
++      this.paginationErrorMessage =
++        describeFailure(error, 'More pinned messages could not be loaded.');
++    }
++    this.loadingMore = false;
++    this.notify();
++  }
++
++  /**
++   * Opens or closes the action menu of an item. This is a presentation concern
++   * only: the pinned collection itself is left untouched.
++   */
++  toggleActions(eventId: string): void {
++    const row = this.findRow(eventId);
++    if (row === undefined) {
++      return;
++    }
++    const expanded = !row.actionsExpanded;
++    this.collapseAllActions();
++    row.actionsExpanded = expanded;
++    this.notify();
++  }
++
++  collapseAllActions(): void {
++    let changed = false;
++    for (const row of this.rows) {
++      if (row.actionsExpanded) {
++        row.actionsExpanded = false;
++        changed = true;
++      }
++    }
++    if (changed) {
++      this.notify();
++    }
++  }
++
++  /**
++   * Removes a pinned event. Nothing is removed optimistically: the item is only
++   * dropped once the timeline confirmed the unpin, a failure keeps the item in
++   * place with a recoverable message.
++   */
++  async unpin(eventId: string): Promise<PinnedUnpinResult> {
++    const timeline = this.timeline;
++    if (timeline === undefined) {
++      return PinnedUnpinResult.Rejected;
++    }
++    // The room permission is authoritative: without it no request is even sent.
++    if (!this.canPinUnpin) {
++      return PinnedUnpinResult.NotPermitted;
++    }
++    const row = this.findRow(eventId);
++    if (row === undefined) {
++      return PinnedUnpinResult.Rejected;
++    }
++    if (row.busy) {
++      return PinnedUnpinResult.Busy;
++    }
++    row.busy = true;
++    row.errorMessage = '';
++    this.notify();
++
++    let confirmed = false;
++    try {
++      confirmed = await timeline.unpinEvent(eventId);
++    } catch (error) {
++      confirmed = false;
++    }
++    row.busy = false;
++
++    if (!confirmed) {
++      row.errorMessage = 'Could not unpin this message. It is still pinned.';
++      this.notify();
++      return PinnedUnpinResult.Rejected;
++    }
++    // Normally the timeline emission already dropped the event; this keeps the
++    // list correct for ports that only report the relation lazily.
++    this.removeRow(eventId);
++    this.resolveLoadedState();
++    this.notify();
++    return PinnedUnpinResult.Confirmed;
++  }
++
++  dismissActionError(eventId: string): void {
++    const row = this.findRow(eventId);
++    if (row === undefined || row.errorMessage.length === 0) {
++      return;
++    }
++    row.errorMessage = '';
++    this.notify();
++  }
++
++  private async refreshPermission(): Promise<void> {
++    const room = this.room;
++    if (room === undefined) {
++      return;
++    }
++    try {
++      const allowed = await room.canPinUnpin();
++      if (allowed !== this.canPinUnpin) {
++        this.canPinUnpin = allowed;
++        this.notify();
++      }
++    } catch (error) {
++      // Keep the last known permission: the server stays authoritative and the
++      // actions simply stay disabled until a later sync resolves it.
++    }
++  }
++
++  private onTimelineItems(items: PinnedMessage[]): void {
++    this.rows = this.mergeItems(items);
++    if (this.state === PinnedListState.Empty || this.state === PinnedListState.Filled) {
++      this.resolveLoadedState();
++    }
++    this.notify();
++  }
++
++  private mergeItems(items: PinnedMessage[]): PinnedMessageRow[] {
++    const merged: PinnedMessageRow[] = [];
++    const seen: string[] = [];
++    for (const item of items) {
++      if (seen.indexOf(item.eventId) >= 0) {
++        continue;
++      }
++      seen.push(item.eventId);
++      const existing = this.findRow(item.eventId);
++      if (existing === undefined) {
++        merged.push(new PinnedMessageRow(item));
++      } else {
++        existing.refreshFrom(item);
++        merged.push(existing);
++      }
++    }
++    return merged;
++  }
++
++  private appendPage(items: PinnedMessage[]): void {
++    const appended: PinnedMessageRow[] = this.rows.slice();
++    const seen: string[] = [];
++    for (const row of this.rows) {
++      seen.push(row.eventId);
++    }
++    for (const item of items) {
++      if (seen.indexOf(item.eventId) >= 0) {
++        continue;
++      }
++      seen.push(item.eventId);
++      appended.push(new PinnedMessageRow(item));
++    }
++    this.rows = appended;
++  }
++
++  private removeRow(eventId: string): void {
++    const remaining: PinnedMessageRow[] = [];
++    for (const row of this.rows) {
++      if (row.eventId !== eventId) {
++        remaining.push(row);
++      }
++    }
++    this.rows = remaining;
++  }
++
++  private findRow(eventId: string): PinnedMessageRow | undefined {
++    for (const row of this.rows) {
++      if (row.eventId === eventId) {
++        return row;
++      }
++    }
++    return undefined;
++  }
++
++  private resolveLoadedState(): void {
++    this.state = this.rows.length === 0 ? PinnedListState.Empty : PinnedListState.Filled;
++  }
++
++  private failCollection(message: string): void {
++    this.state = PinnedListState.Failed;
++    this.failureMessage = message;
++    this.rows = [];
++    this.hasMore = false;
++    this.notify();
++  }
++
++  private releaseTimeline(): void {
++    if (this.unsubscribeItems !== undefined) {
++      this.unsubscribeItems();
++      this.unsubscribeItems = undefined;
++    }
++    if (this.unsubscribeSync !== undefined) {
++      this.unsubscribeSync();
++      this.unsubscribeSync = undefined;
++    }
++    if (this.timeline !== undefined) {
++      this.timeline.close();
++      this.timeline = undefined;
++    }
++  }
++
++  private notify(): void {
++    const snapshot = this.listeners.slice();
++    for (const listener of snapshot) {
++      listener();
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/PinnedMessagesSession.ets b/entry/src/main/ets/features/PinnedMessagesSession.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ae3c5bce4c315d04a9a980fae70432e163b6020
+--- /dev/null
++++ b/entry/src/main/ets/features/PinnedMessagesSession.ets
+@@ -0,0 +1,124 @@
++import { LocalMatrixRoom } from './LocalMatrixRoom';
++import { MatrixRoomService, PinnedSummary, PinnedSummaryListener, RoomSession, Unsubscribe } from './MatrixRoomServices';
++import { PinnedMessagesBannerPresenter } from './PinnedMessagesBase';
++import { PinnedMessagesList } from './PinnedMessagesList';
++import { RoomTimelineController } from './RoomTimeline';
++
++export type RoomSessionListener = () => void;
++
++/**
++ * Application scoped state of the room screen: the room backend, the room
++ * timeline, the pinned banner projection and the pinned collection. Both the
++ * room screen and the pinned-message screen read from this session, which is why
++ * unpinning an event in the collection is immediately reflected by the banner.
++ */
++export class PinnedMessagesSession {
++  private static instance: PinnedMessagesSession | undefined = undefined;
++
++  private roomService: MatrixRoomService | undefined;
++  private timelineController: RoomTimelineController | undefined;
++  private banner: PinnedMessagesBannerPresenter;
++  private pinnedList: PinnedMessagesList | undefined;
++  private listeners: RoomSessionListener[];
++  private unsubscribeSummary: Unsubscribe | undefined;
++  private pendingFocusEventId: string;
++  private started: boolean;
++
++  static shared(): PinnedMessagesSession {
++    if (PinnedMessagesSession.instance === undefined) {
++      PinnedMessagesSession.instance = new PinnedMessagesSession();
++    }
++    return PinnedMessagesSession.instance;
++  }
++
++  constructor() {
++    this.roomService = RoomSession.createService();
++    this.timelineController = this.roomService === undefined
++      ? undefined : new RoomTimelineController(this.roomService);
++    this.banner = new PinnedMessagesBannerPresenter();
++    this.pinnedList = undefined;
++    this.listeners = [];
++    this.unsubscribeSummary = undefined;
++    this.pendingFocusEventId = '';
++    this.started = false;
++  }
++
++  /** Resolves the room backend once at startup. */
++  start(): void {
++    if (this.started) {
++      return;
++    }
++    this.started = true;
++    this.roomService = RoomSession.createService();
++    this.timelineController = this.roomService === undefined
++      ? undefined : new RoomTimelineController(this.roomService);
++    // The collection is bound to a room, so it is rebuilt when the room changes.
++    this.pinnedList = undefined;
++    if (this.roomService === undefined) {
++      return;
++    }
++    this.roomService.loadPinnedSummary().then((summary: PinnedSummary) => {
++      this.banner.updateFrom(summary.items);
++      this.notify();
++    });
++    const summaryListener: PinnedSummaryListener = (summary: PinnedSummary) => {
++      this.banner.updateFrom(summary.items);
++      this.notify();
++    };
++    this.unsubscribeSummary = this.roomService.subscribePinnedSummary(summaryListener);
++  }
++
++  subscribe(listener: RoomSessionListener): RoomSessionListener {
++    this.listeners.push(listener);
++    return (): void => {
++      const index = this.listeners.indexOf(listener);
++      if (index >= 0) {
++        this.listeners.splice(index, 1);
++      }
++    };
++  }
++
++  isRoomAvailable(): boolean {
++    return this.roomService !== undefined;
++  }
++
++  bannerPresenter(): PinnedMessagesBannerPresenter {
++    return this.banner;
++  }
++
++  timeline(): RoomTimelineController | undefined {
++    return this.timelineController;
++  }
++
++  /** Collection view model of the room, created on first use. */
++  pinnedCollection(): PinnedMessagesList {
++    if (this.pinnedList === undefined) {
++      this.pinnedList = new PinnedMessagesList(this.roomService);
++    }
++    return this.pinnedList;
++  }
++
++  /** Records that the room timeline has to focus an event when it is shown. */
++  requestTimelineFocus(eventId: string): void {
++    this.pendingFocusEventId = eventId;
++  }
++
++  /** Returns and clears the pending focus request. */
++  consumeFocusRequest(): string {
++    const eventId = this.pendingFocusEventId;
++    this.pendingFocusEventId = '';
++    return eventId;
++  }
++
++  private notify(): void {
++    const snapshot = this.listeners.slice();
++    for (const listener of snapshot) {
++      listener();
++    }
++  }
++}
++
++/** Installs the room backend used by the session. */
++export function configureRoomBackend(): void {
++  RoomSession.configureRoom(new LocalMatrixRoom());
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/RoomTimeline.ets b/entry/src/main/ets/features/RoomTimeline.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..ff353af88fecc5ea2e222b21ed807fd47b15f7e4
+--- /dev/null
++++ b/entry/src/main/ets/features/RoomTimeline.ets
+@@ -0,0 +1,199 @@
++import { describeFailure } from './FailureReason';
++import { MatrixRoomService, PinnedMessage } from './MatrixRoomServices';
++
++export enum FocusOutcome {
++  Focused = 0,
++  NotInTimeline = 1,
++  Failed = 2
++}
++
++/** Outcome of a pin request made from the room timeline. */
++export enum PinOutcome {
++  Pinned = 0,
++  Rejected = 1,
++  NotPermitted = 2
++}
++
++export type RoomTimelineListener = () => void;
++
++/**
++ * View model of the room timeline.
++ *
++ * It loads a window of the room timeline, optionally around a given event, and
++ * keeps the focused event highlighted. Focusing is best effort: when the event
++ * cannot be retrieved the timeline stays usable and reports why.
++ */
++export class RoomTimelineController {
++  private room: MatrixRoomService;
++  private listeners: RoomTimelineListener[];
++  private timelineEvents: PinnedMessage[];
++  private focusedEventId: string;
++  private statusMessage: string;
++  private loading: boolean;
++  private pinAllowed: boolean;
++  private pinningEventId: string;
++
++  constructor(room: MatrixRoomService) {
++    this.room = room;
++    this.listeners = [];
++    this.timelineEvents = [];
++    this.focusedEventId = '';
++    this.statusMessage = '';
++    this.loading = false;
++    this.pinAllowed = false;
++    this.pinningEventId = '';
++  }
++
++  subscribe(listener: RoomTimelineListener): RoomTimelineListener {
++    this.listeners.push(listener);
++    return (): void => {
++      const index = this.listeners.indexOf(listener);
++      if (index >= 0) {
++        this.listeners.splice(index, 1);
++      }
++    };
++  }
++
++  items(): PinnedMessage[] {
++    return this.timelineEvents;
++  }
++
++  isLoading(): boolean {
++    return this.loading;
++  }
++
++  status(): string {
++    return this.statusMessage;
++  }
++
++  hasStatus(): boolean {
++    return this.statusMessage.length > 0;
++  }
++
++  /** Whether the current power level allows pin/unpin requests. */
++  canPinUnpin(): boolean {
++    return this.pinAllowed;
++  }
++
++  isPinning(eventId: string): boolean {
++    return this.pinningEventId.length > 0 && this.pinningEventId === eventId;
++  }
++
++  /**
++   * Pins an event of the room. Pin actions are only offered when the permission
++   * allows them, and a rejected request leaves the room state untouched.
++   */
++  async pin(eventId: string): Promise<PinOutcome> {
++    if (!this.pinAllowed) {
++      return PinOutcome.NotPermitted;
++    }
++    if (this.pinningEventId.length > 0) {
++      return PinOutcome.Rejected;
++    }
++    this.pinningEventId = eventId;
++    this.notify();
++    let pinned = false;
++    try {
++      pinned = await this.room.pinEvent(eventId);
++    } catch (error) {
++      pinned = false;
++    }
++    this.pinningEventId = '';
++    if (pinned) {
++      this.statusMessage = '';
++    } else {
++      this.statusMessage = 'This message could not be pinned.';
++    }
++    this.notify();
++    return pinned ? PinOutcome.Pinned : PinOutcome.Rejected;
++  }
++
++  private async loadPermission(): Promise<void> {
++    try {
++      const allowed = await this.room.canPinUnpin();
++      if (allowed !== this.pinAllowed) {
++        this.pinAllowed = allowed;
++        this.notify();
++      }
++    } catch (error) {
++      // Keep the last known permission: the room power level stays authoritative.
++    }
++  }
++
++  focusedEventIdValue(): string {
++    return this.focusedEventId;
++  }
++
++  isFocused(eventId: string): boolean {
++    return this.focusedEventId.length > 0 && this.focusedEventId === eventId;
++  }
++
++  focusedIndex(): number {
++    if (this.focusedEventId.length === 0) {
++      return -1;
++    }
++    return this.indexOfEvent(this.focusedEventId);
++  }
++
++  /** Loads the timeline, optionally around a specific event. */
++  async load(focusedEventId: string | undefined): Promise<FocusOutcome> {
++    const target = focusedEventId === undefined ? '' : focusedEventId;
++    this.loading = true;
++    this.notify();
++    await this.loadPermission();
++    try {
++      this.timelineEvents = await this.room.loadTimeline(target);
++      this.focusedEventId = '';
++      this.statusMessage = '';
++      if (target.length > 0) {
++        if (this.indexOfEvent(target) >= 0) {
++          this.focusedEventId = target;
++        } else {
++          this.statusMessage = 'That message is no longer available in this room.';
++        }
++      }
++    } catch (error) {
++      this.focusedEventId = '';
++      this.statusMessage = describeFailure(error, 'The room timeline could not be loaded.');
++      this.loading = false;
++      this.notify();
++      return FocusOutcome.Failed;
++    }
++    this.loading = false;
++    this.notify();
++    if (target.length === 0) {
++      return FocusOutcome.Focused;
++    }
++    return this.focusedIndex() >= 0 ? FocusOutcome.Focused : FocusOutcome.NotInTimeline;
++  }
++
++  private indexOfEvent(eventId: string): number {
++    for (let index = 0; index < this.timelineEvents.length; index++) {
++      if (this.timelineEvents[index].eventId === eventId) {
++        return index;
++      }
++    }
++    return -1;
++  }
++
++  /** Jumps to a pinned event inside the room timeline. */
++  async focusEvent(eventId: string): Promise<FocusOutcome> {
++    return this.load(eventId);
++  }
++
++  clearFocus(): void {
++    if (this.focusedEventId.length === 0 && this.statusMessage.length === 0) {
++      return;
++    }
++    this.focusedEventId = '';
++    this.statusMessage = '';
++    this.notify();
++  }
++
++  private notify(): void {
++    const snapshot = this.listeners.slice();
++    for (const listener of snapshot) {
++      listener();
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 01d645e3d0f521868684858969531b36d3dd4fa2..f18bfcbce4d371e2cfd8a96c926f04a06fa70b19 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,78 +1,365 @@
++import promptAction from '@ohos.promptAction';
++import router from '@ohos.router';
++import { PinnedMessage } from '../features/MatrixRoomServices';
+ import { PinnedBannerMessage, PinnedMessagesBannerPresenter } from '../features/PinnedMessagesBase';
++import { PinnedMessagesSession, RoomSessionListener } from '../features/PinnedMessagesSession';
++import { FocusOutcome, PinOutcome, RoomTimelineController } from '../features/RoomTimeline';
++
++const PINNED_PAGE_URL: string = 'pages/PinnedMessages';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private presenter: PinnedMessagesBannerPresenter = new PinnedMessagesBannerPresenter();
+-  @State private currentPinned: PinnedBannerMessage | null = this.presenter.current();
++  private session: PinnedMessagesSession = PinnedMessagesSession.shared();
++  private banner: PinnedMessagesBannerPresenter = this.session.bannerPresenter();
++  private timelineController: RoomTimelineController | undefined = undefined;
++  private scroller: Scroller = new Scroller();
++  private unsubscribe: RoomSessionListener | undefined = undefined;
++  private unsubscribeTimeline: RoomSessionListener | undefined = undefined;
++  @State private pinnedCount: number = 0;
++  @State private currentPinned: PinnedBannerMessage | null = null;
++  @State private timelineItems: PinnedMessage[] = [];
++  @State private timelineLoading: boolean = false;
++  @State private focusedEventId: string = '';
++  @State private focusedIndex: number = -1;
++  @State private statusMessage: string = '';
++  @State private navigationError: string = '';
++  @State private canPinUnpin: boolean = false;
++  @State private pinningEventId: string = '';
++
++  aboutToAppear(): void {
++    this.session.start();
++    this.timelineController = this.session.timeline();
++    if (this.timelineController !== undefined) {
++      this.unsubscribeTimeline = this.timelineController.subscribe(() => this.syncTimeline());
++    }
++    this.unsubscribe = this.session.subscribe(() => this.syncBanner());
++    this.syncBanner();
++    this.reloadTimeline('');
++  }
++
++  onPageShow(): void {
++    // The pinned collection hands the event over before it navigates back, so
++    // the room timeline can focus it once it becomes visible again.
++    const pending = this.session.consumeFocusRequest();
++    if (pending.length === 0) {
++      return;
++    }
++    this.focusEvent(pending);
++  }
++
++  aboutToDisappear(): void {
++    if (this.unsubscribe !== undefined) {
++      this.unsubscribe();
++      this.unsubscribe = undefined;
++    }
++    if (this.unsubscribeTimeline !== undefined) {
++      this.unsubscribeTimeline();
++      this.unsubscribeTimeline = undefined;
++    }
++  }
++
++  private syncBanner(): void {
++    this.pinnedCount = this.banner.count();
++    this.currentPinned = this.banner.current();
++  }
++
++  private syncTimeline(): void {
++    const controller = this.timelineController;
++    if (controller === undefined) {
++      return;
++    }
++    this.timelineItems = controller.items().slice();
++    this.timelineLoading = controller.isLoading();
++    this.focusedEventId = controller.focusedEventIdValue();
++    this.focusedIndex = controller.focusedIndex();
++    this.statusMessage = controller.status();
++    this.canPinUnpin = controller.canPinUnpin();
++    this.syncPinningState();
++  }
++
++  private syncPinningState(): void {
++    const controller = this.timelineController;
++    if (controller === undefined) {
++      this.pinningEventId = '';
++      return;
++    }
++    for (const event of this.timelineItems) {
++      if (controller.isPinning(event.eventId)) {
++        this.pinningEventId = event.eventId;
++        return;
++      }
++    }
++    this.pinningEventId = '';
++  }
++
++  private reloadTimeline(focusedEventId: string): void {
++    const controller = this.timelineController;
++    if (controller === undefined) {
++      this.statusMessage = 'This room is not available any more.';
++      return;
++    }
++    controller.load(focusedEventId).then((outcome: FocusOutcome) => {
++      this.syncTimeline();
++      if (outcome === FocusOutcome.Focused && this.focusedIndex > 0) {
++        this.scroller.scrollToIndex(this.focusedIndex, false, ScrollAlign.START);
++      }
++    });
++  }
++
++  private focusEvent(eventId: string): void {
++    const controller = this.timelineController;
++    if (controller === undefined) {
++      return;
++    }
++    controller.focusEvent(eventId).then((outcome: FocusOutcome) => {
++      this.syncTimeline();
++      if (outcome !== FocusOutcome.Focused) {
++        return;
++      }
++      if (this.focusedIndex > 0) {
++        this.scroller.scrollToIndex(this.focusedIndex, false, ScrollAlign.START);
++      } else {
++        this.scroller.scrollEdge(Edge.Top);
++      }
++    });
++  }
++
++  private openPinnedCollection(): void {
++    this.navigationError = '';
++    if (!this.session.isRoomAvailable()) {
++      this.navigationError = 'This room is not available any more.';
++      return;
++    }
++    router.pushUrl({ url: PINNED_PAGE_URL }).catch(() => {
++      this.navigationError = 'The pinned messages could not be opened.';
++    });
++  }
++
++  private pinEvent(item: PinnedMessage): void {
++    const controller = this.timelineController;
++    if (controller === undefined) {
++      return;
++    }
++    controller.pin(item.eventId).then((outcome: PinOutcome) => {
++      this.syncTimeline();
++      if (outcome === PinOutcome.Pinned) {
++        this.showToast('Message pinned');
++        return;
++      }
++      if (outcome === PinOutcome.NotPermitted) {
++        this.showToast('You are not allowed to pin messages in this room');
++        return;
++      }
++      this.showToast('Could not pin the message');
++    });
++  }
++
++  private showToast(message: string): void {
++    try {
++      promptAction.showToast({ message: message });
++    } catch (error) {
++      // The failure is already reported by the room status message.
++    }
++  }
+ 
+   build() {
+     Column() {
+-      Row() {
+-        Column({ space: 2 }) {
+-          Text('Design team')
+-            .fontSize(22)
+-            .fontWeight(FontWeight.Bold)
+-          Text('12 members')
+-            .fontSize(13)
+-            .fontColor('#64748B')
+-        }
+-        .alignItems(HorizontalAlign.Start)
+-        Blank()
+-        Text('Room')
++      this.RoomHeader()
++      this.PinnedBanner()
++      if (this.navigationError.length > 0) {
++        Text(this.navigationError)
++          .fontSize(13)
++          .fontColor('#B42318')
++          .padding({ left: 20, right: 20, top: 8 })
++          .width('100%')
++      }
++      this.StatusBanner()
++      this.Timeline()
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  @Builder
++  RoomHeader() {
++    Row() {
++      Column({ space: 2 }) {
++        Text('Design team')
++          .fontSize(22)
++          .fontWeight(FontWeight.Bold)
++        Text('12 members')
+           .fontSize(13)
+           .fontColor('#64748B')
+       }
+-      .padding(20)
++      .alignItems(HorizontalAlign.Start)
++      Blank()
++      Text('Room')
++        .fontSize(13)
++        .fontColor('#64748B')
++    }
++    .padding(20)
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++  }
++
++  @Builder
++  PinnedBanner() {
++    Column({ space: 6 }) {
++      Row({ space: 12 }) {
++        Text(this.pinnedCount > 0 ? 'Pinned' : 'No pins')
++          .fontSize(13)
++          .fontWeight(FontWeight.Medium)
++          .fontColor(this.pinnedCount > 0 ? '#067A68' : '#64748B')
++        Text(this.bannerText())
++          .layoutWeight(1)
++          .maxLines(1)
++          .fontSize(14)
++          .fontColor(this.pinnedCount > 0 ? '#0F172A' : '#64748B')
++      }
+       .width('100%')
+-      .backgroundColor('#FFFFFF')
++      .onClick((): void => {
++        this.openPinnedCollection();
++      })
+ 
+-      if (this.currentPinned !== null) {
+-        Row({ space: 12 }) {
+-          Text('Pinned')
+-            .fontSize(13)
+-            .fontWeight(FontWeight.Medium)
+-            .fontColor('#067A68')
+-          Text(this.currentPinned?.body ?? '')
+-            .layoutWeight(1)
+-            .maxLines(1)
++      Row({ space: 12 }) {
++        if (this.pinnedCount > 1) {
+           Button('Next')
+-            .onClick(() => {
+-              this.presenter.moveToNext();
+-              this.currentPinned = this.presenter.current();
++            .onClick((): void => {
++              this.banner.moveToNext();
++              this.syncBanner();
+             })
+             .id('pinned_banner_next')
+         }
+-        .padding(14)
+-        .width('100%')
+-        .backgroundColor('#E9F8F4')
+-        .id('pinned_messages_banner')
++        Blank()
++        Text(this.pinnedCount > 0 ? 'Tap to open the pinned messages' : 'Tap to check for pins')
++          .fontSize(12)
++          .fontColor(this.pinnedCount > 0 ? '#0F766E' : '#64748B')
++          .onClick((): void => {
++            this.openPinnedCollection();
++          })
+       }
++      .width('100%')
++    }
++    .alignItems(HorizontalAlign.Start)
++    .padding(14)
++    .width('100%')
++    .backgroundColor(this.pinnedCount > 0 ? '#E9F8F4' : '#F1F5F9')
++    .id('pinned_messages_banner')
++  }
+ 
+-      Column({ space: 14 }) {
+-        Text('Alice')
++  private bannerText(): string {
++    if (this.pinnedCount === 0) {
++      return 'Nothing is pinned in this room';
++    }
++    const current = this.currentPinned;
++    return current === null ? '' : current.body;
++  }
++
++  @Builder
++  StatusBanner() {
++    if (this.statusMessage.length > 0) {
++      Row({ space: 12 }) {
++        Text(this.statusMessage)
++          .layoutWeight(1)
+           .fontSize(13)
+-          .fontColor('#64748B')
+-          .width('100%')
+-        Text('The room timeline remains available, but this version has no pinned-message collection screen.')
++          .fontColor('#B42318')
++        if (this.focusedEventId.length > 0) {
++          Button('Clear')
++            .onClick((): void => {
++              const controller = this.timelineController;
++              if (controller !== undefined) {
++                controller.clearFocus();
++              }
++            })
++            .id('timeline_focus_clear')
++        }
++      }
++      .padding({ left: 20, right: 20, top: 10, bottom: 10 })
++      .width('100%')
++      .backgroundColor('#FEF3F2')
++    }
++  }
++
++  @Builder
++  Timeline() {
++    if (this.timelineItems.length === 0) {
++      Column({ space: 8 }) {
++        Text(this.timelineLoading ? 'Loading the room timeline' : 'No messages to show')
+           .fontSize(16)
+-          .lineHeight(23)
+-          .width('100%')
+-        Text('Bob')
++        Text(this.timelineLoading ? 'Please wait' : 'This room has no message yet.')
+           .fontSize(13)
+           .fontColor('#64748B')
+-          .width('100%')
+-        Text('Use the banner to cycle through known pins.')
+-          .fontSize(16)
+-          .width('100%')
+       }
+       .padding(20)
+       .layoutWeight(1)
+-      .alignItems(HorizontalAlign.Start)
++      .width('100%')
++    } else {
++      List({ scroller: this.scroller }) {
++        ForEach(this.timelineItems, (item: PinnedMessage) => {
++          ListItem() {
++            this.TimelineRow(item)
++          }
++        }, (item: PinnedMessage) => item.eventId)
++      }
++      .layoutWeight(1)
+       .width('100%')
+     }
+-    .height('100%')
++  }
++
++  @Builder
++  TimelineRow(item: PinnedMessage) {
++    Column({ space: 4 }) {
++      Row({ space: 8 }) {
++        Text(item.sender)
++          .fontSize(13)
++          .fontWeight(FontWeight.Medium)
++        Text(item.timestampLabel())
++          .fontSize(12)
++          .fontColor('#94A3B8')
++        if (this.banner.hasEvent(item.eventId)) {
++          Text('Pinned')
++            .fontSize(11)
++            .fontColor('#067A68')
++        }
++        Blank()
++        this.PinAction(item)
++      }
++      .width('100%')
++      .alignItems(VerticalAlign.Center)
++      Text(item.displayBody())
++        .fontSize(16)
++        .lineHeight(23)
++        .fontColor(this.focusedEventId === item.eventId ? '#0F766E' : '#0F172A')
++        .width('100%')
++      if (this.focusedEventId === item.eventId) {
++        Text('Focused from pinned messages')
++          .fontSize(12)
++          .fontColor('#067A68')
++      }
++    }
++    .alignItems(HorizontalAlign.Start)
++    .padding({ left: 20, right: 20, top: 12, bottom: 12 })
++    .margin({ bottom: 6 })
+     .width('100%')
+-    .backgroundColor('#F4F6F8')
++    .backgroundColor(this.focusedEventId === item.eventId ? '#E9F8F4' : '#FFFFFF')
++    .borderRadius(8)
++    .id(`timeline_item_${item.eventId}`)
++  }
++
++  /** Pinning is offered only while the room permission allows it. */
++  @Builder
++  PinAction(item: PinnedMessage) {
++    if (this.canPinUnpin && !this.banner.hasEvent(item.eventId)) {
++      Button(this.pinningEventId === item.eventId ? 'Pinning' : 'Pin')
++        .fontSize(12)
++        .height(28)
++        .enabled(this.pinningEventId.length === 0)
++        .onClick((): void => {
++          this.pinEvent(item);
++        })
++        .id(`timeline_pin_${item.eventId}`)
++    }
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/PinnedMessages.ets b/entry/src/main/ets/pages/PinnedMessages.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..85d1049ad71c1635af28c1452ebcae01145847d0
+--- /dev/null
++++ b/entry/src/main/ets/pages/PinnedMessages.ets
+@@ -0,0 +1,375 @@
++import promptAction from '@ohos.promptAction';
++import router from '@ohos.router';
++import { PinnedListState, PinnedMessageRow, PinnedMessagesList, PinnedUnpinResult } from '../features/PinnedMessagesList';
++import { PinnedMessagesSession, RoomSessionListener } from '../features/PinnedMessagesSession';
++
++@Entry
++@Component
++struct PinnedMessages {
++  private session: PinnedMessagesSession = PinnedMessagesSession.shared();
++  private collection: PinnedMessagesList = this.session.pinnedCollection();
++  private scroller: Scroller = new Scroller();
++  private unsubscribe: RoomSessionListener | undefined = undefined;
++  private activeEventId: string = '';
++  @State private rows: PinnedMessageRow[] = [];
++  @State private listState: PinnedListState = PinnedListState.Closed;
++  @State private canPinUnpin: boolean = false;
++  @State private loadingMore: boolean = false;
++  @State private hasMore: boolean = false;
++  @State private failureMessage: string = '';
++  @State private paginationErrorMessage: string = '';
++  @State private navigationError: string = '';
++
++  aboutToAppear(): void {
++    this.unsubscribe = this.collection.subscribe((): void => {
++      this.syncFromCollection();
++    });
++    this.collection.open();
++  }
++
++  onPageHide(): void {
++    this.collection.close();
++  }
++
++  aboutToDisappear(): void {
++    if (this.unsubscribe !== undefined) {
++      this.unsubscribe();
++      this.unsubscribe = undefined;
++    }
++  }
++
++  private syncFromCollection(): void {
++    this.rows = this.collection.items().slice();
++    this.listState = this.collection.state;
++    this.canPinUnpin = this.collection.canPinUnpin;
++    this.loadingMore = this.collection.loadingMore;
++    this.hasMore = this.collection.hasMore;
++    this.failureMessage = this.collection.failureMessage;
++    this.paginationErrorMessage = this.collection.paginationErrorMessage;
++    if (this.activeEventId.length > 0 && !this.hasRow(this.activeEventId)) {
++      this.activeEventId = '';
++    }
++  }
++
++  private hasRow(eventId: string): boolean {
++    for (const row of this.rows) {
++      if (row.eventId === eventId) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  private showMessageActions(row: PinnedMessageRow): void {
++    this.activeEventId = row.eventId;
++    this.collection.toggleActions(row.eventId);
++  }
++
++  private viewInTimeline(row: PinnedMessageRow): void {
++    if (row.busy) {
++      return;
++    }
++    this.session.requestTimelineFocus(row.eventId);
++    this.navigationError = '';
++    try {
++      router.back();
++    } catch (error) {
++      this.session.requestTimelineFocus('');
++      this.navigationError = 'Could not return to the room timeline.';
++    }
++  }
++
++  private unpin(row: PinnedMessageRow): void {
++    this.collection.unpin(row.eventId).then((result: PinnedUnpinResult) => {
++      if (result === PinnedUnpinResult.Confirmed) {
++        this.showToast('Message unpinned');
++        return;
++      }
++      if (result === PinnedUnpinResult.NotPermitted) {
++        this.showToast('You are not allowed to unpin messages in this room');
++        return;
++      }
++      if (result === PinnedUnpinResult.Rejected) {
++        this.showToast('Could not unpin the message, it is still pinned');
++      }
++    });
++  }
++
++  private showToast(message: string): void {
++    try {
++      promptAction.showToast({ message: message });
++    } catch (error) {
++      // The outcome is already visible next to the item, a missing toast is not
++      // worth interrupting the user for.
++    }
++  }
++
++  build() {
++    Column() {
++      this.Header()
++      if (this.navigationError.length > 0) {
++        Text(this.navigationError)
++          .fontSize(13)
++          .fontColor('#B42318')
++          .padding({ left: 20, right: 20, top: 8 })
++          .width('100%')
++      }
++      this.Body()
++    }
++    .height('100%')
++    .width('100%')
++    .backgroundColor('#F4F6F8')
++  }
++
++  @Builder
++  Header() {
++    Row() {
++      Column({ space: 2 }) {
++        Text('Pinned messages')
++          .fontSize(22)
++          .fontWeight(FontWeight.Bold)
++        Text('Design team')
++          .fontSize(13)
++          .fontColor('#64748B')
++      }
++      .alignItems(HorizontalAlign.Start)
++      Blank()
++      Button('Close')
++        .onClick((): void => {
++          this.closePage();
++        })
++        .id('pinned_messages_close')
++    }
++    .padding(20)
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++  }
++
++  @Builder
++  Body() {
++    if (this.listState === PinnedListState.Loading || this.listState === PinnedListState.Closed) {
++      Column({ space: 12 }) {
++        LoadingProgress()
++          .width(32)
++          .height(32)
++          .color('#067A68')
++        Text('Loading pinned messages')
++          .fontSize(15)
++          .fontColor('#64748B')
++      }
++      .layoutWeight(1)
++      .width('100%')
++      .justifyContent(FlexAlign.Center)
++      .id('pinned_list_loading')
++    } else if (this.listState === PinnedListState.Failed) {
++      Column({ space: 12 }) {
++        Text('Pinned messages could not be loaded')
++          .fontSize(16)
++          .fontWeight(FontWeight.Medium)
++        Text(this.failureMessage)
++          .fontSize(13)
++          .fontColor('#64748B')
++          .textAlign(TextAlign.Center)
++        Button('Try again')
++          .onClick((): void => {
++            this.collection.retry();
++          })
++          .id('pinned_list_retry')
++      }
++      .padding(24)
++      .layoutWeight(1)
++      .width('100%')
++      .justifyContent(FlexAlign.Center)
++      .id('pinned_list_error')
++    } else if (this.listState === PinnedListState.Empty) {
++      Column({ space: 10 }) {
++        Text('No pinned messages')
++          .fontSize(16)
++          .fontWeight(FontWeight.Medium)
++        Text('Nothing is pinned in this room yet.')
++          .fontSize(13)
++          .fontColor('#64748B')
++      }
++      .padding(24)
++      .layoutWeight(1)
++      .width('100%')
++      .justifyContent(FlexAlign.Center)
++      .id('pinned_list_empty')
++    } else {
++      this.CollectionList()
++    }
++  }
++
++  @Builder
++  CollectionList() {
++    List({ scroller: this.scroller }) {
++      ForEach(this.rows, (row: PinnedMessageRow) => {
++        ListItem() {
++          this.MessageRow(row)
++        }
++      }, (row: PinnedMessageRow) => row.eventId)
++      this.ListFooter()
++    }
++    .layoutWeight(1)
++    .width('100%')
++    .onReachEnd((): void => {
++      this.collection.loadMore();
++    })
++    .id('pinned_messages_list')
++  }
++
++  @Builder
++  ListFooter() {
++    ListItem() {
++      Column({ space: 8 }) {
++        if (this.loadingMore) {
++          LoadingProgress()
++            .width(24)
++            .height(24)
++            .color('#067A68')
++          Text('Loading more pinned messages')
++            .fontSize(13)
++            .fontColor('#64748B')
++        } else if (this.paginationErrorMessage.length > 0) {
++          Text(this.paginationErrorMessage)
++            .fontSize(13)
++            .fontColor('#B42318')
++          Button('Try again')
++            .onClick((): void => {
++              this.collection.retry();
++            })
++            .id('pinned_list_load_more_retry')
++        } else if (!this.hasMore) {
++          Text('That is everything pinned in this room')
++            .fontSize(13)
++            .fontColor('#94A3B8')
++            .id('pinned_list_end')
++        }
++      }
++      .padding(16)
++      .width('100%')
++    }
++  }
++
++  @Builder
++  MessageRow(row: PinnedMessageRow) {
++    Column({ space: 8 }) {
++      Row({ space: 8 }) {
++        Text(row.sender)
++          .fontSize(13)
++          .fontWeight(FontWeight.Medium)
++          .fontColor(row.isRenderable() ? '#0F172A' : '#64748B')
++        Text(row.timeLabel)
++          .fontSize(12)
++          .fontColor('#94A3B8')
++        Blank()
++        Button('Actions')
++          .fontSize(12)
++          .height(28)
++          .onClick((): void => {
++            this.showMessageActions(row);
++          })
++          .id(`pinned_item_actions_${row.eventId}`)
++      }
++      .width('100%')
++      .alignItems(VerticalAlign.Center)
++
++      Text(row.body)
++        .fontSize(16)
++        .lineHeight(23)
++        .fontColor(row.isRenderable() ? '#0F172A' : '#64748B')
++        .maxLines(6)
++        .textOverflow({ overflow: TextOverflow.Ellipsis })
++        .width('100%')
++        .onClick((): void => {
++          this.viewInTimeline(row);
++        })
++
++      if (row.actionsExpanded) {
++        this.ActionMenu(row)
++      }
++
++      if (row.hasError()) {
++        Column({ space: 6 }) {
++          Text(row.errorMessage)
++            .fontSize(13)
++            .fontColor('#B42318')
++            .width('100%')
++          Row({ space: 12 }) {
++            Button('Retry unpin')
++              .fontSize(12)
++              .height(28)
++              .enabled(this.canPinUnpin && !row.busy)
++              .onClick((): void => {
++                this.unpin(row);
++              })
++              .id(`pinned_item_unpin_retry_${row.eventId}`)
++            Button('Dismiss')
++              .fontSize(12)
++              .height(28)
++              .onClick((): void => {
++                this.collection.dismissActionError(row.eventId);
++              })
++              .id(`pinned_item_error_dismiss_${row.eventId}`)
++          }
++        }
++        .alignItems(HorizontalAlign.Start)
++        .padding(10)
++        .width('100%')
++        .backgroundColor('#FEF3F2')
++        .borderRadius(6)
++      }
++    }
++    .alignItems(HorizontalAlign.Start)
++    .padding(14)
++    .margin({ left: 12, right: 12, top: 6, bottom: 6 })
++    .width('100%')
++    .backgroundColor('#FFFFFF')
++    .borderRadius(8)
++    .id(`pinned_item_${row.eventId}`)
++  }
++
++  @Builder
++  ActionMenu(row: PinnedMessageRow) {
++    Column({ space: 6 }) {
++      Button('View in timeline')
++        .width('100%')
++        .height(36)
++        .enabled(!row.busy)
++        .onClick((): void => {
++          this.viewInTimeline(row);
++        })
++        .id(`pinned_item_view_in_timeline_${row.eventId}`)
++      // Pin and unpin are only offered when the room permission allows them.
++      if (this.canPinUnpin) {
++        Button(row.busy ? 'Unpinning' : 'Unpin')
++          .width('100%')
++          .height(36)
++          .enabled(!row.busy)
++          .onClick((): void => {
++            this.unpin(row);
++          })
++          .id(`pinned_item_unpin_${row.eventId}`)
++      }
++      Button('Close')
++        .width('100%')
++        .height(36)
++        .onClick((): void => {
++          this.collection.collapseAllActions();
++        })
++        .id(`pinned_item_actions_close_${row.eventId}`)
++    }
++    .padding(10)
++    .width('100%')
++    .backgroundColor('#F8FAFC')
++    .borderRadius(6)
++  }
++
++  private closePage(): void {
++    try {
++      router.back();
++    } catch (error) {
++      this.navigationError = 'Could not close the pinned messages.';
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/resources/base/element/string.json b/entry/src/main/resources/base/element/string.json
+index 3593ae805f35ec5cee47d04be4f243ef5db18b44..da68f5a2222d611ecc2234d6ffbc01c46a88ceb2 100644
+--- a/entry/src/main/resources/base/element/string.json
++++ b/entry/src/main/resources/base/element/string.json
+@@ -6,7 +6,7 @@
+     },
+     {
+       "name": "module_desc",
+-      "value": "Element X ArkTS base module"
++      "value": "Element X ArkTS room module"
+     },
+     {
+       "name": "entry_desc",
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 1898d94f58d6128ab712be2c68acc7c98e9ab9ce..75d8c421fe53dc5dc053d59ee32737fabf014bd5 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,5 +1,6 @@
+ {
+   "src": [
+-    "pages/Index"
++    "pages/Index",
++    "pages/PinnedMessages"
+   ]
+-}
++}
+\ No newline at end of file
+diff --git a/oh-package.json5 b/oh-package.json5
+index c3cc91aa166e081f6e05309f474fd8b619e8c07e..4163c371f669f124fe1f9af2f0ee586d3f74f6e1 100644
+--- a/oh-package.json5
++++ b/oh-package.json5
+@@ -2,7 +2,7 @@
+   "modelVersion": "5.0.0",
+   "name": "17_pinned_messages_base_0_5_1",
+   "version": "1.0.0",
+-  "description": "Element X v0.5.1 base with the pinned banner but without the pinned-message list.",
++  "description": "Element X room screen with the pinned-message collection, unpin actions and jump to timeline.",
+   "main": "",
+   "author": "qingyu",
+   "license": "Apache-2.0",

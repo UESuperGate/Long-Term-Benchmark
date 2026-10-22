@@ -1,0 +1,44 @@
+import java.lang.management.ManagementFactory
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import org.gradle.internal.nativeintegration.NativeCapabilities
+import org.gradle.internal.nativeintegration.ProcessEnvironment
+import org.gradle.internal.nativeintegration.services.NativeServices
+
+def nonce = System.getenv('TASK17_NATIVE_GATE_NONCE')
+def receiptName = System.getenv('TASK17_NATIVE_GATE_RECEIPT')
+def ackName = System.getenv('TASK17_NATIVE_GATE_ACK')
+if (!nonce || !receiptName || !ackName) throw new GradleException('Task17 native gate configuration missing')
+def environment = NativeServices.getInstance().get(ProcessEnvironment)
+def environmentClass = environment.class.name
+def supported = environmentClass == 'org.gradle.internal.nativeintegration.jna.UnsupportedEnvironment'
+// Never invoke a possibly-detaching native implementation as a "test".
+def detachResult = supported ? environment.maybeDetachProcess() : null
+def mx = ManagementFactory.runtimeMXBean
+def row = [protocol: 'task17.gradle-native-gate.v6', nonce: nonce,
+    gradleVersion: gradle.gradleVersion, pid: ProcessHandle.current().pid(),
+    gradleUserHome: gradle.gradleUserHomeDir.canonicalPath, javaHome: System.getProperty('java.home'),
+    parentPid: ProcessHandle.current().parent().map { it.pid() }.orElse(-1L),
+    nativeProperty: System.getProperty('org.gradle.native'),
+    processEnvironmentClass: environmentClass, maybeDetachProcess: detachResult,
+    nativeIntegrations: NativeServices.getInstance().get(NativeCapabilities).useNativeIntegrations(),
+    inheritedJavaToolOptions: System.getenv('JAVA_TOOL_OPTIONS'), vmArgs: mx.inputArguments,
+    maxMemory: Runtime.runtime.maxMemory()]
+def receipt = new File(receiptName)
+def pending = new File(receiptName + '.pending')
+if (receipt.exists() || pending.exists()) throw new GradleException('Task17 native gate refuses stale proof')
+pending.text = groovy.json.JsonOutput.toJson(row) + '\n'
+Files.move(pending.toPath(), receipt.toPath(), StandardCopyOption.ATOMIC_MOVE)
+def receiptSha = MessageDigest.getInstance('SHA-256').digest(receipt.bytes).encodeHex().toString()
+def ack = new File(ackName)
+def stop = System.nanoTime() + 60_000_000_000L
+while (!ack.isFile() && System.nanoTime() < stop) Thread.sleep(10)
+if (!ack.isFile()) throw new GradleException('Task17 native gate host acknowledgement missing')
+def accepted = new groovy.json.JsonSlurper().parse(ack)
+if (accepted.nonce != nonce || accepted.receiptSha256 != receiptSha) {
+    throw new GradleException('Task17 native gate host acknowledgement identity changed')
+}
+if (!supported || detachResult != false || row.nativeProperty != 'false' || row.nativeIntegrations != false) {
+    throw new GradleException('Task17 native gate requires observed disabled native process environment')
+}

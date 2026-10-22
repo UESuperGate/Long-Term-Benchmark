@@ -1,0 +1,69 @@
+'use strict';
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const previous = require('../task14_full_native_v8/install.cjs');
+const v6 = require('../task14_full_native_v6/install.cjs');
+const hash = value => crypto.createHash('sha256').update(value).digest('hex');
+const replace = (text, old, next) => {
+  if (text.split(old).length !== 2) throw Error('Task14 V9 derivation changed: ' + old);
+  return text.replace(old, next);
+};
+
+function adapterSource() {
+  return previous.adapterSource()
+    .replace('evaluateTask14FullNativeV8', 'evaluateTask14FullNativeV9')
+    .replaceAll('task14.full-nine-configured-sdk.v8', 'task14.full-nine-configured-sdk.v9')
+    .replaceAll('fullNativeEpisodeV8', 'fullNativeEpisodeV9');
+}
+
+function bridgeSource() {
+  return previous.bridgeSource()
+    .replace("import { evaluateTask14FullNativeV8 } from './Task14FullNativeV8.adapter';",
+      "import { evaluateTask14FullNativeV9 } from './Task14FullNativeV9.adapter';")
+    .replace('return evaluateTask14FullNativeV8(args, config, ports, record);',
+      'return evaluateTask14FullNativeV9(args, config, ports, record);');
+}
+
+function expectedFixtures() {
+  return previous.expectedFixtures()
+    .filter(item => !['Task14FullNativeV8.adapter.js', 'Task14DeviceUi.js',
+      'Task14PageObserver.js'].includes(item.name))
+    .concat([
+      { name: 'Task14FullNativeV9.adapter.js', sha256: hash(adapterSource()) },
+      { name: 'Task14DeviceUi.js', sha256: hash(bridgeSource()) },
+      { name: 'Task14PageObserver.js', sha256: hash(v6.pageObserverAlias) }
+    ]);
+}
+
+function install(work, options = {}) {
+  const report = previous.install(work, options);
+  const testRoot = path.join(work, 'entry/src/test');
+  const oldConfig = report.config;
+  const config = { ...oldConfig, fullNativeProtocol: 'task14.full-nine-configured-sdk.v9' };
+  const adapter = adapterSource(), bridge = bridgeSource();
+  fs.rmSync(path.join(testRoot, 'Task14FullNativeV8.adapter.js'));
+  fs.writeFileSync(path.join(testRoot, 'Task14FullNativeV9.adapter.js'), adapter);
+  fs.writeFileSync(path.join(testRoot, 'Task14DeviceUi.js'), bridge);
+  fs.writeFileSync(path.join(testRoot, 'Task14PageObserver.js'), v6.pageObserverAlias);
+  const suite = replace(fs.readFileSync(report.suiteFile, 'utf8'), JSON.stringify(JSON.stringify(oldConfig)),
+    JSON.stringify(JSON.stringify(config)));
+  fs.writeFileSync(report.suiteFile, suite);
+  const replacements = new Map(expectedFixtures().map(item => [item.name, item]));
+  const fixtures = report.fixtures
+    .filter(item => path.basename(item.path) !== 'Task14FullNativeV8.adapter.js')
+    .map(item => replacements.has(path.basename(item.path)) ?
+      { ...item, sha256: replacements.get(path.basename(item.path)).sha256, derivedBy: __filename } : item);
+  fixtures.push({ path: 'entry/src/test/Task14FullNativeV9.adapter.js', source: __filename,
+    sha256: hash(adapter), derivedBy: __filename });
+  for (const item of report.production) {
+    if (hash(fs.readFileSync(path.join(work, item.path))) !== item.sha256) throw Error('Production changed');
+  }
+  return { ...report, config, fixtures, suiteSha256: hash(suite), protocol: config.fullNativeProtocol,
+    e2e: { ...report.e2e, pageObserverAliasRestored: true },
+    predecessor: { protocol: report.protocol, installer: report.installer },
+    installer: { file: __filename, sha256: hash(fs.readFileSync(__filename)) } };
+}
+
+module.exports = { install, e2eSource: previous.e2eSource, adapterSource, bridgeSource,
+  expectedFixtures, pageObserverAlias: v6.pageObserverAlias };

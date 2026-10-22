@@ -1,0 +1,69 @@
+def evaluatorSource = System.getenv('TASK17_CONNECTED_SOURCE')
+def evidenceDir = System.getenv('TASK17_CONNECTED_EVIDENCE')
+def caseKey = System.getenv('TASK17_CONNECTED_CASE')
+def contractFile = System.getenv('TASK17_CONNECTED_CONTRACT')
+def role = System.getenv('TASK17_CONNECTED_ROLE')
+def buildRoot = System.getenv('TASK17_CONNECTED_BUILD_ROOT')
+if (!evaluatorSource || !evidenceDir || !caseKey || !contractFile || !role || !buildRoot) {
+    throw new GradleException('Task17 connected-v2 requires explicit evaluator/evidence/case/contract/role')
+}
+gradle.beforeProject { project ->
+    def safeName = project.path.replace(':', '_').replaceAll('[^A-Za-z0-9_.-]', '_')
+    project.layout.buildDirectory.set(new File(buildRoot, safeName))
+    if (project.path != ':appnav') return
+    project.pluginManager.withPlugin('com.android.library') {
+        project.dependencies.add('testImplementation', project.project(':features:messages:impl'))
+        project.dependencies.add('testImplementation', project.project(':features:roomdetails:impl'))
+        project.dependencies.add('testImplementation', project.project(':features:roomlist:impl'))
+        project.dependencies.add('testImplementation', project.project(':features:ftue:impl'))
+        project.dependencies.add('testImplementation', project.project(':features:networkmonitor:impl'))
+        project.dependencies.add('testImplementation', project.project(':libraries:featureflag:impl'))
+        project.dependencies.add('testImplementation', project.project(':libraries:preferences:impl'))
+        project.dependencies.add('testImplementation', project.project(':libraries:matrix:impl'))
+        project.dependencies.add('testImplementation', project.project(':libraries:matrix:test'))
+        project.dependencies.add('testImplementation', project.project(':services:appnavstate:impl'))
+        project.dependencies.add('testImplementation', project.project(':services:toolbox:impl'))
+        project.dependencies.add('testImplementation', project.project(':libraries:mediaplayer:impl'))
+        project.dependencies.add('testImplementation', project.project(':libraries:textcomposer:impl'))
+        ['preferences', 'createroom', 'securebackup', 'userprofile', 'roomdirectory', 'share', 'logout',
+         'joinroom', 'roomaliasesolver', 'call', 'location', 'poll', 'lockscreen'].each { feature ->
+            project.dependencies.add('testImplementation', project.project(":features:${feature}:impl"))
+        }
+        project.dependencies.add('testImplementation', project.project(':libraries:permissions:impl'))
+        project.dependencies.add('testImplementation', project.project(':services:analytics:impl'))
+        def catalog = project.extensions.getByType(org.gradle.api.artifacts.VersionCatalogsExtension).named('libs')
+        def kotlinVersion = catalog.findVersion('kotlin').get().requiredVersion
+        project.dependencies.add('testImplementation', project.dependencies.platform(catalog.findLibrary('androidx_compose_bom').get()))
+        project.dependencies.add('testImplementation', catalog.findLibrary('androidx_compose_ui_test_junit').get())
+        project.dependencies.add('testImplementation', catalog.findLibrary('androidx_compose_ui_tooling').get())
+        project.dependencies.add('testImplementation', "org.jetbrains.kotlin:kotlin-reflect:${kotlinVersion}")
+        def android = project.extensions.getByName('android')
+        android.testOptions.unitTests.includeAndroidResources = true
+        android.sourceSets.getByName('test').java.setSrcDirs([evaluatorSource])
+    }
+    project.afterEvaluate {
+        project.tasks.configureEach { task ->
+            if (task.name in ['compileDebugUnitTestKotlin', 'compileDebugUnitTestJavaWithJavac']) {
+                task.setSource(project.fileTree(evaluatorSource))
+                task.doFirst { task.setSource(project.fileTree(evaluatorSource)) }
+            }
+            if (task.name == 'testDebugUnitTest') {
+                task.forkEvery = 1
+                task.maxParallelForks = 1
+                task.systemProperty('task17.evidence.dir', evidenceDir)
+                task.systemProperty('task17.case', caseKey)
+                task.systemProperty('task17.contract', contractFile)
+                task.systemProperty('task17.role', role)
+                task.outputs.upToDateWhen { false }
+            }
+        }
+    }
+}
+
+// Do not silently skip native work or narrow ABI/modules. A missing native artifact is environment NS.
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { task -> task.name.toLowerCase().contains('cargo') ||
+        task.name.toLowerCase().contains('buildrust') || task.name.toLowerCase().contains('compilerust') }) {
+        throw new GradleException('Task17 connected probe refuses a new Rust build; require reviewed existing native artifacts')
+    }
+}

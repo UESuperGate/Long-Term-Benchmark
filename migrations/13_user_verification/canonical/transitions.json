@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "taskId": "13_user_verification",
   "owner": "evaluator",
   "description": "Shared Android/ArkTS semantics for cross-user SAS verification and identity-change warnings",
@@ -43,7 +43,8 @@
         "request": {
           "type": "user",
           "userId": "@alice:example.org"
-        }
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "request_verification"
@@ -55,7 +56,8 @@
         "requestCalls": 1
       },
       "invariants": [
-        "current-session verification is not requested"
+        "current-session verification is not requested",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -63,7 +65,37 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "c050e5b7ef8d43335092cbb7f560f39373d0585595a16ac848fd495644da527f"
+      "traceDigest": "01c9208151ed0dce552ca9c421b4fee79eb19b0f5b6864d309ec91e0397a8f5f",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {},
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "initial",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_003_start_sas_after_acceptance",
@@ -71,7 +103,12 @@
       "functionalArea": "sas_challenge",
       "given": {
         "step": "ready",
-        "requestAccepted": true
+        "requestAccepted": true,
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "start_sas_verification"
@@ -82,7 +119,8 @@
         "startCalls": 1
       },
       "invariants": [
-        "the target user request remains active"
+        "the target user request remains active",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -90,7 +128,48 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "7956b81a95ba3415a3518253fa1b9058a554c79627adb0d769a8ab420ad0380d"
+      "traceDigest": "b941a86fca0544113aa285fc7f3cd16af8530df6f84d9751fef1c2cf8ff1f3e7",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "ready",
+          "requestAccepted": true,
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_004_challenge_is_stable",
@@ -102,7 +181,12 @@
           "Dog",
           "Tree",
           "Rocket"
-        ]
+        ],
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "receive_challenge"
@@ -117,7 +201,8 @@
         "replyState": "uninitialized"
       },
       "invariants": [
-        "the challenge data is preserved until a response is sent"
+        "the challenge data is preserved until a response is sent",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -125,7 +210,61 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "2233f9d6e9726146c2b20f26d23e88059b348e2796d033cb4f845f07089f111f"
+      "traceDigest": "d0b5f014b1bd2024ad4537bfeb0f9f8fdad3f356e299baecdda8efd3e1546b60",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "awaiting_other_device_response",
+          "sas": [
+            "Dog",
+            "Tree",
+            "Rocket"
+          ],
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_005_accept_challenge_once",
@@ -138,7 +277,12 @@
           "Tree",
           "Rocket"
         ],
-        "approveCalls": 0
+        "approveCalls": 0,
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "accept_challenge"
@@ -150,7 +294,8 @@
         "approveCalls": 1
       },
       "invariants": [
-        "the SAS challenge is unchanged"
+        "the SAS challenge is unchanged",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -158,7 +303,77 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "6b15ba85baae338af5c0ef6e8564a4d2ea5a1145c0901bfc0f2ad2fea9bc916f"
+      "traceDigest": "5a514e60eb92eab433713b35b74ad227096eceb51c2ac7fca2f7b74967ee6fca",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ],
+          "sas_challenge": [
+            [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          },
+          {
+            "name": "receive_challenge",
+            "sas": [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "verifying",
+          "sas": [
+            "Dog",
+            "Tree",
+            "Rocket"
+          ],
+          "approveCalls": 0,
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_006_decline_challenge_once",
@@ -171,7 +386,12 @@
           "Tree",
           "Rocket"
         ],
-        "declineCalls": 0
+        "declineCalls": 0,
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "decline_challenge"
@@ -183,7 +403,8 @@
         "declineCalls": 1
       },
       "invariants": [
-        "the user is not marked verified"
+        "the user is not marked verified",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -191,7 +412,77 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "742660b82b52d06617d49a719a96969ba9c74831c95c5f4f394e642a4fde0ff3"
+      "traceDigest": "18ea518aaf5f70e94333ef2f52e3c76dffb29c3eb10a519546e80cabade68b54",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ],
+          "sas_challenge": [
+            [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          },
+          {
+            "name": "receive_challenge",
+            "sas": [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "verifying",
+          "sas": [
+            "Dog",
+            "Tree",
+            "Rocket"
+          ],
+          "declineCalls": 0,
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_007_finish_clears_violation",
@@ -199,7 +490,12 @@
       "functionalArea": "identity_badges",
       "given": {
         "step": "verifying",
-        "identityState": "verification_violation"
+        "identityState": "verification_violation",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "verification_finished"
@@ -210,7 +506,8 @@
         "warningVisible": false
       },
       "invariants": [
-        "the warning clears only after successful completion"
+        "the warning clears only after successful completion",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -219,7 +516,81 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "29ebcee9e82a925a089fa27242eba50f359f5266dd399c435d432b5030d95a3f"
+      "traceDigest": "7468a701e86c482ba37c9555b34deb3c2a42896ff4a58599ce4f08f2ad0e8620",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ],
+          "sas_challenge": [
+            [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          ],
+          "approve_verification": [
+            "accepted"
+          ],
+          "verification_finished": [
+            "success"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          },
+          {
+            "name": "receive_challenge",
+            "sas": [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          },
+          {
+            "name": "accept_challenge"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "verifying",
+          "identityState": "verification_violation",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_008_local_cancel",
@@ -227,7 +598,12 @@
       "functionalArea": "cancel_failure",
       "given": {
         "step": "awaiting_other_device_response",
-        "identityState": "verification_violation"
+        "identityState": "verification_violation",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "cancel"
@@ -239,7 +615,8 @@
         "identityState": "verification_violation"
       },
       "invariants": [
-        "cancellation never marks the user verified"
+        "cancellation never marks the user verified",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -247,7 +624,45 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "d48207c07a6a7137cceb1869ede911f246be1ed420693fd1270ffdb20aeb871a"
+      "traceDigest": "c2068a28e6b4ad5b93bbf1212b677149eb710b8121e87710812d6542cdf0c1dc",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "pending"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "awaiting_other_device_response",
+          "identityState": "verification_violation",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_009_failure_reset",
@@ -256,7 +671,12 @@
       "given": {
         "step": "canceled",
         "failure": "sdk_failure",
-        "identityState": "verification_violation"
+        "identityState": "verification_violation",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "reset"
@@ -268,7 +688,8 @@
         "identityState": "verification_violation"
       },
       "invariants": [
-        "reset creates no false success"
+        "reset creates no false success",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -276,7 +697,50 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "e9ef89f47bd0219ec2679da15c71736d93ad8ae377d38c88af4111c217c6e5c8"
+      "traceDigest": "75658a231afbb924c5ce9b98c59e870308a7a2a75bdd0b355b003f2520ab6bd8",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "sdk_failure"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_sdk_failure",
+            "failure": "sdk_failure"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "canceled",
+          "failure": "sdk_failure",
+          "identityState": "verification_violation",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_010_identity_violation_surfaces",
@@ -294,10 +758,13 @@
         "profileBadge": "verification_violation",
         "timelineWarning": true,
         "roomMemberWarning": true,
-        "verifyActionVisible": true
+        "verifyActionVisible": false,
+        "withdrawVerificationActionVisible": true,
+        "profileWarningVisible": true
       },
       "invariants": [
-        "unrelated member identities are unchanged"
+        "unrelated member identities are unchanged",
+        "verification-violation UI offers withdrawal instead of starting a new verification request"
       ],
       "evidence": {
         "androidProduction": [
@@ -306,7 +773,10 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "31f3780972bcd5c3cd0aee8f7a2d69f68e86a4d5185063bd39a1caa324f905a2"
+      "traceDigest": "1a0a1123846109888031091ae2b87dee92fe38a5f34353fcc4a9c38f84bd6fa3",
+      "traceSchemaVersion": 2
     }
-  ]
+  ],
+  "revision": 5,
+  "executionModel": "room_member_profile_to_user_request_then_canonical_transition"
 }

@@ -1,6 +1,7 @@
 import common from '@ohos.app.ability.common';
 import preferences from '@ohos.data.preferences';
 import fs from '@ohos.file.fs';
+import media from '@ohos.multimedia.media';
 
 export enum SoundSlot {
   Message = 'message',
@@ -151,10 +152,16 @@ export class NotificationSoundCopier {
     if (!this.isSupportedSource(sourceUri)) {
       return new SoundCopyResult(false, '', '', 'The selected audio source cannot be opened');
     }
-    const displayName = this.sanitizeDisplayName(this.fileNameFromUri(sourceUri));
+    const displayName = await this.resolveDisplayName(sourceUri);
     const targetPath = `${context.filesDir}/notification_sound_${slot}.audio`;
     try {
-      await fs.copyFile(sourceUri, targetPath);
+      // Picker URIs can be opened, but copyFile accepts only paths or descriptors.
+      const source = await fs.open(sourceUri, fs.OpenMode.READ_ONLY);
+      try {
+        await fs.copyFile(source.fd, targetPath);
+      } finally {
+        await fs.close(source);
+      }
       return new SoundCopyResult(true, `file://${targetPath}`, displayName, '');
     } catch (error) {
       return new SoundCopyResult(false, '', '', `${error}`);
@@ -179,6 +186,38 @@ export class NotificationSoundCopier {
     }
     sanitized = sanitized.trim();
     return sanitized.length > 0 ? sanitized : 'Custom sound';
+  }
+
+  private async resolveDisplayName(sourceUri: string): Promise<string> {
+    const fallback = this.sanitizeDisplayName(this.fileNameFromUri(sourceUri));
+    let source: fs.File | undefined = undefined;
+    let extractor: media.AVMetadataExtractor | undefined = undefined;
+    try {
+      source = await fs.open(sourceUri, fs.OpenMode.READ_ONLY);
+      const stat = await fs.stat(source.fd);
+      extractor = await media.createAVMetadataExtractor();
+      extractor.fdSrc = { fd: source.fd, offset: 0, length: stat.size };
+      const metadata = await extractor.fetchMetadata();
+      if (metadata.title !== undefined && metadata.title.trim().length > 0) {
+        return this.sanitizeDisplayName(metadata.title);
+      }
+    } catch (error) {
+      // Optional metadata must not prevent an otherwise supported file copy.
+    } finally {
+      if (extractor !== undefined) {
+        try {
+          await extractor.release();
+        } catch (error) {
+        }
+      }
+      if (source !== undefined) {
+        try {
+          await fs.close(source);
+        } catch (error) {
+        }
+      }
+    }
+    return fallback;
   }
 
   private isSupportedSource(sourceUri: string): boolean {
@@ -245,7 +284,19 @@ export class NotificationSettingsPresenter {
   }
 
   async load(context: common.Context): Promise<void> {
-    this.snapshot = await this.store.load(context);
+    const loaded = await this.store.load(context);
+    // Preserve the legacy bundled message tone, as Android channel bootstrap does.
+    // A versioned SystemDefault is an explicit choice and must not be migrated.
+    if (loaded.messageChannelVersion === 0 &&
+      loaded.messageSound.kind === NotificationSoundKind.SystemDefault) {
+      const migrated = loaded.copy();
+      migrated.messageSound = NotificationSoundSelection.preset(NotificationSoundKind.ElementDefault);
+      migrated.messageChannelVersion = 1;
+      await this.store.save(context, migrated);
+      this.snapshot = migrated;
+    } else {
+      this.snapshot = loaded;
+    }
   }
 
   showDialog(slot: SoundSlot): void {

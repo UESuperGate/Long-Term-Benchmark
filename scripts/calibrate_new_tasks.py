@@ -17,7 +17,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "benchmark_tasks/extraction_catalog.json"
-OBSERVER = ROOT / "scripts/run_task_semantic_observer.py"
+OBSERVER = ROOT / "scripts/run_task_runtime_tests.py"
 PARITY = ROOT / "skills/migration-skill/scripts/validate_transition_parity.py"
 HVIGOR = Path("/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw")
 OH_SDK = Path.home() / "Library/OpenHarmony/Sdk"
@@ -47,12 +47,15 @@ def clean_arkts_outputs(project: Path) -> None:
         shutil.rmtree(project / relative, ignore_errors=True)
 
 
-def observe(task_id: str, platform: str, role: str, output: Path, compile_passed: bool, compile_command: str) -> None:
+def observe(task_id: str, platform: str, role: str, output: Path, compile_passed: bool | None, compile_command: str) -> None:
+    command = [
+        "python3", str(OBSERVER), "--task", task_id, "--platform", platform, "--role", role,
+        "--compile-command", compile_command, "--output", str(output),
+    ]
+    if compile_passed is not None:
+        command.extend(["--compile-passed", str(compile_passed).lower()])
     subprocess.run(
-        [
-            "python3", str(OBSERVER), "--task", task_id, "--platform", platform, "--role", role,
-            "--compile-passed", str(compile_passed).lower(), "--compile-command", compile_command, "--output", str(output),
-        ],
+        command,
         cwd=ROOT,
         check=True,
     )
@@ -89,11 +92,11 @@ def main() -> int:
             cwd=ROOT,
             check=True,
         )
-        build_results: dict[str, tuple[bool, str]] = {}
+        build_results: dict[str, tuple[bool | None, str]] = {}
         for role, key in (("base", "basePath"), ("final", "finalPath")):
             project = ROOT / task["arkts"][key]
             if args.skip_build:
-                build_results[role] = (True, "build skipped by caller")
+                build_results[role] = (None, "build skipped by caller")
             else:
                 build_results[role] = build_arkts(project, logs / f"arkts_{task_id}_{role}.log")
 
@@ -103,8 +106,8 @@ def main() -> int:
             "arktsBase": reports / f"arkts_{task_id}_base.json",
             "arktsFinal": reports / f"arkts_{task_id}_final.json",
         }
-        observe(task_id, "android", "base", paths["androidBase"], True, "immutable-tag source adapter")
-        observe(task_id, "android", "final", paths["androidFinal"], True, "immutable-tag source adapter")
+        observe(task_id, "android", "base", paths["androidBase"], None, "runtime test compilation; full application build not recorded")
+        observe(task_id, "android", "final", paths["androidFinal"], None, "runtime test compilation; full application build not recorded")
         observe(task_id, "arkts", "base", paths["arktsBase"], *build_results["base"])
         observe(task_id, "arkts", "final", paths["arktsFinal"], *build_results["final"])
         clean_arkts_outputs(ROOT / task["arkts"]["basePath"])
@@ -129,7 +132,7 @@ def main() -> int:
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "startedAt": started_at.isoformat(),
         "durationSeconds": round(time.monotonic() - started, 3),
-        "observationMode": "source_transition_conformance",
+        "observationMode": "runtime_state_transition",
         "allPolarityValid": valid,
         "tasks": summary,
     }

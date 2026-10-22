@@ -1,0 +1,40 @@
+def evaluatorSource = System.getenv("TASK17_EVALUATOR_SOURCE")
+def evidenceDir = System.getenv("TASK17_EVIDENCE_DIR")
+def localMaven = System.getenv("TASK17_LOCAL_MAVEN")
+
+if (!evaluatorSource || !evidenceDir || !localMaven) {
+    throw new GradleException("TASK17_EVALUATOR_SOURCE, TASK17_EVIDENCE_DIR and TASK17_LOCAL_MAVEN are required")
+}
+
+gradle.settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement.repositories.maven { repository ->
+        repository.name = "task17PinnedMolecule"
+        repository.url = new File(localMaven).toURI()
+        repository.content { includeModule("app.cash.molecule", "molecule-runtime-android") }
+    }
+}
+
+gradle.beforeProject { project ->
+    if (project.path != ":features:messages:impl") return
+    def registerSource = {
+        project.dependencies.add("testImplementation", "com.bumble.appyx:testing-junit4:1.4.0")
+        def android = project.extensions.getByName("android")
+        def testSourceSet = android.sourceSets.getByName("test")
+        testSourceSet.java.setSrcDirs([evaluatorSource])
+        if (testSourceSet.hasProperty("kotlin")) testSourceSet.kotlin.setSrcDirs([evaluatorSource])
+    }
+    project.pluginManager.withPlugin("com.android.library") { registerSource() }
+    project.afterEvaluate {
+        project.tasks.configureEach { task ->
+            if (task.name == "compileDebugUnitTestKotlin" || task.name == "compileDebugUnitTestJavaWithJavac") {
+                task.setSource(project.fileTree(evaluatorSource))
+                task.doFirst { task.setSource(project.fileTree(evaluatorSource)) }
+            }
+            if (task.name == "testDebugUnitTest") {
+                task.forkEvery = 1
+                task.maxParallelForks = 1
+                task.systemProperty("runtime.evidence.dir", evidenceDir)
+            }
+        }
+    }
+}

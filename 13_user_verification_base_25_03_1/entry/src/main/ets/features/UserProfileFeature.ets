@@ -1,3 +1,9 @@
+import { getRoomIdentityDataSource, IdentityState, RoomIdentityDataSource } from './RoomIdentityFeature';
+export { SessionVerificationService, VerificationEvent, getSessionVerificationService } from './SessionVerificationService';
+
+export { getRoomIdentityDataSource, IdentityState, RoomMember, IdentityChange,
+  RoomIdentityDataSource, TimelineIdentityPresenter } from './RoomIdentityFeature';
+
 export class UserProfileGateway {
   dmStarts: number = 0;
   blocked: boolean = false;
@@ -13,12 +19,26 @@ export class UserProfileGateway {
 
 export class UserProfilePresenter {
   readonly gateway: UserProfileGateway;
-  readonly userId: string = '@alice:example.org';
-  readonly displayName: string = 'Alice';
+  readonly userId: string;
+  readonly room: RoomIdentityDataSource;
   blocked: boolean = false;
 
-  constructor(gateway: UserProfileGateway) {
+  constructor(gateway: UserProfileGateway, userId: string = '@alice:example.org',
+    room: RoomIdentityDataSource = getRoomIdentityDataSource()) {
     this.gateway = gateway;
+    this.userId = userId;
+    this.room = room;
+  }
+
+  get displayName(): string {
+    return this.room.members.find(member => member.userId === this.userId)?.displayName || this.userId;
+  }
+
+  get isCurrentUser(): boolean { return this.userId === this.room.currentUserId; }
+
+  get isVerified(): boolean {
+    return this.room.identities.some(identity => identity.userId === this.userId &&
+      identity.identityState === IdentityState.Verified);
   }
 
   startDirectMessage(): void {

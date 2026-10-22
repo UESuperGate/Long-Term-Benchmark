@@ -7,7 +7,7 @@ struct Index {
   @State private surface: ThreadSurface = ThreadSurface.Room;
   @State private threadRootId: string = '';
   @State private threadEvents: string[] = [];
-  @State private focusedEventId: string = '';
+  @State private focusedEventId: string | null = '';
   @State private focusState: ThreadFocusState = ThreadFocusState.Idle;
   @State private composerText: string = '';
   @State private replyTargetId: string = '';
@@ -26,7 +26,7 @@ struct Index {
               .width('100%')
             ForEach(this.presenter.mainRoomEvents, (eventId: string) => {
               Button(eventId === '$root' ? 'Open thread from $root' : eventId)
-                .id(`room_event_${eventId}`)
+                .id(eventId === '$root' ? 'room_event_root' : `room_event_${eventId}`)
                 .width('100%')
                 .onClick(() => {
                   if (eventId === '$root') {
@@ -36,11 +36,12 @@ struct Index {
                   }
                 })
             })
-          } else if (this.surface === ThreadSurface.AttachmentPreview) {
-            Text('Attachment preview')
+          } else if (this.surface !== ThreadSurface.Thread) {
+            Text(this.surface === ThreadSurface.LocationPicker ? 'Location' :
+              this.surface === ThreadSurface.PollComposer ? 'Poll' : 'Attachment preview')
+              .id('thread_nested_surface')
               .fontSize(20)
               .fontWeight(FontWeight.Bold)
-            Text('Thread draft and reply target are preserved here.')
             Button('Return to thread')
               .id('return_to_thread')
               .onClick(() => {
@@ -65,12 +66,16 @@ struct Index {
             ForEach(this.threadEvents, (eventId: string) => {
               Row({ space: 8 }) {
                 Button(eventId)
+                  .id(eventId === '$root' ? 'thread_event_root' :
+                    eventId === '$reply' ? 'thread_event_reply' : `thread_event_${eventId}`)
                   .layoutWeight(1)
                   .onClick(() => {
                     this.presenter.focusEvent(eventId);
                     this.refresh();
                   })
                 Button('Reply')
+                  .id(eventId === '$root' ? 'thread_reply_root' :
+                    eventId === '$reply' ? 'thread_reply_reply' : `thread_reply_${eventId}`)
                   .onClick(() => {
                     this.presenter.setReplyTarget(eventId);
                     this.refresh();
@@ -78,7 +83,7 @@ struct Index {
               }
               .width('100%')
             })
-            Text(`Focus: ${this.focusedEventId.length > 0 ? this.focusedEventId : this.focusState}`)
+            Text(`Focus: ${this.focusedEventId ? this.focusedEventId : this.focusState}`)
               .id('thread_focus_state')
               .width('100%')
             if (this.replyTargetId.length > 0) {
@@ -99,10 +104,12 @@ struct Index {
                   this.refresh();
                 })
               Button('Fail next')
+                .id('thread_fail_next')
                 .onClick(() => {
                   this.presenter.gateway.failNextSend = true;
                 })
               Button('Retry')
+                .id('thread_retry')
                 .enabled(this.sendState === ThreadSendState.Failure)
                 .onClick(() => {
                   this.statusText = this.presenter.retrySend() ? 'Retry sent' : 'Retry failed';
@@ -120,6 +127,20 @@ struct Index {
                 .id('thread_send_attachment')
                 .onClick(() => {
                   this.presenter.sendAttachment('image-1', 'diagram');
+                  this.refresh();
+                })
+            }
+            Row({ space: 8 }) {
+              Button('Location')
+                .id('thread_location_picker')
+                .onClick(() => {
+                  this.presenter.openNestedSurface(ThreadSurface.LocationPicker);
+                  this.refresh();
+                })
+              Button('Poll')
+                .id('thread_poll_composer')
+                .onClick(() => {
+                  this.presenter.openNestedSurface(ThreadSurface.PollComposer);
                   this.refresh();
                 })
             }

@@ -1,9 +1,13 @@
 import { PreferencesBasePresenter } from '../features/PreferencesBase';
+import { AccountClient } from '../services/AccountClient';
+import { createAccountClient } from '../services/NativeAccountClient';
+import { AccountSessionControls } from '../components/AccountSessionControls';
 
 @Entry
 @Component
 struct Index {
-  private presenter: PreferencesBasePresenter = new PreferencesBasePresenter();
+  private client: AccountClient = createAccountClient(getContext(this));
+  private presenter: PreferencesBasePresenter = new PreferencesBasePresenter(this.client);
   @State private status: string = '';
 
   build() {
@@ -23,10 +27,7 @@ struct Index {
         })
         Button('Chat backup').width('100%')
         Button('Blocked users').width('100%')
-        Button('Sign out').width('100%').onClick(() => {
-          this.presenter.signOut();
-          this.status = 'Signed out';
-        })
+        AccountSessionControls({ client: this.client })
         Text(this.status).fontColor('#64748B')
       }
       .padding(20)

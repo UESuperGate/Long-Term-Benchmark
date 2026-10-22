@@ -85,16 +85,31 @@
     },
     {
       "caseId": "ir_state_006_handle_failure_recovers",
-      "traceDigest": "e3e9e12f1dca712a181fd923b7cf4314d6415aec930d28305dfc8e453b1d9603",
+      "traceDigest": "7ecb1377a8e794fda7550e4a962942b6ffb14208118e07a45d10dcc043445909",
       "fixture": {
         "handleState": "loading"
       },
       "eventEntrypoint": {
-        "name": "start_identity_reset_returns_null_or_error"
+        "name": "start_identity_reset_fails_cleanup_then_retry",
+        "failureResult": "null_or_error"
       },
       "observations": [
         "IdentityResetFeature\\.ets$",
         "Index\\.ets$"
+      ],
+      "requiredRuntimeObservations": [
+        "failureObserved",
+        "stateSequence",
+        "stableHandleState",
+        "screen",
+        "progressVisible",
+        "retryEnabled",
+        "retryHandleState"
+      ],
+      "observationPhases": [
+        "external_failure",
+        "stable_after_cleanup",
+        "retry_loading"
       ]
     },
     {

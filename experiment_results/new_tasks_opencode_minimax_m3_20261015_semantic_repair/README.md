@@ -1,8 +1,8 @@
 # Element X tasks 08-18 benchmark
 
-This bundle records 11 tasks calibrated on Android and migrated to ArkTS with one shared transition contract per task.
+> Reclassified on 2026-10-19: the semantic columns below are historical source-observer diagnostics, not runtime semantic scores. Their polarity is not runtime calibration. Preserve this archive for provenance and candidate reconstruction only. See [runtime revalidation](../runtime_transition_20261019/README.md) for actual production-execution evidence and remaining gaps.
 
-Evaluation coverage is complete.
+This bundle records 11 tasks analyzed on Android and migrated to ArkTS with one shared transition contract per task. All 22 source-observer runs completed; runtime coverage was not established.
 
 | Metric | Result |
 | --- | ---: |
@@ -32,4 +32,4 @@ Evaluation coverage is complete.
 
 Four-way polarity valid: `true`. Agent discrimination is reported as evidence and is not forced by changing semantic expectations.
 
-The authoritative semantic mode for this repair is `source_transition_conformance`; no Android emulator or ArkTS device was used for these semantic scores. Base/final polarity is `0/N -> N/N` on both platforms, with no unscored cases. Toolchain details are in `environment.json`. `provenance/` contains the run manifest, calibration and rescore summaries, all 22 reconstructable candidate patches, and an evidence index. Full OpenCode/build logs remain in the ignored local run archive; their SHA-256 digests are recorded in the index without publishing credentials or bulky logs.
+The historical observation mode is `source_transition_conformance`; no Android emulator or ArkTS device was used. Source-based polarity is `0/N -> N/N` on both platforms, with no source cases unscored. This is not sufficient for a semantic benchmark. Toolchain details are in `environment.json`. `provenance/` contains the run manifest, calibration and rescore summaries, all 22 reconstructable candidate patches, and an evidence index. Full OpenCode/build logs remain in the ignored local run archive; their SHA-256 digests are recorded in the index without publishing credentials or bulky logs.

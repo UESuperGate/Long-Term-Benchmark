@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-15T02:25:06.003363+00:00",
+  "generatedAt": "2026-10-20T09:48:30.663138+00:00",
   "owner": "evaluator",
-  "description": "Shared Android/ArkTS semantic contracts for extracted Element X tasks 08-18",
-  "taskCount": 11,
-  "caseCount": 101,
+  "description": "Shared Android/ArkTS semantic contracts for currently accepted extracted Element X tasks",
+  "taskCount": 10,
+  "caseCount": 91,
   "cases": [
     {
       "caseId": "th_state_001_open_thread",
@@ -98,7 +98,7 @@
         "eventId": "$missing"
       },
       "expected": {
-        "focusedEventId": "$reply",
+        "focusedEventId": null,
         "focusState": "failure",
         "timelineMode": "thread",
         "visibleEvents": [
@@ -119,7 +119,7 @@
         ]
       },
       "taskId": "08_threads",
-      "traceDigest": "57ccedebfaa6e0ff6e9c63858fbfe38e2ad95c530287a2541f16e4217d9ad02b"
+      "traceDigest": "2d58c7818efeb7cdfbf8a46b801905f2399d0b495514558a084ee23cdbac1f8d"
     },
     {
       "caseId": "th_state_004_send_thread_message",
@@ -516,9 +516,7 @@
       "expected": {
         "effect": "accept_invite",
         "membership": "joined",
-        "seenInvites": [
-          "!invited"
-        ]
+        "seenInvites": []
       },
       "invariants": [
         "invite handling uses the existing accept/decline semantics"
@@ -533,7 +531,7 @@
         ]
       },
       "taskId": "09_spaces_lifecycle",
-      "traceDigest": "14dbe856aaf84f5cc940ec12ee69aed4a884288a14756d342054309432da880f"
+      "traceDigest": "7301f88b73dd7113c56407ada873e5f06907ed94e366685b76e93f9e0d7e3305"
     },
     {
       "caseId": "sp_state_006_default_leave_selection",
@@ -813,12 +811,9 @@
       "key": "estimate_video_presets",
       "functionalArea": "video_estimation",
       "given": {
-        "durationSeconds": 60,
-        "presetBitrates": {
-          "high": 8000000,
-          "standard": 4000000,
-          "low": 1000000
-        },
+        "width": 1920,
+        "height": 1080,
+        "durationMs": 60000,
         "maxUploadSize": 35000000
       },
       "event": {
@@ -826,9 +821,9 @@
       },
       "expected": {
         "sizes": {
-          "high": 66000000,
-          "standard": 33000000,
-          "low": 8250000
+          "high": 51315000,
+          "standard": 22803000,
+          "low": 5700750
         },
         "canUpload": {
           "high": false,
@@ -850,7 +845,7 @@
         ]
       },
       "taskId": "10_media_upload_quality",
-      "traceDigest": "0088823cf649a0424c10269acf4011e349edd9908e4c1cb85a054ab162abb841"
+      "traceDigest": "709ebaaf5d1043e96bcb776551a99285117b43182b8544c4b86e1a6b0c8de433"
     },
     {
       "caseId": "mq_state_005_choose_best_preset",
@@ -989,9 +984,9 @@
         "name": "finish_estimations"
       },
       "expected": {
-        "sendEnabled": false,
         "fileTooLargeError": true,
-        "selectedPreset": null
+        "selectedPreset": null,
+        "sendBlockedByModal": true
       },
       "invariants": [
         "the client does not fabricate a sendable output size"
@@ -1007,45 +1002,82 @@
         ]
       },
       "taskId": "10_media_upload_quality",
-      "traceDigest": "7183f1873871b248e7778ca490faa58a8ee156768721fe32794399cb6bdc65a2"
+      "traceDigest": "415aa5d083075c72f83a0e7cc572ab2d8b6b4483c592ef742ac4666809cfeda4",
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "mq_state_009_failure_cancel_retry",
-      "key": "failure_cancel_retry",
+      "key": "background_failure_cleanup",
       "functionalArea": "error_feedback",
       "given": {
         "selectedPreset": "standard",
         "caption": "demo",
-        "sendState": "failure",
-        "preparedMedia": true
+        "preparedMedia": true,
+        "previewVisible": true
       },
       "event": {
-        "name": "clear_failure_then_retry",
-        "secondResult": "success"
+        "name": "send_attachment_then_finish",
+        "result": "failure"
       },
       "expected": {
-        "stateAfterClear": "ready_to_upload",
-        "finalState": "done",
+        "previewVisible": false,
+        "sendControlsVisible": false,
+        "preparedMediaExists": false,
         "caption": "demo",
         "presetUsed": "standard",
-        "attempts": 2
+        "attempts": 1
       },
       "invariants": [
-        "retry reuses prepared media and the selected quality without losing the caption"
+        "the single background send uses the selected quality and caption, then cleans temporary media without reopening the preview"
       ],
       "evidence": {
         "androidProduction": [
-          "AttachmentsPreviewEvents.kt",
+          "AttachmentsPreviewNode.kt",
           "AttachmentsPreviewPresenter.kt",
+          "AttachmentsPreviewView.kt",
           "MediaSender.kt"
         ],
-        "androidTests": [
-          "AttachmentsPreviewPresenterTest.kt",
-          "MediaSenderTest.kt"
-        ]
+        "androidRuntime": [
+          "state_tests/runtime/android/10_media_upload_quality/lifetime/PreviewLifetimeTest.kt",
+          "experiment_results/runtime_transition_20261019/android10-lifetime/final-lifetime.verified.json"
+        ],
+        "contractCorrection": "The prior retained-presenter retry is unreachable through the original Node lifecycle."
       },
       "taskId": "10_media_upload_quality",
-      "traceDigest": "4498319696f2826896d4a448ec10e359b550a517a625aed57bebc324e2017a66"
+      "traceDigest": "15973a1cde5037a523bd3d7dd8542ad036bbe9345390ff4f171bde13239a71b1",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "attachmentType": "video",
+          "previewVisible": true
+        },
+        "externalResponses": {
+          "upload": [
+            "failure"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_attachment_preview"
+          },
+          {
+            "name": "enter_caption",
+            "caption": "demo"
+          },
+          {
+            "name": "finish_preprocessing",
+            "preset": "standard"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "selectedPreset": "standard",
+          "caption": "demo",
+          "preparedMedia": true,
+          "previewVisible": true
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "ru_state_002_tombstone_is_read_only",
@@ -1252,7 +1284,20 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "11a05532c082292646a9347ca751828fae07b73ffc0797b4f43415ede2f98a95"
+      "traceDigest": "a29a4ca18a9fb5f28e968e6d6e6f61a14da0a0dcfde2e56615312203ea00e2ac",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {},
+        "actions": [],
+        "requiredBeforeEvent": {
+          "roomId": "!room:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_002_reason_enables_report",
@@ -1280,7 +1325,25 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "55ed55323f2c0e0b574f067a006bde00124ac06c531d247c4140167a12dff9a7"
+      "traceDigest": "8bfdcab748a4455f9053d056f6b44eb740996dccc4af5674597ea8905a28900e",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {},
+        "actions": [
+          {
+            "name": "open_report_room"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "",
+          "leaveRoom": false
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_003_toggle_leave",
@@ -1307,7 +1370,29 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "0d27421132c7a0b54f038bf5ccf6c2c79ae7847c52b6c0304e6a1c91761fb435"
+      "traceDigest": "df5dffb9d14b3fab5eddeeb7ad854ac0cbf83bed8b5d283a675fc93cbd28b136",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {},
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "Spam"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "Spam",
+          "leaveRoom": false
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_004_report_only_success",
@@ -1336,7 +1421,30 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "04633b7947cd453e3446ddd0d4ec4f30c7a91bbc82d32720e86226613bddadf4"
+      "traceDigest": "03c9f091da970e2e507da17bd966d1fb32915f31af29ea5cbeef03ef3f9b96b0",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {},
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "Spam"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "Spam",
+          "leaveRoom": false,
+          "reportAction": "uninitialized"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_005_report_then_leave",
@@ -1368,7 +1476,33 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "3217e9acd3bc87ec5cc5744f0d2528d8180700e1dec84747d5d6869a7c102385"
+      "traceDigest": "681e2d7fb7c5697efdb376e09e21080da2472a074bdac9a2631c8d8e4c6bfcf8",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {},
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "Abuse"
+          },
+          {
+            "name": "toggle_leave_room"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "Abuse",
+          "leaveRoom": true,
+          "reportAction": "uninitialized"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_006_blank_reason_disabled",
@@ -1395,7 +1529,32 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "290ee9a7d51df4c413519efeda527e162e0d0a66368f23a3c56fc67883a91db3"
+      "traceDigest": "8d144aaf118bd2e9e6622c3a7134221dad42080f0963c1a81e3c485d9db86580",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {},
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "   "
+          },
+          {
+            "name": "toggle_leave_room"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "   ",
+          "leaveRoom": true
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_007_report_failure_stops_leave",
@@ -1426,7 +1585,37 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "84cd8054638a9b7c45a749bd5b22dbc21490705c3e96b6ec804a45d632045e51"
+      "traceDigest": "a6bbc742c75e621e925c6df3df7de1b02f3609cbfc474d10a50171bb9ddd76e8",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {
+          "report_room": [
+            "failure"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "Spam"
+          },
+          {
+            "name": "toggle_leave_room"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "Spam",
+          "leaveRoom": true,
+          "reportResult": "failure"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_008_leave_failure_is_partial",
@@ -1456,7 +1645,41 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "dee8902983851e344647af5dd57104c803a2a0b360e12bc23132b309bf88f01f"
+      "traceDigest": "ef2d4fdea3ee73b8171fdc1829128f0cc9fdf9ab24305a8ad6c065e44a2f3df8",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {
+          "report_room": [
+            "success"
+          ],
+          "leave_room": [
+            "failure"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "Spam"
+          },
+          {
+            "name": "toggle_leave_room"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "Spam",
+          "leaveRoom": true,
+          "reportResult": "success",
+          "leaveResult": "failure"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_009_retry_leave_only",
@@ -1487,7 +1710,43 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "0e1a59099872b7b9deaebf62e704236e68de951680cf4fb40816d72d2ccc30e2"
+      "traceDigest": "b3e312f60b6ad18aba0f2d492b3f684c25e0bb24c7db2f00a06b402133059a2a",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {
+          "leave_room": [
+            "failure",
+            "success"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "Spam"
+          },
+          {
+            "name": "toggle_leave_room"
+          },
+          {
+            "name": "report"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "Spam",
+          "leaveRoom": true,
+          "reportAction": "leave_failed",
+          "reportCalls": 1,
+          "leaveCalls": 1
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "rr_state_010_clear_failure_keeps_form",
@@ -1516,7 +1775,41 @@
         ]
       },
       "taskId": "12_report_room",
-      "traceDigest": "95fc0090c37789fcf1e4d017cebba18e0ddb4e72fa4ef6c4f1e070989717d3c1"
+      "traceDigest": "0ca317bf0e37db9994c34bbcac08d3629bcd2eeed4dca3eab10e26af2c9e7240",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "roomId": "!room:example.org",
+          "screen": "room_details"
+        },
+        "externalResponses": {
+          "report_room": [
+            "failure",
+            "success"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_report_room"
+          },
+          {
+            "name": "update_reason",
+            "reason": "Spam"
+          },
+          {
+            "name": "toggle_leave_room"
+          },
+          {
+            "name": "report"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "reason": "Spam",
+          "leaveRoom": true,
+          "reportAction": "report_failed"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     },
     {
       "caseId": "uv_state_001_profile_routes_user_request",
@@ -1557,7 +1850,8 @@
         "request": {
           "type": "user",
           "userId": "@alice:example.org"
-        }
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "request_verification"
@@ -1569,7 +1863,8 @@
         "requestCalls": 1
       },
       "invariants": [
-        "current-session verification is not requested"
+        "current-session verification is not requested",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1577,7 +1872,37 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "c050e5b7ef8d43335092cbb7f560f39373d0585595a16ac848fd495644da527f"
+      "traceDigest": "01c9208151ed0dce552ca9c421b4fee79eb19b0f5b6864d309ec91e0397a8f5f",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {},
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "initial",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_003_start_sas_after_acceptance",
@@ -1585,7 +1910,12 @@
       "functionalArea": "sas_challenge",
       "given": {
         "step": "ready",
-        "requestAccepted": true
+        "requestAccepted": true,
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "start_sas_verification"
@@ -1596,7 +1926,8 @@
         "startCalls": 1
       },
       "invariants": [
-        "the target user request remains active"
+        "the target user request remains active",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1604,7 +1935,48 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "7956b81a95ba3415a3518253fa1b9058a554c79627adb0d769a8ab420ad0380d"
+      "traceDigest": "b941a86fca0544113aa285fc7f3cd16af8530df6f84d9751fef1c2cf8ff1f3e7",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "ready",
+          "requestAccepted": true,
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_004_challenge_is_stable",
@@ -1616,7 +1988,12 @@
           "Dog",
           "Tree",
           "Rocket"
-        ]
+        ],
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "receive_challenge"
@@ -1631,7 +2008,8 @@
         "replyState": "uninitialized"
       },
       "invariants": [
-        "the challenge data is preserved until a response is sent"
+        "the challenge data is preserved until a response is sent",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1639,7 +2017,61 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "2233f9d6e9726146c2b20f26d23e88059b348e2796d033cb4f845f07089f111f"
+      "traceDigest": "d0b5f014b1bd2024ad4537bfeb0f9f8fdad3f356e299baecdda8efd3e1546b60",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "awaiting_other_device_response",
+          "sas": [
+            "Dog",
+            "Tree",
+            "Rocket"
+          ],
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_005_accept_challenge_once",
@@ -1652,7 +2084,12 @@
           "Tree",
           "Rocket"
         ],
-        "approveCalls": 0
+        "approveCalls": 0,
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "accept_challenge"
@@ -1664,7 +2101,8 @@
         "approveCalls": 1
       },
       "invariants": [
-        "the SAS challenge is unchanged"
+        "the SAS challenge is unchanged",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1672,7 +2110,77 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "6b15ba85baae338af5c0ef6e8564a4d2ea5a1145c0901bfc0f2ad2fea9bc916f"
+      "traceDigest": "5a514e60eb92eab433713b35b74ad227096eceb51c2ac7fca2f7b74967ee6fca",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ],
+          "sas_challenge": [
+            [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          },
+          {
+            "name": "receive_challenge",
+            "sas": [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "verifying",
+          "sas": [
+            "Dog",
+            "Tree",
+            "Rocket"
+          ],
+          "approveCalls": 0,
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_006_decline_challenge_once",
@@ -1685,7 +2193,12 @@
           "Tree",
           "Rocket"
         ],
-        "declineCalls": 0
+        "declineCalls": 0,
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "decline_challenge"
@@ -1697,7 +2210,8 @@
         "declineCalls": 1
       },
       "invariants": [
-        "the user is not marked verified"
+        "the user is not marked verified",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1705,7 +2219,77 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "742660b82b52d06617d49a719a96969ba9c74831c95c5f4f394e642a4fde0ff3"
+      "traceDigest": "18ea518aaf5f70e94333ef2f52e3c76dffb29c3eb10a519546e80cabade68b54",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ],
+          "sas_challenge": [
+            [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          },
+          {
+            "name": "receive_challenge",
+            "sas": [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "verifying",
+          "sas": [
+            "Dog",
+            "Tree",
+            "Rocket"
+          ],
+          "declineCalls": 0,
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_007_finish_clears_violation",
@@ -1713,7 +2297,12 @@
       "functionalArea": "identity_badges",
       "given": {
         "step": "verifying",
-        "identityState": "verification_violation"
+        "identityState": "verification_violation",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "verification_finished"
@@ -1724,7 +2313,8 @@
         "warningVisible": false
       },
       "invariants": [
-        "the warning clears only after successful completion"
+        "the warning clears only after successful completion",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1733,7 +2323,81 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "29ebcee9e82a925a089fa27242eba50f359f5266dd399c435d432b5030d95a3f"
+      "traceDigest": "7468a701e86c482ba37c9555b34deb3c2a42896ff4a58599ce4f08f2ad0e8620",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "accepted"
+          ],
+          "start_verification": [
+            "started"
+          ],
+          "sas_challenge": [
+            [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          ],
+          "approve_verification": [
+            "accepted"
+          ],
+          "verification_finished": [
+            "success"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_verification_request_acceptance"
+          },
+          {
+            "name": "start_sas_verification"
+          },
+          {
+            "name": "receive_sas_started"
+          },
+          {
+            "name": "receive_challenge",
+            "sas": [
+              "Dog",
+              "Tree",
+              "Rocket"
+            ]
+          },
+          {
+            "name": "accept_challenge"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "verifying",
+          "identityState": "verification_violation",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_008_local_cancel",
@@ -1741,7 +2405,12 @@
       "functionalArea": "cancel_failure",
       "given": {
         "step": "awaiting_other_device_response",
-        "identityState": "verification_violation"
+        "identityState": "verification_violation",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "cancel"
@@ -1753,7 +2422,8 @@
         "identityState": "verification_violation"
       },
       "invariants": [
-        "cancellation never marks the user verified"
+        "cancellation never marks the user verified",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1761,7 +2431,45 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "d48207c07a6a7137cceb1869ede911f246be1ed420693fd1270ffdb20aeb871a"
+      "traceDigest": "c2068a28e6b4ad5b93bbf1212b677149eb710b8121e87710812d6542cdf0c1dc",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "pending"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "awaiting_other_device_response",
+          "identityState": "verification_violation",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_009_failure_reset",
@@ -1770,7 +2478,12 @@
       "given": {
         "step": "canceled",
         "failure": "sdk_failure",
-        "identityState": "verification_violation"
+        "identityState": "verification_violation",
+        "request": {
+          "type": "user",
+          "userId": "@alice:example.org"
+        },
+        "targetUserId": "@alice:example.org"
       },
       "event": {
         "name": "reset"
@@ -1782,7 +2495,8 @@
         "identityState": "verification_violation"
       },
       "invariants": [
-        "reset creates no false success"
+        "reset creates no false success",
+        "the active request is type user for @alice:example.org throughout the transition"
       ],
       "evidence": {
         "androidProduction": [
@@ -1790,7 +2504,50 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "e9ef89f47bd0219ec2679da15c71736d93ad8ae377d38c88af4111c217c6e5c8"
+      "traceDigest": "75658a231afbb924c5ce9b98c59e870308a7a2a75bdd0b355b003f2520ab6bd8",
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "screen": "room_member_profile",
+          "profileUserId": "@alice:example.org",
+          "isCurrentUser": false,
+          "verificationAvailable": true
+        },
+        "externalResponses": {
+          "request_user_verification": [
+            "sdk_failure"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_room_member_profile",
+            "userId": "@alice:example.org"
+          },
+          {
+            "name": "select_verify_user",
+            "targetUserId": "@alice:example.org"
+          },
+          {
+            "name": "request_verification"
+          },
+          {
+            "name": "receive_sdk_failure",
+            "failure": "sdk_failure"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "step": "canceled",
+          "failure": "sdk_failure",
+          "identityState": "verification_violation",
+          "request": {
+            "type": "user",
+            "userId": "@alice:example.org"
+          },
+          "targetUserId": "@alice:example.org"
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      },
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "uv_state_010_identity_violation_surfaces",
@@ -1808,10 +2565,13 @@
         "profileBadge": "verification_violation",
         "timelineWarning": true,
         "roomMemberWarning": true,
-        "verifyActionVisible": true
+        "verifyActionVisible": false,
+        "withdrawVerificationActionVisible": true,
+        "profileWarningVisible": true
       },
       "invariants": [
-        "unrelated member identities are unchanged"
+        "unrelated member identities are unchanged",
+        "verification-violation UI offers withdrawal instead of starting a new verification request"
       ],
       "evidence": {
         "androidProduction": [
@@ -1820,7 +2580,8 @@
         ]
       },
       "taskId": "13_user_verification",
-      "traceDigest": "31f3780972bcd5c3cd0aee8f7a2d69f68e86a4d5185063bd39a1caa324f905a2"
+      "traceDigest": "1a0a1123846109888031091ae2b87dee92fe38a5f34353fcc4a9c38f84bd6fa3",
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "jr_state_001_entry_opens_address_flow",
@@ -2247,7 +3008,7 @@
         }
       },
       "invariants": [
-        "form controls are disabled while loading"
+        "the loading modal blocks form interaction without changing the form values or duplicating the request"
       ],
       "evidence": {
         "androidProduction": [
@@ -2256,7 +3017,8 @@
         ]
       },
       "taskId": "15_account_deactivation",
-      "traceDigest": "c49c76266173b8a48dd97417d747be0ead27a9c8f65f1a3b5954a397b1295a38"
+      "traceDigest": "9aa0d1f056b7cdfe814422a5933d1230afe07c0c74f9c8c728821c3f74ed5edb",
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "ad_state_007_success_completes",
@@ -2520,25 +3282,43 @@
         "handleState": "loading"
       },
       "event": {
-        "name": "start_identity_reset_returns_null_or_error"
+        "name": "start_identity_reset_fails_cleanup_then_retry",
+        "failureResult": "null_or_error"
       },
       "expected": {
-        "handleState": "failure",
-        "progressVisible": false,
+        "failureObserved": true,
+        "stateSequence": [
+          "uninitialized",
+          "loading",
+          "failure",
+          "uninitialized",
+          "loading"
+        ],
+        "stableHandleState": "uninitialized",
         "screen": "reset_root",
-        "retryEnabled": true
+        "progressVisible": false,
+        "retryEnabled": true,
+        "retryHandleState": "loading"
       },
       "invariants": [
-        "a missing handle is treated as failure rather than success"
+        "a missing handle is treated as failure rather than success",
+        "cleanup resets the stable handle state to uninitialized while keeping the root interactive",
+        "retry after cleanup starts a new loading handle"
       ],
       "evidence": {
         "androidProduction": [
           "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowManager.kt",
           "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowNode.kt"
-        ]
+        ],
+        "androidRuntime": [
+          "experiment_results/runtime_transition_20261020/task16_android/calibration-v1/contract-conflict.json",
+          "experiment_results/runtime_transition_20261020/task16_android/flow-final-attempt3.json"
+        ],
+        "contractCorrection": "Failure is observable but transient: production cleanup resets the stable handle state before a reachable retry starts a new loading handle."
       },
       "taskId": "16_identity_reset",
-      "traceDigest": "e3e9e12f1dca712a181fd923b7cf4314d6415aec930d28305dfc8e453b1d9603"
+      "traceDigest": "7ecb1377a8e794fda7550e4a962942b6ffb14208118e07a45d10dcc043445909",
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "ir_state_007_password_submit_calls_handle",
@@ -2946,324 +3726,6 @@
       },
       "taskId": "17_pinned_messages",
       "traceDigest": "1ac5e7082921bacf5495c8310c631e409e3e337cd882e6a6095711774ccf072b"
-    },
-    {
-      "caseId": "ns_state_001_restore_independent_slots",
-      "key": "restore_independent_slots",
-      "functionalArea": "preference_persistence",
-      "given": {
-        "persistedMessageSound": "element_default",
-        "persistedCallRingtone": "silent"
-      },
-      "event": {
-        "name": "open_notification_settings"
-      },
-      "expected": {
-        "messageSound": "element_default",
-        "callRingtone": "silent",
-        "labelsResolved": true
-      },
-      "invariants": [
-        "message and call slots are loaded independently"
-      ],
-      "evidence": {
-        "androidProduction": [
-          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
-          "libraries/preferences/api/src/main/kotlin/io/element/android/libraries/preferences/api/store/NotificationSound.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "5ff3dfde4cfb7fddd6606d3481445c5733d8a41686055a1ad834e732e90741bb"
-    },
-    {
-      "caseId": "ns_state_002_message_preset",
-      "key": "message_preset",
-      "functionalArea": "preset_dialog",
-      "given": {
-        "messageSound": "system_default",
-        "callRingtone": "silent",
-        "messageDialog": "open"
-      },
-      "event": {
-        "name": "select_message_preset",
-        "value": "element_default"
-      },
-      "expected": {
-        "messageSound": "element_default",
-        "callRingtone": "silent",
-        "messageDialog": "closed",
-        "messageChannelVersion": 1,
-        "effects": [
-          "persist_message_sound",
-          "recreate_message_channel"
-        ]
-      },
-      "invariants": [
-        "changing the message sound does not change the call ringtone"
-      ],
-      "evidence": {
-        "androidTests": [
-          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "5ebc94fafef6837216e2f85bf2038e72f1d8c20489d2d4222e1356db4b1a2f90"
-    },
-    {
-      "caseId": "ns_state_003_message_picker_launch",
-      "key": "message_picker_launch",
-      "functionalArea": "system_picker",
-      "given": {
-        "messageDialog": "open",
-        "messagePickerToken": 0
-      },
-      "event": {
-        "name": "launch_message_sound_picker"
-      },
-      "expected": {
-        "messageDialog": "closed",
-        "messagePickerToken": 1,
-        "effects": [
-          "open_audio_picker"
-        ]
-      },
-      "invariants": [
-        "no preference changes before the picker returns a value"
-      ],
-      "evidence": {
-        "androidTests": [
-          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "cc2a53bac503f3b17888a3caf039d157a0de085c5838e6f109e5112990a3616a"
-    },
-    {
-      "caseId": "ns_state_004_message_custom_copy",
-      "key": "message_custom_copy",
-      "functionalArea": "sound_copy",
-      "given": {
-        "messageSound": "system_default",
-        "pickedUri": "content://media/message/42",
-        "displayName": "Message Tone"
-      },
-      "event": {
-        "name": "set_message_sound_from_picker"
-      },
-      "expected": {
-        "messageSound": "app_owned_custom_uri",
-        "messageDisplayName": "Message Tone",
-        "messageChannelVersion": 1,
-        "effects": [
-          "copy_to_app_storage",
-          "persist_message_sound",
-          "recreate_message_channel"
-        ]
-      },
-      "invariants": [
-        "the transient provider URI is not persisted as the effective sound"
-      ],
-      "evidence": {
-        "androidTests": [
-          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt",
-          "libraries/push/impl/src/test/kotlin/io/element/android/libraries/push/impl/notifications/sound/DefaultNotificationSoundCopierTest.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "2b76c922587cb222dc7173b2d75569fb670021d4da0440af084a99b5d65f9820"
-    },
-    {
-      "caseId": "ns_state_005_message_copy_failure",
-      "key": "message_copy_failure",
-      "functionalArea": "copy_failure",
-      "given": {
-        "messageSound": "element_default",
-        "pickedUri": "content://broken"
-      },
-      "event": {
-        "name": "set_message_sound_from_picker",
-        "copyResult": "failure"
-      },
-      "expected": {
-        "messageSound": "element_default",
-        "messageCopyError": true,
-        "channelRecreated": false,
-        "dismissible": true
-      },
-      "invariants": [
-        "copy failure preserves the previous effective sound and version"
-      ],
-      "evidence": {
-        "androidTests": [
-          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "1b5b663f6cd00b4dc1052a46856c350158f25d79c874a711bbe86cb8ded5ea9d"
-    },
-    {
-      "caseId": "ns_state_006_call_preset",
-      "key": "call_preset",
-      "functionalArea": "preset_dialog",
-      "given": {
-        "messageSound": "element_default",
-        "callRingtone": "system_default",
-        "callDialog": "open"
-      },
-      "event": {
-        "name": "select_call_preset",
-        "value": "silent"
-      },
-      "expected": {
-        "messageSound": "element_default",
-        "callRingtone": "silent",
-        "callDialog": "closed",
-        "callChannelVersion": 1,
-        "effects": [
-          "persist_call_ringtone",
-          "recreate_call_channel"
-        ]
-      },
-      "invariants": [
-        "changing the call ringtone does not change the message sound"
-      ],
-      "evidence": {
-        "androidTests": [
-          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "3a53bca2920e2611ce2049e8e42c202917b6079a22e66daa432aadc0f81a423f"
-    },
-    {
-      "caseId": "ns_state_007_call_custom_copy",
-      "key": "call_custom_copy",
-      "functionalArea": "sound_copy",
-      "given": {
-        "callRingtone": "system_default",
-        "pickedUri": "content://media/call/7",
-        "displayName": "Call Tone"
-      },
-      "event": {
-        "name": "set_call_ringtone_from_picker"
-      },
-      "expected": {
-        "callRingtone": "app_owned_custom_uri",
-        "callDisplayName": "Call Tone",
-        "callChannelVersion": 1,
-        "effects": [
-          "copy_to_app_storage",
-          "persist_call_ringtone",
-          "recreate_call_channel"
-        ]
-      },
-      "invariants": [
-        "the message sound and its channel version are unchanged"
-      ],
-      "evidence": {
-        "androidProduction": [
-          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
-          "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/sound/DefaultNotificationSoundCopier.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "fbffe9b6596b5c271ff589ece871e2a316124204e4d5e89201e157a41e51dc25"
-    },
-    {
-      "caseId": "ns_state_008_call_copy_failure",
-      "key": "call_copy_failure",
-      "functionalArea": "copy_failure",
-      "given": {
-        "callRingtone": "silent",
-        "pickedUri": "content://broken"
-      },
-      "event": {
-        "name": "set_call_ringtone_from_picker",
-        "copyResult": "failure"
-      },
-      "expected": {
-        "callRingtone": "silent",
-        "callCopyError": true,
-        "channelRecreated": false,
-        "dismissible": true
-      },
-      "invariants": [
-        "call-copy failure does not leak into message-sound error state"
-      ],
-      "evidence": {
-        "androidTests": [
-          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "bbb861e9c0fd8e862057d5773092d474b5c1be3d538bf24329602da895aebcc0"
-    },
-    {
-      "caseId": "ns_state_009_latest_pick_wins",
-      "key": "latest_pick_wins",
-      "functionalArea": "channel_recreation",
-      "given": {
-        "messageSound": "system_default",
-        "messageChannelVersion": 0
-      },
-      "event": {
-        "name": "set_message_sounds_rapidly",
-        "values": [
-          "content://A",
-          "content://B"
-        ]
-      },
-      "expected": {
-        "messageSound": "app_owned_custom_uri_for_B",
-        "messageChannelVersion": 2,
-        "copyOrder": [
-          "content://A",
-          "content://B"
-        ],
-        "recreateOrder": [
-          1,
-          2
-        ]
-      },
-      "invariants": [
-        "per-slot updates are serialized and a late completion cannot restore an older pick"
-      ],
-      "evidence": {
-        "androidTests": [
-          "features/preferences/impl/src/test/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenterTest.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "08a3815e40952338770d37f90b7ddb7ce263d66caf8844a06c8aad468f91c6d6"
-    },
-    {
-      "caseId": "ns_state_010_legacy_migration_guard",
-      "key": "legacy_migration_guard",
-      "functionalArea": "legacy_migration",
-      "given": {
-        "persistedCallRingtone": "custom_explicit",
-        "callChannelVersion": 3,
-        "legacyChannelRingtone": "silent"
-      },
-      "event": {
-        "name": "migrate_legacy_channel_sound"
-      },
-      "expected": {
-        "callRingtone": "custom_explicit",
-        "callChannelVersion": 3,
-        "migrationApplied": false
-      },
-      "invariants": [
-        "legacy discovery never overwrites an explicit new preference"
-      ],
-      "evidence": {
-        "androidProduction": [
-          "features/preferences/impl/src/main/kotlin/io/element/android/features/preferences/impl/notifications/NotificationSettingsPresenter.kt",
-          "libraries/push/impl/src/main/kotlin/io/element/android/libraries/push/impl/notifications/channels/NotificationChannels.kt"
-        ]
-      },
-      "taskId": "18_custom_notification_sounds",
-      "traceDigest": "82c4cff114d79e42989270376186861490867ed5c8ceb127f86b1d431298298e"
     }
   ]
 }

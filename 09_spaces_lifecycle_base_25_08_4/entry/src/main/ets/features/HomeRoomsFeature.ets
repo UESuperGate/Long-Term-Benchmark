@@ -8,14 +8,28 @@ export class HomeRoom {
   }
 }
 
+export enum HomeSurface {
+  Chats = 'chats',
+  Spaces = 'spaces'
+}
+
 export class HomeRoomsPresenter {
   rooms: HomeRoom[] = [
     new HomeRoom('!design', 'Design'),
     new HomeRoom('!engineering', 'Engineering')
   ];
   selectedRoomId: string = '';
+  surface: HomeSurface = HomeSurface.Chats;
 
   openRoom(roomId: string): void {
     this.selectedRoomId = roomId;
+  }
+
+  openChats(): void {
+    this.surface = HomeSurface.Chats;
+  }
+
+  openSpaces(): void {
+    this.surface = HomeSurface.Spaces;
   }
 }

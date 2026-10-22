@@ -1,8 +1,13 @@
-# Report Room (Android v25.04.3 -> v25.05.0)
+# Report Room (Android v25.04.3 -> v25.05.4)
 
 ## User outcome
 
 Users can report a room with a reason, optionally leave it, and recover correctly if either operation fails.
+
+The feature implementation first appears in the v25.05.0 release notes, but its
+user entry remains statically disabled through v25.05.3. The final boundary is
+v25.05.4, the first release whose room-details flow queries the real Matrix
+client capability and can expose the shipped feature without evaluator overrides.
 
 ## Functional requirements
 

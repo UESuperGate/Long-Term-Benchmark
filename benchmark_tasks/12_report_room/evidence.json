@@ -1,13 +1,14 @@
 {
   "schemaVersion": 1,
   "taskId": "12_report_room",
-  "releaseEvidence": ["CHANGES.md v25.05.0: Feature: Report room"],
+  "releaseEvidence": ["CHANGES.md v25.05.0: Feature: Report room", "v25.05.4: room details uses MatrixClient.canReportRoom(), backed by the SDK capability"],
   "implementationEvidence": {
     "symbols": ["ReportRoomPresenter", "ReportRoomState", "ReportRoom.Exception.LeftRoomFailed", "DeclineAndBlockPresenter", "AsyncAction"],
     "productionPaths": ["features/reportroom", "features/invite/impl/src/main/kotlin/io/element/android/features/invite/impl/declineandblock", "features/roomdetails/impl/src/main"],
     "testPaths": ["features/reportroom/impl/src/test/kotlin/io/element/android/features/reportroom/impl/DefaultReportRoomTest.kt", "features/reportroom/impl/src/test/kotlin/io/element/android/features/reportroom/impl/ReportRoomPresenterTest.kt", "features/invite/impl/src/test/kotlin/io/element/android/features/invite/impl/declineandblock/DeclineAndBlockPresenterTest.kt"]
   },
   "baseFailureEvidence": ["The base has no report-room feature module or settings entry.", "The base cannot combine a room report with an optional leave action.", "The base cannot retry only the leave step after a report succeeded but leaving failed."],
+  "boundaryEvidence": {"firstImplementationRelease": "v25.05.0", "lastDisabledRelease": "v25.05.3", "firstReachableRelease": "v25.05.4", "enableCommit": "21f75db4bbacd75445a3f9f17b62085f617f275b", "audit": "../../experiment_results/runtime_transition_20261020/task12_version_boundary/audit.json"},
   "longHorizonSignals": ["The flow spans form state, confirmation, Matrix reporting, optional leave, settings navigation, and invite-decline integration.", "Partial failure is explicit: a retry after LeftRoomFailed must not submit the report twice.", "The implementation commit changes 229 files and includes 103 test files."],
   "rawEvidence": "raw_release_evidence.json"
 }

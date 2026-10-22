@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "taskId": "16_identity_reset",
   "owner": "evaluator",
   "description": "Shared Android/ArkTS semantics for confirmed cryptographic identity reset with password or OIDC reauthentication",
@@ -150,25 +150,43 @@
         "handleState": "loading"
       },
       "event": {
-        "name": "start_identity_reset_returns_null_or_error"
+        "name": "start_identity_reset_fails_cleanup_then_retry",
+        "failureResult": "null_or_error"
       },
       "expected": {
-        "handleState": "failure",
-        "progressVisible": false,
+        "failureObserved": true,
+        "stateSequence": [
+          "uninitialized",
+          "loading",
+          "failure",
+          "uninitialized",
+          "loading"
+        ],
+        "stableHandleState": "uninitialized",
         "screen": "reset_root",
-        "retryEnabled": true
+        "progressVisible": false,
+        "retryEnabled": true,
+        "retryHandleState": "loading"
       },
       "invariants": [
-        "a missing handle is treated as failure rather than success"
+        "a missing handle is treated as failure rather than success",
+        "cleanup resets the stable handle state to uninitialized while keeping the root interactive",
+        "retry after cleanup starts a new loading handle"
       ],
       "evidence": {
         "androidProduction": [
           "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowManager.kt",
           "features/securebackup/impl/src/main/kotlin/io/element/android/features/securebackup/impl/reset/ResetIdentityFlowNode.kt"
-        ]
+        ],
+        "androidRuntime": [
+          "experiment_results/runtime_transition_20261020/task16_android/calibration-v1/contract-conflict.json",
+          "experiment_results/runtime_transition_20261020/task16_android/flow-final-attempt3.json"
+        ],
+        "contractCorrection": "Failure is observable but transient: production cleanup resets the stable handle state before a reachable retry starts a new loading handle."
       },
       "taskId": "16_identity_reset",
-      "traceDigest": "e3e9e12f1dca712a181fd923b7cf4314d6415aec930d28305dfc8e453b1d9603"
+      "traceDigest": "7ecb1377a8e794fda7550e4a962942b6ffb14208118e07a45d10dcc043445909",
+      "traceSchemaVersion": 2
     },
     {
       "caseId": "ir_state_007_password_submit_calls_handle",
@@ -290,5 +308,7 @@
       "taskId": "16_identity_reset",
       "traceDigest": "7e89fb15e0ae6f65fc8fd7b4c17e9b9aefd4025092952fbb30bb59a081e503dd"
     }
-  ]
+  ],
+  "revision": 5,
+  "executionModel": "external_failure_then_cleanup_then_reachable_retry"
 }

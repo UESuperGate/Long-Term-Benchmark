@@ -1,0 +1,1031 @@
+{
+  "schema": "android-feature-sdk-boundary-audit/v1",
+  "date": "2026-10-21",
+  "readOnlyReview": true,
+  "newBuildDeviceModelRuns": false,
+  "productionOrContractEdited": false,
+  "readinessPublicOrMetricsChanged": false,
+  "reviewKind": "coordinator technical source/runtime-boundary review, not new human approval",
+  "sourceRoot": "_sources/element-x-android",
+  "readinessAtCapture": {
+    "path": "scripts/runtime_semantics/formal_agent_readiness.json",
+    "bytes": 29857,
+    "sha256": "4fc23388ff96d30184243f11b000f6f69fe856c09c875c9bfc197ec5d252cd6d"
+  },
+  "tasks": [
+    {
+      "task": "10_media_upload_quality",
+      "sdk": [
+        "25.8.5",
+        "25.8.5"
+      ],
+      "fixtures": [
+        {
+          "path": "state_tests/runtime/android/10_media_upload_quality/MediaQualityTest.kt",
+          "bytes": 11288,
+          "sha256": "b6259c32c4eb52f6afdce9450c0158e2c06c0a07b7b7397d5939d7af89ae9023"
+        },
+        {
+          "path": "state_tests/runtime/android/10_media_upload_quality/Matrix.kt",
+          "bytes": 292,
+          "sha256": "a77727659817e424f09b6186b3ec77dc6177e39ac7608b4b98ca5cb056f5a43e"
+        },
+        {
+          "path": "state_tests/runtime/android/10_media_upload_quality/preview/AttachmentsPreviewRuntimeTest.kt",
+          "bytes": 18749,
+          "sha256": "71e3a83e620759f10aa407e021a031c7ce312fe575e89841f71273bd986d05ff"
+        },
+        {
+          "path": "state_tests/runtime/android/10_media_upload_quality/lifetime/PreviewLifetimeTest.kt",
+          "bytes": 15309,
+          "sha256": "6c37a278a8eb19d6993dc90bcaabd7c4e90658bdfdd1e068ed9ec09b33dd1eb3"
+        }
+      ],
+      "classes": [
+        "runtime.MediaQualityTest (compiler diagnostic + RUNTIME_RESULT)",
+        "runtime.AttachmentsPreviewRuntimeTest (retained log)"
+      ],
+      "boundary": "App MatrixClient shadow/proxy supplies limit; MediaPreProcessor.process supplies prepared media. Real newly changed RustClient and processing/encoding bodies bypassed. Actual cleanup still executes.",
+      "impact": [
+        {
+          "unproven": "New Rust bridge suspension, SDK exception/result conversion and server-size acquisition; presenter/selection/rendered assertions above this boundary remain observations.",
+          "cases": [
+            {
+              "caseId": "mq_state_001_async_loading",
+              "key": "async_loading",
+              "traceDigest": "2be6d18728576c19c062fe3539f3a1e82738485dd75cd12f3332ac3ad73391ad"
+            },
+            {
+              "caseId": "mq_state_002_limit_fallback",
+              "key": "limit_fallback",
+              "traceDigest": "29bdc1860acde5fbd4914e254d4b4183f55f15ae8e6d5a514a75cf4c04faccb7"
+            },
+            {
+              "caseId": "mq_state_004_estimate_video_presets",
+              "key": "estimate_video_presets",
+              "traceDigest": "709ebaaf5d1043e96bcb776551a99285117b43182b8544c4b86e1a6b0c8de433"
+            },
+            {
+              "caseId": "mq_state_005_choose_best_preset",
+              "key": "choose_best_preset",
+              "traceDigest": "72a4083fc28b23fc41d180f8a4eace831422fd707be05ac742235354a8c06529"
+            },
+            {
+              "caseId": "mq_state_006_dismiss_preserves_selection",
+              "key": "dismiss_preserves_selection",
+              "traceDigest": "34e8f344806e118f26b5a9f570ae954326e858536990d196f55501197edcd742"
+            },
+            {
+              "caseId": "mq_state_007_reject_oversized_preset",
+              "key": "reject_oversized_preset",
+              "traceDigest": "0792c01c33397e43224cc6fdcc6165eec25e8c918fdd514ff18f7688c0694149"
+            },
+            {
+              "caseId": "mq_state_008_block_when_all_oversized",
+              "key": "block_when_all_oversized",
+              "traceDigest": "415aa5d083075c72f83a0e7cc572ab2d8b6b4483c592ef742ac4666809cfeda4"
+            }
+          ]
+        },
+        {
+          "unproven": "Config reaches app-owned MediaPreProcessor double, not actual process image compression decision.",
+          "cases": [
+            {
+              "caseId": "mq_state_003_image_optimization",
+              "key": "image_optimization",
+              "traceDigest": "eb8de76794a7d9789ddebfd661a5a66020c0e60f28fffa8c952bf45b2a2659a0"
+            }
+          ]
+        },
+        {
+          "unproven": "Selected preset reaching real processor/encoder; existing real production cleanup and disposed Node observations remain valid at their stated boundary.",
+          "cases": [
+            {
+              "caseId": "mq_state_009_failure_cancel_retry",
+              "key": "background_failure_cleanup",
+              "traceDigest": "15973a1cde5037a523bd3d7dd8542ad036bbe9345390ff4f171bde13239a71b1"
+            }
+          ]
+        }
+      ],
+      "immutable": {
+        "repository": "https://github.com/element-hq/element-x-android.git",
+        "baseRef": "v25.08.2",
+        "baseCommit": "8b4b3217124e77f064c8e9fce6cbe6fd121a9a2c",
+        "finalRef": "v25.08.3",
+        "finalCommit": "4c67edf0582ea30b34f5469a6bb84e5617cea76e"
+      },
+      "contract": {
+        "path": "benchmark_tasks/10_media_upload_quality/transitions.json",
+        "bytes": 11036,
+        "sha256": "14dbf90aeb5a1ff0663c9ea6e7c85bea7e165a7d0f9ad027b278c6da14cd19b2"
+      },
+      "reviewedFinalReport": {
+        "path": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/public-audit-v6/task10/android/final.runtime.json",
+        "bytes": 78611,
+        "sha256": "76393aa35e48c94666c093f28394e5f845d1c97e4c9b81a654575722d5180d3b"
+      },
+      "initialReviewEnabled": true,
+      "currentReadinessClaimed": false,
+      "changedPaths": [
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt",
+          "symbols": [
+            "getMaxFileUploadSize -> Client.getMaxMediaUploadSize"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 32305,
+              "sha256": "be15a07e30551538812d9bb08b3e374cdc98b15ee7e0d993a5dc20877a0e2fbd"
+            },
+            "finalCommit": {
+              "bytes": 32363,
+              "sha256": "257a69252358f84167af15dfc5e24d5253eb8c2a36b4c65ed80c7cbc645af9f3"
+            }
+          }
+        },
+        {
+          "path": "libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/AndroidMediaPreProcessor.kt",
+          "symbols": [
+            "process(MediaOptimizationConfig)",
+            "processVideo(VideoCompressionPreset)"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 16304,
+              "sha256": "ad79492d4fe18809d58cb17cb835ffa7d3ac13b1494a1bf09876e03461391aae"
+            },
+            "finalCommit": {
+              "bytes": 16553,
+              "sha256": "aec7097d6f77a46461577373c5f5dc15480d09d5806fc389772968425cf5b0cc"
+            }
+          }
+        },
+        {
+          "path": "libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressor.kt",
+          "symbols": [
+            "compress(VideoCompressionPreset) -> Media3 Transformer"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 7906,
+              "sha256": "ca6babe4e4b09b7543ac28e6fb614308e287b39475a6d84f553ecb2737699dff"
+            },
+            "finalCommit": {
+              "bytes": 7998,
+              "sha256": "6973861a0b3f8d4e41f1ca5732f2673ad6022ec19e8dae93cb7d5ab331f2ea12"
+            }
+          }
+        },
+        {
+          "path": "libraries/mediaupload/impl/src/main/kotlin/io/element/android/libraries/mediaupload/impl/VideoCompressorConfig.kt",
+          "symbols": [
+            "VideoCompressorConfigFactory.create(preset)"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 3439,
+              "sha256": "e4ff1c03ecfa6da9446536cd2d6dd315e778ec4728d1bdc62e73fd4d6fe878f6"
+            },
+            "finalCommit": {
+              "bytes": 1849,
+              "sha256": "49af8d95f0f94d81e8cdfecd84bcb78236d399eb79d2f7e5d1f0cf6ed4948953"
+            }
+          }
+        }
+      ],
+      "rawEvidence": [
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/task10/android/final-v3-artifacts/primary.log",
+          "bytes": 16713,
+          "sha256": "fb59e21214c663f7c2de7905cb96c6eaab3ab138983fae49d1734a072370d12a"
+        },
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/task10/android/final-v3-artifacts/preview.log",
+          "bytes": 12803,
+          "sha256": "5c91095cd85dc8d3c3c3b61553ae00a4fb3263c745711b41de43a791c0804c1b"
+        }
+      ],
+      "classpathEvidence": {
+        "records": [],
+        "evaluatorPrecedesSdk": true,
+        "limitation": "Classpath/command records are historical execution records, not fresh binary/classloader verification; API shadows are distinguished from SDK jar classes."
+      },
+      "retainedFixtureBindings": [],
+      "publicSdkDiscoverability": {
+        "baseNewEntryUseFound": false,
+        "baseTrackedSdkJarAarUdl": false,
+        "baseWrapperOtherMethodsDiscoverable": true,
+        "currentRunnerSuppliesSdkApiInventory": false,
+        "scope": "Immutable base tracked source + current prepare() injections; no new claim about every historical full working-tree input or build diagnostics."
+      }
+    },
+    {
+      "task": "11_room_upgrade_navigation",
+      "sdk": [
+        "25.6.10",
+        "25.6.18"
+      ],
+      "fixtures": [
+        {
+          "path": "state_tests/runtime/android/11_room_upgrade_navigation/navigation/LoadedNavigationTest.kt",
+          "bytes": 35396,
+          "sha256": "5c9456936f984264ffe4d8e4ec78a3d88ed1d88f18cb9ea542b0581a7a0b3ade"
+        },
+        {
+          "path": "state_tests/runtime/android/11_room_upgrade_navigation/RoomUpgradeTest.kt",
+          "bytes": 1217,
+          "sha256": "bc47a9c2755a25c3e02fb455596bf30a817830624109c5f8e64839a353376b5d"
+        },
+        {
+          "path": "state_tests/runtime/android/11_room_upgrade_navigation/RustSdk.kt",
+          "bytes": 110,
+          "sha256": "afee05aac75178a3051d3598ca89c136c9b5bc408db6a3338966c9ba4ebd8843"
+        },
+        {
+          "path": "state_tests/runtime/android/11_room_upgrade_navigation/messages/Task11PlainTextSdkShadow.kt",
+          "bytes": 1994,
+          "sha256": "b7be0bd6444b35be96d0508433a92899b0a634678faf199ec03fcf91d67f21f2"
+        }
+      ],
+      "classes": [
+        "runtime.LoadedNavigationTest",
+        "runtime.RoomUpgradeTest"
+      ],
+      "boundary": "JoinedRoom proxy supplies app PredecessorRoom directly. Separate mapper test executes real new production .map on an SDK DTO fixture. Configured navigation fixture matches annotation-only in-memory reconstruction.",
+      "impact": [
+        {
+          "unproven": "RustBaseRoom SDK acquisition not executed; exact production DTO mapper IS executed and remains a valid scoped mapper test.",
+          "cases": [
+            {
+              "caseId": "ru_state_006_map_predecessor",
+              "key": "map_predecessor_metadata",
+              "traceDigest": "f55ed6d11bba0f502955ee4a37f2864feae9be8a6085e9af69a37c13eaa9027b"
+            }
+          ]
+        },
+        {
+          "unproven": "Metadata acquisition bypasses new getter; real presenter/banner/navigation remain observed.",
+          "cases": [
+            {
+              "caseId": "ru_state_007_predecessor_banner",
+              "key": "predecessor_banner",
+              "traceDigest": "99eaf8a7170d777949019d0551b073c6c333140148e48cdcb1b56b942b14d926"
+            },
+            {
+              "caseId": "ru_state_008_open_predecessor",
+              "key": "open_predecessor",
+              "traceDigest": "857f482d4de37dc283068b1df3ede07bc0a0111f2f5a88dd16c4088f09081031"
+            }
+          ]
+        },
+        {
+          "unproven": "No invalidity inferred solely from unchanged SDK metadata doubles; DeduplicateVersions is outside these canonical assertions.",
+          "cases": [
+            {
+              "caseId": "ru_state_002_tombstone_is_read_only",
+              "key": "tombstone_is_read_only",
+              "traceDigest": "0bf0bdfd73d6d5e3969dc60a25723ba4816c5328309bff26c6de1ef2729f0b60"
+            },
+            {
+              "caseId": "ru_state_003_open_successor",
+              "key": "open_successor",
+              "traceDigest": "9efc889329c90e731c8e4334bfa6c3afcaaa4cc8d278127adfc8915c7d27ee8f"
+            },
+            {
+              "caseId": "ru_state_005_room_list_tombstone_preview",
+              "key": "room_list_tombstone_preview",
+              "traceDigest": "17b9c1389549f43efcc21aa93e52af9003d1df6da1a16b4555c0a3856471021a"
+            }
+          ]
+        }
+      ],
+      "immutable": {
+        "repository": "https://github.com/element-hq/element-x-android.git",
+        "baseRef": "v25.06.2",
+        "baseCommit": "3818b166d0bb730c5a497ca8e5a40197fbaa94e5",
+        "finalRef": "v25.06.3",
+        "finalCommit": "426e5de99caac15a44f3d4f27f1ff6e3d4960f84"
+      },
+      "contract": {
+        "path": "benchmark_tasks/11_room_upgrade_navigation/transitions.json",
+        "bytes": 6289,
+        "sha256": "d570c2955778cbf353ccdc91bcfe3a01624af3b12b2c6000c6c5e00690e174e4"
+      },
+      "reviewedFinalReport": {
+        "path": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/accepted.runtime.json",
+        "bytes": 1289758,
+        "sha256": "c29f706f8c6dd25e88b832749a0fbd84e32f82230fd07987063e75738c769f23"
+      },
+      "initialReviewEnabled": true,
+      "currentReadinessClaimed": false,
+      "changedPaths": [
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RustBaseRoom.kt",
+          "symbols": [
+            "predecessorRoom -> SDK getter -> map"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 11281,
+              "sha256": "963b736a1080156a1cb2f78c5ed4565b5dbf6bbe02d39601e723b3e394adaeca"
+            },
+            "finalCommit": {
+              "bytes": 11832,
+              "sha256": "1c32141c3e4298bce510ea1b2a5c4e7d896c309ddb35a3ccd69503e8c30cb9f3"
+            }
+          }
+        },
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/tombstone/PredecessorRoom.kt",
+          "symbols": [
+            "RustPredecessorRoom.map"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": null,
+            "finalCommit": {
+              "bytes": 690,
+              "sha256": "3ae90b7bc9418ab3202a84f72c7b221e4a5ed17335ddf1d73d2723d9137c7b65"
+            }
+          }
+        },
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/roomlist/RoomListFactory.kt",
+          "symbols": [
+            "ROOM_LIST_RUST_FILTERS/DeduplicateVersions (not a canonical asserted effect)"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 5411,
+              "sha256": "c0ab1321a81714e1c6d3eec7fb7879d4bf26b6f36f5a710d11612e1f5e123a5f"
+            },
+            "finalCommit": {
+              "bytes": 5582,
+              "sha256": "367ad6c18edc5928b46ff192e133eb0843a976a19dd44b562cb015f6c68ab218"
+            }
+          }
+        }
+      ],
+      "rawEvidence": [
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/audit/slice-1.manifest.json",
+          "bytes": 2047440,
+          "sha256": "c322e21c8615afe701022e053ea2ad6ec9112bd7642f94c3b7ec2b7c0e9ac744"
+        },
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/audit/slice-2.manifest.json",
+          "bytes": 23768,
+          "sha256": "6f5e13ea406bfb880d1965e60bf3059a0bc1ba463096de680ab0e3a0febb3458"
+        }
+      ],
+      "classpathEvidence": {
+        "records": [
+          {
+            "raw": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/audit/slice-1.manifest.json",
+            "entryCount": 314,
+            "leadingRuntimeClasses": "/var/folders/73/ptx_mz6n16x8j3g5kqzgbh6c0000gn/T/android-robolectric-_e7ahnno/classes",
+            "binaryClassesRetainedClaimed": false
+          }
+        ],
+        "evaluatorPrecedesSdk": false,
+        "limitation": "Classpath/command records are historical execution records, not fresh binary/classloader verification; API shadows are distinguished from SDK jar classes."
+      },
+      "retainedFixtureBindings": [
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/audit/slice-1.manifest.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/temporary/evaluator/sdk-plain-text-evaluator/LoadedNavigationTest.kt",
+            "sha256": "e545f568a2627f2d99f8587b88d3f8bedf5241649c22071921a833c28e72f5ce"
+          },
+          "currentMatches": false
+        },
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/audit/slice-1.manifest.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/11_room_upgrade_navigation/messages/Task11PlainTextSdkShadow.kt",
+            "sha256": "b7be0bd6444b35be96d0508433a92899b0a634678faf199ec03fcf91d67f21f2"
+          },
+          "currentMatches": true
+        },
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/audit/slice-2.manifest.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/11_room_upgrade_navigation/RoomUpgradeTest.kt",
+            "sha256": "bc47a9c2755a25c3e02fb455596bf30a817830624109c5f8e64839a353376b5d"
+          },
+          "currentMatches": true
+        },
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_tasks10_11_source_param_v1/current-controls-v6/task11/android/final/audit/slice-2.manifest.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/11_room_upgrade_navigation/RustSdk.kt",
+            "sha256": "afee05aac75178a3051d3598ca89c136c9b5bc408db6a3338966c9ba4ebd8843"
+          },
+          "currentMatches": true
+        }
+      ],
+      "publicSdkDiscoverability": {
+        "baseNewEntryUseFound": false,
+        "baseTrackedSdkJarAarUdl": false,
+        "baseWrapperOtherMethodsDiscoverable": true,
+        "currentRunnerSuppliesSdkApiInventory": false,
+        "scope": "Immutable base tracked source + current prepare() injections; no new claim about every historical full working-tree input or build diagnostics."
+      }
+    },
+    {
+      "task": "12_report_room",
+      "sdk": [
+        "25.4.22",
+        "25.5.21"
+      ],
+      "fixtures": [
+        {
+          "path": "state_tests/runtime/android/12_report_room/action_prefix_final_25_05_4/ReportRoomActionPrefixFinalTest.kt",
+          "bytes": 29989,
+          "sha256": "fae806037e30bbe2900ea45142f18feda36c8f0264abce2d2be66065eb654935"
+        }
+      ],
+      "classes": [
+        "runtime.ReportRoomActionPrefixFinalTest"
+      ],
+      "boundary": "App MatrixClient proxy supplies capability=true; JoinedRoom proxy scripts reportRoom/leave completions. Real RoomDetails/ReportRoom UI, presenter and node path executes.",
+      "impact": [
+        {
+          "unproven": "Common entry capability comes from app proxy instead of new canReportRoom bridge; form-state assertions remain upper-layer observations.",
+          "cases": [
+            {
+              "caseId": "rr_state_001_initial_form",
+              "key": "initial_form",
+              "traceDigest": "a29a4ca18a9fb5f28e968e6d6e6f61a14da0a0dcfde2e56615312203ea00e2ac"
+            },
+            {
+              "caseId": "rr_state_002_reason_enables_report",
+              "key": "reason_enables_report",
+              "traceDigest": "8bfdcab748a4455f9053d056f6b44eb740996dccc4af5674597ea8905a28900e"
+            },
+            {
+              "caseId": "rr_state_003_toggle_leave",
+              "key": "toggle_leave",
+              "traceDigest": "df5dffb9d14b3fab5eddeeb7ad854ac0cbf83bed8b5d283a675fc93cbd28b136"
+            },
+            {
+              "caseId": "rr_state_006_blank_reason_disabled",
+              "key": "blank_reason_disabled",
+              "traceDigest": "8d144aaf118bd2e9e6622c3a7134221dad42080f0963c1a81e3c485d9db86580"
+            },
+            {
+              "caseId": "rr_state_010_clear_failure_keeps_form",
+              "key": "clear_failure_keeps_form",
+              "traceDigest": "0ca317bf0e37db9994c34bbcac08d3629bcd2eeed4dca3eab10e26af2c9e7240"
+            }
+          ]
+        },
+        {
+          "unproven": "New reportRoom SDK bridge dispatch/error conversion absent; existing app report/leave order and retry selection are not invalid solely because unchanged leave SDK transport is doubled.",
+          "cases": [
+            {
+              "caseId": "rr_state_004_report_only_success",
+              "key": "report_only_success",
+              "traceDigest": "03c9f091da970e2e507da17bd966d1fb32915f31af29ea5cbeef03ef3f9b96b0"
+            },
+            {
+              "caseId": "rr_state_005_report_then_leave",
+              "key": "report_then_leave",
+              "traceDigest": "681e2d7fb7c5697efdb376e09e21080da2472a074bdac9a2631c8d8e4c6bfcf8"
+            },
+            {
+              "caseId": "rr_state_007_report_failure_stops_leave",
+              "key": "report_failure_stops_leave",
+              "traceDigest": "a6bbc742c75e621e925c6df3df7de1b02f3609cbfc474d10a50171bb9ddd76e8"
+            },
+            {
+              "caseId": "rr_state_008_leave_failure_is_partial",
+              "key": "leave_failure_is_partial",
+              "traceDigest": "ef2d4fdea3ee73b8171fdc1829128f0cc9fdf9ab24305a8ad6c065e44a2f3df8"
+            },
+            {
+              "caseId": "rr_state_009_retry_leave_only",
+              "key": "retry_leave_only",
+              "traceDigest": "b3e312f60b6ad18aba0f2d492b3f684c25e0bb24c7db2f00a06b402133059a2a"
+            }
+          ]
+        }
+      ],
+      "immutable": {
+        "repository": "https://github.com/element-hq/element-x-android.git",
+        "baseRef": "v25.04.3",
+        "baseCommit": "a69d126e2619653aee244fdf24a206b11ecaf64d",
+        "finalRef": "v25.05.4",
+        "finalCommit": "0fab33ae06dbb0499491c8edc2f24af38d2725e2"
+      },
+      "contract": {
+        "path": "benchmark_tasks/12_report_room/transitions.json",
+        "bytes": 15554,
+        "sha256": "365670eba603c9762842a836b3b5385c37f925abdf3e88cc1d3d355b3f64531e"
+      },
+      "reviewedFinalReport": {
+        "path": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task12-android-final-copy-v13.strict-evidence/final/runtime.json",
+        "bytes": 3549157,
+        "sha256": "cc3f1be5c0c72ab53616b212a5da1d194c5705e5fec790fc9b616c207a2ba58b"
+      },
+      "initialReviewEnabled": true,
+      "currentReadinessClaimed": false,
+      "changedPaths": [
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt",
+          "symbols": [
+            "canReportRoom -> Client.isReportRoomApiSupported"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 29901,
+              "sha256": "22b8ea9dbf68c4f76ace7c2f89100a6df655ca56948518dd0b967a60184184c3"
+            },
+            "finalCommit": {
+              "bytes": 31246,
+              "sha256": "932aa4bb210bfb060e53e6c9dd875e894801ea13d0d92282a2dca198bf5e6056"
+            }
+          }
+        },
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/room/RustBaseRoom.kt",
+          "symbols": [
+            "reportRoom -> SDK Room.reportRoom"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": null,
+            "finalCommit": {
+              "bytes": 10809,
+              "sha256": "0c4bf7cf8c32f9d18206223a22f6f5068eea09babe6fe5bdad4440b45a074a0a"
+            }
+          }
+        }
+      ],
+      "rawEvidence": [
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task12-android-final-copy-v13.strict-evidence/final/runtime.android-evidence/final.raw.json",
+          "bytes": 2857801,
+          "sha256": "c9c4f3c09b5bfef05496d896b523557fe0d6dadf72ca426c3b72540f2489ba32"
+        }
+      ],
+      "classpathEvidence": {
+        "records": [
+          {
+            "raw": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task12-android-final-copy-v13.strict-evidence/final/runtime.android-evidence/final.raw.json",
+            "entryCount": 266,
+            "leadingRuntimeClasses": "/private/var/folders/73/ptx_mz6n16x8j3g5kqzgbh6c0000gn/T/android-robolectric-vgo59xau/classes",
+            "binaryClassesRetainedClaimed": false
+          }
+        ],
+        "evaluatorPrecedesSdk": false,
+        "limitation": "Classpath/command records are historical execution records, not fresh binary/classloader verification; API shadows are distinguished from SDK jar classes."
+      },
+      "retainedFixtureBindings": [
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task12-android-final-copy-v13.strict-evidence/final/runtime.android-evidence/final.raw.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/12_report_room/action_prefix_final_25_05_4/ReportRoomActionPrefixFinalTest.kt",
+            "sha256": "fae806037e30bbe2900ea45142f18feda36c8f0264abce2d2be66065eb654935"
+          },
+          "currentMatches": true
+        }
+      ],
+      "publicSdkDiscoverability": {
+        "baseNewEntryUseFound": false,
+        "baseTrackedSdkJarAarUdl": false,
+        "baseWrapperOtherMethodsDiscoverable": true,
+        "currentRunnerSuppliesSdkApiInventory": false,
+        "scope": "Immutable base tracked source + current prepare() injections; no new claim about every historical full working-tree input or build diagnostics."
+      }
+    },
+    {
+      "task": "13_user_verification",
+      "sdk": [
+        "25.3.6",
+        "25.3.20"
+      ],
+      "fixtures": [
+        {
+          "path": "state_tests/runtime/android/13_user_verification/formal/Task13FormalDomainTest.kt",
+          "bytes": 16521,
+          "sha256": "8de35246918e91aa06c980500fd86ccdbb45d5b35cf65846eaef1277a15871c4"
+        },
+        {
+          "path": "state_tests/runtime/android/13_user_verification/room_member/RoomMemberNavigationTest.kt",
+          "bytes": 23641,
+          "sha256": "6036712266a2cc455afd52f5c081b739a330e109927ab4831d9a6e3ebe5377a0"
+        }
+      ],
+      "classes": [
+        "runtime.Task13FormalDomainTest"
+      ],
+      "boundary": "App SessionVerificationService and EncryptionService proxies; verification/identity flows directly supplied above changed Rust bridge.",
+      "impact": [
+        {
+          "unproven": "SDK user request and request-type bookkeeping bypassed.",
+          "cases": [
+            {
+              "caseId": "uv_state_002_request_targets_user",
+              "key": "request_targets_user",
+              "traceDigest": "01c9208151ed0dce552ca9c421b4fee79eb19b0f5b6864d309ec91e0397a8f5f"
+            }
+          ]
+        },
+        {
+          "unproven": "New identity mapping and production Rust completion callback/request-type chain bypassed.",
+          "cases": [
+            {
+              "caseId": "uv_state_007_finish_clears_violation",
+              "key": "finish_clears_violation",
+              "traceDigest": "7468a701e86c482ba37c9555b34deb3c2a42896ff4a58599ce4f08f2ad0e8620"
+            },
+            {
+              "caseId": "uv_state_010_identity_violation_surfaces",
+              "key": "identity_violation_surfaces",
+              "traceDigest": "1a0a1123846109888031091ae2b87dee92fe38a5f34353fcc4a9c38f84bd6fa3"
+            }
+          ]
+        },
+        {
+          "unproven": "New Rust currentVerificationRequest reset not executed.",
+          "cases": [
+            {
+              "caseId": "uv_state_009_failure_reset",
+              "key": "failure_reset",
+              "traceDigest": "75658a231afbb924c5ce9b98c59e870308a7a2a75bdd0b355b003f2520ab6bd8"
+            }
+          ]
+        },
+        {
+          "unproven": "Retain stated presenter/UI observations; unchanged service API doubles alone do not establish invalidity or SDK callback coverage.",
+          "cases": [
+            {
+              "caseId": "uv_state_001_profile_routes_user_request",
+              "key": "profile_routes_user_request",
+              "traceDigest": "f8ee9048171bb4f23e7476653f4b3e2f81c2f733bec817eb32d402153b3e8162"
+            },
+            {
+              "caseId": "uv_state_003_start_sas_after_acceptance",
+              "key": "start_sas_after_acceptance",
+              "traceDigest": "b941a86fca0544113aa285fc7f3cd16af8530df6f84d9751fef1c2cf8ff1f3e7"
+            },
+            {
+              "caseId": "uv_state_004_challenge_is_stable",
+              "key": "challenge_is_stable",
+              "traceDigest": "d0b5f014b1bd2024ad4537bfeb0f9f8fdad3f356e299baecdda8efd3e1546b60"
+            },
+            {
+              "caseId": "uv_state_005_accept_challenge_once",
+              "key": "accept_challenge_once",
+              "traceDigest": "5a514e60eb92eab433713b35b74ad227096eceb51c2ac7fca2f7b74967ee6fca"
+            },
+            {
+              "caseId": "uv_state_006_decline_challenge_once",
+              "key": "decline_challenge_once",
+              "traceDigest": "18ea518aaf5f70e94333ef2f52e3c76dffb29c3eb10a519546e80cabade68b54"
+            },
+            {
+              "caseId": "uv_state_008_local_cancel",
+              "key": "local_cancel",
+              "traceDigest": "c2068a28e6b4ad5b93bbf1212b677149eb710b8121e87710812d6542cdf0c1dc"
+            }
+          ]
+        }
+      ],
+      "immutable": {
+        "repository": "https://github.com/element-hq/element-x-android.git",
+        "baseRef": "v25.03.1",
+        "baseCommit": "232f1db645b5710d1eee451c9c8cee1525dc38d6",
+        "finalRef": "v25.03.2",
+        "finalCommit": "bee248e2d59149d0deab4da4b8265199cb722ffe"
+      },
+      "contract": {
+        "path": "benchmark_tasks/13_user_verification/transitions.json",
+        "bytes": 23189,
+        "sha256": "c038fddc0beba7933076cef4f63a8d156ccf914628cb39c3b5eec708c7035e90"
+      },
+      "reviewedFinalReport": {
+        "path": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task13-android-final-copy-v5.strict-evidence/final/runtime.json",
+        "bytes": 1128640,
+        "sha256": "e01132f486ab809cd70c86732828f3f3ec66e8de91dd05a0a264966201feb783"
+      },
+      "initialReviewEnabled": true,
+      "currentReadinessClaimed": false,
+      "changedPaths": [
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/verification/RustSessionVerificationService.kt",
+          "symbols": [
+            "requestUserVerification",
+            "currentVerificationRequest completion branch",
+            "reset currentVerificationRequest"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 12373,
+              "sha256": "f2317f49f93668df76e36ce25f4f77948628f3db8308da2025a0212dc7ebc456"
+            },
+            "finalCommit": {
+              "bytes": 12853,
+              "sha256": "689d6cfd65e93bbd408803f9d22e9cec975ec17ce09689a9bb2f2806c1fd81db"
+            }
+          }
+        },
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/encryption/RustEncryptionService.kt",
+          "symbols": [
+            "getUserIdentity -> SDK verification/violation mapping"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 8609,
+              "sha256": "cd33def051817827e99726961299cb785603eb3d17a52ac3532ef7c371229d8f"
+            },
+            "finalCommit": {
+              "bytes": 9150,
+              "sha256": "41ac1704fdde8c22c00ad7158575928bae134251d484c5c6f149e80662982154"
+            }
+          }
+        },
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/verification/SessionVerificationRequestDetails.kt",
+          "symbols": [
+            "toVerificationRequest -> Incoming.User/OtherSession"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 933,
+              "sha256": "737b597e4049829e6ad2c364c0c2882d92fc0ded344b148efd2aa617fafaaf41"
+            },
+            "finalCommit": {
+              "bytes": 1538,
+              "sha256": "5bcc638f67e8003967caa3243e848a62c973f6c4c5de766aa051c14ad11cc058"
+            }
+          }
+        }
+      ],
+      "rawEvidence": [
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task13-android-final-copy-v5.strict-evidence/final/runtime.android-evidence/domain.json",
+          "bytes": 554513,
+          "sha256": "4998f15c9a61881ecbe024f3357b43f150be1bc82392207ed437ba53c90f5af6"
+        }
+      ],
+      "classpathEvidence": {
+        "records": [
+          {
+            "raw": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task13-android-final-copy-v5.strict-evidence/final/runtime.android-evidence/domain.json",
+            "entryCount": 266,
+            "leadingRuntimeClasses": "/var/folders/73/ptx_mz6n16x8j3g5kqzgbh6c0000gn/T/android-robolectric-3i7op5h0/classes",
+            "binaryClassesRetainedClaimed": false
+          }
+        ],
+        "evaluatorPrecedesSdk": false,
+        "limitation": "Classpath/command records are historical execution records, not fresh binary/classloader verification; API shadows are distinguished from SDK jar classes."
+      },
+      "retainedFixtureBindings": [
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_task12_13_runtime_20261020/task13-android-final-copy-v5.strict-evidence/final/runtime.android-evidence/domain.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/13_user_verification/formal/Task13FormalDomainTest.kt",
+            "sha256": "8de35246918e91aa06c980500fd86ccdbb45d5b35cf65846eaef1277a15871c4"
+          },
+          "currentMatches": true
+        }
+      ],
+      "publicSdkDiscoverability": {
+        "baseNewEntryUseFound": false,
+        "baseTrackedSdkJarAarUdl": false,
+        "baseWrapperOtherMethodsDiscoverable": true,
+        "currentRunnerSuppliesSdkApiInventory": false,
+        "scope": "Immutable base tracked source + current prepare() injections; no new claim about every historical full working-tree input or build diagnostics."
+      }
+    },
+    {
+      "task": "15_account_deactivation",
+      "sdk": [
+        "0.2.46",
+        "0.2.47"
+      ],
+      "fixtures": [
+        {
+          "path": "state_tests/runtime/android/15_account_deactivation/DeactivationTest.kt",
+          "bytes": 5946,
+          "sha256": "7c600a5c402f7660f8b20228f97e05c1339fabe35329619c18b0573b66e67545"
+        },
+        {
+          "path": "state_tests/runtime/android/15_account_deactivation/Matrix.kt",
+          "bytes": 497,
+          "sha256": "7a5eea0723e9460fcd10c01d6ab37e69f9f9ac7ab8627fb4245a73a6fed1e36e"
+        },
+        {
+          "path": "state_tests/runtime/android/15_account_deactivation/rendered/DeactivationRenderedTest.kt",
+          "bytes": 13791,
+          "sha256": "97c7383ab079b916dbe9df4cf9f6b82fbf0741057f1bb64489a42f640ecdad2c"
+        },
+        {
+          "path": "state_tests/runtime/android/15_account_deactivation/revision3/FinalPreferencesCapabilityRenderedTest.kt",
+          "bytes": 12069,
+          "sha256": "eb1257cd2a289174785c127407a61110a3a8e11e002cb4f3113697796ebae14e"
+        }
+      ],
+      "classes": [
+        "runtime.DeactivationTest",
+        "runtime.DeactivationRenderedTest",
+        "runtime.FinalPreferencesCapabilityRenderedTest"
+      ],
+      "boundary": "App MatrixClient shadow/proxy implements capability and deactivation completions above new Rust auth/cleanup logic.",
+      "impact": [
+        {
+          "unproven": "New SDK capability bridge bypassed; real destructive UI style/entry observed.",
+          "cases": [
+            {
+              "caseId": "ad_state_001_capability_gates_entry",
+              "key": "capability_gates_entry",
+              "traceDigest": "b3684f9076e2d1644b5f0845e8e19e85e1e8a0092f99abfd6dbf49517da828cf"
+            }
+          ]
+        },
+        {
+          "unproven": "SDK auth-null attempt/password retry, delegate restoration, actual SDK completion and session/file deletion not executed. App request counts are NOT SDK request counts.",
+          "cases": [
+            {
+              "caseId": "ad_state_006_confirm_sends_payload",
+              "key": "confirm_sends_payload",
+              "traceDigest": "9aa0d1f056b7cdfe814422a5933d1230afe07c0c74f9c8c728821c3f74ed5edb"
+            },
+            {
+              "caseId": "ad_state_007_success_completes",
+              "key": "success_completes",
+              "traceDigest": "a3a54aee86587d76d7f3fea466763d1ff0b6fa9c025b0429139813e5ec978a63"
+            },
+            {
+              "caseId": "ad_state_008_failure_preserves_form",
+              "key": "failure_preserves_form",
+              "traceDigest": "595e37cfd9368ef42e9bf16445744fda2ce114e1418b0f498f4705778b18272f"
+            },
+            {
+              "caseId": "ad_state_009_retry_bypasses_confirmation",
+              "key": "retry_bypasses_confirmation",
+              "traceDigest": "a112f159facaba6a31c84138e10091493edf100421ca6a0887ae2f6e561557c6"
+            }
+          ]
+        },
+        {
+          "unproven": "Preserve stated form/confirmation/dialog observations; no blanket invalidation from unchanged API doubles.",
+          "cases": [
+            {
+              "caseId": "ad_state_002_default_form_blocks_submit",
+              "key": "default_form_blocks_submit",
+              "traceDigest": "1d66e15fe75db7f8003f4d5cd634a7e754043d4dc4af2c14a9a2c1699b23c5db"
+            },
+            {
+              "caseId": "ad_state_003_password_enables_submit",
+              "key": "password_enables_submit",
+              "traceDigest": "2bedbcf31f25c47b40b0f1f5db33d6c4c20b0b6aa3917c76cb84f51babfe77d7"
+            },
+            {
+              "caseId": "ad_state_004_erase_data_option",
+              "key": "erase_data_option",
+              "traceDigest": "ff2ae69bc219f57f1040476486e0a237a975cc072104bd9e5f26e7ef68c43a28"
+            },
+            {
+              "caseId": "ad_state_005_first_submit_confirms",
+              "key": "first_submit_confirms",
+              "traceDigest": "2f77a9ed753a91e1de420cddee06a05374109ee707c9c769ef1ca569b865cae7"
+            },
+            {
+              "caseId": "ad_state_010_close_dialog_resets_action",
+              "key": "close_dialog_resets_action",
+              "traceDigest": "25a6279600074d28df718e589ef05a0c1aa58e590c4ac8db99967b5904497800"
+            }
+          ]
+        }
+      ],
+      "immutable": {
+        "repository": "https://github.com/element-hq/element-x-android.git",
+        "baseRef": "v0.6.1",
+        "baseCommit": "da57b0416b2cac420116ca995fdb4b835d8e80f7",
+        "finalRef": "v0.6.3",
+        "finalCommit": "cec945cd07c639f8bbae886d76817f750d414709"
+      },
+      "contract": {
+        "path": "benchmark_tasks/15_account_deactivation/transitions.json",
+        "bytes": 9902,
+        "sha256": "9b28dd02e4bea7d17f1b94843cde852e3fd198d54ce7ac8ed4beed7e273404c0"
+      },
+      "reviewedFinalReport": {
+        "path": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime.json",
+        "bytes": 296342,
+        "sha256": "4f4033822ba5a88da4c2c09975dfeeb2a37ccc216712b432f73fafb44f9a36cf"
+      },
+      "initialReviewEnabled": true,
+      "currentReadinessClaimed": false,
+      "changedPaths": [
+        {
+          "path": "libraries/matrix/impl/src/main/kotlin/io/element/android/libraries/matrix/impl/RustMatrixClient.kt",
+          "symbols": [
+            "canDeactivateAccount",
+            "deactivateAccount: delegate suspension/auth retry/failure delegate restore/destroy/session removal"
+          ],
+          "immutableBlobBytes": {
+            "baseCommit": {
+              "bytes": 25961,
+              "sha256": "a8a7a173175bad4cc6105afdc71275e499a47b07f71f16d782fcecf3200957da"
+            },
+            "finalCommit": {
+              "bytes": 28319,
+              "sha256": "65b94c69b86eb47450d6438b6cb8a72d4b6865060cb5db1b3f9e1778bbf721c3"
+            }
+          }
+        }
+      ],
+      "rawEvidence": [
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/domain.json",
+          "bytes": 55590,
+          "sha256": "34cd0ab8a598f4176be4685d45c75a390b228889e9fca9a085df8749ae1540a0"
+        },
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/modal.json",
+          "bytes": 295082,
+          "sha256": "1a72ce7148a414732497fc868f1fbcdcb191868f0e4650a6ef585ac0daf574d3"
+        },
+        {
+          "path": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/preferences.json",
+          "bytes": 296582,
+          "sha256": "f0d26d4815faac56333fd3721d19b56ab514907d0e0ce175e40c4f4776919ac3"
+        }
+      ],
+      "classpathEvidence": {
+        "records": [
+          {
+            "raw": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/modal.json",
+            "entryCount": 235,
+            "leadingRuntimeClasses": "/var/folders/73/ptx_mz6n16x8j3g5kqzgbh6c0000gn/T/android-robolectric-ng410i6f/classes",
+            "binaryClassesRetainedClaimed": false
+          },
+          {
+            "raw": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/preferences.json",
+            "entryCount": 234,
+            "leadingRuntimeClasses": "/var/folders/73/ptx_mz6n16x8j3g5kqzgbh6c0000gn/T/android-robolectric-ghdujqg9/classes",
+            "binaryClassesRetainedClaimed": false
+          }
+        ],
+        "evaluatorPrecedesSdk": true,
+        "limitation": "Classpath/command records are historical execution records, not fresh binary/classloader verification; API shadows are distinguished from SDK jar classes."
+      },
+      "retainedFixtureBindings": [
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/domain.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/15_account_deactivation/DeactivationTest.kt",
+            "sha256": "7c600a5c402f7660f8b20228f97e05c1339fabe35329619c18b0573b66e67545"
+          },
+          "currentMatches": true
+        },
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/domain.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/15_account_deactivation/Matrix.kt",
+            "sha256": "7a5eea0723e9460fcd10c01d6ab37e69f9f9ac7ab8627fb4245a73a6fed1e36e"
+          },
+          "currentMatches": true
+        },
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/modal.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/15_account_deactivation/rendered/DeactivationRenderedTest.kt",
+            "sha256": "97c7383ab079b916dbe9df4cf9f6b82fbf0741057f1bb64489a42f640ecdad2c"
+          },
+          "currentMatches": true
+        },
+        {
+          "raw": "experiment_results/runtime_transition_20261020/formal_agent_scorer_audit/task15-android-final-copy-v5.final_calibration.runtime_evidence/preferences.json",
+          "recorded": {
+            "path": "/Users/z1an/research/Long-Term-Benchmark/state_tests/runtime/android/15_account_deactivation/revision3/FinalPreferencesCapabilityRenderedTest.kt",
+            "sha256": "eb1257cd2a289174785c127407a61110a3a8e11e002cb4f3113697796ebae14e"
+          },
+          "currentMatches": true
+        }
+      ],
+      "publicSdkDiscoverability": {
+        "baseNewEntryUseFound": false,
+        "baseTrackedSdkJarAarUdl": false,
+        "baseWrapperOtherMethodsDiscoverable": true,
+        "currentRunnerSuppliesSdkApiInventory": false,
+        "scope": "Immutable base tracked source + current prepare() injections; no new claim about every historical full working-tree input or build diagnostics."
+      }
+    }
+  ],
+  "trustedUnchangedBoundary": {
+    "task": "11_room_upgrade_navigation",
+    "sdk": "wysiwyg:2.38.3 -> 2.38.3",
+    "scope": "SDK-native-mention switch calls original renderer; rejects links/mentions. Not the new Matrix predecessor bridge."
+  },
+  "limitations": [
+    "No blanket invalidation for unchanged API doubles.",
+    "Task10 original raw JSON paths are absent; small compiler/runtime logs and normalized rows retained, not newly recreated raw or classpath proof.",
+    "Task11 configured navigation temp source is absent; annotation-only reconstruction matched its recorded hash in memory; no copy made.",
+    "No ABI inventory was installed into model candidates; no external SDK cache disclosure authorization inferred."
+  ]
+}

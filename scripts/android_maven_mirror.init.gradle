@@ -1,47 +1,36 @@
-// Maven Central's canonical host is unreachable on some benchmark networks.
-// Prepend Google's byte-for-byte Maven Central mirror without replacing any
-// repositories declared by the upstream Element X build.
-def mirrorHosts = "maven.aliyun.com|maven-central.storage-download.googleapis.com"
-def nonProxyHosts = System.getProperty("http.nonProxyHosts", "")
-System.setProperty("http.nonProxyHosts", [nonProxyHosts, mirrorHosts].findAll { it }.join("|"))
-System.setProperty("https.nonProxyHosts", [nonProxyHosts, mirrorHosts].findAll { it }.join("|"))
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
 
-def publicMirror = "https://maven.aliyun.com/repository/public/"
-def pluginMirror = "https://maven.aliyun.com/repository/gradle-plugin/"
-def centralMirror = "https://maven-central.storage-download.googleapis.com/maven2/"
-def googleMirror = "https://maven.aliyun.com/repository/google/"
+def repo1 = "https://repo1.maven.org/maven2"
 
-beforeSettings { settings ->
-    settings.pluginManagement.repositories {
-        maven { url = uri(googleMirror) }
-        maven { url = uri(pluginMirror) }
-        maven {
-            url = uri(publicMirror)
-            content { excludeGroup("org.matrix.rustcomponents") }
-        }
-        maven { url = uri(centralMirror) }
-        gradlePluginPortal()
-        google()
-    }
-    settings.dependencyResolutionManagement.repositories {
-        maven { url = uri(googleMirror) }
-        maven {
-            url = uri(publicMirror)
-            content { excludeGroup("org.matrix.rustcomponents") }
-        }
-        maven { url = uri(centralMirror) }
+def rewriteBrokenCentral = { repository ->
+    if (repository instanceof MavenArtifactRepository &&
+            repository.url.host == "repo.maven.apache.org") {
+        repository.url = uri(repo1)
     }
 }
 
-allprojects { project ->
-    if (project.rootProject.name == "ElementX_plugins") {
-        repositories {
-            maven { url = uri(googleMirror) }
-            maven {
-                url = uri(publicMirror)
-                content { excludeGroup("org.matrix.rustcomponents") }
-            }
-            maven { url = uri(centralMirror) }
-        }
+// Included builds resolve plugins before ordinary project repositories exist.
+// Keep the working Central endpoint first and retain the plugin portal for
+// markers such as kotlin-dsl that are not published to Maven Central.
+beforeSettings { settings ->
+    settings.pluginManagement.repositories.clear()
+    settings.pluginManagement.repositories {
+        maven { url = uri(repo1) }
+        gradlePluginPortal()
+        google()
     }
+    // The upstream settings add Google and JitPack afterwards. Prepend repo1
+    // without clearing them because Element X has dependencies only on JitPack.
+    settings.dependencyResolutionManagement.repositories {
+        maven { url = uri(repo1) }
+    }
+}
+
+settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement.repositories.configureEach(rewriteBrokenCentral)
+}
+
+gradle.beforeProject { project ->
+    project.repositories.configureEach(rewriteBrokenCentral)
+    project.buildscript.repositories.configureEach(rewriteBrokenCentral)
 }

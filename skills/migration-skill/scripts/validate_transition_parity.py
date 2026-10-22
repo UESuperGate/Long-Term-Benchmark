@@ -15,13 +15,27 @@ def load(path: Path) -> dict[str, Any]:
 
 
 def canonical(case: dict[str, Any], task_id: str) -> dict[str, Any]:
-    return {
-        "taskId": case.get("taskId", task_id),
-        "key": case.get("key"),
-        "given": case.get("given"),
-        "event": case.get("event"),
-        "expected": case.get("expected"),
+    version = case.get('traceSchemaVersion', 1)
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError('Unsupported traceSchemaVersion')
+    if case.get('taskId', task_id) != task_id:
+        raise ValueError('Case taskId differs from its contract')
+    semantic = {
+        "taskId": task_id,
+        "key": case["key"],
+        "given": case["given"],
+        "event": case["event"],
+        "expected": case["expected"],
     }
+    if 'setup' in case:
+        semantic['setup'] = case['setup']
+    if 'setup' in case or version == 2:
+        if not isinstance(case.get('invariants'), list):
+            raise ValueError('Versioned action-prefix contracts require an invariants list')
+        semantic['invariants'] = case['invariants']
+    if version == 2:
+        semantic['traceSchemaVersion'] = version
+    return semantic
 
 
 def digest(value: dict[str, Any]) -> str:
@@ -30,16 +44,33 @@ def digest(value: dict[str, Any]) -> str:
 
 
 def index(contract: dict[str, Any], label: str, errors: list[str]) -> dict[str, dict[str, Any]]:
-    task_id = str(contract.get("taskId", ""))
+    task_id = contract.get("taskId")
     result = {}
+    if not isinstance(task_id, str) or not task_id:
+        errors.append(f"{label}: nonempty taskId required")
+        return result
+    if not isinstance(contract.get('cases'), list) or not contract['cases']:
+        errors.append(f"{label}: nonempty cases list required")
+        return result
+    keys = set()
     for case in contract.get("cases", []):
-        case_id = str(case.get("caseId", ""))
-        if not case_id:
+        if not isinstance(case, dict):
+            errors.append(f"{label}: case must be an object")
+            continue
+        case_id = case.get("caseId")
+        if not isinstance(case_id, str) or not case_id:
             errors.append(f"{label}: case without caseId")
             continue
         if case_id in result:
             errors.append(f"{label}: duplicate caseId {case_id}")
-        semantic = canonical(case, task_id)
+        if not isinstance(case.get('key'), str) or not case['key'] or case['key'] in keys:
+            errors.append(f"{label}: invalid or duplicate key for {case_id}")
+        keys.add(case.get('key') if isinstance(case.get('key'), str) else None)
+        try:
+            semantic = canonical(case, task_id)
+        except (KeyError, TypeError, ValueError) as error:
+            errors.append(f"{label}: {case_id}: {error}")
+            continue
         declared = str(case.get("traceDigest", ""))
         result[case_id] = {
             "semantic": semantic,

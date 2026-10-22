@@ -1,14 +1,15 @@
 # Element X Multi-Platform Long-Term Benchmark
 
-This workspace contains seven long-horizon Element X tasks for Android and
-ArkTS/OpenHarmony: the original five-task suite plus two release-derived
+This workspace contains long-horizon Element X tasks for Android and
+ArkTS/OpenHarmony, including the original five-task suite and release-derived
 extensions. Both platforms consume the same public requirement specs, case ids,
 state vectors, transition events, and semantic oracles. Platform-specific
 runners differ only in how they apply a transition and capture the resulting
 state.
 
-The ArkTS bases preserve the relevant user-visible base behavior with a mock
-Matrix service and semantic UI ids. The Android benchmark is built from the
+The ArkTS migrations use task-scoped Matrix service boundaries and semantic UI
+ids. Runtime audits have found migration omissions, so full base/final parity
+is not yet established for the extended suite. The Android benchmark is built from the
 official [Element X Android](https://github.com/element-hq/element-x-android)
 release tags and keeps the upstream Kotlin/Compose and Matrix Rust SDK
 architecture.
@@ -70,18 +71,60 @@ The Android and ArkTS base/final projects calibrate to `0/20` and `20/20`
 respectively; the MiniMax-M3 run is archived in
 [`experiment_results/extended_opencode_minimax_m3_20261013`](experiment_results/extended_opencode_minimax_m3_20261013/README.md).
 
-Tasks 08-18 add 11 further long-horizon capabilities: threads, Spaces,
+The active extracted batch is **tasks 08-17: 10 tasks, 91 cases per platform**
+(182 across Android and ArkTS). Task18 was excluded on 2026-10-20 by user
+request, instead of upgrading the API23 environment. It is excluded from current
+calibration, agent selection and metric denominators on both platforms.
+[The exclusion audit](experiment_results/runtime_transition_20261020/task18_exclusion/README.md)
+preserves its projects, contracts and historical evidence. Tasks01-07 are unchanged.
+
+The historical tasks 08-18 batch added 11 long-horizon capabilities: threads, Spaces,
 media-upload quality, room-upgrade navigation, room reporting, user
 verification, join-by-address, account deactivation, identity reset, pinned
-messages, and custom notification sounds. They share 101 canonical cases per
-platform. The repaired MiniMax-M3 evaluation has complete 22/22 coverage:
-code generation `22/22`, compile `18/22`, and semantic testcase `99/202`
-(`47/101` Android, `52/101` ArkTS). All four base/final poles calibrate to
-`0/N -> N/N`; no case is unscored. The task-level table, environment, reports,
-and reconstructable agent patches are in
+messages, and custom notification sounds. That archive contains 101 cases per
+platform. The historical MiniMax-M3 archive records code generation `22/22`
+and compile `18/22`. Its `99/202` result (`47/101` Android, `52/101` ArkTS)
+was **source-transition conformance, not runtime semantic testcase execution**.
+Its source-based `0/N -> N/N` calibration does not validate a runtime benchmark.
+The historical table, environment, reports, and reconstructable agent patches are in
 [`experiment_results/new_tasks_opencode_minimax_m3_20261015_semantic_repair`](experiment_results/new_tasks_opencode_minimax_m3_20261015_semantic_repair/README.md).
 
-Local Android evaluation environment:
+Runtime revalidation now uses `scripts/run_runtime_transition_matrix.py` and
+`scripts/run_task_runtime_tests.py`. Missing runtime observations are
+`not_scored`, never inferred failures or source-based passes. Until every
+base/final pole calibrates through production execution, no aggregate semantic
+benchmark score is valid. The 2026-10-19 evidence and limitations are tracked in
+[`experiment_results/runtime_transition_20261019`](experiment_results/runtime_transition_20261019/README.md).
+
+The approved [contract revision 2](experiment_results/runtime_transition_20261019/contract_audit/revision_2/README.md)
+corrects invite cleanup and dimension-derived video size estimation only.
+Old contracts, digests, and runtime reports are archived separately; old and new
+contract results must not be combined.
+
+The authorized 2026-10-20 repairs and staged
+[contract revision 3](experiment_results/runtime_transition_20261020/contract_audit/revision_3/manifest.json)
+cover real modal blocking, message-only notification version initialization,
+and task12 independent operation prefixes. Old payloads/reports are retained;
+the active canonical contracts and aggregate scores are not silently relabelled.
+Migration source repairs have separate before/after audits. New evidence is in
+[`experiment_results/runtime_transition_20261020`](experiment_results/runtime_transition_20261020/README.md).
+No new agent benchmark result is claimed before complete four-way runtime calibration.
+
+The current integration checkpoint is
+[`RUNTIME_CHECKPOINT.md`](experiment_results/runtime_transition_20261020/RUNTIME_CHECKPOINT.md).
+The October21 [runtime-boundary audit](experiment_results/runtime_transition_20261021/public_owner_boundary_withdrawal_v1/README.md)
+withdraws incomplete owner/navigation and changed-SDK-bridge calibration. Existing
+UI/domain observations remain evidence, but no full score follows from a test
+double that bypasses task-added production logic, even with unchanged source
+hashes. Missing calibration is not a model semantic failure.
+It distinguishes runtime calibration, standalone candidate scorer checks, and
+fresh model-generated results. A copy of final submitted with role `agent` is
+only a scorer check and does not count as an OpenCode/MiniMax agent result.
+The retained-batch runner uses `minimax-token-plan/MiniMax-M3`, the configured
+MiniMax endpoint, a shared Android full-build lock, and an 8 GiB storage guard.
+Build outputs are hashed and removed before semantic evaluation.
+
+Historical original-five Android evaluation environment:
 
 - Java: 21.0.12.1
 - Android compile/target SDK: API 36 for older tags and API 37 for newer tags,

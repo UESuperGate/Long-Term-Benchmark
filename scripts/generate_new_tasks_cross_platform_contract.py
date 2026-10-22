@@ -46,7 +46,7 @@ def main() -> int:
         "schemaVersion": 1,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "owner": "evaluator",
-        "description": "Shared Android/ArkTS semantic contracts for extracted Element X tasks 08-18",
+        "description": "Shared Android/ArkTS semantic contracts for currently accepted extracted Element X tasks",
         "taskCount": len(task_ids),
         "caseCount": len(cases),
         "cases": cases,

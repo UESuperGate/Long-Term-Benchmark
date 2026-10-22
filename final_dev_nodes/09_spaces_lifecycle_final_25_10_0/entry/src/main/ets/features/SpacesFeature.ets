@@ -39,17 +39,62 @@ export class RoomAction {
   }
 }
 
+export class SpaceChildrenPage {
+  children: SpaceRoom[];
+  nextCursor: string | undefined;
+
+  constructor(children: SpaceRoom[], nextCursor: string | undefined = undefined) {
+    this.children = children;
+    this.nextCursor = nextCursor;
+  }
+}
+
+export interface SpaceChildrenSource {
+  loadChildren(spaceId: string, cursor?: string): Promise<SpaceChildrenPage>;
+}
+
+export interface SpaceJoinSource {
+  joinRoom(roomId: string): Promise<boolean>;
+}
+
 export class SpacesGateway {
+  private childrenSource?: SpaceChildrenSource;
+  private joinSource?: SpaceJoinSource;
+
+  constructor(childrenSource?: SpaceChildrenSource, joinSource?: SpaceJoinSource) {
+    this.childrenSource = childrenSource;
+    this.joinSource = joinSource;
+  }
+
+  async loadChildren(spaceId: string, cursor?: string): Promise<SpaceChildrenPage> {
+    if (this.childrenSource !== undefined) {
+      return this.childrenSource.loadChildren(spaceId, cursor);
+    }
+    // Standalone sample data; a session supplies the hierarchy source above.
+    return cursor === undefined ? new SpaceChildrenPage([
+      new SpaceRoom('!a', 'Design', ''),
+      new SpaceRoom('!b', 'Engineering', ''),
+      new SpaceRoom('!admin', 'Operations', 'joined', false, true),
+      new SpaceRoom('!dm', 'Direct message', 'joined', true, false)
+    ], 'next') : new SpaceChildrenPage([
+      new SpaceRoom('!b', 'Engineering', ''), new SpaceRoom('!c', 'Research', '')
+    ]);
+  }
+
   failNextJoin: boolean = false;
   failNextLeave: boolean = false;
   lastJoinedRoomId: string = '';
   lastAcceptedInviteId: string = '';
   lastLeftRoomIds: string[] = [];
 
-  joinRoom(roomId: string): boolean {
+  async joinRoom(roomId: string): Promise<boolean> {
     if (this.failNextJoin) {
       this.failNextJoin = false;
       return false;
+    }
+    if (this.joinSource !== undefined) {
+      const joined = await this.joinSource.joinRoom(roomId);
+      if (!joined) return false;
     }
     this.lastJoinedRoomId = roomId;
     return true;
@@ -85,44 +130,64 @@ export class SpacesPresenter {
   selectedLeaveRoomIds: string[] = [];
   leaveState: AsyncOperationState = AsyncOperationState.Idle;
   leaveAttempts: number = 0;
+  private childrenGeneration: number = 0;
+  private nextCursor: string | undefined = undefined;
 
   constructor(gateway: SpacesGateway) {
     this.gateway = gateway;
   }
 
-  openSpace(spaceId: string): void {
+  async openSpace(spaceId: string): Promise<void> {
+    const generation = ++this.childrenGeneration;
     this.selectedSpaceId = spaceId;
     this.surface = SpaceSurface.Space;
     this.childrenState = AsyncOperationState.Loading;
-    this.children = [
-      new SpaceRoom('!a', 'Design', ''),
-      new SpaceRoom('!b', 'Engineering', ''),
-      new SpaceRoom('!admin', 'Operations', 'joined', false, true),
-      new SpaceRoom('!dm', 'Direct message', 'joined', true, false)
-    ];
-    this.childrenState = AsyncOperationState.Success;
+    this.children = [];
+    this.nextCursor = undefined;
+    this.hasMoreToLoad = true;
+    this.paginationState = AsyncOperationState.Idle;
+    try {
+      const page = await this.gateway.loadChildren(spaceId);
+      if (generation !== this.childrenGeneration) return;
+      this.mergeChildren(page);
+      this.childrenState = AsyncOperationState.Success;
+    } catch {
+      if (generation === this.childrenGeneration) this.childrenState = AsyncOperationState.Failure;
+    }
   }
 
-  loadMore(): void {
-    if (!this.hasMoreToLoad) {
+  async loadMore(): Promise<void> {
+    if (!this.hasMoreToLoad || this.childrenState !== AsyncOperationState.Success ||
+      this.paginationState === AsyncOperationState.Loading) {
       return;
     }
+    const generation = this.childrenGeneration;
     this.paginationState = AsyncOperationState.Loading;
-    const page: SpaceRoom[] = [new SpaceRoom('!b', 'Engineering', ''), new SpaceRoom('!c', 'Research', '')];
-    page.forEach((room: SpaceRoom) => {
+    try {
+      const page = await this.gateway.loadChildren(this.selectedSpaceId, this.nextCursor);
+      if (generation !== this.childrenGeneration) return;
+      this.mergeChildren(page);
+      this.paginationState = AsyncOperationState.Idle;
+    } catch {
+      if (generation === this.childrenGeneration) this.paginationState = AsyncOperationState.Failure;
+    }
+  }
+
+  private mergeChildren(page: SpaceChildrenPage): void {
+    page.children.forEach((room: SpaceRoom) => {
       if (!this.children.some((existing: SpaceRoom) => existing.roomId === room.roomId)) {
         this.children.push(room);
       }
     });
-    this.hasMoreToLoad = false;
-    this.paginationState = AsyncOperationState.Idle;
+    this.nextCursor = page.nextCursor;
+    this.hasMoreToLoad = page.nextCursor !== undefined;
   }
 
-  joinChild(roomId: string): boolean {
+  async joinChild(roomId: string): Promise<boolean> {
     const currentAction = this.actionFor(roomId);
     const attempts = currentAction === undefined ? 1 : currentAction.attempts + 1;
     this.setJoinAction(roomId, AsyncOperationState.Loading, attempts);
-    const succeeded = this.gateway.joinRoom(roomId);
+    const succeeded = await this.gateway.joinRoom(roomId);
     if (!succeeded) {
       this.setJoinAction(roomId, AsyncOperationState.Failure, attempts);
       return false;
@@ -151,9 +216,7 @@ export class SpacesPresenter {
         invite.membership = 'joined';
         this.spaces = this.spaces.concat(invite);
       }
-      if (!this.seenInviteIds.includes(spaceId)) {
-        this.seenInviteIds.push(spaceId);
-      }
+      this.seenInviteIds = this.seenInviteIds.filter((id: string) => id !== spaceId);
       this.invites = this.invites.filter((item: SpaceRoom) => item.roomId !== spaceId);
     }
     return succeeded;

@@ -1,97 +1,81 @@
-import { DemoRoomAliasResolver, JoinRoomByAddressPresenter, JoinRoomNavigator, RoomAddressState } from '../features/JoinRoomByAddressFeature';
+import { JoinRoomByAddressPresenter, RoomAddressState } from '../features/JoinRoomByAddressFeature';
+import { SessionRoomAliasResolver, RoutedJoinRoomNavigator } from '../features/JoinRoomRuntime';
+import { roomGateway, chatNavigator } from '../features/ChatRuntime';
+import { StartChatView } from '../components/StartChatView';
 
 @Entry
 @Component
 struct Index {
-  private navigator: JoinRoomNavigator = new JoinRoomNavigator();
-  private presenter: JoinRoomByAddressPresenter = new JoinRoomByAddressPresenter(new DemoRoomAliasResolver(), this.navigator);
+  private navigator: RoutedJoinRoomNavigator = new RoutedJoinRoomNavigator(chatNavigator);
+  private presenter: JoinRoomByAddressPresenter =
+    new JoinRoomByAddressPresenter(new SessionRoomAliasResolver(roomGateway), this.navigator);
   @State private addressFlowVisible: boolean = false;
   @State private address: string = '';
   @State private addressState: RoomAddressState = RoomAddressState.Unknown;
-  @State private openedRoom: string = '';
+  @State private navigationError: string = '';
 
   build() {
-    Column() {
-      Column({ space: 4 }) {
-        Text('Start a chat').fontSize(24).fontWeight(FontWeight.Bold)
-        Text('Find people, create rooms, or join by Matrix address').fontSize(13).fontColor('#64748B')
-      }
-      .alignItems(HorizontalAlign.Start)
-      .padding(20)
-      .width('100%')
-      .backgroundColor('#FFFFFF')
-      if (!this.addressFlowVisible) {
-        Column({ space: 12 }) {
-          TextInput({ placeholder: 'Search people' })
-          Button('Create room').width('100%')
-          Button('Invite friends').width('100%')
-          Button('Join a room by address')
-            .id('join_room_by_address')
-            .width('100%')
-            .onClick(() => {
+    Scroll() {
+      Column() {
+        Text('Start a chat').fontSize(24).fontWeight(FontWeight.Bold).padding(20).width('100%')
+        if (!this.addressFlowVisible) {
+          StartChatView({
+            showJoin: true,
+            onJoin: () => {
               this.navigator.showJoinRoomByAddress();
               this.refresh();
-            })
-          if (this.openedRoom.length > 0) {
-            Text(`Opening ${this.openedRoom}`).fontColor('#0F766E')
-          }
+            }
+          })
+        } else {
+          Column({ space: 14 }) {
+            Text('Join a room by address').fontSize(20).fontWeight(FontWeight.Bold)
+            TextInput({ text: this.address, placeholder: '#lobby:demo.local' })
+              .id('room_address_input')
+              .onChange((value: string) => {
+                this.presenter.updateAddress(value).then(() => this.afterNavigation());
+                this.refresh();
+                setTimeout(() => this.refresh(), 300);
+              })
+            Text(this.stateMessage()).fontColor(this.addressState === RoomAddressState.RoomFound ? '#17635C' : '#B42318')
+            if (this.navigationError.length > 0) {
+              Text(this.navigationError).id('join_navigation_error').fontColor('#B42318')
+            }
+            Button(this.addressState === RoomAddressState.Resolving ? 'Resolving...' : 'Continue')
+              .id('join_room_continue').width('100%')
+              .onClick(() => {
+                this.presenter.continue();
+                this.afterNavigation();
+              })
+            Button('Cancel').id('join_room_cancel').width('100%')
+              .onClick(() => {
+                this.presenter.dismiss();
+                this.refresh();
+              })
+          }.padding(20).width('100%')
         }
-        .padding(20)
-        .width('100%')
-      } else {
-        Column({ space: 14 }) {
-          Text('Join a room by address').fontSize(20).fontWeight(FontWeight.Bold)
-          TextInput({ text: this.address, placeholder: '#room:example.org' })
-            .id('room_address_input')
-            .onChange((value: string) => {
-              this.presenter.updateAddress(value).then(() => this.refresh());
-              this.address = value.trim();
-              this.addressState = RoomAddressState.Unknown;
-              setTimeout(() => this.refresh(), 300);
-            })
-          Text(this.stateMessage()).fontColor(this.addressState === RoomAddressState.RoomFound ? '#0F766E' : '#B42318')
-          Button(this.addressState === RoomAddressState.Resolving ? 'Resolving...' : 'Continue')
-            .id('join_room_continue')
-            .width('100%')
-            .onClick(() => {
-              this.presenter.continue();
-              this.refresh();
-            })
-          Button('Cancel')
-            .width('100%')
-            .onClick(() => {
-              this.presenter.dismiss();
-              this.refresh();
-            })
-        }
-        .padding(20)
-        .width('100%')
-      }
-    }
-    .height('100%')
-    .width('100%')
-    .backgroundColor('#F4F6F8')
+      }.width('100%')
+    }.height('100%').width('100%').backgroundColor('#F4F6F8')
+  }
+
+  private afterNavigation(): void {
+    this.refresh();
+    this.navigator.navigation.then(() => this.refresh());
   }
 
   private refresh(): void {
     this.addressFlowVisible = this.navigator.addressFlowVisible;
     this.address = this.presenter.address;
     this.addressState = this.presenter.visibleAddressState();
-    this.openedRoom = this.navigator.openedRoomId;
+    this.navigationError = this.navigator.navigationError;
   }
 
   private stateMessage(): string {
     switch (this.addressState) {
-      case RoomAddressState.Invalid:
-        return 'Enter a valid Matrix room address';
-      case RoomAddressState.Resolving:
-        return 'Looking up room...';
-      case RoomAddressState.RoomNotFound:
-        return 'Room not found. Check the address and retry.';
-      case RoomAddressState.RoomFound:
-        return 'Room found';
-      default:
-        return 'Use the full address, including the server name.';
+      case RoomAddressState.Invalid: return 'Enter a valid Matrix room address';
+      case RoomAddressState.Resolving: return 'Looking up room...';
+      case RoomAddressState.RoomNotFound: return 'Room not found. Check the address and retry.';
+      case RoomAddressState.RoomFound: return 'Room found';
+      default: return 'Use the full address, including the server name.';
     }
   }
 }

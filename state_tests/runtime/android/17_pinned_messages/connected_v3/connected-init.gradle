@@ -1,0 +1,96 @@
+def evaluatorSource = System.getenv('TASK17_CONNECTED_SOURCE')
+def evidenceDir = System.getenv('TASK17_CONNECTED_EVIDENCE')
+def caseKey = System.getenv('TASK17_CONNECTED_CASE')
+def contractFile = System.getenv('TASK17_CONNECTED_CONTRACT')
+def role = System.getenv('TASK17_CONNECTED_ROLE')
+def buildRoot = System.getenv('TASK17_CONNECTED_BUILD_ROOT')
+def compileOnly = System.getenv('TASK17_CONNECTED_COMPILE_ONLY')
+def hostJna = System.getenv('TASK17_CONNECTED_HOST_JNA')
+if (!evaluatorSource || !evidenceDir || !caseKey || !contractFile || !role || !buildRoot ||
+    !hostJna || !new File(hostJna).isFile() ||
+    !(compileOnly in ['true', 'false']) || !(role in ['base', 'final', 'agent'])) {
+    throw new GradleException('Task17 v3 requires explicit source/evidence/case/contract/role/build/compile-only')
+}
+gradle.beforeProject { project ->
+    def safeName = project.path.replace(':', '_').replaceAll('[^A-Za-z0-9_.-]', '_')
+    def buildRootHash = java.security.MessageDigest.getInstance('SHA-256')
+        .digest(project.rootDir.absolutePath.getBytes('UTF-8')).encodeHex().toString().take(16)
+    project.layout.buildDirectory.set(new File(buildRoot, buildRootHash + safeName))
+    project.tasks.configureEach { task ->
+        if (task.name.startsWith('compile') && (task.name.contains('Kotlin') || task.name.contains('JavaWithJavac'))) {
+            task.doFirst {
+                def inputs = new TreeSet<File>({ a, b -> a.absolutePath <=> b.absolutePath } as Comparator)
+                task.inputs.files.files.each { file ->
+                    if (file.isDirectory()) file.eachFileRecurse(groovy.io.FileType.FILES) { inputs.add(it) }
+                    else if (file.isFile()) inputs.add(file)
+                }
+                def rows = inputs.collect { file ->
+                    def digest = java.security.MessageDigest.getInstance('SHA-256')
+                    file.withInputStream { stream ->
+                        byte[] buffer = new byte[1024 * 1024]
+                        int length
+                        while ((length = stream.read(buffer)) != -1) digest.update(buffer, 0, length)
+                    }
+                    [path: file.absolutePath, bytes: file.length(), sha256: digest.digest().encodeHex().toString(),
+                     permissions: java.nio.file.attribute.PosixFilePermissions.toString(java.nio.file.Files.getPosixFilePermissions(file.toPath())),
+                     symlink: java.nio.file.Files.isSymbolicLink(file.toPath())]
+                }
+                def dir = new File(evidenceDir, 'compiler-inputs')
+                dir.mkdirs()
+                def rootHash = java.security.MessageDigest.getInstance('SHA-256')
+                    .digest(project.rootDir.absolutePath.getBytes('UTF-8')).encodeHex().toString().take(16)
+                def target = new File(dir, rootHash + task.path.replace(':', '_') + '.json')
+                if (target.exists()) throw new GradleException('Refuse overwritten Task17 compiler input evidence')
+                target.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+                    task: task.path, projectRoot: project.rootDir.absolutePath,
+                    taskClass: task.class.name, phase: 'immediately_before_compiler',
+                    actualDeclaredTaskInputs: rows, classpathClosureAfterCompileProven: false])) + '\n'
+            }
+        }
+    }
+    if (project.path != ':app') return
+    project.pluginManager.withPlugin('com.android.application') {
+        // Use the application's ORIGINAL Anvil/Dagger graph and all original dependencies.
+        // No implementation/source exclusion, substituted node factory or native-task skipping.
+        def catalog = project.extensions.getByType(org.gradle.api.artifacts.VersionCatalogsExtension).named('libs')
+        project.dependencies.add('testImplementation', catalog.findLibrary('test_mockk').get())
+        project.dependencies.add('testImplementation', catalog.findLibrary('matrix_sdk').get())
+        project.dependencies.add('testImplementation', project.project(':libraries:session-storage:impl-memory'))
+        project.dependencies.add('testImplementation', 'org.jetbrains.kotlin:kotlin-reflect:' + catalog.findVersion('kotlin').get().requiredVersion)
+        project.dependencies.add('testImplementation', project.dependencies.platform(catalog.findLibrary('androidx_compose_bom').get()))
+        project.dependencies.add('testImplementation', catalog.findLibrary('androidx_compose_ui_test_junit').get())
+        project.dependencies.add('testImplementation', catalog.findLibrary('androidx_compose_ui_tooling').get())
+        // Android's JNA AAR has device ELF binaries only. The same-version standard
+        // JAR contributes the host resource required by Robolectric; production classes are unchanged.
+        project.dependencies.add('testRuntimeOnly', project.files(hostJna))
+        def android = project.extensions.getByName('android')
+        android.testOptions.unitTests.includeAndroidResources = true
+        android.sourceSets.getByName('test').java.setSrcDirs([evaluatorSource])
+    }
+    project.afterEvaluate {
+        project.tasks.configureEach { task ->
+            if (task.name in ['compileGplayDebugUnitTestKotlin', 'compileGplayDebugUnitTestJavaWithJavac']) {
+                task.setSource(project.fileTree(evaluatorSource) { include '**/*.kt' })
+                task.doFirst { task.setSource(project.fileTree(evaluatorSource) { include '**/*.kt' }) }
+            }
+            if (task.name == 'testGplayDebugUnitTest') {
+                task.forkEvery = 1
+                task.maxParallelForks = 1
+                task.systemProperty('task17.evidence.dir', evidenceDir)
+                task.systemProperty('task17.case', caseKey)
+                task.systemProperty('task17.contract', contractFile)
+                task.systemProperty('task17.role', role)
+                task.outputs.upToDateWhen { false }
+            }
+        }
+    }
+}
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { task -> task.name.toLowerCase().contains('cargo') ||
+        task.name.toLowerCase().contains('buildrust') || task.name.toLowerCase().contains('compilerust') }) {
+        throw new GradleException('Task17 v3 refuses a new Rust build; review matching existing native artifacts first')
+    }
+    if (compileOnly == 'true' && graph.allTasks.any { task -> task instanceof Test }) {
+        throw new GradleException('Compile-only Task17 request must not execute a JVM test')
+    }
+}

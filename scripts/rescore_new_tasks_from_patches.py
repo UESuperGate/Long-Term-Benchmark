@@ -27,7 +27,7 @@ def load(path: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--task", action="append")
+    parser.add_argument("--task", action="append", choices=RUNNER.task_ids())
     parser.add_argument("--platform", action="append", choices=("android", "arkts"))
     parser.add_argument("--candidate-root", type=Path, default=Path("/tmp/ltb-new-tasks-rescore"))
     parser.add_argument("--rebuild", action="store_true")
@@ -37,7 +37,7 @@ def main() -> int:
     if not manifest_path.exists():
         manifest_path = run_root / "eval_manifest.partial.json"
     manifest = load(manifest_path)
-    selected_tasks = set(args.task or [])
+    selected_tasks = set(args.task or RUNNER.task_ids())
     selected_platforms = set(args.platform or [])
     backup = run_root / "reports_raw"
     backup.mkdir(parents=True, exist_ok=True)

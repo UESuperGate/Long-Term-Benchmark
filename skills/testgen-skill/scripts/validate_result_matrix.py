@@ -18,6 +18,8 @@ def load(path: Path) -> dict[str, Any]:
 
 
 def cases(report: dict[str, Any], label: str, errors: list[str]) -> dict[str, dict[str, str]]:
+    if report.get("observationMode") != "runtime_state_transition":
+        errors.append(f"{label}: semantic calibration requires runtime_state_transition, not source conformance")
     rows = report.get("semantic", {}).get("cases", [])
     result: dict[str, dict[str, str]] = {}
     for row in rows:
@@ -28,6 +30,11 @@ def cases(report: dict[str, Any], label: str, errors: list[str]) -> dict[str, di
             continue
         if case_id in result:
             errors.append(f"{label}: duplicate caseId {case_id}")
+        if status in {"pass", "fail"}:
+            if len(row.get("checkpoints", [])) < 2:
+                errors.append(f"{label}/{case_id}: runtime before/after evidence is missing")
+            if not (row.get("productionSources") or report.get("provenance", {}).get("productionSources")):
+                errors.append(f"{label}/{case_id}: production source provenance is missing")
         result[case_id] = {"status": status, "traceDigest": str(row.get("traceDigest", ""))}
     if not result:
         errors.append(f"{label}: no semantic cases")
@@ -89,7 +96,7 @@ def main() -> int:
         "compile": reports["agent"].get("compile", {}),
         "semanticTestcase": agent,
     }
-    payload = {"valid": not errors, "counts": summary, "benchmarkMetrics": metrics, "errors": errors}
+    payload = {"valid": not errors, "counts": summary, "benchmarkMetrics": metrics if not errors else None, "errors": errors}
     rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

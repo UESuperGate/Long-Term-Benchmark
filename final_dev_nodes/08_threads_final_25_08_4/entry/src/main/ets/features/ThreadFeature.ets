@@ -1,7 +1,9 @@
 export enum ThreadSurface {
   Room = 'room',
   Thread = 'thread',
-  AttachmentPreview = 'attachment_preview'
+  AttachmentPreview = 'attachment_preview',
+  LocationPicker = 'location_picker',
+  PollComposer = 'poll_composer'
 }
 
 export enum ThreadSendState {
@@ -18,6 +20,14 @@ export enum ThreadFocusState {
 }
 
 export class ThreadGateway {
+  getRoomTimeline(): string[] {
+    return ['$root', '$reply', '$other'];
+  }
+
+  getThreadTimeline(threadRootId: string): string[] {
+    return this.getRoomTimeline().filter((eventId: string) => eventId === threadRootId || eventId === '$reply');
+  }
+
   failNextSend: boolean = false;
   lastEffect: string = '';
   lastBody: string = '';
@@ -53,11 +63,11 @@ export class ThreadGateway {
 
 export class ThreadPresenter {
   readonly gateway: ThreadGateway;
-  mainRoomEvents: string[] = ['$root', '$reply', '$other'];
+  mainRoomEvents: string[];
   threadEvents: string[] = [];
   surface: ThreadSurface = ThreadSurface.Room;
   threadRootId: string = '';
-  focusedEventId: string = '';
+  focusedEventId: string | null = '';
   focusState: ThreadFocusState = ThreadFocusState.Idle;
   composerText: string = '';
   replyTargetId: string = '';
@@ -65,11 +75,12 @@ export class ThreadPresenter {
 
   constructor(gateway: ThreadGateway) {
     this.gateway = gateway;
+    this.mainRoomEvents = gateway.getRoomTimeline().slice();
   }
 
   openThread(threadRootId: string): void {
     this.threadRootId = threadRootId;
-    this.threadEvents = this.mainRoomEvents.filter((eventId: string) => eventId === threadRootId || eventId === '$reply');
+    this.threadEvents = this.gateway.getThreadTimeline(threadRootId).slice();
     this.surface = ThreadSurface.Thread;
     this.focusedEventId = '';
     this.focusState = ThreadFocusState.Idle;
@@ -77,6 +88,7 @@ export class ThreadPresenter {
 
   focusEvent(eventId: string): boolean {
     if (!this.threadEvents.includes(eventId)) {
+      this.focusedEventId = null;
       this.focusState = ThreadFocusState.Failure;
       return false;
     }
@@ -90,7 +102,8 @@ export class ThreadPresenter {
   }
 
   setReplyTarget(eventId: string): void {
-    if (this.threadEvents.includes(eventId)) {
+    // Reply identity belongs to the timeline, not its currently visible window.
+    if (this.threadRootId.length > 0 && eventId.length > 0) {
       this.replyTargetId = eventId;
     }
   }
@@ -130,8 +143,16 @@ export class ThreadPresenter {
   }
 
   openAttachmentPreview(): void {
-    if (this.surface === ThreadSurface.Thread) {
-      this.surface = ThreadSurface.AttachmentPreview;
+    this.openNestedSurface(ThreadSurface.AttachmentPreview);
+  }
+
+  openNestedSurface(surface: ThreadSurface): void {
+    if (this.surface !== ThreadSurface.Thread || this.threadRootId.length === 0) {
+      return;
+    }
+    if (surface === ThreadSurface.AttachmentPreview || surface === ThreadSurface.LocationPicker ||
+      surface === ThreadSurface.PollComposer) {
+      this.surface = surface;
     }
   }
 

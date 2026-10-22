@@ -3,19 +3,38 @@ import {
   PinnedMessage,
   PinnedMessagesListPresenter,
   PinnedMessagesListState,
-  PinnedMessagesRepository
+  PinnedMessagesSession
 } from '../features/PinnedMessagesFeature';
 
 @Entry
 @Component
 struct Index {
-  private presenter: PinnedMessagesListPresenter = new PinnedMessagesListPresenter(new PinnedMessagesRepository());
+  private presenter: PinnedMessagesListPresenter = PinnedMessagesSession.createPresenter();
   @State private screen: string = 'room_timeline';
   @State private listState: PinnedMessagesListState = PinnedMessagesListState.Idle;
   @State private pinnedMessages: PinnedMessage[] = [];
-  @State private canPinUnpin: boolean = true;
+  @State private canPinUnpin: boolean = false;
   @State private errorMessage: string = '';
   @State private focusedEventId: string = '';
+  @State private roomItems: PinnedMessage[] = [];
+  @State private actionEventId: string = '';
+  private unsubscribe: (() => void) | undefined = undefined;
+  private roomScroller: Scroller = new Scroller();
+
+  aboutToAppear(): void {
+    this.unsubscribe = this.presenter.subscribe(() => this.syncPresenterState());
+    this.presenter.startRoom(this.abilityContext());
+    this.presenter.parent.load().then(() => {
+      this.roomItems = this.presenter.parent.items.slice();
+    }).catch(() => {
+      this.errorMessage = 'Room timeline SDK service unavailable';
+    });
+  }
+
+  aboutToDisappear(): void {
+    this.unsubscribe?.();
+    this.presenter.dispose();
+  }
 
   build() {
     Column() {
@@ -69,26 +88,27 @@ struct Index {
       .backgroundColor('#E9F8F4')
       .id('pinned_messages_banner')
 
-      Column({ space: 14 }) {
-        Text('Alice')
-          .fontSize(13)
-          .fontColor('#64748B')
-          .width('100%')
-        Text('Please read the room rules')
-          .fontSize(16)
-          .width('100%')
-        Text('Bob')
-          .fontSize(13)
-          .fontColor('#64748B')
-          .width('100%')
-        Text('Launch checklist and owner notes')
-          .fontSize(16)
-          .width('100%')
+      List({ scroller: this.roomScroller, space: 14 }) {
+        ForEach(this.roomItems, (message: PinnedMessage) => {
+          ListItem() {
+            Column({ space: 8 }) {
+              Text(message.sender).fontSize(13)
+              Text(message.body).fontSize(16)
+            }
+            .width('100%')
+            .padding(12)
+            .backgroundColor(this.focusedEventId === message.eventId ? '#E9F8F4' : '#FFFFFF')
+            .id(`room_event_${message.eventId}`)
+          }
+        }, (message: PinnedMessage) => message.eventId)
       }
       .padding(20)
       .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
       .width('100%')
+      .id('room_timeline_events')
+      if (this.errorMessage.length > 0) {
+        Text(this.errorMessage).id('room_timeline_error')
+      }
     }
   }
 
@@ -161,7 +181,13 @@ struct Index {
                   .fontSize(16)
                   .lineHeight(22)
                   .width('100%')
-                Row({ space: 10 }) {
+                Button('Actions')
+                  .id(`message_actions_${message.eventId}`)
+                  .onClick(() => {
+                    this.actionEventId = message.eventId;
+                  })
+                if (this.actionEventId === message.eventId) {
+                  Row({ space: 10 }) {
                   Button('View in timeline')
                     .onClick(() => this.viewInTimeline(message.eventId))
                     .id(`view_in_timeline_${message.eventId}`)
@@ -171,8 +197,9 @@ struct Index {
                       .onClick(() => this.unpin(message.eventId))
                       .id(`unpin_${message.eventId}`)
                   }
+                  }
+                  .width('100%')
                 }
-                .width('100%')
               }
               .alignItems(HorizontalAlign.Start)
               .padding(16)
@@ -193,6 +220,12 @@ struct Index {
           Text(this.errorMessage)
             .fontColor('#B42318')
             .layoutWeight(1)
+          Button('Retry')
+            .enabled(this.presenter.retryEnabled && this.actionEventId.length > 0)
+            .onClick(() => {
+              this.unpin(this.actionEventId);
+            })
+            .id(`pinned_item_unpin_retry_${this.actionEventId}`)
           Button('Dismiss')
             .onClick(() => {
               this.presenter.dismissError();
@@ -214,11 +247,22 @@ struct Index {
 
   private openPinnedMessages(): void {
     this.screen = 'pinned_messages';
-    this.presenter.setPermission(this.canPinUnpin);
-    this.presenter.openPinnedMessages(this.abilityContext()).then(() => {
+    this.presenter.openPinnedMessages(this.abilityContext(), () => this.awaitLoadingFrame()).then(() => {
       this.syncPresenterState();
     });
     this.syncPresenterState();
+  }
+
+  private awaitLoadingFrame(): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      this.getUIContext().postFrameCallback({
+        onFrame: () => {
+        },
+        onIdle: () => {
+          resolve();
+        }
+      });
+    });
   }
 
   private retryLoad(): void {
@@ -227,9 +271,17 @@ struct Index {
   }
 
   private viewInTimeline(eventId: string): void {
-    this.presenter.viewInTimeline(eventId);
-    this.focusedEventId = this.presenter.focusedEventId;
-    this.screen = 'room_timeline';
+    this.presenter.viewInTimeline(eventId).then(() => {
+      this.roomItems = this.presenter.parent.items.slice();
+      this.focusedEventId = this.presenter.parent.focusedEventId;
+      this.screen = 'room_timeline';
+      this.getUIContext().postFrameCallback({
+        onFrame: () => {},
+        onIdle: () => this.roomScroller.scrollToIndex(this.presenter.parent.focusedIndex)
+      });
+    }).catch(() => {
+      this.errorMessage = 'Unable to focus room timeline event';
+    });
   }
 
   private unpin(eventId: string): void {
@@ -240,5 +292,6 @@ struct Index {
     this.listState = this.presenter.listState;
     this.pinnedMessages = this.presenter.pinnedMessages.slice();
     this.errorMessage = this.presenter.errorMessage;
+    this.canPinUnpin = this.presenter.canPinUnpin;
   }
 }

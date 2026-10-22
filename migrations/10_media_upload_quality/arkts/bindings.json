@@ -54,14 +54,11 @@
     },
     {
       "caseId": "mq_state_004_estimate_video_presets",
-      "traceDigest": "0088823cf649a0424c10269acf4011e349edd9908e4c1cb85a054ab162abb841",
+      "traceDigest": "709ebaaf5d1043e96bcb776551a99285117b43182b8544c4b86e1a6b0c8de433",
       "fixture": {
-        "durationSeconds": 60,
-        "presetBitrates": {
-          "high": 8000000,
-          "standard": 4000000,
-          "low": 1000000
-        },
+        "width": 1920,
+        "height": 1080,
+        "durationMs": 60000,
         "maxUploadSize": 35000000
       },
       "eventEntrypoint": {
@@ -149,7 +146,7 @@
     },
     {
       "caseId": "mq_state_008_block_when_all_oversized",
-      "traceDigest": "7183f1873871b248e7778ca490faa58a8ee156768721fe32794399cb6bdc65a2",
+      "traceDigest": "415aa5d083075c72f83a0e7cc572ab2d8b6b4483c592ef742ac4666809cfeda4",
       "fixture": {
         "estimations": [
           {
@@ -179,22 +176,54 @@
     },
     {
       "caseId": "mq_state_009_failure_cancel_retry",
-      "traceDigest": "4498319696f2826896d4a448ec10e359b550a517a625aed57bebc324e2017a66",
+      "traceDigest": "15973a1cde5037a523bd3d7dd8542ad036bbe9345390ff4f171bde13239a71b1",
       "fixture": {
         "selectedPreset": "standard",
         "caption": "demo",
-        "sendState": "failure",
-        "preparedMedia": true
+        "preparedMedia": true,
+        "previewVisible": true
       },
       "eventEntrypoint": {
-        "name": "clear_failure_then_retry",
-        "secondResult": "success"
+        "name": "send_attachment_then_finish",
+        "result": "failure"
       },
       "observations": [
         ".*AttachmentFeature\\.ets$",
         ".*MediaQualityFeature\\.ets$",
         ".*pages/Index\\.ets$"
-      ]
+      ],
+      "setup": {
+        "schemaVersion": 1,
+        "initialState": {
+          "attachmentType": "video",
+          "previewVisible": true
+        },
+        "externalResponses": {
+          "upload": [
+            "failure"
+          ]
+        },
+        "actions": [
+          {
+            "name": "open_attachment_preview"
+          },
+          {
+            "name": "enter_caption",
+            "caption": "demo"
+          },
+          {
+            "name": "finish_preprocessing",
+            "preset": "standard"
+          }
+        ],
+        "requiredBeforeEvent": {
+          "selectedPreset": "standard",
+          "caption": "demo",
+          "preparedMedia": true,
+          "previewVisible": true
+        },
+        "executionIsolation": "fresh_production_instances_per_case"
+      }
     }
   ]
 }

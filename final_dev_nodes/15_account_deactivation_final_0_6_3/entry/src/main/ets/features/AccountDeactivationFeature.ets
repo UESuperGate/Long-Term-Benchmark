@@ -1,36 +1,12 @@
+import { AccountCapabilityService, AccountDeactivationService } from '../services/AccountClient';
+export { AccountClient } from '../services/AccountClient';
+
 export enum DeactivationAction {
   Uninitialized = 'uninitialized',
   Confirming = 'confirming',
   Loading = 'loading',
   Success = 'success',
   Failure = 'failure'
-}
-
-export interface AccountCapabilityService {
-  canDeactivateAccount(): Promise<boolean>;
-}
-
-export interface AccountDeactivationService {
-  deactivateAccount(password: string, eraseData: boolean): Promise<void>;
-}
-
-export class DemoAccountService implements AccountCapabilityService, AccountDeactivationService {
-  requestCount: number = 0;
-  lastPassword: string = '';
-  lastEraseData: boolean = false;
-
-  async canDeactivateAccount(): Promise<boolean> {
-    return true;
-  }
-
-  async deactivateAccount(password: string, eraseData: boolean): Promise<void> {
-    this.requestCount += 1;
-    this.lastPassword = password;
-    this.lastEraseData = eraseData;
-    if (password !== 'secret') {
-      throw new Error('The password was rejected');
-    }
-  }
 }
 
 export class AccountDeactivationPresenter {

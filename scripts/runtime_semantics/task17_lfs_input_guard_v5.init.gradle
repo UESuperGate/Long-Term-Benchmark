@@ -1,0 +1,38 @@
+def receiptPath = System.getenv('TASK17_LFS_NONCONSUMER_RECEIPT')
+if (!receiptPath) throw new GradleException('Task17 v5 missing explicit LFS input receipt')
+def receiptFile = new File(receiptPath)
+if (!receiptFile.isFile()) throw new GradleException('Task17 v5 LFS input receipt is unavailable')
+def receipt = new groovy.json.JsonSlurper().parse(receiptFile)
+if (receipt.protocol != 'task17.exact-media.nonconsumer-receipt.v5') {
+    throw new GradleException('Task17 v5 LFS input receipt identity changed')
+}
+def excluded = receipt.exclusions.collect { new File(it.pointerRecord.path).canonicalFile }
+def receiptRecord = [path: receiptFile.absolutePath, bytes: receiptFile.length(), sha256:
+    java.security.MessageDigest.getInstance('SHA-256').digest(receiptFile.bytes).encodeHex().toString()]
+// beforeTask observes tasks even when cache/up-to-date would skip doFirst.
+// Configuration cache is explicitly disabled by the unchanged invocation mode.
+gradle.taskGraph.beforeTask { task ->
+    def hits = []
+    def declaredInputs = task.inputs.files.files.collect { it.canonicalFile }.sort { it.absolutePath }
+    declaredInputs.each { input ->
+        excluded.each { media ->
+            if (input == media || (input.isDirectory() && media.toPath().startsWith(input.toPath()))) {
+                hits.add([declared: input.absolutePath, excluded: media.absolutePath])
+            }
+        }
+    }
+    def rootHash = java.security.MessageDigest.getInstance('SHA-256')
+        .digest(task.project.rootDir.absolutePath.getBytes('UTF-8')).encodeHex().toString().take(16)
+    def dir = new File(receiptFile.parentFile, 'lfs-task-input-guards')
+    dir.mkdirs()
+    def target = new File(dir, rootHash + task.path.replace(':', '_') + '.json')
+    if (target.exists()) throw new GradleException('Task17 v5 refuses overwritten LFS task-input proof')
+    target.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+        task: task.path, projectRoot: task.project.rootDir.absolutePath, phase: 'before_task_execution_or_cache',
+        policySha256: receipt.policySha256, exclusionsReceipt: receiptRecord,
+        declaredInputs: declaredInputs.collect { it.absolutePath }, forbiddenConsumers: hits])) + '\n'
+    if (!hits.isEmpty()) {
+        throw new GradleException('Task17 exact-media LFS consumer unavailable: ' +
+            task.path + ' declares excluded raw pointer media: ' + groovy.json.JsonOutput.toJson(hits))
+    }
+}

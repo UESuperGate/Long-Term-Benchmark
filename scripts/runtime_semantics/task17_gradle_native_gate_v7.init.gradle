@@ -1,0 +1,100 @@
+import java.lang.management.ManagementFactory
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardOpenOption
+import java.security.MessageDigest
+import java.util.Arrays
+import org.gradle.internal.nativeintegration.NativeCapabilities
+import org.gradle.internal.nativeintegration.ProcessEnvironment
+import org.gradle.internal.nativeintegration.services.NativeServices
+
+def nonce = System.getenv('TASK17_NATIVE_GATE_NONCE')
+def receiptName = System.getenv('TASK17_NATIVE_GATE_RECEIPT')
+def ackName = System.getenv('TASK17_NATIVE_GATE_ACK')
+if (!nonce || !receiptName || !ackName) throw new GradleException('Task17 native gate configuration missing')
+def environment = NativeServices.getInstance().get(ProcessEnvironment)
+def environmentClass = environment.class.name
+def supported = environmentClass == 'org.gradle.internal.nativeintegration.jna.UnsupportedEnvironment'
+def detachResult = supported ? environment.maybeDetachProcess() : null
+def mx = ManagementFactory.runtimeMXBean
+// Always regenerate the COMPLETE actual startup row, including on reentry.
+def row = [protocol: 'task17.gradle-native-gate.v7', nonce: nonce,
+    gradleVersion: gradle.gradleVersion, pid: ProcessHandle.current().pid(),
+    gradleUserHome: gradle.gradleUserHomeDir.canonicalPath, javaHome: System.getProperty('java.home'),
+    parentPid: ProcessHandle.current().parent().map { it.pid() }.orElse(-1L),
+    nativeProperty: System.getProperty('org.gradle.native'),
+    processEnvironmentClass: environmentClass, maybeDetachProcess: detachResult,
+    nativeIntegrations: NativeServices.getInstance().get(NativeCapabilities).useNativeIntegrations(),
+    inheritedJavaToolOptions: System.getenv('JAVA_TOOL_OPTIONS'), vmArgs: mx.inputArguments,
+    maxMemory: Runtime.runtime.maxMemory()]
+def encode = { value -> (groovy.json.JsonOutput.toJson(value) + '\n').getBytes(StandardCharsets.UTF_8) }
+def digest = { byte[] bytes -> MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString() }
+def readBound = { File file ->
+    if (!file.isFile() || Files.isSymbolicLink(file.toPath()) || file.length() > 65536) {
+        throw new GradleException('Task17 native gate missing/unsafe bound artifact')
+    }
+    Files.readAllBytes(file.toPath())
+}
+def publishNew = { File target, byte[] bytes ->
+    def pending = new File(target.absolutePath + '.pending')
+    Files.write(pending.toPath(), bytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+    // Atomic no-replace publication: unlike ATOMIC_MOVE, createLink cannot
+    // overwrite an existing destination. Preserve pending on failure for audit.
+    Files.createLink(target.toPath(), pending.toPath())
+    Files.delete(pending.toPath())
+}
+def receipt = new File(receiptName)
+def ack = new File(ackName)
+def accepted = new File(receiptName + '.accepted-ack.json')
+byte[] actualStartup = encode(row)
+def receiptSha = digest(actualStartup)
+// Interned nonce has the same monitor across included-build script classloaders.
+// Separate processes do not share it, and cannot replace a published receipt.
+synchronized (('task17-native-gate:' + nonce).intern()) {
+    def mode
+    byte[] acceptedAckBytes
+    if (receipt.exists()) {
+        if (new File(receiptName + '.pending').exists() ||
+            !Arrays.equals(readBound(receipt), actualStartup)) {
+            throw new GradleException('Task17 native gate reentry changed actual startup row bytes/identity')
+        }
+        // Existing receipt alone is NEVER sufficient; the first complete host
+        // acceptance must already exist, and every original ack byte must match.
+        acceptedAckBytes = readBound(ack)
+        def expected = [protocol: 'task17.native-gate-acceptance.v7', nonce: nonce,
+            pid: row.pid, parentPid: row.parentPid, startupReceiptSha256: receiptSha,
+            hostAckSha256: digest(acceptedAckBytes)]
+        if (!Arrays.equals(readBound(accepted), encode(expected))) {
+            throw new GradleException('Task17 native gate reentry changed first host ack SHA/owner')
+        }
+        def host = new groovy.json.JsonSlurper().parseText(new String(acceptedAckBytes, StandardCharsets.UTF_8))
+        if (host != [nonce: nonce, receiptSha256: receiptSha]) {
+            throw new GradleException('Task17 native gate reentry changed host ack identity')
+        }
+        mode = 'identical-reentry'
+    } else {
+        if (ack.exists() || accepted.exists()) throw new GradleException('Task17 native gate stale first acceptance')
+        publishNew(receipt, actualStartup)
+        def stop = System.nanoTime() + 60_000_000_000L
+        while (!ack.isFile() && System.nanoTime() < stop) Thread.sleep(10)
+        if (!ack.isFile()) throw new GradleException('Task17 native gate host acknowledgement missing')
+        acceptedAckBytes = readBound(ack)
+        def host = new groovy.json.JsonSlurper().parseText(new String(acceptedAckBytes, StandardCharsets.UTF_8))
+        if (host != [nonce: nonce, receiptSha256: receiptSha]) {
+            throw new GradleException('Task17 native gate host acknowledgement identity changed')
+        }
+        publishNew(accepted, encode([protocol: 'task17.native-gate-acceptance.v7', nonce: nonce,
+            pid: row.pid, parentPid: row.parentPid, startupReceiptSha256: receiptSha,
+            hostAckSha256: digest(acceptedAckBytes)]))
+        mode = 'initial'
+    }
+    if (!supported || detachResult != false || row.nativeProperty != 'false' || row.nativeIntegrations != false) {
+        throw new GradleException('Task17 native gate requires observed disabled native process environment')
+    }
+    def events = new File(receipt.parentFile, 'evaluations')
+    events.mkdirs()
+    publishNew(new File(events, UUID.randomUUID().toString() + '.json'), encode([
+        protocol: 'task17.native-gate-evaluation.v7', nonce: nonce, pid: row.pid, parentPid: row.parentPid,
+        startupReceiptSha256: receiptSha, hostAckSha256: digest(acceptedAckBytes), mode: mode,
+        gradleInstanceIdentity: System.identityHashCode(gradle), currentDir: gradle.startParameter.currentDir.canonicalPath]))
+}
