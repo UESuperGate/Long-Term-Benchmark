@@ -1,0 +1,500 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_evergreen_account",
+  "owner": "evaluator",
+  "description": "Platform-neutral evergreen account-encouragement transitions. Every case requires runtime execution of the production eligibility, launch-routing, preference, history, and activity-result paths; absence of a prompt alone is not sufficient evidence for suppression cases.",
+  "cases": [
+    {
+      "caseId": "ea_first_eligibility_records_impression",
+      "key": "first_eligibility_records_impression",
+      "traceSchemaVersion": 2,
+      "functionalArea": "eligibility",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "clearPermanentAccount"},
+        {"name": "completeHigherPriorityLaunchPrompts"},
+        {"name": "clearReadingHistory"},
+        {"name": "setEncouragementPreferences", "impressions": 0, "lastImpressionDate": ""},
+        {"name": "recordArticleRead", "date": "2026-08-25", "article": "en:Alpha"},
+        {"name": "recordArticleRead", "date": "2026-08-26", "article": "en:Beta"}
+      ],
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "distinctReadingDays": ["2026-08-25", "2026-08-26"],
+        "impressions": 0,
+        "lastImpressionDate": "",
+        "launch": "ordinary"
+      },
+      "event": {"name": "resumeApplication"},
+      "expected": {
+        "decision": {"evaluated": true, "shouldShow": true},
+        "state": {"surface": "account_encouragement", "visible": true, "pageIndex": 0},
+        "persistence": {"impressions": 1, "lastImpressionDate": "2026-09-02"},
+        "effects": [
+          {"name": "loadPersonalizedCountsFromApplicationData"},
+          {"name": "startAuthenticationEncouragementFunnel", "interaction": "impression"}
+        ],
+        "absentEffects": ["second_impression_increment", "permanent_dismissal", "login_launch"]
+      },
+      "invariants": [
+        "the two reading days are established through the production history store",
+        "the earlier reading day is at least seven days old and the two days are less than fourteen days apart",
+        "opening the visible production screen records exactly one impression"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no account-encouragement eligibility decision, surface, or impression preferences and cannot perform the visible first-impression transition."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#shouldShow",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#hasReadOnTwoDaysWithinAFortnight",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#init",
+          "app/src/main/java/org/wikipedia/activity/BaseActivity.kt#showOnboardingIfNeeded"
+        ],
+        "androidTests": [
+          "app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#nearbyReadingDaysStillQualifyWhenAppIsOpenedAfterFourteenDays",
+          "app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#qualifyingReadingHistoryShowsCreateAccountEncouragementAgainAfterMaybeLater"
+        ],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "BaseActivity.showOnboardingIfNeeded -> CreateAccountEncourageViewModel.shouldShow -> CreateAccountEncourageActivity",
+          "checkpoints": ["history rows and preferences before resume", "production shouldShow result", "resumed activity and rendered title", "preferences after first composition"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_maybe_later_requires_two_return_days",
+      "key": "maybe_later_requires_two_return_days",
+      "traceSchemaVersion": 2,
+      "functionalArea": "impression_persistence",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "completeFirstImpressionThroughProductionUi", "date": "2026-08-30", "action": "maybe_later"},
+        {"name": "recordArticleRead", "date": "2026-08-31", "article": "en:Return_One"}
+      ],
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "impressions": 1,
+        "lastImpressionDate": "2026-08-30",
+        "distinctReadingDaysAfterLastImpression": ["2026-08-31"]
+      },
+      "event": {"name": "resumeApplication"},
+      "expected": {
+        "decision": {"evaluated": true, "shouldShow": false},
+        "state": {"surface": "main", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 1, "lastImpressionDate": "2026-08-30"},
+        "effects": [{"name": "countDistinctReturnReadingDays", "count": 1}],
+        "absentEffects": ["start_account_encouragement", "impression_increment", "last_impression_date_write"]
+      },
+      "invariants": [
+        "Maybe later leaves the first ordinary impression recorded rather than setting permanent dismissal",
+        "one distinct reading day after the impression is below the repeat threshold",
+        "the suppression decision is observed from production eligibility as well as from the absent UI"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base cannot establish the production first-impression/Maybe-later prefix or evaluate the repeat threshold."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageActivity.kt#onMaybeLaterClick",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#hasReturnedSinceLastImpression"
+        ],
+        "androidTests": ["app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#oneReturnReadingDayAfterMaybeLaterDoesNotQualify"],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "Maybe later UI -> persisted first impression -> subsequent BaseActivity launch eligibility",
+          "checkpoints": ["first visible impression", "main activity after Maybe later", "one persisted return-reading day", "production eligibility result on relaunch"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_close_permanently_dismisses",
+      "key": "close_permanently_dismisses",
+      "traceSchemaVersion": 2,
+      "functionalArea": "dismissal",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "openEligibleFirstImpressionThroughProductionUi"}
+      ],
+      "given": {
+        "surface": "account_encouragement",
+        "visible": true,
+        "impressions": 1,
+        "lastImpressionDate": "2026-09-02"
+      },
+      "event": {"name": "pressPermanentCloseAndRelaunch"},
+      "expected": {
+        "decisionAfterRelaunch": {"evaluated": true, "shouldShow": false},
+        "state": {"surface": "main", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 100, "lastImpressionDate": "2026-09-02"},
+        "effects": [{"name": "finishAccountEncouragement"}],
+        "absentEffects": ["login_launch", "second_impression", "preference_reset"]
+      },
+      "invariants": [
+        "the close control is distinct from Maybe later",
+        "the terminal dismissal value survives activity and application recreation",
+        "later qualifying history cannot reopen the encouragement"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has neither the encouragement close action nor its persisted terminal dismissal transition."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageActivity.kt#onCloseClick",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#shouldShow"
+        ],
+        "androidTests": ["app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#closePermanentlyDismissesCreateAccountEncouragement"],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "visible close control -> production preference write -> activity finish -> ordinary relaunch",
+          "checkpoints": ["visible first impression", "preference immediately after close", "recreated application route and resumed activity"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_create_account_success_finishes_and_suppresses",
+      "key": "create_account_success_finishes_and_suppresses",
+      "traceSchemaVersion": 2,
+      "functionalArea": "account_handoff",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "openEligibleFirstImpressionThroughProductionUi"}
+      ],
+      "given": {
+        "account": "logged_out",
+        "surface": "account_encouragement",
+        "visible": true,
+        "impressions": 1
+      },
+      "event": {
+        "name": "createAccountAndCompleteSuccessfully",
+        "authenticationLeafResult": "success_permanent_account"
+      },
+      "expected": {
+        "decisionAfterRelaunch": {"evaluated": true, "shouldShow": false},
+        "state": {"account": "registered", "surface": "main", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 1},
+        "effects": [
+          {"name": "launchRegistrationFirstAuthentication", "source": "encourage", "createAccountFirst": true},
+          {"name": "finishAccountEncouragementAfterLoginResult", "result": "success"}
+        ],
+        "absentEffects": ["permanent_dismissal_write", "second_impression", "encouragement_after_registered_relaunch"]
+      },
+      "invariants": [
+        "the evaluator controls only the external authentication completion and does not replace application intent mapping or result handling",
+        "successful registration creates a permanent rather than temporary account",
+        "account suppression, not an artificial terminal impression value, prevents the next prompt"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no encouragement action that maps to registration-first authentication with source encourage or consumes its success result."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageActivity.kt#requestLogin",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageActivity.kt#onCreateAccountClick",
+          "app/src/main/java/org/wikipedia/login/LoginActivity.kt#RESULT_LOGIN_SUCCESS",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#shouldShow"
+        ],
+        "androidTests": {"status": "upstream_gap", "assessment": "The upstream suite does not complete the registration activity result; evaluator-owned runtime coverage must execute the production launcher and callback."},
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "Create account UI -> LoginActivity.newIntent -> activity result callback -> registered relaunch eligibility",
+          "checkpoints": ["outgoing intent extras", "external leaf completion", "encouragement lifecycle after result", "account and eligibility on relaunch"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_registered_account_is_suppressed",
+      "key": "registered_account_is_suppressed",
+      "traceSchemaVersion": 2,
+      "functionalArea": "eligibility",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "addPermanentAccountThroughApplicationAccountStore"},
+        {"name": "setEncouragementPreferences", "impressions": 0, "lastImpressionDate": ""},
+        {"name": "recordArticleRead", "date": "2026-08-25", "article": "en:Alpha"},
+        {"name": "recordArticleRead", "date": "2026-08-26", "article": "en:Beta"}
+      ],
+      "given": {
+        "account": "registered",
+        "distinctReadingDays": ["2026-08-25", "2026-08-26"],
+        "impressions": 0,
+        "launch": "ordinary"
+      },
+      "event": {"name": "resumeApplication"},
+      "expected": {
+        "decision": {"evaluated": true, "shouldShow": false},
+        "state": {"surface": "main", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 0, "lastImpressionDate": ""},
+        "effects": [{"name": "readPermanentAccountState"}],
+        "absentEffects": ["reading_history_eligibility_query", "start_account_encouragement", "impression_write"]
+      },
+      "invariants": [
+        "qualifying history does not override permanent-account suppression",
+        "the registered-account branch returns before history qualification",
+        "the suppression result is taken from production eligibility, not inferred only from absent UI"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base lacks the feature-specific production eligibility branch that suppresses its encouragement for a permanent account."
+      },
+      "evidence": {
+        "androidProduction": ["app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#shouldShow"],
+        "androidTests": ["app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#loggedInUserDoesNotQualifyDespiteQualifyingReadingHistory"],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "production account store -> CreateAccountEncourageViewModel.shouldShow -> BaseActivity launch route",
+          "checkpoints": ["permanent account state", "qualifying history positive control", "eligibility return", "unchanged preferences and resumed surface"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_external_article_deep_link_is_suppressed",
+      "key": "external_article_deep_link_is_suppressed",
+      "traceSchemaVersion": 2,
+      "functionalArea": "entrypoint_gating",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "clearPermanentAccount"},
+        {"name": "completeHigherPriorityLaunchPrompts"},
+        {"name": "setEncouragementPreferences", "impressions": 0, "lastImpressionDate": ""},
+        {"name": "recordArticleRead", "date": "2026-08-25", "article": "en:Alpha"},
+        {"name": "recordArticleRead", "date": "2026-08-26", "article": "en:Beta"},
+        {"name": "verifyProductionEligibility", "expected": true}
+      ],
+      "given": {
+        "account": "logged_out",
+        "ordinaryLaunchEligibility": true,
+        "impressions": 0,
+        "launch": {"type": "external_article_deep_link", "uri": "https://en.wikipedia.org/wiki/Ada_Lovelace"}
+      },
+      "event": {"name": "openExternalArticleDeepLink"},
+      "expected": {
+        "routing": {"externalArticleLinkDetected": true, "encouragementConsidered": false},
+        "state": {"surface": "article", "article": "en:Ada_Lovelace", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 0, "lastImpressionDate": ""},
+        "effects": [{"name": "loadRequestedExternalArticle"}],
+        "absentEffects": ["start_account_encouragement", "impression_write", "replace_deep_link_destination"]
+      },
+      "invariants": [
+        "the same fixture is positively eligible on an ordinary launch through the production decision",
+        "deep-link routing takes precedence without consuming an impression",
+        "the requested article remains the visible destination"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base cannot establish the final feature's positive eligibility control or its explicit deep-link-versus-encouragement routing decision."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/activity/BaseActivity.kt#showOnboardingIfNeeded",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#shouldShow"
+        ],
+        "androidTests": {"status": "upstream_gap", "assessment": "The merge commit records external deep-link suppression, but the added upstream suite does not launch an ACTION_VIEW article; evaluator-owned runtime coverage is required."},
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "external ACTION_VIEW -> PageActivity -> BaseActivity launch routing",
+          "checkpoints": ["ordinary-launch eligibility positive control", "incoming action and URI", "resumed article destination", "unchanged impression preferences"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_stale_history_does_not_qualify",
+      "key": "stale_history_does_not_qualify",
+      "traceSchemaVersion": 2,
+      "functionalArea": "reading_history",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "clearPermanentAccount"},
+        {"name": "completeHigherPriorityLaunchPrompts"},
+        {"name": "setEncouragementPreferences", "impressions": 0, "lastImpressionDate": ""},
+        {"name": "clearReadingHistory"},
+        {"name": "recordArticleRead", "date": "2025-08-31", "article": "en:Old_Alpha"},
+        {"name": "recordArticleRead", "date": "2025-09-01", "article": "en:Old_Beta"}
+      ],
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "distinctReadingDays": ["2025-08-31", "2025-09-01"],
+        "impressions": 0
+      },
+      "event": {"name": "resumeApplication"},
+      "expected": {
+        "decision": {"evaluated": true, "shouldShow": false},
+        "state": {"surface": "main", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 0, "lastImpressionDate": ""},
+        "effects": [{"name": "queryDistinctReadingDaysWithinHistoryCutoff", "historyCutoffDays": 365, "qualifyingDays": 0}],
+        "absentEffects": ["start_account_encouragement", "impression_write"]
+      },
+      "invariants": [
+        "both stale rows remain in production history but are outside the eligibility query window",
+        "nearby stale days cannot qualify merely because their mutual spacing is valid",
+        "suppression leaves preferences unchanged"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no feature eligibility query with the one-year cutoff and cannot produce the final-specific decision trace."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#READING_HISTORY_CUTOFF_DAYS",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#hasReadOnTwoDaysWithinAFortnight",
+          "app/src/main/java/org/wikipedia/history/db/HistoryEntryDao.kt#hasReadingDaysApartWithin"
+        ],
+        "androidTests": ["app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#readingDaysOutsideTheHistoryCutoffDoNotQualify"],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "persisted HistoryEntry rows -> eligibility DAO query -> BaseActivity launch routing",
+          "checkpoints": ["stale history rows", "query inputs and result", "production eligibility return", "resumed surface and preferences"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_invalid_persisted_date_fails_closed",
+      "key": "invalid_persisted_date_fails_closed",
+      "traceSchemaVersion": 2,
+      "functionalArea": "impression_persistence",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "clearPermanentAccount"},
+        {"name": "completeHigherPriorityLaunchPrompts"},
+        {"name": "setEncouragementPreferences", "impressions": 1, "lastImpressionDate": "not-a-date"},
+        {"name": "recordArticleRead", "date": "2026-08-31", "article": "en:Return_One"},
+        {"name": "recordArticleRead", "date": "2026-09-01", "article": "en:Return_Two"}
+      ],
+      "given": {
+        "account": "logged_out",
+        "impressions": 1,
+        "lastImpressionDate": "not-a-date",
+        "distinctRecentReadingDays": ["2026-08-31", "2026-09-01"]
+      },
+      "event": {"name": "resumeApplication"},
+      "expected": {
+        "decision": {"evaluated": true, "shouldShow": false, "completedWithoutException": true},
+        "state": {"surface": "main", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 1, "lastImpressionDate": "not-a-date"},
+        "effects": [{"name": "parsePersistedLastImpressionDate", "result": "invalid"}],
+        "absentEffects": ["return_history_query", "start_account_encouragement", "impression_write", "preference_rewrite"]
+      },
+      "invariants": [
+        "invalid persisted input fails closed rather than substituting a guessed date",
+        "recent history cannot bypass the failed date prerequisite",
+        "the application remains on its ordinary surface and does not crash"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no final feature preference parser or fail-closed repeat-impression decision to execute."
+      },
+      "evidence": {
+        "androidProduction": ["app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#hasReturnedSinceLastImpression"],
+        "androidTests": ["app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#invalidLastImpressionDateDoesNotQualifyForAnotherImpression"],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "production preference read -> LocalDate parse guard -> BaseActivity launch routing",
+          "checkpoints": ["raw persisted date", "production decision completion", "resumed surface", "unchanged preferences"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_two_return_days_trigger_second_impression",
+      "key": "two_return_days_trigger_second_impression",
+      "traceSchemaVersion": 2,
+      "functionalArea": "impression_persistence",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "completeFirstImpressionThroughProductionUi", "date": "2026-08-30", "action": "maybe_later"},
+        {"name": "recordArticleRead", "date": "2026-08-31", "article": "en:Return_One"},
+        {"name": "recordArticleRead", "date": "2026-09-01", "article": "en:Return_Two"}
+      ],
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "impressions": 1,
+        "lastImpressionDate": "2026-08-30",
+        "distinctReadingDaysAfterLastImpression": ["2026-08-31", "2026-09-01"]
+      },
+      "event": {"name": "resumeApplication"},
+      "expected": {
+        "decision": {"evaluated": true, "shouldShow": true},
+        "state": {"surface": "account_encouragement", "visible": true},
+        "persistence": {"impressions": 2, "lastImpressionDate": "2026-09-02"},
+        "effects": [
+          {"name": "countDistinctReturnReadingDays", "count": 2},
+          {"name": "startAuthenticationEncouragementFunnel", "interaction": "impression"}
+        ],
+        "absentEffects": ["third_impression", "permanent_dismissal", "login_launch"]
+      },
+      "invariants": [
+        "only reading days strictly after the persisted first-impression date count",
+        "the two return days are distinct production history days",
+        "opening the second visible screen increments and redates the persisted impression exactly once"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base cannot establish or execute the deferred first-to-second impression lifecycle."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#hasReturnedSinceLastImpression",
+          "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#init"
+        ],
+        "androidTests": ["app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#qualifyingReadingHistoryShowsCreateAccountEncouragementAgainAfterMaybeLater"],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "persisted first deferral -> HistoryEntry DAO count -> BaseActivity -> second CreateAccountEncourageActivity",
+          "checkpoints": ["first impression preferences", "two post-impression history days", "production eligibility result", "second visible activity and updated preferences"]
+        }
+      }
+    },
+    {
+      "caseId": "ea_two_impressions_suppress_third",
+      "key": "two_impressions_suppress_third",
+      "traceSchemaVersion": 2,
+      "functionalArea": "impression_persistence",
+      "setup": [
+        {"name": "setClockDate", "date": "2026-09-02"},
+        {"name": "completeSecondImpressionThroughProductionUi", "date": "2026-08-30", "action": "maybe_later"},
+        {"name": "recordArticleRead", "date": "2026-08-31", "article": "en:Later_One"},
+        {"name": "recordArticleRead", "date": "2026-09-01", "article": "en:Later_Two"}
+      ],
+      "given": {
+        "account": "logged_out",
+        "impressions": 2,
+        "lastImpressionDate": "2026-08-30",
+        "distinctReadingDaysAfterLastImpression": ["2026-08-31", "2026-09-01"]
+      },
+      "event": {"name": "resumeApplication"},
+      "expected": {
+        "decision": {"evaluated": true, "shouldShow": false},
+        "state": {"surface": "main", "accountEncouragementVisible": false},
+        "persistence": {"impressions": 2, "lastImpressionDate": "2026-08-30"},
+        "effects": [{"name": "applyMaximumOrdinaryImpressions", "maximum": 2}],
+        "absentEffects": ["return_history_query", "start_account_encouragement", "third_impression_write", "last_impression_date_write"]
+      },
+      "invariants": [
+        "two completed ordinary impressions are the maximum",
+        "additional qualifying history cannot create a third impression",
+        "suppression preserves the second impression's persisted date"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no bounded encouragement lifecycle or production maximum-impression decision."
+      },
+      "evidence": {
+        "androidProduction": ["app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt#shouldShow"],
+        "androidTests": ["app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt#qualifyingReadingHistoryShowsCreateAccountEncouragementAgainAfterMaybeLater"],
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "persisted second deferral -> CreateAccountEncourageViewModel.shouldShow -> BaseActivity launch routing",
+          "checkpoints": ["second impression preferences", "later positive-control history", "production eligibility return", "unchanged preferences and resumed surface"]
+        }
+      }
+    }
+  ]
+}

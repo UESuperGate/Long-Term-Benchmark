@@ -73,6 +73,33 @@ class MultiProjectCatalogTest(unittest.TestCase):
             })
             self.assertEqual([], validator.validate(root))
 
+    def test_legacy_task_without_optional_contract_handoffs_remains_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = "https://example.test/legacy.git"
+            self.write(root, "catalog.json", {"projects": [{
+                "projectId": "legacy", "source": source, "catalog": "legacy/catalog.json"
+            }]})
+            self.write(root, "legacy/catalog.json", {
+                "projectId": "legacy", "source": source, "status": "ready",
+                "acceptedTaskIds": ["01_feature"], "excludedTaskIds": []
+            })
+            self.write(root, "legacy/tasks/01_feature/task.json", {
+                "projectId": "legacy", "taskId": "01_feature",
+                "android": {"repository": source, "baseRef": "v1", "baseCommit": "a",
+                            "finalRef": "v2", "finalCommit": "b"},
+                "handoff": {"requirement": "requirement.md", "evidence": "evidence.json"}
+            })
+            (root / "legacy/tasks/01_feature/requirement.md").write_text("requirement", encoding="utf-8")
+            (root / "legacy/tasks/01_feature/evidence.json").write_text("{}", encoding="utf-8")
+            for role in ("base", "final"):
+                (root / f"legacy/migrations/01_feature/android/{role}").mkdir(parents=True)
+            self.write(root, "legacy/migrations/01_feature/execution.json", {
+                "android": {"baseProject": "android/base", "finalProject": "android/final",
+                            "buildCommand": ["build"], "semanticCommandDeferred": ["test"]}
+            })
+            self.assertEqual([], validator.validate(root))
+
 
 if __name__ == "__main__":
     unittest.main()

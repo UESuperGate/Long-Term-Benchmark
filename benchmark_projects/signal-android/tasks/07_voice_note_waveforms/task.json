@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "projectId": "signal-android",
+  "taskId": "07_voice_note_waveforms",
+  "title": "Portable voice-note waveforms with upload gating and recovery",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/signalapp/Signal-Android.git",
+    "baseRef": "v8.28.4",
+    "baseCommit": "d0b314d2d7197c38737c6189d1f6c294e76e247e",
+    "finalRef": "v8.30.0",
+    "finalCommit": "d8d36376f480eb4669efe8bfee94b2c196a9f7bd"
+  },
+  "releaseNotes": [
+    {
+      "text": "Update to new waveform generation algorithm.",
+      "source": "Official commit 37a99cba66f53a65b51fa906eac0c932f8b8a8ce"
+    },
+    {
+      "text": "Add support for sending voice note waveforms.",
+      "source": "Official commit 90cbc7a3dec5d1a93bbe05d7351ab6843f821368"
+    }
+  ],
+  "functionalAreas": [
+    "waveform_generation",
+    "upload_dependency_ordering",
+    "outbound_attachment_transport",
+    "inbound_payload_validation",
+    "attachment_waveform_persistence",
+    "renderer_resampling",
+    "generation_recovery",
+    "backup_round_trip"
+  ],
+  "stateSurfaces": [
+    "stored waveform record",
+    "attachment upload dependency graph",
+    "outbound attachment pointer",
+    "inbound envelope validation result",
+    "renderable waveform",
+    "backup file pointer"
+  ],
+  "eventEntrypoints": [
+    "generateWaveform",
+    "prepareAttachmentUpload",
+    "serializeOutgoingAttachment",
+    "validateIncomingEnvelope",
+    "persistIncomingAttachment",
+    "requestRenderableWaveform",
+    "restoreAttachmentFromBackup"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioFileInfo.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioHash.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioWaveFormGenerator.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioWaveForms.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/jobs/GenerateAudioWaveFormJob.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/sms/UploadDependencyGraph.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/util/SignalServiceTransformExtensions.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/util/ArchiveConverterExtensions.kt",
+      "app/src/main/protowire/Database.proto",
+      "lib/archive/src/main/protowire/Backup.proto",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/EnvelopeContentValidator.kt",
+      "lib/libsignal-service/src/main/protowire/SignalService.proto"
+    ],
+    "testPaths": [
+      "app/src/test/java/org/thoughtcrime/securesms/audio/AudioWaveFormGeneratorTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/audio/AudioFileInfoTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/audio/AudioHashTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/sms/UploadDependencyGraphTest.kt",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/EnvelopeContentValidatorTest.kt",
+      "app/src/androidTest/java/org/thoughtcrime/securesms/database/AttachmentTableTest.kt"
+    ],
+    "commits": [
+      "37a99cba66f53a65b51fa906eac0c932f8b8a8ce",
+      "90cbc7a3dec5d1a93bbe05d7351ab6843f821368"
+    ]
+  },
+  "nonGoals": [
+    "Changing voice-note recording or playback controls",
+    "Changing attachment encryption, CDN selection, or upload retry policy",
+    "Changing the wire service's waveform or duration limits",
+    "Pixel-level waveform rendering parity",
+    "Benchmarking the Android-to-ArkTS migration itself"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json",
+    "transitionDraft": "transitions.draft.json",
+    "transitions": "transitions.json"
+  }
+}

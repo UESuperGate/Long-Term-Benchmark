@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_evergreen_account",
+  "capturedAt": "2026-10-23T19:22:30+08:00",
+  "scope": "offline_and_runtime_calibration",
+  "sourceBoundary": {
+    "finalRef": "beta/50604-beta-2026-09-02",
+    "finalCommit": "669a5405fc78ef888203c974c1d67b6259f0eff2",
+    "featureCommit": "d679fd1a9530fbe08cb9d117a49ca5d4ff79dce2",
+    "productionReleaseTagInvented": false
+  },
+  "toolchain": {
+    "family": "OpenHarmony",
+    "compileSdk": 23,
+    "compatibleSdk": 23,
+    "targetSdk": 23,
+    "sdkRoot": "/Users/z1an/Library/OpenHarmony/Sdk",
+    "resolvedApiPath": "/Users/z1an/Library/OpenHarmony/Sdk/23",
+    "hvigor": "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw",
+    "command": ["hvigorw","--mode","module","-p","product=default","-p","module=entry@default","assembleHap","--no-daemon"]
+  },
+  "temporaryHarness": {
+    "builder": "../evaluator/build_arkts_calibration.py",
+    "evaluatorSources": "../evaluator/arkts",
+    "productionSourceModifiedByInjection": false,
+    "temporaryCopiesDeletedAfterEachBuild": true,
+    "productionCaseOrOracleScan": "clean"
+  },
+  "builds": [
+    {
+      "role": "arkts-base-evaluator-hap",
+      "status": "passed",
+      "artifactPathBeforeCleanup": "arkts/base/entry/build/default/outputs/default/entry-default-unsigned.hap",
+      "artifactSha256": "9de91d98503c5248209c7e3fbc51403bcb4292f32ead827e9f656e3eacf35144",
+      "artifactBytes": 113637,
+      "log": "arkts-base-runtime-build.log",
+      "logSha256": "aa9d0c38ac304ece19efa8696fc157f8eb32db330bf1025f0dc4f876611ff71c",
+      "logBytes": 5135
+    },
+    {
+      "role": "arkts-final-evaluator-hap",
+      "status": "passed",
+      "artifactPathBeforeCleanup": "arkts/final/entry/build/default/outputs/default/entry-default-unsigned.hap",
+      "artifactSha256": "ede6e61b3616a59f17181d376a6cd3157f2d42f4f12cbd276609330bcfffa074",
+      "artifactBytes": 135170,
+      "log": "arkts-final-runtime-build-fixed.log",
+      "logSha256": "46e174a4de766bcf1bb753a4454a471a6514170aadf05732438cb79c0552bca1",
+      "logBytes": 5146
+    }
+  ],
+  "warnings": [
+    "The evaluator harness uses APIs that may throw and the compiler requests explicit handling.",
+    "getContext is deprecated but remains available for the API23 calibration harness.",
+    "No signingConfig is present, so the retained build evidence is for unsigned HAPs."
+  ],
+  "bindings": {
+    "android": {"path":"../android/bindings.json","sha256":"b00a92e8ac30c5028c440ffa3386e047153f6ec02cbb75a0e277e9ca087e0bf3","bytes":21535,"caseCount":10,"canonicalKeys":10,"semanticFieldsEmbedded":true},
+    "arkts": {"path":"../arkts/bindings.json","sha256":"b6255ae3804a320ba6d0c3a9491e6cfa23adc5947f23e6bc273d875db22effcc","bytes":21284,"caseCount":10,"canonicalKeys":10,"semanticFieldsEmbedded":true},
+    "parity": {"path":"transition-parity.json","sha256":"b8d9a32fe2077537cb76cc90c0671987187261d07df17b165dfb3bcd2db02162","valid":true,"caseCount":10}
+  },
+  "runtime": {
+    "startedDevice": true,
+    "usedAdb": false,
+    "usedHdc": true,
+    "ranAgentResult": false,
+    "calibrationStatus": "base 0/10, final 10/10, notScored 0"
+  },
+  "binaryBuildOutputsRemovedAfterHashing": true
+}

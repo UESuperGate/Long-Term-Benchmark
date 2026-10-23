@@ -1,0 +1,1862 @@
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/Json.java b/app/src/main/java/org/signal/benchmark/waveform/Json.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..336df3e4c2fbcc4b59774c8cb9aabd581f109ceb
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/Json.java
+@@ -0,0 +1,44 @@
++package org.signal.benchmark.waveform;
++
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++
++/**
++ * Small helpers for building the JSON documents the pipeline passes around, so the production
++ * components stay readable instead of threading checked {@link JSONException}s through every
++ * method. A failure here means a value could not be represented at all, which is a programming
++ * error rather than something the caller can recover from.
++ */
++public final class Json {
++  private Json() {
++  }
++
++  public static JSONObject put(JSONObject target, String key, Object value) {
++    try {
++      return target.put(key, value);
++    } catch (JSONException error) {
++      throw new IllegalStateException("Unable to store " + key, error);
++    }
++  }
++
++  public static JSONArray put(JSONArray target, Object value) {
++    return target.put(value);
++  }
++
++  public static JSONObject copyOf(JSONObject source) {
++    try {
++      return new JSONObject(source.toString());
++    } catch (JSONException error) {
++      throw new IllegalStateException("Unable to copy document", error);
++    }
++  }
++
++  public static JSONArray copyOf(JSONArray source) {
++    try {
++      return new JSONArray(source.toString());
++    } catch (JSONException error) {
++      throw new IllegalStateException("Unable to copy array", error);
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/ProductionTrace.java b/app/src/main/java/org/signal/benchmark/waveform/ProductionTrace.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..47d38a89658a49f6be9ce48eda61c23c3e7a3112
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/ProductionTrace.java
+@@ -0,0 +1,46 @@
++package org.signal.benchmark.waveform;
++
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++
++/**
++ * Ordered record of the production work a page performed: the entry points that ran and the
++ * platform effects they caused. Every effect carries the attachment it belongs to, so a single
++ * upload chain can be followed across compression, waveform generation and upload, and chains of
++ * independent attachments stay distinguishable.
++ */
++public final class ProductionTrace {
++  private JSONArray productionCalls = new JSONArray();
++  private JSONArray effects = new JSONArray();
++
++  /** Records a production entry point, for example {@code WaveformPageOwner.generateWaveform}. */
++  public void call(String name) {
++    productionCalls.put(name);
++  }
++
++  /** Records a platform effect performed on behalf of {@code attachmentId}. */
++  public void effect(String name, String attachmentId) {
++    try {
++      effects.put(new JSONObject()
++          .put("name", name)
++          .put("attachmentId", attachmentId == null ? "" : attachmentId));
++    } catch (JSONException error) {
++      throw new IllegalStateException("Unable to record effect " + name, error);
++    }
++  }
++
++  /** Drops everything recorded so far; a freshly mounted page starts from an empty trace. */
++  public void reset() {
++    productionCalls = new JSONArray();
++    effects = new JSONArray();
++  }
++
++  public JSONArray productionCalls() {
++    return Json.copyOf(productionCalls);
++  }
++
++  public JSONArray effects() {
++    return Json.copyOf(effects);
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/VoiceWaveformActivity.java b/app/src/main/java/org/signal/benchmark/waveform/VoiceWaveformActivity.java
+index 5f5d29d2f883ef9f4ab756628052011fd150d9d3..112ffc58d2e3e13eaeabc3d1f5774937fbc3fe32 100644
+--- a/app/src/main/java/org/signal/benchmark/waveform/VoiceWaveformActivity.java
++++ b/app/src/main/java/org/signal/benchmark/waveform/VoiceWaveformActivity.java
+@@ -1,16 +1,24 @@
+ package org.signal.benchmark.waveform;
+ 
+ import android.app.Activity;
++import android.content.Context;
++import android.graphics.Canvas;
++import android.graphics.Color;
++import android.graphics.Paint;
+ import android.os.Bundle;
++import android.view.View;
+ import android.widget.Button;
+ import android.widget.LinearLayout;
+ import android.widget.TextView;
++import org.json.JSONArray;
+ import org.json.JSONException;
+ import org.json.JSONObject;
+ 
++/** Page that hosts the voice note waveform pipeline. */
+ public final class VoiceWaveformActivity extends Activity {
+   private WaveformPageOwner owner;
+   private TextView status;
++  private WaveformBarsView waveformView;
+ 
+   @Override public void onCreate(Bundle state) {
+     super.onCreate(state);
+@@ -21,32 +29,46 @@ public final class VoiceWaveformActivity extends Activity {
+     TextView title = new TextView(this);
+     title.setText("Voice note waveform pipeline");
+     title.setTextSize(24);
++    waveformView = new WaveformBarsView(this);
+     status = new TextView(this);
+     status.setText("Ready");
+-    Button generate = new Button(this);
+-    generate.setText("Generate waveform");
+-    generate.setOnClickListener(view -> {
++
++    Button generate = button("Generate waveform", view -> {
+       try {
+         owner.generateWaveform(fullScaleSamples(), 2_000_000L);
+-        syncSurface();
+       } catch (JSONException error) {
+-        status.setText(error.getMessage());
++        fail(error);
+       }
+     });
+-    Button upload = new Button(this);
+-    upload.setText("Prepare upload");
+-    upload.setOnClickListener(view -> {
++    Button upload = button("Prepare upload", view -> {
+       try {
+         owner.startUploadGraph();
+         owner.releaseHeldWaveform(fullScaleSamples(), 2_000_000L);
+-        syncSurface();
+       } catch (JSONException error) {
+-        status.setText(error.getMessage());
++        fail(error);
++      }
++    });
++    Button render = button("Render waveform", view -> {
++      try {
++        owner.requestRenderableWaveform(fullScaleSamples(), 2_000_000L);
++      } catch (JSONException error) {
++        fail(error);
+       }
+     });
++    Button send = button("Send pointer", view -> {
++      try {
++        owner.serializeOutgoingPointer();
++      } catch (JSONException error) {
++        fail(error);
++      }
++    });
++
+     page.addView(title);
++    page.addView(waveformView);
+     page.addView(generate);
+     page.addView(upload);
++    page.addView(render);
++    page.addView(send);
+     page.addView(status);
+     setContentView(page);
+   }
+@@ -61,7 +83,20 @@ public final class VoiceWaveformActivity extends Activity {
+   public String pageOwnerId() { return "VoiceWaveformActivity:" + System.identityHashCode(this); }
+ 
+   public void syncSurface() throws JSONException {
+-    status.setText(owner.snapshot().optJSONObject("state").toString());
++    JSONObject snapshot = owner.snapshot();
++    status.setText(snapshot.optJSONObject("state").toString());
++    waveformView.setWaveform(snapshot.optJSONObject("state").optJSONArray("renderWaveform"));
++  }
++
++  private Button button(String label, View.OnClickListener action) {
++    Button button = new Button(this);
++    button.setText(label);
++    button.setOnClickListener(action);
++    return button;
++  }
++
++  private void fail(JSONException error) {
++    status.setText(error.getMessage());
+   }
+ 
+   private static int[] fullScaleSamples() {
+@@ -69,4 +104,36 @@ public final class VoiceWaveformActivity extends Activity {
+     java.util.Arrays.fill(samples, 32767);
+     return samples;
+   }
+-}
++
++  /** Draws the bars the page owner produced, at the fixed bar count the view renders. */
++  static final class WaveformBarsView extends View {
++    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private JSONArray bars = new JSONArray();
++
++    WaveformBarsView(Context context) {
++      super(context);
++      paint.setColor(Color.parseColor("#3b7dd8"));
++      setMinimumHeight(Math.round(96 * getResources().getDisplayMetrics().density));
++    }
++
++    void setWaveform(JSONArray waveform) {
++      bars = waveform == null ? new JSONArray() : waveform;
++      invalidate();
++    }
++
++    @Override protected void onDraw(Canvas canvas) {
++      super.onDraw(canvas);
++      int count = bars.length();
++      if (count == 0) {
++        return;
++      }
++      float width = getWidth() / (float) count;
++      float height = getHeight();
++      for (int i = 0; i < count; i++) {
++        double magnitude = Math.max(0, Math.min(1, bars.optDouble(i, 0d)));
++        float barHeight = (float) (magnitude * height);
++        canvas.drawRect(i * width, height - barHeight, (i + 1) * width, height, paint);
++      }
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/WaveformPageOwner.java b/app/src/main/java/org/signal/benchmark/waveform/WaveformPageOwner.java
+index d64a43ce50307ca31da121bb8a021954471ef3e7..5c5d880f5f58efb123087c08bdb002ffd3af7711 100644
+--- a/app/src/main/java/org/signal/benchmark/waveform/WaveformPageOwner.java
++++ b/app/src/main/java/org/signal/benchmark/waveform/WaveformPageOwner.java
+@@ -2,196 +2,437 @@ package org.signal.benchmark.waveform;
+ 
+ import android.content.Context;
+ import android.content.SharedPreferences;
++import java.util.Map;
+ import org.json.JSONArray;
+ import org.json.JSONException;
+ import org.json.JSONObject;
++import org.signal.benchmark.waveform.attachment.AttachmentBackupCodec;
++import org.signal.benchmark.waveform.attachment.AttachmentPointerSerializer;
++import org.signal.benchmark.waveform.attachment.AttachmentWaveformStore;
++import org.signal.benchmark.waveform.attachment.IncomingPointerValidator;
++import org.signal.benchmark.waveform.upload.AttachmentUploadScheduler;
++import org.signal.benchmark.waveform.upload.PendingAttachment;
++import org.signal.benchmark.waveform.upload.UploadState;
++import org.signal.benchmark.waveform.waveform.WaveformGenerator;
++import org.signal.benchmark.waveform.waveform.WaveformRecord;
++import org.signal.benchmark.waveform.waveform.WaveformRenderer;
+ 
+-/** Production-compatible model of the v8.28.4 local-only waveform behavior. */
++/**
++ * Page owner for the voice note waveform surface.
++ *
++ * <p>One waveform belongs to one audio attachment for its whole life, and this owner keeps that
++ * record correct across every step it takes:
++ *
++ * <ul>
++ *   <li>an audio attachment gets bars derived from its decoded audio, and the upload it belongs to
++ *       does not start until those bars are stored;</li>
++ *   <li>the stored bars and the clip duration travel with the outgoing pointer without touching
++ *       the upload identity or the encryption metadata;</li>
++ *   <li>metadata a service would never have sent is rejected before anything is persisted;</li>
++ *   <li>bars a sender produced are stored, reloaded and backed up unchanged, and stay renderable
++ *       when the clip itself was never downloaded;</li>
++ *   <li>locally generated bars built with an obsolete bar count, and the empty record an
++ *       interrupted generation leaves behind, are regenerated from the local audio instead of being
++ *       drawn.</li>
++ * </ul>
++ */
+ public final class WaveformPageOwner {
+-  private static final int LEGACY_BAR_COUNT = 46;
+-  private final SharedPreferences preferences;
++  /** Bars the previous pipeline produced; a local record still carrying them is stale. */
++  static final int LEGACY_BAR_COUNT = 46;
++
++  private static final int SERVICE_WAVEFORM_LIMIT = IncomingPointerValidator.SERVICE_WAVEFORM_LIMIT;
++  private static final String MEDIA_READABLE = "readable";
++
++  private final AttachmentWaveformStore store;
++  private final WaveformGenerator generator = new WaveformGenerator();
++  private final WaveformRenderer renderer = new WaveformRenderer();
++  private final AttachmentPointerSerializer pointerSerializer = new AttachmentPointerSerializer();
++  private final IncomingPointerValidator validator = new IncomingPointerValidator();
++  private final ProductionTrace trace = new ProductionTrace();
++  private final AttachmentUploadScheduler scheduler;
++  private final AttachmentBackupCodec backupCodec;
++
+   private JSONObject input = new JSONObject();
+   private JSONObject state = new JSONObject();
+-  private JSONArray effects = new JSONArray();
+-  private JSONArray productionCalls = new JSONArray();
++  private String attachmentId = "";
++  private String exportedBackup;
+ 
+   public WaveformPageOwner(Context context) {
+-    preferences = context.getSharedPreferences("voice-waveform", Context.MODE_PRIVATE);
++    store = new AttachmentWaveformStore(context.getSharedPreferences("voice-waveform", Context.MODE_PRIVATE));
++    scheduler = new AttachmentUploadScheduler(store, generator, trace);
++    backupCodec = new AttachmentBackupCodec(store);
+   }
+ 
++  /** Mounts the page onto an attachment, starting from an empty database. */
+   public void mount(JSONObject given) throws JSONException {
+-    input = cloneObject(given);
++    input = given == null ? new JSONObject() : Json.copyOf(given);
+     state = new JSONObject();
+-    effects = new JSONArray();
+-    productionCalls = new JSONArray();
+-    preferences.edit().clear().commit();
+-    JSONObject attachment = given.optJSONObject("attachment");
++    trace.reset();
++    scheduler.reset();
++    store.clear();
++    exportedBackup = null;
++    attachmentId = "";
++
++    JSONObject attachment = input.optJSONObject("attachment");
+     if (attachment != null) {
+-      state.put("attachmentId", attachment.optString("id"));
+-      JSONObject stored = attachment.optJSONObject("storedWaveform");
+-      if (stored != null) persistRecord(recordFromStored(stored));
++      attachmentId = attachment.optString("id");
++      Json.put(state, "attachmentId", attachmentId);
++      WaveformRecord stored = WaveformRecord.fromStoredWaveform(attachment.optJSONObject("storedWaveform"));
++      if (stored != null) {
++        store.save(attachmentId, stored);
++      }
+     }
+-    call("WaveformPageOwner.mount");
++    trace.call("WaveformPageOwner.mount");
+   }
+ 
++  /**
++   * Derives the waveform of the mounted audio attachment from decoded audio and stores it, which is
++   * what makes the attachment upload ready.
++   */
+   public void generateWaveform(int[] decodedPcm, long durationUs) throws JSONException {
+-    call("WaveformPageOwner.generateWaveform");
+-    effect("persistGenerationPlaceholder", attachmentId());
+-    persistRecord(emptyRecord());
+-    effect("decodeAudio", attachmentId());
+-    JSONObject record = generatedRecord(decodedPcm, durationUs);
+-    persistRecord(record);
+-    effect("persistGeneratedWaveform", attachmentId());
+-    state.put("result", "success").put("storedWaveform", record);
++    trace.call("WaveformPageOwner.generateWaveform");
++    String id = attachmentId;
++
++    // Generation is a two step write: the row starts as the explicit empty record so an interrupted
++    // attempt is visible instead of looking like a silent clip, and only the decoded bars replace it.
++    trace.effect("persistGenerationPlaceholder", id);
++    store.save(id, WaveformRecord.placeholder());
++
++    trace.effect("decodeAudio", id);
++    WaveformRecord record = generator.generate(decodedPcm, durationUs);
++    store.save(id, record);
++    trace.effect("persistGeneratedWaveform", id);
++
++    publishRecord(record);
++    Json.put(state, "result", "success");
++    Json.put(state, "waveformRequired", isAudioAttachment());
++    scheduler.onWaveformReady(id);
+   }
+ 
++  /** Runs the upload chain of the mounted attachment: compress, generate a waveform, upload. */
+   public void startUploadGraph() throws JSONException {
+-    call("WaveformPageOwner.startUploadGraph");
+-    String id = input.getJSONObject("attachment").getString("id");
+-    effect("compressAttachment", id);
+-    effect("uploadAttachment", id);
+-    state.put("upload", new JSONObject().put("compression", "complete")
+-        .put("waveformGeneration", "not_scheduled").put("upload", "complete"));
++    trace.call("WaveformPageOwner.startUploadGraph");
++    JSONObject attachment = input.optJSONObject("attachment");
++    PendingAttachment pending = new PendingAttachment(
++        attachment == null ? attachmentId : attachment.optString("id"),
++        attachment == null ? "" : attachment.optString("contentType"));
++    attachmentId = pending.id();
++    Json.put(state, "attachmentId", attachmentId);
++    Json.put(state, "upload", scheduler.start(pending).toJson());
+   }
+ 
+-  public void releaseHeldWaveform(int[] decodedPcm, long durationUs) { call("WaveformPageOwner.releaseHeldWaveform"); }
++  /** Releases a held waveform worker, continuing the audio chain that was already in flight. */
++  public void releaseHeldWaveform(int[] decodedPcm, long durationUs) {
++    trace.call("WaveformPageOwner.releaseHeldWaveform");
++    scheduler.releaseHeld(decodedPcm, durationUs);
++    publishChains();
++  }
+ 
++  /** Runs the upload chains of every attachment in the message, holding only the audio ones. */
+   public void startMixedUploadGraph() throws JSONException {
+-    call("WaveformPageOwner.startMixedUploadGraph");
++    trace.call("WaveformPageOwner.startMixedUploadGraph");
++    JSONArray attachments = input.optJSONArray("attachments");
+     JSONObject uploads = new JSONObject();
+-    JSONArray attachments = input.getJSONArray("attachments");
+-    for (int i = 0; i < attachments.length(); i++) {
+-      JSONObject attachment = attachments.getJSONObject(i);
+-      String id = attachment.getString("id");
+-      effect("compressAttachment", id);
+-      effect("uploadAttachment", id);
+-      uploads.put(id, new JSONObject().put("compression", "complete")
+-          .put("waveformGeneration", "not_scheduled").put("upload", "complete"));
++    if (attachments != null) {
++      for (int i = 0; i < attachments.length(); i++) {
++        JSONObject attachment = attachments.optJSONObject(i);
++        if (attachment == null) {
++          continue;
++        }
++        UploadState chain = scheduler.start(
++            new PendingAttachment(attachment.optString("id"), attachment.optString("contentType")));
++        Json.put(uploads, chain.id(), chain.toJson());
++      }
+     }
+-    state.put("uploads", uploads);
++    Json.put(state, "uploads", uploads);
+   }
+ 
+-  public void releaseMixedAudio(int[] decodedPcm, long durationUs) { call("WaveformPageOwner.releaseMixedAudio"); }
++  /** Releases the waveform worker of the held audio chains, leaving the other chains untouched. */
++  public void releaseMixedAudio(int[] decodedPcm, long durationUs) {
++    trace.call("WaveformPageOwner.releaseMixedAudio");
++    scheduler.releaseHeld(decodedPcm, durationUs);
++    publishChains();
++  }
+ 
++  /** Serializes the pointer of the mounted attachment from the waveform stored for it. */
+   public void serializeOutgoingPointer() throws JSONException {
+-    call("WaveformPageOwner.serializeOutgoingPointer");
+-    JSONObject attachment = input.getJSONObject("attachment");
+-    JSONObject pointer = new JSONObject().put("contentType", attachment.getString("contentType"))
+-        .put("cdnKey", attachment.optString("cdnKey"))
+-        .put("encryptionDigest", attachment.optString("encryptionDigest"));
+-    effect("buildAttachmentPointer", attachment.getString("id"));
+-    state.put("pointer", pointer);
++    trace.call("WaveformPageOwner.serializeOutgoingPointer");
++    JSONObject attachment = input.optJSONObject("attachment");
++    String contentType = attachment == null ? "" : attachment.optString("contentType");
++    String cdnKey = attachment == null ? "" : attachment.optString("cdnKey");
++    String encryptionDigest = attachment == null ? "" : attachment.optString("encryptionDigest");
++    boolean audio = isAudioAttachment();
++
++    WaveformRecord record = store.read(attachmentId);
++    JSONObject pointer = pointerSerializer.serialize(contentType, cdnKey, encryptionDigest, audio, record);
++    trace.effect("buildAttachmentPointer", attachmentId);
++    Json.put(state, "pointer", pointer);
+   }
+ 
++  /** Validates incoming attachment metadata before any of it is allowed to be persisted. */
+   public void validateIncomingEnvelope() throws JSONException {
+-    call("WaveformPageOwner.validateIncomingEnvelope");
+-    state.put("validation", new JSONObject().put("accepted", true).put("reason", JSONObject.NULL));
++    trace.call("WaveformPageOwner.validateIncomingEnvelope");
++    IncomingPointerValidator.Result result = validator.validate(incomingPointer(), serviceWaveformLimit());
++    Json.put(state, "validation", result.toJson());
++    trace.effect(result.isAccepted() ? "acceptIncomingAttachmentPointer" : "rejectIncomingAttachmentPointer",
++        incomingAttachmentId());
+   }
+ 
++  /**
++   * Imports an incoming attachment. The waveform is validated first, so an oversized or malformed
++   * one never reaches the attachment database, and a valid one is stored with its origin intact.
++   */
+   public void importIncomingAttachment() throws JSONException {
+-    call("WaveformPageOwner.importIncomingAttachment");
+-    JSONObject pointer = input.getJSONObject("incomingAttachmentPointer");
+-    state.put("persistedAttachment", new JSONObject().put("contentType", pointer.getString("contentType")));
+-    state.put("reloadedAttachment", new JSONObject());
+-    effect("persistAttachment", pointer.optString("cdnKey"));
++    trace.call("WaveformPageOwner.importIncomingAttachment");
++    JSONObject pointer = incomingPointer();
++    IncomingPointerValidator.Result result = validator.validate(pointer, serviceWaveformLimit());
++    String id = incomingAttachmentId();
++    if (!result.isAccepted()) {
++      Json.put(state, "validation", result.toJson());
++      JSONObject imported = new JSONObject();
++      Json.put(imported, "accepted", false);
++      Json.put(imported, "reason", result.reason() == null ? JSONObject.NULL : result.reason());
++      Json.put(state, "import", imported);
++      trace.effect("rejectIncomingAttachmentPointer", id);
++      return;
++    }
++
++    Json.put(state, "validation", result.toJson());
++    Json.put(state, "attachmentId", id);
++    attachmentId = id;
++    int[] bars = result.bars();
++    if (bars != null) {
++      store.save(id, WaveformRecord.fromSender(bars, result.durationSeconds()));
++      trace.effect("persistAttachment", id);
++    }
++    WaveformRecord persisted = store.read(id);
++    JSONObject imported = new JSONObject();
++    Json.put(imported, "accepted", true);
++    Json.put(imported, "waveformStored", bars != null);
++    Json.put(state, "import", imported);
++    Json.put(state, "persistedAttachment", incomingRow(id, pointer, persisted));
++    Json.put(state, "reloadedAttachment", persisted == null ? new JSONObject() : persisted.toJson());
+   }
+ 
++  /**
++   * Resolves what the waveform view should draw for the mounted attachment.
++   *
++   * <p>Stored bars are used whenever they are usable: a sender waveform is kept and resampled, and
++   * so is a locally generated record that still has the current bar count. Anything else - an
++   * obsolete local bar count, the empty record of an interrupted generation, or no record at all -
++   * is regenerated from the local audio and replaced atomically for the same attachment. A request
++   * never starts an upload of its own.
++   */
+   public void requestRenderableWaveform(int[] decodedPcm, long durationUs) throws JSONException {
+-    call("WaveformPageOwner.requestRenderableWaveform");
+-    JSONObject attachment = input.getJSONObject("attachment");
+-    if (!"readable".equals(attachment.optString("localMedia"))) {
+-      state.put("result", "error");
+-      return;
++    trace.call("WaveformPageOwner.requestRenderableWaveform");
++    JSONObject attachment = input.optJSONObject("attachment");
++    if (attachment != null) {
++      attachmentId = attachment.optString("id", attachmentId);
++      Json.put(state, "attachmentId", attachmentId);
+     }
+-    JSONObject record = readRecord();
+-    if (record == null || record.optInt("barCount", 0) == 0) {
+-      effect("generateWaveform", attachment.getString("id"));
+-      record = generatedRecord(decodedPcm, durationUs);
+-      persistRecord(record);
+-      effect("persistGeneratedWaveform", attachment.getString("id"));
+-      state.put("persistedReplacement", cloneObject(record));
++    boolean mediaReadable = attachment != null && MEDIA_READABLE.equals(attachment.optString("localMedia"));
++    boolean audio = isAudioAttachment();
++    Json.put(state, "mediaAvailable", mediaReadable);
++    Json.put(state, "waveformRequired", audio);
++
++    WaveformRecord record = store.read(attachmentId);
++    String decision;
++    boolean senderSupplied = record != null && record.isSenderProvided();
++    if (senderSupplied) {
++      decision = record.isRenderable() ? "sender_provided" : "sender_waveform_unusable";
++    } else if (record != null && record.isPlaceholder()) {
++      decision = "interrupted_generation_placeholder";
++    } else if (record != null && record.isStaleLocal(WaveformGenerator.GENERATED_BAR_COUNT)) {
++      decision = record.barCount() == LEGACY_BAR_COUNT ? "stale_legacy_bar_count" : "stale_local_cache";
++    } else if (record != null) {
++      decision = "local_cache_valid";
++    } else {
++      decision = "missing_waveform";
+     }
+-    state.put("result", "success");
+-    state.put("renderWaveform", normalize(record.getJSONArray("bytes")));
+-    state.put("durationSeconds", record.optDouble("durationSeconds", 0));
++    Json.put(state, "decision", decision);
++
++    boolean regenerated = false;
++    boolean reusable = record != null
++        && record.isRenderable()
++        && (senderSupplied || !record.isStaleLocal(WaveformGenerator.GENERATED_BAR_COUNT));
++    if (!reusable) {
++      if (!audio) {
++        // Waveform generation is only ever scheduled for audio; nothing else acquires one.
++        Json.put(state, "result", "error");
++        Json.put(state, "reason", "not_an_audio_attachment");
++        Json.put(state, "regenerated", false);
++        return;
++      }
++      if (!mediaReadable) {
++        Json.put(state, "result", "error");
++        Json.put(state, "reason", senderSupplied ? "sender_waveform_unusable" : "media_unavailable");
++        Json.put(state, "regenerated", false);
++        return;
++      }
++      Json.put(state, "replacedRecordBarCount", record == null ? JSONObject.NULL : record.barCount());
++      trace.effect("generateWaveform", attachmentId);
++      WaveformRecord generated = generator.generate(decodedPcm, durationUs);
++      store.save(attachmentId, generated);
++      trace.effect("persistGeneratedWaveform", attachmentId);
++      record = generated;
++      regenerated = true;
++      Json.put(state, "persistedReplacement", generated.toJson());
++    }
++
++    Json.put(state, "result", "success");
++    Json.put(state, "regenerated", regenerated);
++    render(record);
++    publishRecord(record);
+   }
+ 
++  /** Exports the attachment, clears the database, restores it, and renders what came back. */
+   public void backupRestoreAndRender() throws JSONException {
+-    call("WaveformPageOwner.backupRestoreAndRender");
+-    JSONObject attachment = input.getJSONObject("attachment");
+-    state.put("exportedFilePointer", new JSONObject().put("contentType", attachment.getString("contentType")));
+-    preferences.edit().clear().commit();
+-    state.put("restoredAttachment", new JSONObject());
+-    state.put("renderAfterRestore", new JSONObject().put("result", "error"));
+-    effect("exportAttachment", attachment.getString("id"));
+-    effect("restoreAttachment", attachment.getString("id"));
++    trace.call("WaveformPageOwner.backupRestoreAndRender");
++    JSONObject attachment = input.optJSONObject("attachment");
++    if (attachment != null) {
++      attachmentId = attachment.optString("id", attachmentId);
++      Json.put(state, "attachmentId", attachmentId);
++      Json.put(state, "mediaAvailable", MEDIA_READABLE.equals(attachment.optString("localMedia")));
++    }
++    WaveformRecord record = store.read(attachmentId);
++
++    trace.effect("exportAttachment", attachmentId);
++    exportedBackup = backupCodec.export(attachmentId, record);
++    Json.put(state, "exportedFilePointer", exportedRow(attachment, record));
++
++    store.clear();
++    trace.effect("restoreAttachment", attachmentId);
++    WaveformRecord restored = backupCodec.restore(exportedBackup, attachmentId);
++    Json.put(state, "restoredAttachment", restored == null ? new JSONObject() : restored.toJson());
++    Json.put(state, "regenerated", false);
++    JSONObject summary = new JSONObject();
++    if (restored != null && restored.isRenderable()) {
++      Json.put(state, "decision", "restored_from_backup");
++      Json.put(state, "result", "success");
++      Json.put(summary, "result", "success");
++      Json.put(summary, "waveform", render(restored));
++      Json.put(summary, "barCount", WaveformRenderer.BAR_COUNT);
++      Json.put(summary, "durationSeconds", restored.durationSeconds());
++      Json.put(summary, "senderProvided", restored.isSenderProvided());
++      Json.put(summary, "origin", restored.origin());
++      publishRecord(restored);
++    } else {
++      Json.put(state, "decision", "restore_failed");
++      Json.put(state, "result", "error");
++      Json.put(state, "reason", "restore_failed");
++      Json.put(summary, "result", "error");
++    }
++    Json.put(state, "renderAfterRestore", summary);
+   }
+ 
++  /** The page state, the attachment database contents, and what production work was performed. */
+   public JSONObject snapshot() throws JSONException {
+     JSONObject persistence = new JSONObject();
+-    JSONObject stored = readRecord();
+-    if (stored != null) persistence.put("waveform", stored);
+-    return new JSONObject().put("state", cloneObject(state)).put("persistence", persistence)
+-        .put("effects", cloneArray(effects)).put("productionCalls", cloneArray(productionCalls));
+-  }
+-
+-  private JSONObject generatedRecord(int[] samples, long durationUs) throws JSONException {
+-    double[] peaks = new double[LEGACY_BAR_COUNT];
+-    double global = 0;
+-    for (int bar = 0; bar < LEGACY_BAR_COUNT; bar++) {
+-      int start = (int) ((long) bar * samples.length / LEGACY_BAR_COUNT);
+-      int end = Math.min(samples.length, Math.max(start + 1, (int) ((long) (bar + 1) * samples.length / LEGACY_BAR_COUNT)));
+-      double sum = 0;
+-      for (int i = start; i < end; i++) sum += Math.abs(samples[i]);
+-      peaks[bar] = end > start ? sum / (end - start) : 0;
+-      global = Math.max(global, peaks[bar]);
+-    }
+-    JSONArray bars = new JSONArray();
+-    for (double peak : peaks) bars.put(global == 0 ? 0 : (int) Math.round(255d * peak / global));
+-    return new JSONObject().put("bytes", bars).put("barCount", bars.length())
+-        .put("durationUs", durationUs).put("durationSeconds", durationUs / 1_000_000d);
+-  }
+-
+-  private JSONArray normalize(JSONArray source) throws JSONException {
+-    JSONArray result = new JSONArray();
+-    for (int i = 0; i < source.length(); i++) result.put(source.getInt(i) / 255d);
+-    return result;
+-  }
+-
+-  private JSONObject recordFromStored(JSONObject stored) throws JSONException {
+-    JSONArray bytes = waveformBytes(stored);
+-    double seconds = stored.has("durationSeconds") ? stored.getDouble("durationSeconds") : stored.optLong("durationUs", 0) / 1_000_000d;
+-    return new JSONObject().put("bytes", bytes).put("barCount", bytes.length())
+-        .put("durationSeconds", seconds).put("durationUs", Math.round(seconds * 1_000_000d));
+-  }
+-
+-  private JSONArray waveformBytes(JSONObject source) throws JSONException {
+-    if (source.has("bytes")) return cloneArray(source.getJSONArray("bytes"));
+-    JSONArray result = new JSONArray();
+-    JSONArray segments = source.optJSONArray("segments");
+-    if (segments != null) {
+-      for (int i = 0; i < segments.length(); i++) {
+-        JSONObject segment = segments.getJSONObject(i);
+-        for (int j = 0; j < segment.getInt("count"); j++) result.put(segment.getInt("value"));
++    WaveformRecord stored = store.read(attachmentId);
++    if (stored != null) {
++      Json.put(persistence, "attachmentId", attachmentId);
++      Json.put(persistence, "waveform", stored.toJson());
++    }
++    JSONObject rows = new JSONObject();
++    for (Map.Entry<String, WaveformRecord> row : store.readAll().entrySet()) {
++      Json.put(rows, row.getKey(), row.getValue().toJson());
++    }
++    Json.put(persistence, "waveforms", rows);
++    return new JSONObject()
++        .put("state", Json.copyOf(state))
++        .put("persistence", persistence)
++        .put("effects", trace.effects())
++        .put("productionCalls", trace.productionCalls());
++  }
++
++  /** Renders {@code record} for the view, records the render, and returns the bar data. */
++  private JSONArray render(WaveformRecord record) {
++    trace.effect("renderWaveform", attachmentId);
++    JSONArray bars = renderer.render(record);
++    Json.put(state, "renderWaveform", bars);
++    Json.put(state, "renderBarCount", WaveformRenderer.BAR_COUNT);
++    return bars;
++  }
++
++  /** Publishes the record a step produced: its bars, duration and origin. */
++  private void publishRecord(WaveformRecord record) throws JSONException {
++    Json.put(state, "storedWaveform", record.toJson());
++    Json.put(state, "waveformBarCount", record.barCount());
++    Json.put(state, "durationSeconds", record.durationSeconds());
++    Json.put(state, "durationUs", record.durationUs());
++    Json.put(state, "senderProvided", record.isSenderProvided());
++    Json.put(state, "origin", record.origin());
++  }
++
++  /** Mirrors the chain states of the scheduler back into the page state. */
++  private void publishChains() {
++    if (state.has("uploads")) {
++      JSONObject uploads = new JSONObject();
++      for (UploadState chain : scheduler.chains().values()) {
++        Json.put(uploads, chain.id(), chain.toJson());
+       }
+-      return result;
++      Json.put(state, "uploads", uploads);
++    }
++    UploadState single = scheduler.chain(attachmentId);
++    if (single != null) {
++      Json.put(state, "upload", single.toJson());
++    }
++  }
++
++  private JSONObject exportedRow(JSONObject attachment, WaveformRecord record) {
++    JSONObject json = new JSONObject();
++    Json.put(json, "contentType", attachment == null ? "" : attachment.optString("contentType"));
++    Json.put(json, "hasWaveform", record != null && record.isRenderable());
++    if (record != null) {
++      Json.put(json, "waveformBarCount", record.barCount());
++      Json.put(json, "bytes", record.barsJson());
++      Json.put(json, "durationSeconds", record.durationSeconds());
++      Json.put(json, "senderProvided", record.isSenderProvided());
++      Json.put(json, "origin", record.origin());
+     }
+-    for (int i = 0; i < source.optInt("barCount", 0); i++) result.put(source.optInt("fill", 0));
+-    return result;
++    return json;
+   }
+ 
+-  private JSONObject emptyRecord() throws JSONException {
+-    return new JSONObject().put("bytes", new JSONArray()).put("barCount", 0)
+-        .put("durationUs", 0).put("durationSeconds", 0);
++  private JSONObject incomingRow(String attachmentId, JSONObject pointer, WaveformRecord record) {
++    JSONObject json = record == null ? new JSONObject() : Json.copyOf(record.toJson());
++    Json.put(json, "id", attachmentId);
++    Json.put(json, "contentType", pointer == null ? "" : pointer.optString("contentType"));
++    Json.put(json, "cdnKey", pointer == null ? "" : pointer.optString("cdnKey"));
++    return json;
+   }
+-  private void persistRecord(JSONObject record) { preferences.edit().putString("waveform", record.toString()).commit(); }
+-  private JSONObject readRecord() throws JSONException {
+-    String raw = preferences.getString("waveform", null);
+-    return raw == null ? null : new JSONObject(raw);
++
++  /** The attachment pointer of the incoming envelope, whatever shape it arrived in. */
++  private JSONObject incomingPointer() {
++    JSONObject envelope = input.optJSONObject("incomingEnvelope");
++    JSONObject pointer = envelope == null ? null : envelope.optJSONObject("attachmentPointer");
++    if (pointer == null) {
++      pointer = input.optJSONObject("incomingAttachmentPointer");
++    }
++    if (pointer == null) {
++      pointer = input.optJSONObject("attachmentPointer");
++    }
++    return pointer;
++  }
++
++  private String incomingAttachmentId() {
++    JSONObject pointer = incomingPointer();
++    if (pointer == null) {
++      return "";
++    }
++    String id = pointer.optString("id");
++    if (!id.isEmpty()) {
++      return id;
++    }
++    String cdnKey = pointer.optString("cdnKey");
++    return cdnKey.isEmpty() ? "" : cdnKey;
++  }
++
++  private int serviceWaveformLimit() {
++    return input.optInt("serviceWaveformLimit", SERVICE_WAVEFORM_LIMIT);
++  }
++
++  private boolean isAudioAttachment() {
++    JSONObject attachment = input.optJSONObject("attachment");
++    return attachment != null && new PendingAttachment(attachment.optString("id"), attachment.optString("contentType")).isAudio();
+   }
+-  private String attachmentId() { return input.optJSONObject("attachment").optString("id"); }
+-  private void call(String name) { productionCalls.put(name); }
+-  private void effect(String name, String id) throws JSONException { effects.put(new JSONObject().put("name", name).put("attachmentId", id)); }
+-  private static JSONObject cloneObject(JSONObject value) throws JSONException { return new JSONObject(value.toString()); }
+-  private static JSONArray cloneArray(JSONArray value) throws JSONException { return new JSONArray(value.toString()); }
+-}
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentBackupCodec.java b/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentBackupCodec.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..006959ebdf4840e1bd23d915ac348ff4fc864cef
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentBackupCodec.java
+@@ -0,0 +1,60 @@
++package org.signal.benchmark.waveform.attachment;
++
++import org.json.JSONException;
++import org.json.JSONObject;
++import org.signal.benchmark.waveform.Json;
++import org.signal.benchmark.waveform.waveform.WaveformRecord;
++
++/**
++ * Writes and reads the attachment rows a backup carries.
++ *
++ * <p>Waveform metadata is part of an attachment row, so a backup has to carry it: the sender
++ * magnitudes, their order, the duration, and the origin. The backup document is stored as it was
++ * written and parsed again on restore, so a round trip cannot quietly rewrite sender bytes or
++ * relabel a sender waveform as a local cache entry.
++ */
++public final class AttachmentBackupCodec {
++  private static final int BACKUP_VERSION = 1;
++  private static final String FIELD_VERSION = "version";
++  private static final String FIELD_ATTACHMENTS = "attachments";
++
++  private final AttachmentWaveformStore store;
++
++  public AttachmentBackupCodec(AttachmentWaveformStore store) {
++    this.store = store;
++  }
++
++  /** Serializes the row of {@code attachmentId} into a backup document. */
++  public String export(String attachmentId, WaveformRecord record) throws JSONException {
++    JSONObject backup = new JSONObject();
++    Json.put(backup, FIELD_VERSION, BACKUP_VERSION);
++    JSONObject rows = new JSONObject();
++    if (record != null) {
++      Json.put(rows, attachmentId == null ? "" : attachmentId, record.toJson());
++    }
++    Json.put(backup, FIELD_ATTACHMENTS, rows);
++    return backup.toString();
++  }
++
++  /**
++   * Restores {@code attachmentId} from a backup document into the attachment database and returns
++   * the row as it came back out of storage.
++   */
++  public WaveformRecord restore(String backupDocument, String attachmentId) throws JSONException {
++    if (backupDocument == null) {
++      return null;
++    }
++    JSONObject backup = new JSONObject(backupDocument);
++    JSONObject rows = backup.optJSONObject(FIELD_ATTACHMENTS);
++    if (rows == null) {
++      return null;
++    }
++    JSONObject row = rows.optJSONObject(attachmentId == null ? "" : attachmentId);
++    WaveformRecord record = WaveformRecord.fromJson(row);
++    if (record == null) {
++      return null;
++    }
++    store.save(attachmentId, record);
++    return store.read(attachmentId);
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentPointerSerializer.java b/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentPointerSerializer.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..814356e6faaaa0abce1d17da652e207b802a5919
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentPointerSerializer.java
+@@ -0,0 +1,36 @@
++package org.signal.benchmark.waveform.attachment;
++
++import org.json.JSONObject;
++import org.signal.benchmark.waveform.Json;
++import org.signal.benchmark.waveform.waveform.WaveformRecord;
++
++/**
++ * Builds the attachment pointer an audio attachment is sent with.
++ *
++ * <p>The upload identity and the encryption metadata are copied through exactly as they were: the
++ * waveform rides along as extra fields and never replaces them. Only an audio attachment that has
++ * stored bars and a positive duration carries waveform fields, so a pointer never advertises a
++ * waveform the attachment does not have.
++ */
++public final class AttachmentPointerSerializer {
++  /** Serializes the pointer for {@code record}, which is the row stored for this attachment. */
++  public JSONObject serialize(String contentType,
++                              String cdnKey,
++                              String encryptionDigest,
++                              boolean audio,
++                              WaveformRecord record) {
++    JSONObject pointer = new JSONObject();
++    Json.put(pointer, "contentType", orEmpty(contentType));
++    Json.put(pointer, "cdnKey", orEmpty(cdnKey));
++    Json.put(pointer, "encryptionDigest", orEmpty(encryptionDigest));
++    if (audio && record != null && record.isRenderable() && record.durationSeconds() > 0) {
++      Json.put(pointer, "audioWaveform", record.barsJson());
++      Json.put(pointer, "audioDurationSeconds", record.durationSeconds());
++    }
++    return pointer;
++  }
++
++  private static String orEmpty(String value) {
++    return value == null ? "" : value;
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentWaveformStore.java b/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentWaveformStore.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb9c291e82e7593b92ea40624b537db960c725b9
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/attachment/AttachmentWaveformStore.java
+@@ -0,0 +1,82 @@
++package org.signal.benchmark.waveform.attachment;
++
++import android.content.SharedPreferences;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import org.json.JSONException;
++import org.json.JSONObject;
++import org.signal.benchmark.waveform.waveform.WaveformRecord;
++
++/**
++ * The attachment side of the local database: one row per attachment holding the waveform that
++ * belongs to it.
++ *
++ * <p>Rows are stored as documents keyed by attachment, so a waveform is never shared between
++ * attachments, and every read parses the persisted document again. Reading a row back is therefore
++ * the same path the app takes when it reloads an attachment from the database, which keeps stored
++ * bytes and their origin intact across a reload.
++ */
++public final class AttachmentWaveformStore {
++  private static final String ROW_PREFIX = "attachment:";
++
++  private final SharedPreferences preferences;
++
++  public AttachmentWaveformStore(SharedPreferences preferences) {
++    this.preferences = preferences;
++  }
++
++  /** Drops every stored attachment row. */
++  public void clear() {
++    preferences.edit().clear().commit();
++  }
++
++  /** Writes the waveform row of {@code attachmentId}, replacing whatever was there. */
++  public void save(String attachmentId, WaveformRecord record) {
++    if (record == null) {
++      return;
++    }
++    preferences.edit().putString(rowKey(attachmentId), record.toJson().toString()).commit();
++  }
++
++  /** Re-reads and re-parses the stored row of {@code attachmentId}. */
++  public WaveformRecord read(String attachmentId) {
++    String row = preferences.getString(rowKey(attachmentId), null);
++    if (row == null) {
++      return null;
++    }
++    try {
++      return WaveformRecord.fromJson(new JSONObject(row));
++    } catch (JSONException error) {
++      return null;
++    }
++  }
++
++  /** True when the attachment already has bars that can be sent or drawn. */
++  public boolean hasRenderableWaveform(String attachmentId) {
++    WaveformRecord record = read(attachmentId);
++    return record != null && record.isRenderable();
++  }
++
++  /** Every stored attachment row, keyed by attachment. */
++  public Map<String, WaveformRecord> readAll() {
++    Map<String, WaveformRecord> rows = new LinkedHashMap<>();
++    Map<String, ?> stored = preferences.getAll();
++    if (stored == null) {
++      return rows;
++    }
++    for (String key : stored.keySet()) {
++      if (key == null || !key.startsWith(ROW_PREFIX)) {
++        continue;
++      }
++      WaveformRecord record = read(key.substring(ROW_PREFIX.length()));
++      if (record != null) {
++        rows.put(key.substring(ROW_PREFIX.length()), record);
++      }
++    }
++    return rows;
++  }
++
++  private static String rowKey(String attachmentId) {
++    return ROW_PREFIX + (attachmentId == null ? "" : attachmentId);
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/attachment/IncomingPointerValidator.java b/app/src/main/java/org/signal/benchmark/waveform/attachment/IncomingPointerValidator.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..d51e87f4ea93bb5e08e74a6c2e63452f4949ada4
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/attachment/IncomingPointerValidator.java
+@@ -0,0 +1,135 @@
++package org.signal.benchmark.waveform.attachment;
++
++import org.json.JSONArray;
++import org.json.JSONObject;
++import org.signal.benchmark.waveform.Json;
++import org.signal.benchmark.waveform.waveform.WaveformSamples;
++
++/**
++ * Fails closed on attachment metadata a service would never have produced.
++ *
++ * <p>An oversized waveform is rejected on the declared bar count, before the description is even
++ * expanded, so a payload that exceeds the service limit can never allocate its way into the
++ * attachment database or the renderer. Magnitudes that are not unsigned bytes are rejected the
++ * same way. A pointer without waveform fields is accepted as an attachment without a waveform.
++ */
++public final class IncomingPointerValidator {
++  /** Bars a sender may attach to a single voice note. */
++  public static final int SERVICE_WAVEFORM_LIMIT = 100;
++
++  static final String CODE_ACCEPTED = "OK";
++  static final String CODE_TOO_LARGE = "AUDIO_WAVEFORM_TOO_LARGE";
++  static final String CODE_MALFORMED = "MALFORMED_AUDIO_WAVEFORM";
++  static final String CODE_NO_POINTER = "MALFORMED_ATTACHMENT_POINTER";
++
++  static final String REASON_TOO_LARGE = "audio_waveform_too_large";
++  static final String REASON_MALFORMED = "malformed_audio_waveform";
++  static final String REASON_NO_POINTER = "malformed_attachment_pointer";
++
++  /** Validates the waveform carried by {@code pointer} against {@code limit}. */
++  public Result validate(JSONObject pointer, int limit) {
++    if (pointer == null) {
++      return Result.rejected(CODE_NO_POINTER, REASON_NO_POINTER, limit, -1, 0d);
++    }
++    JSONObject waveform = describe(pointer.opt("audioWaveform"));
++    double durationSeconds = pointer.optDouble("audioDurationSeconds", 0d);
++    if (waveform == null) {
++      return Result.accepted(limit, null, durationSeconds);
++    }
++    int declared = WaveformSamples.declaredBarCount(waveform);
++    if (declared < 0) {
++      return Result.rejected(CODE_MALFORMED, REASON_MALFORMED, limit, declared, durationSeconds);
++    }
++    if (declared > limit) {
++      return Result.rejected(CODE_TOO_LARGE, REASON_TOO_LARGE, limit, declared, durationSeconds);
++    }
++    int[] bars = WaveformSamples.read(waveform);
++    if (bars == null) {
++      return Result.rejected(CODE_MALFORMED, REASON_MALFORMED, limit, declared, durationSeconds);
++    }
++    return Result.accepted(limit, bars, durationSeconds);
++  }
++
++  /** Normalizes the shapes a waveform field can arrive in into a description document. */
++  private static JSONObject describe(Object raw) {
++    if (raw == null || raw == JSONObject.NULL) {
++      return null;
++    }
++    if (raw instanceof JSONObject) {
++      return (JSONObject) raw;
++    }
++    if (raw instanceof JSONArray) {
++      JSONObject description = new JSONObject();
++      Json.put(description, "bytes", raw);
++      return description;
++    }
++    return new JSONObject();
++  }
++
++  /** The outcome of validating one attachment pointer. */
++  public static final class Result {
++    private final boolean accepted;
++    private final String code;
++    private final String reason;
++    private final int limit;
++    private final int declaredBarCount;
++    private final double durationSeconds;
++    private final int[] bars;
++
++    private Result(boolean accepted,
++                   String code,
++                   String reason,
++                   int limit,
++                   int[] bars,
++                   int declaredBarCount,
++                   double durationSeconds) {
++      this.accepted = accepted;
++      this.code = code;
++      this.reason = reason;
++      this.limit = limit;
++      this.bars = bars;
++      this.declaredBarCount = declaredBarCount;
++      this.durationSeconds = durationSeconds;
++    }
++
++    static Result accepted(int limit, int[] bars, double durationSeconds) {
++      return new Result(true, CODE_ACCEPTED, null, limit, bars,
++          bars == null ? -1 : bars.length, durationSeconds);
++    }
++
++    static Result rejected(String code,
++                           String reason,
++                           int limit,
++                           int declaredBarCount,
++                           double durationSeconds) {
++      return new Result(false, code, reason, limit, null, declaredBarCount, durationSeconds);
++    }
++
++    public boolean isAccepted() {
++      return accepted;
++    }
++
++    public String reason() {
++      return reason;
++    }
++
++    public double durationSeconds() {
++      return durationSeconds;
++    }
++
++    /** The validated magnitudes, exactly as they arrived, or null when none were accepted. */
++    public int[] bars() {
++      return bars == null ? null : bars.clone();
++    }
++
++    public JSONObject toJson() {
++      JSONObject json = new JSONObject();
++      Json.put(json, "accepted", accepted);
++      Json.put(json, "reason", reason == null ? JSONObject.NULL : reason);
++      Json.put(json, "code", code);
++      Json.put(json, "limit", limit);
++      Json.put(json, "barCount", declaredBarCount < 0 ? JSONObject.NULL : declaredBarCount);
++      return json;
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/upload/AttachmentUploadScheduler.java b/app/src/main/java/org/signal/benchmark/waveform/upload/AttachmentUploadScheduler.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..83c684ff686cebee4282afcb84e4edaf2976d116
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/upload/AttachmentUploadScheduler.java
+@@ -0,0 +1,125 @@
++package org.signal.benchmark.waveform.upload;
++
++import java.util.ArrayList;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import org.signal.benchmark.waveform.ProductionTrace;
++import org.signal.benchmark.waveform.attachment.AttachmentWaveformStore;
++import org.signal.benchmark.waveform.waveform.WaveformGenerator;
++import org.signal.benchmark.waveform.waveform.WaveformRecord;
++
++/**
++ * Runs attachment upload chains.
++ *
++ * <p>Each attachment gets its own chain so one attachment's dependency can never stall another's.
++ * An audio chain is compressed first and then held until its waveform has been generated and
++ * stored; only then does its upload start, exactly once. Releasing a held chain continues the work
++ * that was already in flight rather than starting a second chain.
++ */
++public final class AttachmentUploadScheduler {
++  private final AttachmentWaveformStore store;
++  private final WaveformGenerator generator;
++  private final ProductionTrace trace;
++  private final Map<String, UploadState> chains = new LinkedHashMap<>();
++
++  public AttachmentUploadScheduler(AttachmentWaveformStore store,
++                                  WaveformGenerator generator,
++                                  ProductionTrace trace) {
++    this.store = store;
++    this.generator = generator;
++    this.trace = trace;
++  }
++
++  /** Forgets every chain, for example when the page is mounted with a new attachment. */
++  public void reset() {
++    chains.clear();
++  }
++
++  /** All chains started since the last reset, in the order they started. */
++  public Map<String, UploadState> chains() {
++    return chains;
++  }
++
++  public UploadState chain(String attachmentId) {
++    return chains.get(attachmentId);
++  }
++
++  /**
++   * Compresses {@code pending} and starts its upload. An audio attachment without stored bars is
++   * held until generation finishes; an attachment that already has bars, or that is not audio at
++   * all, uploads straight away. A chain that is already in flight is never restarted, so one
++   * attachment can only ever upload once.
++   */
++  public UploadState start(PendingAttachment pending) {
++    UploadState existing = chains.get(pending.id());
++    if (existing != null) {
++      return existing;
++    }
++
++    UploadState chain = new UploadState(pending.id());
++    chain.waveformRequired(pending.isAudio());
++    chains.put(chain.id(), chain);
++
++    trace.effect("compressAttachment", chain.id());
++    chain.compressed();
++
++    if (!chain.requiresWaveform()) {
++      beginUpload(chain);
++      return chain;
++    }
++    if (store.hasRenderableWaveform(chain.id())) {
++      chain.waveformComplete();
++      beginUpload(chain);
++      return chain;
++    }
++    chain.waveformPending();
++    return chain;
++  }
++
++  /**
++   * Generates the waveform of every held audio chain and then uploads it. Chains that already
++   * uploaded, or that never waited for a waveform, are left untouched.
++   */
++  public Map<String, UploadState> releaseHeld(int[] decodedPcm, long durationUs) {
++    Map<String, UploadState> released = new LinkedHashMap<>();
++    for (UploadState chain : new ArrayList<>(chains.values())) {
++      if (!chain.isHeld()) {
++        continue;
++      }
++      generateAndUpload(chain, decodedPcm, durationUs);
++      released.put(chain.id(), chain);
++    }
++    return released;
++  }
++
++  /**
++   * Resumes the chain of {@code attachmentId} once its bars exist, no matter which path produced
++   * them. A chain that already uploaded is not uploaded again.
++   */
++  public UploadState onWaveformReady(String attachmentId) {
++    UploadState chain = chains.get(attachmentId);
++    if (chain != null && chain.isHeld() && store.hasRenderableWaveform(attachmentId)) {
++      chain.waveformComplete();
++      beginUpload(chain);
++    }
++    return chain;
++  }
++
++  private void generateAndUpload(UploadState chain, int[] decodedPcm, long durationUs) {
++    trace.effect("decodeAudio", chain.id());
++    WaveformRecord record = generator.generate(decodedPcm, durationUs);
++    store.save(chain.id(), record);
++    trace.effect("persistGeneratedWaveform", chain.id());
++    chain.waveformComplete();
++    beginUpload(chain);
++  }
++
++  private void beginUpload(UploadState chain) {
++    if (chain.isUploadStarted()) {
++      return;
++    }
++    trace.effect("uploadAttachment", chain.id());
++    chain.uploaded();
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/upload/PendingAttachment.java b/app/src/main/java/org/signal/benchmark/waveform/upload/PendingAttachment.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..64dba7e3366fd111115e76ef67d6ac1178f61cd0
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/upload/PendingAttachment.java
+@@ -0,0 +1,33 @@
++package org.signal.benchmark.waveform.upload;
++
++import java.util.Locale;
++
++/**
++ * An attachment queued for upload: its identity and the media type that decides its chain.
++ *
++ * <p>The media type, not the message the attachment happens to ride in, is what selects the chain.
++ * An audio attachment carries a waveform and therefore waits for it; nothing else in the same
++ * message is held back.
++ */
++public final class PendingAttachment {
++  private final String id;
++  private final String contentType;
++
++  public PendingAttachment(String id, String contentType) {
++    this.id = id == null ? "" : id;
++    this.contentType = contentType == null ? "" : contentType;
++  }
++
++  public String id() {
++    return id;
++  }
++
++  public String contentType() {
++    return contentType;
++  }
++
++  /** Only audio attachments get waveform generation work. */
++  public boolean isAudio() {
++    return contentType.toLowerCase(Locale.US).startsWith("audio");
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/upload/UploadState.java b/app/src/main/java/org/signal/benchmark/waveform/upload/UploadState.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..04a99d2a18a8c663cd0189ffed74ba7ae612d558
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/upload/UploadState.java
+@@ -0,0 +1,81 @@
++package org.signal.benchmark.waveform.upload;
++
++import org.json.JSONObject;
++import org.signal.benchmark.waveform.Json;
++
++/**
++ * How far a single attachment upload chain has progressed.
++ *
++ * <p>Compression always comes first. An audio chain then reports pending waveform generation and an
++ * upload that has not started, and only becomes uploadable once its bars are stored. A chain for
++ * any other media type never has waveform work at all.
++ */
++public final class UploadState {
++  private static final String NOT_SCHEDULED = "not_scheduled";
++
++  private final String id;
++  private boolean waveformRequired;
++  private boolean awaitedWaveform;
++  private String compression = "pending";
++  private String waveformGeneration = NOT_SCHEDULED;
++  private String upload = "waiting_for_waveform";
++  private boolean uploadStarted;
++
++  UploadState(String id) {
++    this.id = id == null ? "" : id;
++  }
++
++  public String id() {
++    return id;
++  }
++
++  void compressed() {
++    compression = "complete";
++  }
++
++  void waveformPending() {
++    waveformGeneration = "pending";
++    awaitedWaveform = true;
++  }
++
++  void waveformComplete() {
++    waveformGeneration = "complete";
++  }
++
++  void waveformRequired(boolean waveformRequired) {
++    this.waveformRequired = waveformRequired;
++  }
++
++  void uploaded() {
++    uploadStarted = true;
++    upload = "complete";
++  }
++
++  boolean isHeld() {
++    return requiresWaveform() && !uploadStarted;
++  }
++
++  boolean requiresWaveform() {
++    return waveformRequired;
++  }
++
++  /** True when this chain had to wait for its waveform before it could upload. */
++  public boolean hasAwaitedWaveform() {
++    return awaitedWaveform;
++  }
++
++  public boolean isUploadStarted() {
++    return uploadStarted;
++  }
++
++  public JSONObject toJson() {
++    JSONObject json = new JSONObject();
++    Json.put(json, "compression", compression);
++    Json.put(json, "waveformGeneration", waveformGeneration);
++    Json.put(json, "upload", upload);
++    Json.put(json, "waveformRequired", waveformRequired);
++    Json.put(json, "uploadStarted", uploadStarted);
++    Json.put(json, "awaitedWaveform", awaitedWaveform);
++    return json;
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformGenerator.java b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformGenerator.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..19fc5027ed70d37cd4d17c4aeb525a66065ea43e
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformGenerator.java
+@@ -0,0 +1,55 @@
++package org.signal.benchmark.waveform.waveform;
++
++/**
++ * Derives the bars of a clip from its decoded samples.
++ *
++ * <p>The generator works on decoded audio, never on positions inside the encoded file: the samples
++ * are split into as many buckets as bars, each bucket contributes its loudest sample, and the
++ * buckets are scaled against the loudest sample of the whole clip. The result is deterministic and
++ * bounded, silence produces all zero bars and full scale audio produces full scale bars.
++ */
++public final class WaveformGenerator {
++  /** Bars a freshly generated waveform carries. */
++  public static final int GENERATED_BAR_COUNT = 100;
++
++  private static final int FULL_SCALE_MAGNITUDE = 255;
++
++  /**
++   * Generates the waveform of {@code samples} measured over {@code durationUs}.
++   *
++   * @param samples    decoded samples of the clip, or null when no audio could be decoded
++   * @param durationUs length of the clip in microseconds
++   */
++  public WaveformRecord generate(int[] samples, long durationUs) {
++    int[] bars = new int[GENERATED_BAR_COUNT];
++    if (samples != null && samples.length > 0) {
++      int loudest = 0;
++      for (int sample : samples) {
++        loudest = Math.max(loudest, magnitude(sample));
++      }
++      for (int bar = 0; bar < GENERATED_BAR_COUNT; bar++) {
++        int start = (int) ((long) bar * samples.length / GENERATED_BAR_COUNT);
++        int end = (int) Math.min((long) samples.length,
++            Math.max((long) start + 1, (long) (bar + 1) * samples.length / GENERATED_BAR_COUNT));
++        int peak = 0;
++        for (int i = start; i < end; i++) {
++          peak = Math.max(peak, magnitude(samples[i]));
++        }
++        bars[bar] = scale(peak, loudest);
++      }
++    }
++    return WaveformRecord.generated(bars, durationUs);
++  }
++
++  private static int scale(int peak, int loudest) {
++    if (loudest <= 0) {
++      return 0;
++    }
++    return Math.min(FULL_SCALE_MAGNITUDE, (int) Math.round((double) FULL_SCALE_MAGNITUDE * peak / loudest));
++  }
++
++  private static int magnitude(int sample) {
++    long value = sample < 0 ? -(long) sample : (long) sample;
++    return (int) Math.min(value, Integer.MAX_VALUE);
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformRecord.java b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformRecord.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..37a9021e99b1d5256623a5c584e0ddc393a829e4
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformRecord.java
+@@ -0,0 +1,146 @@
++package org.signal.benchmark.waveform.waveform;
++
++import org.json.JSONArray;
++import org.json.JSONObject;
++import org.signal.benchmark.waveform.Json;
++
++/**
++ * The waveform of a single audio attachment: the unsigned bar magnitudes, the clip duration, and
++ * where the bytes came from.
++ *
++ * <p>Origin matters for the rest of the pipeline. Bars the local decoder produced can be
++ * regenerated whenever the bar count they were built with is obsolete, while bars a sender sent
++ * are authoritative and must be carried through persistence, rendering and backup untouched.
++ */
++public final class WaveformRecord {
++  /** Origin of bars produced locally from decoded audio. */
++  public static final String ORIGIN_LOCAL = "local";
++
++  /** Origin of bars a remote party sent with the attachment pointer. */
++  public static final String ORIGIN_SENDER = "sender";
++
++  private static final double MICROS_PER_SECOND = 1_000_000d;
++
++  private final int[] bars;
++  private final double durationSeconds;
++  private final boolean senderProvided;
++
++  private WaveformRecord(int[] bars, double durationSeconds, boolean senderProvided) {
++    this.bars = bars;
++    this.durationSeconds = durationSeconds;
++    this.senderProvided = senderProvided;
++  }
++
++  /** The explicit empty record generation leaves behind when it is interrupted or fails. */
++  public static WaveformRecord placeholder() {
++    return new WaveformRecord(new int[0], 0d, false);
++  }
++
++  /** Bars derived from decoded local audio, measured over {@code durationUs}. */
++  public static WaveformRecord generated(int[] bars, long durationUs) {
++    return new WaveformRecord(bars.clone(), durationUs / MICROS_PER_SECOND, false);
++  }
++
++  /** Bars a remote party sent alongside the attachment pointer. */
++  public static WaveformRecord fromSender(int[] bars, double durationSeconds) {
++    return new WaveformRecord(bars.clone(), durationSeconds, true);
++  }
++
++  /** Reads a record that was written by {@link #toJson()} or exported into a backup. */
++  public static WaveformRecord fromJson(JSONObject json) {
++    if (json == null) {
++      return null;
++    }
++    int[] bars = WaveformSamples.read(json);
++    if (bars == null) {
++      return null;
++    }
++    return new WaveformRecord(bars, durationOf(json), json.optBoolean("senderProvided", false));
++  }
++
++  /** Reads the waveform an attachment was mounted with, whatever shape it arrived in. */
++  public static WaveformRecord fromStoredWaveform(JSONObject stored) {
++    if (stored == null) {
++      return null;
++    }
++    int[] bars = WaveformSamples.read(stored);
++    if (bars == null) {
++      return null;
++    }
++    JSONObject json = new JSONObject();
++    Json.put(json, "bytes", WaveformSamples.toJson(bars));
++    if (stored.has("durationSeconds") && !stored.isNull("durationSeconds")) {
++      Json.put(json, "durationSeconds", stored.optDouble("durationSeconds", 0d));
++    } else {
++      Json.put(json, "durationUs", stored.optLong("durationUs", 0L));
++    }
++    Json.put(json, "senderProvided", stored.optBoolean("senderProvided", false));
++    return fromJson(json);
++  }
++
++  private static double durationOf(JSONObject json) {
++    if (json.has("durationSeconds") && !json.isNull("durationSeconds")) {
++      return json.optDouble("durationSeconds", 0d);
++    }
++    return json.optLong("durationUs", 0L) / MICROS_PER_SECOND;
++  }
++
++  public JSONObject toJson() {
++    JSONObject json = new JSONObject();
++    Json.put(json, "bytes", barsJson());
++    Json.put(json, "barCount", bars.length);
++    Json.put(json, "durationSeconds", durationSeconds);
++    Json.put(json, "durationUs", durationUs());
++    Json.put(json, "senderProvided", senderProvided);
++    Json.put(json, "origin", origin());
++    return json;
++  }
++
++  public JSONArray barsJson() {
++    return WaveformSamples.toJson(bars);
++  }
++
++  public int[] bars() {
++    return bars.clone();
++  }
++
++  public int barCount() {
++    return bars.length;
++  }
++
++  public double durationSeconds() {
++    return durationSeconds;
++  }
++
++  public long durationUs() {
++    return Math.round(durationSeconds * MICROS_PER_SECOND);
++  }
++
++  public boolean isSenderProvided() {
++    return senderProvided;
++  }
++
++  public String origin() {
++    return senderProvided ? ORIGIN_SENDER : ORIGIN_LOCAL;
++  }
++
++  /** True for the empty record an interrupted generation leaves: a failure, not silent audio. */
++  public boolean isPlaceholder() {
++    return bars.length == 0;
++  }
++
++  /** True when the record has bars and can be drawn or sent without the local media file. */
++  public boolean isRenderable() {
++    return bars.length > 0;
++  }
++
++  /** True when locally generated bars were built with an obsolete bar count. */
++  public boolean isStaleLocal(int currentBarCount) {
++    return !senderProvided && bars.length > 0 && bars.length != currentBarCount;
++  }
++
++  @Override
++  public String toString() {
++    return toJson().toString();
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformRenderer.java b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformRenderer.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..2dac19e12ace8fef14f3696dbfb0636ccf7597e1
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformRenderer.java
+@@ -0,0 +1,49 @@
++package org.signal.benchmark.waveform.waveform;
++
++import org.json.JSONArray;
++import org.signal.benchmark.waveform.Json;
++
++/**
++ * Turns a stored waveform into the render data the waveform view draws.
++ *
++ * <p>The view always draws a fixed number of bars, no matter how many bars a record happens to
++ * carry: a record a sender produced, a record the local generator produced, or a record that came
++ * back from a backup. Source magnitudes are read unsigned, each output bar takes the loudest
++ * magnitude of its deterministic bucket, and every value is normalized against full scale. Because
++ * nothing here touches the local media file, sender waveforms stay renderable even when the clip
++ * itself was never downloaded.
++ */
++public final class WaveformRenderer {
++  /** Bars the view draws, independent of how many bars were generated or transported. */
++  public static final int BAR_COUNT = 100;
++
++  private static final int FULL_SCALE_MAGNITUDE = 255;
++
++  /** Renders {@code record} into {@link #BAR_COUNT} normalized bars. */
++  public JSONArray render(WaveformRecord record) {
++    JSONArray bars = new JSONArray();
++    if (record == null) {
++      return bars;
++    }
++    int[] source = record.bars();
++    for (int bar = 0; bar < BAR_COUNT; bar++) {
++      int start = bucketStart(bar, source.length);
++      int end = bucketEnd(bar, source.length);
++      int loudest = 0;
++      for (int i = start; i < end; i++) {
++        loudest = Math.max(loudest, source[i]);
++      }
++      Json.put(bars, loudest / (double) FULL_SCALE_MAGNITUDE);
++    }
++    return bars;
++  }
++
++  private static int bucketStart(int bar, int sourceLength) {
++    return (int) ((long) bar * sourceLength / BAR_COUNT);
++  }
++
++  private static int bucketEnd(int bar, int sourceLength) {
++    return (int) Math.min((long) sourceLength,
++        Math.max((long) bucketStart(bar, sourceLength) + 1, (long) (bar + 1) * sourceLength / BAR_COUNT));
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformSamples.java b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformSamples.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..c6cec25570aaa6ea287700137c3bbc0d6ecf5d55
+--- /dev/null
++++ b/app/src/main/java/org/signal/benchmark/waveform/waveform/WaveformSamples.java
+@@ -0,0 +1,151 @@
++package org.signal.benchmark.waveform.waveform;
++
++import org.json.JSONArray;
++import org.json.JSONObject;
++
++/**
++ * Reads and writes the unsigned waveform bar magnitudes in the shapes an attachment carries them
++ * in: a plain byte array, a run length expansion, or a repeated value description.
++ *
++ * <p>A magnitude is always an unsigned value from 0 (silence) through 255 (full scale). Anything
++ * outside that range is not a waveform and is reported as unusable rather than silently clamped,
++ * so a caller can fail closed instead of rendering bytes a sender never sent.
++ */
++public final class WaveformSamples {
++  private static final int MAX_UNSIGNED_MAGNITUDE = 255;
++
++  /** Guards against expanding a corrupt description into an unbounded array. */
++  private static final int MAX_EXPANDED_BARS = 100_000;
++
++  private WaveformSamples() {
++  }
++
++  /** Returns the unsigned magnitudes of {@code source}, or null when it is not a waveform. */
++  public static int[] read(JSONObject source) {
++    if (source == null) {
++      return null;
++    }
++    JSONArray bytes = source.optJSONArray("bytes");
++    if (bytes != null) {
++      return magnitudes(bytes);
++    }
++    JSONArray segments = source.optJSONArray("segments");
++    if (segments != null) {
++      return expand(segments);
++    }
++    if (source.has("barCount")) {
++      return repeated(source.optInt("barCount", -1), unsigned(source.opt("fill")));
++    }
++    return null;
++  }
++
++  /**
++   * How many bars a description claims to carry, without expanding it. Returns -1 when the
++   * description is unusable, so a caller can reject oversized metadata before allocating for it.
++   */
++  public static int declaredBarCount(JSONObject source) {
++    if (source == null) {
++      return -1;
++    }
++    JSONArray bytes = source.optJSONArray("bytes");
++    if (bytes != null) {
++      return bytes.length();
++    }
++    JSONArray segments = source.optJSONArray("segments");
++    if (segments != null) {
++      int total = 0;
++      for (int i = 0; i < segments.length(); i++) {
++        JSONObject segment = segments.optJSONObject(i);
++        if (segment == null) {
++          return -1;
++        }
++        int count = segment.optInt("count", -1);
++        if (count < 0) {
++          return -1;
++        }
++        total += count;
++        if (total > MAX_EXPANDED_BARS) {
++          return -1;
++        }
++      }
++      return total;
++    }
++    if (source.has("barCount")) {
++      int count = source.optInt("barCount", -1);
++      return count < 0 || count > MAX_EXPANDED_BARS ? -1 : count;
++    }
++    return -1;
++  }
++
++  public static JSONArray toJson(int[] bars) {
++    JSONArray array = new JSONArray();
++    for (int bar : bars) {
++      array.put(bar);
++    }
++    return array;
++  }
++
++  private static int[] magnitudes(JSONArray bytes) {
++    int[] bars = new int[bytes.length()];
++    for (int i = 0; i < bars.length; i++) {
++      Integer value = unsigned(bytes.opt(i));
++      if (value == null) {
++        return null;
++      }
++      bars[i] = value;
++    }
++    return bars;
++  }
++
++  private static int[] expand(JSONArray segments) {
++    int total = 0;
++    for (int i = 0; i < segments.length(); i++) {
++      JSONObject segment = segments.optJSONObject(i);
++      if (segment == null) {
++        return null;
++      }
++      int count = segment.optInt("count", -1);
++      if (count < 0) {
++        return null;
++      }
++      total += count;
++      if (total > MAX_EXPANDED_BARS) {
++        return null;
++      }
++    }
++    int[] bars = new int[total];
++    int index = 0;
++    for (int i = 0; i < segments.length(); i++) {
++      // Safe to look up without a checked exception: every element was verified above.
++      JSONObject segment = segments.optJSONObject(i);
++      Integer value = unsigned(segment.opt("value"));
++      int count = segment.optInt("count", 0);
++      if (value == null && count > 0) {
++        return null;
++      }
++      while (count-- > 0) {
++        bars[index++] = value == null ? 0 : value;
++      }
++    }
++    return bars;
++  }
++
++  private static int[] repeated(int count, Integer fill) {
++    if (count < 0 || count > MAX_EXPANDED_BARS || (fill == null && count > 0)) {
++      return null;
++    }
++    int[] bars = new int[count];
++    for (int i = 0; i < count; i++) {
++      bars[i] = fill == null ? 0 : fill;
++    }
++    return bars;
++  }
++
++  private static Integer unsigned(Object raw) {
++    if (!(raw instanceof Number)) {
++      return null;
++    }
++    int value = ((Number) raw).intValue();
++    return value < 0 || value > MAX_UNSIGNED_MAGNITUDE ? null : value;
++  }
++}
+\ No newline at end of file

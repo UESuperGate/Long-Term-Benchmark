@@ -1,0 +1,1732 @@
+{
+  "schemaVersion": 2,
+  "taskId": "05_domain_management",
+  "platform": "android",
+  "role": "base",
+  "observationMode": "runtime_state_transition",
+  "runtime": "Android API37 DomainActivity page-owner instrumentation",
+  "device": {
+    "serial": "emulator-5554",
+    "apiLevel": 37
+  },
+  "codeGeneration": {
+    "passed": true,
+    "changedProductionFiles": [
+      {
+        "path": "src/main/AndroidManifest.xml",
+        "bytes": 520,
+        "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+      },
+      {
+        "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+        "bytes": 1746,
+        "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+      },
+      {
+        "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+        "bytes": 5641,
+        "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+      }
+    ]
+  },
+  "compile": {
+    "passed": true,
+    "command": [
+      "bash",
+      "build.sh"
+    ],
+    "artifacts": [
+      {
+        "path": "build/outputs/apk/debug/wordpress-domain-management-23-6-debug.apk",
+        "bytes": 13135,
+        "sha256": "46dcead86b4838521f228ee2e3c878a9841f757dfce285fb5d09412a0b39124d"
+      },
+      {
+        "path": "build/outputs/apk/androidTest/debug/wordpress-domain-management-23-6-debug-androidTest.apk",
+        "bytes": 26976,
+        "sha256": "3c6456845356cba85cde4823015474fde3cdb619cb1693242895a8db60b5eb40"
+      }
+    ]
+  },
+  "semantic": {
+    "summary": {
+      "passed": 0,
+      "failed": 10,
+      "notScored": 0,
+      "total": 10
+    },
+    "cases": [
+      {
+        "caseId": "dm_state_001_loaded_add_domain_entry",
+        "key": "loaded_add_domain_entry",
+        "traceDigest": "ed6c818c3bf2ab0f8b0cdc1d1dff04f780a8942cf2e9036ff1f4cf5b204552cb",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openDomainManagementThenTapAddDomain"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "listState": "complete",
+                "visibleDomains": [
+                  "alpha.example",
+                  "beta.example"
+                ],
+                "addDomainEnabled": true,
+                "destination": null
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "listState": "complete",
+            "visibleDomains": [
+              "alpha.example",
+              "beta.example"
+            ],
+            "addDomainEnabled": true,
+            "destination": null
+          },
+          "effects": [
+            {
+              "name": "fetchAllDomains",
+              "count": 1
+            }
+          ]
+        },
+        "effects": [
+          {
+            "name": "fetchAllDomains",
+            "count": 1
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the visible rows are produced by the application-owned all-domains mapping",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "complete",
+                  "visibleDomains": [
+                    "alpha.example",
+                    "beta.example"
+                  ],
+                  "addDomainEnabled": true,
+                  "destination": null
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the add action is enabled only after a loaded or empty result",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "complete",
+                  "visibleDomains": [
+                    "alpha.example",
+                    "beta.example"
+                  ],
+                  "addDomainEnabled": true,
+                  "destination": null
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "opening search does not alter the loaded account-domain collection",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "complete",
+                  "visibleDomains": [
+                    "alpha.example",
+                    "beta.example"
+                  ],
+                  "addDomainEnabled": true,
+                  "destination": null
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_002_empty_find_domain_entry",
+        "key": "empty_find_domain_entry",
+        "traceDigest": "efc4bb85f7d579ab57ade3d03d45cf1eae017e2fabc60e75a6935f838d550897",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openDomainManagementThenTapFindDomain"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "listState": "empty",
+                "searchEnabled": false,
+                "findDomainEnabled": true,
+                "destination": null
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "listState": "empty",
+            "searchEnabled": false,
+            "findDomainEnabled": true,
+            "destination": null
+          },
+          "effects": [
+            {
+              "name": "fetchAllDomains",
+              "count": 1
+            }
+          ]
+        },
+        "effects": [
+          {
+            "name": "fetchAllDomains",
+            "count": 1
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "an empty account is distinct from a failed load",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "empty",
+                  "searchEnabled": false,
+                  "findDomainEnabled": true,
+                  "destination": null
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the empty-state action traverses the same production add-domain route as the toolbar action",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "empty",
+                  "searchEnabled": false,
+                  "findDomainEnabled": true,
+                  "destination": null
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "no synthetic domain is inserted before search",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "empty",
+                  "searchEnabled": false,
+                  "findDomainEnabled": true,
+                  "destination": null
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_003_error_retry_recovery",
+        "key": "error_retry_recovery",
+        "traceDigest": "8b0204d844540819728033c8c954b3bd4478b26fd87c2ff4e0e1fd611ccb2009",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openDomainManagement",
+          "DomainPageOwner.waitForListError",
+          "DomainPageOwner.tapRetry"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "listState": "error"
+              }
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "listState": "error"
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "listState": "error"
+          },
+          "effects": [
+            {
+              "name": "fetchAllDomains",
+              "count": 1
+            }
+          ]
+        },
+        "effects": [
+          {
+            "name": "fetchAllDomains",
+            "count": 1
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the error precondition is established by the first production fetch",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "error"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "error"
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "retry performs a new all-domains request rather than relabeling the old error",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "error"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "error"
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "only the successful retry result becomes visible",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "error"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "error"
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_004_filter_clear_round_trip",
+        "key": "filter_clear_round_trip",
+        "traceDigest": "1dd0ab488a0dbb79f25d53fa8f20e69015ca45463d28b108cd5defd9b5341782",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openDomainManagementWithLoadedDomains",
+          "DomainPageOwner.enterLocalFilter",
+          "DomainPageOwner.waitForFilteredState",
+          "DomainPageOwner.clearLocalFilter"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "listState": "filtered",
+                "visibleDomains": [],
+                "query": "STUDIO"
+              }
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "beforeClear": {
+                  "listState": "filtered",
+                  "visibleDomains": []
+                },
+                "afterClear": {
+                  "listState": "complete",
+                  "visibleDomains": [
+                    "alpha.example",
+                    "beta.example"
+                  ],
+                  "query": ""
+                }
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "beforeClear": {
+              "listState": "filtered",
+              "visibleDomains": []
+            },
+            "afterClear": {
+              "listState": "complete",
+              "visibleDomains": [
+                "alpha.example",
+                "beta.example"
+              ],
+              "query": ""
+            }
+          },
+          "effects": [
+            {
+              "name": "fetchAllDomains",
+              "count": 1
+            },
+            {
+              "name": "filterLoadedDomains",
+              "normalizedQuery": "STUDIO"
+            },
+            {
+              "name": "restoreCompleteDomainList"
+            }
+          ]
+        },
+        "effects": [
+          {
+            "name": "fetchAllDomains",
+            "count": 1
+          },
+          {
+            "name": "filterLoadedDomains",
+            "normalizedQuery": "STUDIO"
+          },
+          {
+            "name": "restoreCompleteDomainList"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the filtered precondition is reached through the rendered query input",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "filtered",
+                  "visibleDomains": [],
+                  "query": "STUDIO"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "beforeClear": {
+                    "listState": "filtered",
+                    "visibleDomains": []
+                  },
+                  "afterClear": {
+                    "listState": "complete",
+                    "visibleDomains": [
+                      "alpha.example",
+                      "beta.example"
+                    ],
+                    "query": ""
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                },
+                {
+                  "name": "filterLoadedDomains",
+                  "normalizedQuery": "STUDIO"
+                },
+                {
+                  "name": "restoreCompleteDomainList"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "site-title matching is case-insensitive even when domain and site slug do not match",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "filtered",
+                  "visibleDomains": [],
+                  "query": "STUDIO"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "beforeClear": {
+                    "listState": "filtered",
+                    "visibleDomains": []
+                  },
+                  "afterClear": {
+                    "listState": "complete",
+                    "visibleDomains": [
+                      "alpha.example",
+                      "beta.example"
+                    ],
+                    "query": ""
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                },
+                {
+                  "name": "filterLoadedDomains",
+                  "normalizedQuery": "STUDIO"
+                },
+                {
+                  "name": "restoreCompleteDomainList"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "clearing restores the exact source identities without a network request",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "listState": "filtered",
+                  "visibleDomains": [],
+                  "query": "STUDIO"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "beforeClear": {
+                    "listState": "filtered",
+                    "visibleDomains": []
+                  },
+                  "afterClear": {
+                    "listState": "complete",
+                    "visibleDomains": [
+                      "alpha.example",
+                      "beta.example"
+                    ],
+                    "query": ""
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchAllDomains",
+                  "count": 1
+                },
+                {
+                  "name": "filterLoadedDomains",
+                  "normalizedQuery": "STUDIO"
+                },
+                {
+                  "name": "restoreCompleteDomainList"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_005_debounced_latest_search",
+        "key": "debounced_latest_search",
+        "traceDigest": "f6e4419ba3d87e197d5804c06de1c0fd101893e4fdb37dacceac28ddd2de116f",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.enterRemoteQuery",
+          "DomainPageOwner.enterRemoteQuery",
+          "DomainPageOwner.advanceControlledClockAndCompleteRequests"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          }
+        ],
+        "observed": {
+          "state": {},
+          "effects": []
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the 250 ms debounce is observed with a controlled production clock",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "only the latest normalized query owns visible state",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "a stale completion cannot replace the latest proposals",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_006_purchase_mode_entry",
+        "key": "purchase_mode_entry",
+        "traceDigest": "94257d318723b5dc3367cf93888c450ec5fbd0a36ed52969adf83cab94969d61",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.showProposals",
+          "DomainPageOwner.tapProposedDomain"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          }
+        ],
+        "observed": {
+          "state": {},
+          "effects": []
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the proposal is selected through the visible search result",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "product, domain, and privacy fields survive activity routing unchanged",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "entering purchase mode does not choose a mode or submit a cart",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_007_cart_failure_retry",
+        "key": "cart_failure_retry",
+        "traceDigest": "8661eeab2fbee708838a6956b39e52e4b351adc5ebf25d3ba53f6c770fd307ab",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openPurchaseModeFromProposal",
+          "DomainPageOwner.selectNewDomainMode",
+          "DomainPageOwner.waitForCartError",
+          "DomainPageOwner.acknowledgeCartErrorThenRetryNewDomain"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {}
+            }
+          }
+        ],
+        "observed": {
+          "state": {},
+          "effects": []
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the error state is established by executing the production cart request",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "acknowledging the error restores the same proposal before the explicit retry",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "only the successful retry emits checkout navigation",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {}
+              },
+              "effects": []
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_008_checkout_cancel",
+        "key": "checkout_cancel",
+        "traceDigest": "0d4591ef4b3db7ba2ac05131ac37f1b385fa3a40f451ab9c1adaa8bea64c6347",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openCheckout",
+          "DomainPageOwner.returnCheckoutResult"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "purchaseScreenOpen": true
+              }
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "purchaseScreenOpen": true,
+                "registrationOutcome": "unsupported"
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "purchaseScreenOpen": true,
+            "registrationOutcome": "unsupported"
+          },
+          "effects": []
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the cancellation enters through the typed checkout result contract",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true,
+                  "registrationOutcome": "unsupported"
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "cancellation closes the purchase flow without claiming registration success",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true,
+                  "registrationOutcome": "unsupported"
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "the selected domain identity remains available for the returning domain-management refresh",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true,
+                  "registrationOutcome": "unsupported"
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_009_checkout_success",
+        "key": "checkout_success",
+        "traceDigest": "e37b705c1813b8805a7e5cb62a3d185b03273ec54b434b0747ed4acaad46547d",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openCheckout",
+          "DomainPageOwner.returnCheckoutResult"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "purchaseScreenOpen": true
+              }
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "purchaseScreenOpen": true,
+                "registrationOutcome": "unsupported"
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "purchaseScreenOpen": true,
+            "registrationOutcome": "unsupported"
+          },
+          "effects": []
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the successful result enters through the production activity-result parser",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true,
+                  "registrationOutcome": "unsupported"
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "completion is recorded once before returning to All Domains",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true,
+                  "registrationOutcome": "unsupported"
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "no additional cart is created after checkout completion",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "purchaseScreenOpen": true,
+                  "registrationOutcome": "unsupported"
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      },
+      {
+        "caseId": "dm_state_010_details_url_allowlist_rejection",
+        "key": "details_url_allowlist_rejection",
+        "traceDigest": "524a27041d75884d0c6619517b77a6752db013a8232c88505b1941540940ddaf",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/AndroidManifest.xml",
+            "bytes": 520,
+            "sha256": "db68b3fe55f45565f03fee4fdc77cf58bb91218f79a4d73280bd78ccbcc7aae4"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainActivity.java",
+            "bytes": 1746,
+            "sha256": "ae10de104713a1bcc38566004b64372107990bc42b801f600ec234dbc3b3cc38"
+          },
+          {
+            "path": "src/main/java/org/wordpress/benchmark/domains/base/DomainPageOwner.java",
+            "bytes": 5641,
+            "sha256": "f79fe066d1cd185e8fa51b74e2cbf8681306e07289cf0118d6282131cfcf6826"
+          }
+        ],
+        "productionBodies": [
+          "DomainActivity.onCreate",
+          "DomainPageOwner.openDetails",
+          "DomainPageOwner.requestDetailsNavigation"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "containedWebViewUrl": "https://wordpress.com/domains/manage/all/some.domain/edit/contact"
+              }
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "ownerId": "android-domain-activity-owner",
+              "storeSource": "DomainActivity.DomainPageOwner",
+              "state": {
+                "containedWebViewUrl": "https://google.com/domains/manage/all/some.domain/edit/contact",
+                "requestedUrlLoadedInContainedWebView": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "containedWebViewUrl": "https://google.com/domains/manage/all/some.domain/edit/contact",
+            "requestedUrlLoadedInContainedWebView": true
+          },
+          "effects": []
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "an edit-shaped path on another host is still rejected",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "containedWebViewUrl": "https://wordpress.com/domains/manage/all/some.domain/edit/contact"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "containedWebViewUrl": "https://google.com/domains/manage/all/some.domain/edit/contact",
+                  "requestedUrlLoadedInContainedWebView": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "only wordpress.com and the matching managed-domain edit path may remain contained",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "containedWebViewUrl": "https://wordpress.com/domains/manage/all/some.domain/edit/contact"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "containedWebViewUrl": "https://google.com/domains/manage/all/some.domain/edit/contact",
+                  "requestedUrlLoadedInContainedWebView": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "rejection preserves the current allowed details page",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "containedWebViewUrl": "https://wordpress.com/domains/manage/all/some.domain/edit/contact"
+                }
+              },
+              "after": {
+                "ownerId": "android-domain-activity-owner",
+                "storeSource": "DomainActivity.DomainPageOwner",
+                "state": {
+                  "containedWebViewUrl": "https://google.com/domains/manage/all/some.domain/edit/contact",
+                  "requestedUrlLoadedInContainedWebView": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "android-domain-activity-owner",
+          "storeSource": "DomainActivity.DomainPageOwner",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "activityClass": "org.wordpress.benchmark.domains.base.DomainActivity",
+          "renderedSummary": true
+        }
+      }
+    ]
+  },
+  "diagnostics": {
+    "adapter": "ready",
+    "transport": "adb_instrumentation",
+    "productionEntryExecuted": true,
+    "sourceObserver": false,
+    "roleAffectsVerdict": false,
+    "setupError": null
+  },
+  "provenance": {
+    "contractSha256": "8755b3fe5bab63485fd1c8c2d2d9260931e27ae30d4096d28d29d45c34ece6dc",
+    "rawDirectory": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base",
+    "rawRecords": [
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/01-device-api-level.json",
+        "bytes": 275,
+        "sha256": "f9652ca7290a1ab54680d45c319c53e341606571d217814bb78a12f402ee96da"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/02-install-wordpress-domain-management-23-6-debug.apk.json",
+        "bytes": 519,
+        "sha256": "2b4535409a90721d12498f86501d57e6bdb4eccd81ca87d53963afad8ec7ec80"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/03-install-wordpress-domain-management-23-6-debug-androidTest.apk.json",
+        "bytes": 555,
+        "sha256": "4ffe27c05f44146c79a3e91ab8034e07801a15f94901b6b389e87bbbaf896aa5"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/04-case-dm_state_001_loaded_add_domain_entry-loaded_add_domain_entry.json",
+        "bytes": 11347,
+        "sha256": "bcdd301ec1d75a65ffad99078a2ee5dfcf43c193a33ac863b584ea9344a2c46a"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/05-case-dm_state_002_empty_find_domain_entry-empty_find_domain_entry.json",
+        "bytes": 9936,
+        "sha256": "d3cf470f9580a927e79bb92d768b96c2300278252b4af3e17194384e1636360c"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/06-case-dm_state_003_error_retry_recovery-error_retry_recovery.json",
+        "bytes": 10083,
+        "sha256": "f413d9f2a32e854ccd7d0e355549d12faa078c1af55685c7615e5835b701e36e"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/07-case-dm_state_004_filter_clear_round_trip-filter_clear_round_trip.json",
+        "bytes": 14517,
+        "sha256": "1f24240b697fac35369284c9761802a1b99a6423cf76e75eb8ef64c7f757c021"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/08-case-dm_state_005_debounced_latest_search-debounced_latest_search.json",
+        "bytes": 9777,
+        "sha256": "eec26ed10266b49f86bbbc82e11f1862683ffce1709f5fe428fdc1dfbfc0e83b"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/09-case-dm_state_006_purchase_mode_entry-purchase_mode_entry.json",
+        "bytes": 9308,
+        "sha256": "8c4b38f045f4cab11ba308669db29b8f6259692de342bf3b553a94c218132b92"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/10-case-dm_state_007_cart_failure_retry-cart_failure_retry.json",
+        "bytes": 10634,
+        "sha256": "417b0cbf03aad5d3b7f8997c4475e6cb0bb1fe237b0cd77fd1e5706faac0c9bc"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/11-case-dm_state_008_checkout_cancel-checkout_cancel.json",
+        "bytes": 10435,
+        "sha256": "e87e98757bf9b44d09173ccce3414f7896386dddc5add15f16a122a749939df5"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/12-case-dm_state_009_checkout_success-checkout_success.json",
+        "bytes": 10179,
+        "sha256": "a3a8466e99ca8525baa859f4132d602c1503325aab24cf7a7142bba7afc22539"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/13-case-dm_state_010_details_url_allowlist_rejection-details_url_allowlist_rejection.json",
+        "bytes": 12368,
+        "sha256": "b6e454c5b10c06ad093d49ed66ab74aeaf0826af164b8656b3eebc217a5e1f3d"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/14-uninstall-org.wordpress.benchmark.domains.base.test.json",
+        "bytes": 325,
+        "sha256": "cb2de1c38e7d91a170a886744dcbc36d922e4b0b3ee690efb5d608fb027f80b1"
+      },
+      {
+        "path": "/Users/z1an/research/Long-Term-Benchmark/benchmark_projects/wordpress-android/migrations/05_domain_management/provenance/android-runtime/attempt-02/base/15-uninstall-org.wordpress.benchmark.domains.base.json",
+        "bytes": 315,
+        "sha256": "eb4d7b48d529c723e038e54de91557de1fac146c32dd1b0160b007bb1cbc5be5"
+      }
+    ]
+  }
+}

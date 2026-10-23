@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wikipedia-android",
+  "taskId": "05_evergreen_account",
+  "title": "Evergreen account creation encouragement",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wikimedia/apps-android-wikipedia.git",
+    "baseRef": "r/50603-r-2026-08-25",
+    "baseCommit": "12d1dd2bffea3db7ead5a69b2025bcbf287fe64d",
+    "finalRef": "beta/50604-beta-2026-09-02",
+    "finalCommit": "669a5405fc78ef888203c974c1d67b6259f0eff2",
+    "featureCommit": "d679fd1a9530fbe08cb9d117a49ca5d4ff79dce2",
+    "pullRequest": "https://github.com/wikimedia/apps-android-wikipedia/pull/6832"
+  },
+  "releaseNotes": [
+    {
+      "text": "The release interval introduces an evergreen, personalized account-creation encouragement for eligible readers, with bounded repeat prompting, permanent dismissal, registration handoff, account gating, and deep-link suppression.",
+      "source": "https://github.com/wikimedia/apps-android-wikipedia/commit/d679fd1a9530fbe08cb9d117a49ca5d4ff79dce2"
+    }
+  ],
+  "functionalAreas": [
+    "eligibility",
+    "reading_history",
+    "impression_persistence",
+    "account_handoff",
+    "dismissal",
+    "entrypoint_gating"
+  ],
+  "stateSurfaces": [
+    "account encouragement screen",
+    "reading-history eligibility",
+    "impression preferences",
+    "account state",
+    "application launch routing"
+  ],
+  "eventEntrypoints": [
+    "resume the application",
+    "open an external article deep link",
+    "choose Maybe later",
+    "permanently dismiss",
+    "start and complete account creation"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageActivity.kt",
+      "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageScreen.kt",
+      "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt",
+      "app/src/main/java/org/wikipedia/activity/BaseActivity.kt",
+      "app/src/main/java/org/wikipedia/history/db/HistoryEntryDao.kt",
+      "app/src/main/java/org/wikipedia/readinglist/db/ReadingListPageDao.kt",
+      "app/src/main/java/org/wikipedia/settings/Prefs.kt",
+      "app/src/main/java/org/wikipedia/login/LoginActivity.kt"
+    ],
+    "testPaths": [
+      "app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt"
+    ],
+    "commits": [
+      "d679fd1a9530fbe08cb9d117a49ca5d4ff79dce2"
+    ]
+  },
+  "nonGoals": [
+    "Changing server-side registration or authentication semantics",
+    "Changing reading-history retention outside encouragement eligibility",
+    "Pixel-perfect reproduction of card illustrations or pager animation",
+    "Changing initial onboarding, Year in Review, or Reading Challenge behavior"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json",
+    "transitions": "transitions.json"
+  }
+}

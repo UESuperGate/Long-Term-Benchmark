@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_domain_management",
+  "boundaryAudit": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "base": {
+      "ref": "23.6",
+      "resolvedCommit": "08547658c58afeb4f0db8da183c8ef9928ed6b41",
+      "versionName": "23.6"
+    },
+    "final": {
+      "ref": "23.7",
+      "resolvedCommit": "3dbc6929c7a74a12af63a616a22b0674010d122d",
+      "versionName": "23.7"
+    },
+    "ancestry": {
+      "isAncestor": true,
+      "mergeBase": "08547658c58afeb4f0db8da183c8ef9928ed6b41",
+      "aheadCommitCount": 694,
+      "releaseBranchException": null
+    }
+  },
+  "officialEvidence": {
+    "release": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/23.7",
+    "releaseText": "[Jetpack-only] Added the All Domains screen enabling the users to manage their domains from within the app.",
+    "releaseNotePullRequest": "https://github.com/wordpress-mobile/WordPress-Android/pull/19599",
+    "implementationPullRequests": [
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/19466",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/19566",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/19597"
+    ]
+  },
+  "coreCommitContainment": [
+    {
+      "commit": "d15990ee9e9f1710ee0ac3ae2638131e9f58f59d",
+      "subject": "Merge pull request #19466 from wordpress-mobile/issue/19379-search-for-new-domain-screen",
+      "containedInBase": false,
+      "containedInFinal": true
+    },
+    {
+      "commit": "1ea605253b28631a6f29c09cd20d943805f38828",
+      "subject": "Merge pull request #19566 from wordpress-mobile/issue/19381-link-domain-purchase-to-existing-site-flow",
+      "containedInBase": false,
+      "containedInFinal": true
+    },
+    {
+      "commit": "1f8039830c4c160aa22a3f3b7c498043db93e394",
+      "subject": "Merge pull request #19597 from wordpress-mobile/issue/19544-handle-webview-checkout-result",
+      "containedInBase": false,
+      "containedInFinal": true
+    },
+    {
+      "commit": "365b1ce0b13a1987d06d376f581e650c162cc132",
+      "subject": "Merge pull request #19599 from wordpress-mobile/task/domain-management-release-notes",
+      "containedInBase": false,
+      "containedInFinal": true
+    }
+  ],
+  "baseAbsence": {
+    "pathsAbsent": [
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModel.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/domainsfetcher/NewDomainsSearchRepository.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewNavigationDelegate.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/ErrorScreen.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/util/DomainLocalSearchEngine.kt"
+    ],
+    "observableGaps": [
+      "The 23.6 list can display loaded, empty, and error states, but its add, empty, back, and error controls are not connected to the completed navigation and retry workflow.",
+      "The 23.6 local filter matches only domain and site slug; it cannot match site title through the final search engine or preserve final complete/filtered state ownership in the view model.",
+      "The 23.6 purchase screen has no selected product/domain/privacy input, cart submission state, cart retry, existing-site plans/checkout routing, or checkout-result handling.",
+      "The 23.6 details flow has no domain-bound URL allowlist delegate."
+    ]
+  },
+  "finalProductionTrace": [
+    {
+      "surface": "all_domains_list",
+      "paths": [
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementActivity.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/MyDomainsScreen.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/util/DomainLocalSearchEngine.kt"
+      ],
+      "symbols": [
+        "DomainManagementViewModel.fetchAllDomains",
+        "DomainManagementViewModel.onRefresh",
+        "DomainManagementViewModel.onSearchQueryChanged",
+        "DomainManagementViewModel.filterDomains",
+        "DomainManagementActivity.handleActionEvents"
+      ]
+    },
+    {
+      "surface": "new_domain_search",
+      "paths": [
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchActivity.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModel.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/domainsfetcher/NewDomainsSearchRepository.kt"
+      ],
+      "symbols": [
+        "NewDomainSearchViewModel.onSearchQueryChanged",
+        "NewDomainSearchViewModel.onRefresh",
+        "NewDomainSearchViewModel.onDomainTapped",
+        "NewDomainsSearchRepository.searchForDomains",
+        "NewDomainsSearchRepository.onDomainSuggestionsFetched"
+      ]
+    },
+    {
+      "surface": "purchase_and_checkout",
+      "paths": [
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModel.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/DomainRegistrationCheckoutWebViewActivity.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/usecases/CreateCartUseCase.kt"
+      ],
+      "symbols": [
+        "PurchaseDomainViewModel.onNewDomainSelected",
+        "PurchaseDomainViewModel.onExistingSiteSelected",
+        "PurchaseDomainViewModel.onSiteChosen",
+        "PurchaseDomainViewModel.createCart",
+        "PurchaseDomainViewModel.onDomainRegistrationComplete",
+        "PurchaseDomainActivity.handleActionEvents"
+      ]
+    },
+    {
+      "surface": "contained_domain_details",
+      "paths": [
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewClient.kt",
+        "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewNavigationDelegate.kt"
+      ],
+      "symbols": [
+        "DomainManagementDetailsWebViewNavigationDelegate.allowedUrls",
+        "DomainManagementDetailsWebViewClient.shouldOverrideUrlLoading",
+        "DomainManagementDetailsWebViewClient.doUpdateVisitedHistory"
+      ]
+    }
+  ],
+  "finalTestTrace": [
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt",
+      "behaviors": [
+        "empty, error, and complete initial states",
+        "filtered and cleared list states",
+        "refresh repeats the all-domains fetch"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModelTest.kt",
+      "behaviors": [
+        "250 ms debounce",
+        "latest in-flight query cancels the previous result",
+        "success, error, blank input, and retry with the retained query",
+        "selected proposal emits product, domain, and privacy purchase input"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/domains/management/newdomainsearch/domainsfetcher/NewDomainsSearchRepositoryTest.kt",
+      "behaviors": [
+        "descending relevance ordering",
+        "free-domain exclusion",
+        "product-price enrichment",
+        "query mismatch and combined remote error handling"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt",
+      "behaviors": [
+        "domain-only and existing-site cart modes",
+        "cart failure and error reset",
+        "plans versus checkout routing",
+        "checkout success, cancellation, and invalid-result error"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewNavigationDelegateTest.kt",
+      "behaviors": [
+        "matching edit path is allowed",
+        "another path or host is rejected"
+      ]
+    }
+  ],
+  "stateTransitionEvidence": [
+    {
+      "caseIds": ["dm_state_001_loaded_add_domain_entry", "dm_state_002_empty_find_domain_entry", "dm_state_003_error_retry_recovery"],
+      "from": "initial all-domains request",
+      "events": ["load succeeds", "load is empty", "load fails and retry succeeds"],
+      "to": "connected loaded, empty, or recovered list surface"
+    },
+    {
+      "caseIds": ["dm_state_004_filter_clear_round_trip", "dm_state_005_debounced_latest_search"],
+      "from": "loaded domains or active remote search",
+      "events": ["filter and clear", "replace a pending query within the debounce window"],
+      "to": "restored complete list or latest-query-only proposals"
+    },
+    {
+      "caseIds": ["dm_state_006_purchase_mode_entry", "dm_state_007_cart_failure_retry"],
+      "from": "selected proposal or failed cart",
+      "events": ["open purchase mode", "acknowledge and retry"],
+      "to": "mode-specific cart routing without stale error navigation"
+    },
+    {
+      "caseIds": ["dm_state_008_checkout_cancel", "dm_state_009_checkout_success"],
+      "from": "active checkout",
+      "events": ["cancel", "complete"],
+      "to": "All Domains through the typed result path"
+    },
+    {
+      "caseIds": ["dm_state_010_details_url_allowlist_rejection"],
+      "from": "contained domain details",
+      "events": ["request an unsupported host/path"],
+      "to": "external navigation while the contained view rejects the URL"
+    }
+  ],
+  "failureRecoveryEvidence": [
+    "The final error screen binds retry to DomainManagementViewModel.onRefresh; the base error surface has no retry callback.",
+    "NewDomainSearchViewModel retains the normalized query for onRefresh and uses debounce plus flatMapLatest to prevent stale completion.",
+    "PurchaseDomainViewModel exposes ErrorSubmittingCart and returns to Initial before an explicit retry; no checkout action is emitted on failure.",
+    "A null checkout result becomes ErrorInCheckout, while typed success and cancellation results return to All Domains.",
+    "The details WebView rejects unsupported paths and hosts and emits an external-navigation callback."
+  ],
+  "inputDomainAudit": {
+    "reachableInputs": [
+      "All list outcomes enter through FetchAllDomainsUseCase.execute.",
+      "Local filters enter through the rendered search field and DomainManagementViewModel.onSearchQueryChanged.",
+      "Remote search queries enter through NewDomainSearchViewModel.onSearchQueryChanged and a controlled 250 ms clock.",
+      "Purchase arguments originate from a ProposedDomain selected through NewDomainSearchViewModel.onDomainTapped.",
+      "Cart outcomes are controlled only at the CreateCartUseCase external service leaf.",
+      "Checkout outcomes enter through the ActivityResultContract-produced DomainRegistrationCompletedEvent.",
+      "URL decisions enter through the production WebView client and allowlist delegate."
+    ],
+    "forbiddenShortcuts": [
+      "Do not inject a precomputed filtered list instead of entering the query.",
+      "Do not call purchase internals without traversing the proposal and purchase screen entry path.",
+      "Do not replace cart, checkout-result, or URL-routing production bodies with evaluator-owned implementations."
+    ]
+  }
+}

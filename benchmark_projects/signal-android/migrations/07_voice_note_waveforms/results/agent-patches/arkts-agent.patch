@@ -1,0 +1,1720 @@
+diff --git a/entry/src/main/ets/attachment/AttachmentUploadChain.ets b/entry/src/main/ets/attachment/AttachmentUploadChain.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..cf76c30b725e95bfe79f8028d9f365058a23ec82
+--- /dev/null
++++ b/entry/src/main/ets/attachment/AttachmentUploadChain.ets
+@@ -0,0 +1,102 @@
++import { JsonMap, jsonMap } from '../common/JsonMap';
++import { isAudioAttachment } from '../waveform/WaveformLimits';
++
++/**
++ * Upload chain of a single attachment. Audio attachments hold the upload until
++ * their waveform has been generated; every other attachment runs its ordinary
++ * compress then upload chain and never acquires waveform work.
++ */
++export class AttachmentUploadChain {
++  readonly attachmentId: string;
++  readonly audio: boolean;
++
++  private compressed: boolean = false;
++  private waveformResolved: boolean = false;
++  private waveformHeld: boolean = false;
++  private waveformFailed: boolean = false;
++  private waveformSkipped: boolean = false;
++  private uploadStarted: boolean = false;
++
++  constructor(attachmentId: string, contentType: string) {
++    this.attachmentId = attachmentId;
++    this.audio = isAudioAttachment(contentType);
++  }
++
++  isAudio(): boolean {
++    return this.audio;
++  }
++
++  isCompressed(): boolean {
++    return this.compressed;
++  }
++
++  markCompressed(): void {
++    this.compressed = true;
++  }
++
++  /** Audio upload is now waiting for its waveform dependency. */
++  holdWaveformGeneration(): void {
++    if (!this.audio) {
++      return;
++    }
++    this.waveformHeld = true;
++  }
++
++  resolveWaveform(): void {
++    this.waveformHeld = false;
++    this.waveformFailed = false;
++    this.waveformResolved = true;
++  }
++
++  failWaveformGeneration(): void {
++    this.waveformHeld = false;
++    this.waveformFailed = true;
++  }
++
++  skipWaveformGeneration(): void {
++    this.waveformSkipped = true;
++    this.waveformResolved = true;
++  }
++
++  isWaveformResolved(): boolean {
++    return this.waveformResolved;
++  }
++
++  isWaveformPending(): boolean {
++    return this.audio && !this.waveformResolved;
++  }
++
++  isUploadStarted(): boolean {
++    return this.uploadStarted;
++  }
++
++  markUploadStarted(): void {
++    this.uploadStarted = true;
++  }
++
++  snapshot(): JsonMap {
++    return jsonMap(['compression', 'waveformGeneration', 'upload'],
++      [this.compressed ? 'complete' : 'pending', this.waveformStatus(),
++        this.uploadStatus()]);
++  }
++
++  private waveformStatus(): string {
++    if (this.waveformSkipped) {
++      return 'not_scheduled';
++    }
++    if (this.waveformFailed) {
++      return 'failed';
++    }
++    if (this.waveformResolved) {
++      return 'complete';
++    }
++    return this.waveformHeld ? 'pending' : 'not_scheduled';
++  }
++
++  private uploadStatus(): string {
++    if (this.uploadStarted) {
++      return 'complete';
++    }
++    return this.isWaveformPending() ? 'blocked' : 'not_started';
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/attachment/AttachmentUploadGraph.ets b/entry/src/main/ets/attachment/AttachmentUploadGraph.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..147d6ea4844ea729f56ded8f97e35601a34ef703
+--- /dev/null
++++ b/entry/src/main/ets/attachment/AttachmentUploadGraph.ets
+@@ -0,0 +1,126 @@
++import { EffectRecorder } from '../common/EffectRecorder';
++import { JsonMap, jsonMap, mapText } from '../common/JsonMap';
++import { WaveformGenerationService } from '../waveform/WaveformGenerationService';
++import { WaveformRecord } from '../waveform/WaveformRecord';
++import { AttachmentUploadChain } from './AttachmentUploadChain';
++
++/**
++ * Runs the attachment upload graph.
++ *
++ * Compression always comes first. For audio the graph then parks on the
++ * waveform dependency: releasing the generation worker resumes the very same
++ * chain, so an attachment is never uploaded twice and an unrelated non-audio
++ * attachment is never blocked by an audio waveform that is still pending.
++ */
++export class AttachmentUploadGraph {
++  private recorder: EffectRecorder;
++  private generation: WaveformGenerationService;
++  private order: string[] = [];
++  private sources: Map<string, JsonMap> = new Map();
++  private chains: Map<string, AttachmentUploadChain> = new Map();
++
++  constructor(recorder: EffectRecorder, generation: WaveformGenerationService) {
++    this.recorder = recorder;
++    this.generation = generation;
++  }
++
++  reset(): void {
++    this.order = [];
++    this.sources.clear();
++    this.chains.clear();
++  }
++
++  /** Remembers an attachment so a released waveform worker can resume its chain. */
++  observe(attachment: JsonMap): void {
++    const attachmentId: string = mapText(attachment, 'id');
++    if (!this.sources.has(attachmentId)) {
++      this.sources.set(attachmentId, attachment);
++    }
++  }
++
++  /** Enters the chain for one attachment: compress, then waveform, then upload. */
++  start(attachment: JsonMap, hasUsableWaveform: boolean): AttachmentUploadChain {
++    const attachmentId: string = mapText(attachment, 'id');
++    let chain: AttachmentUploadChain | undefined = this.chains.get(attachmentId);
++    if (chain === undefined) {
++      chain = new AttachmentUploadChain(attachmentId, mapText(attachment, 'contentType'));
++      this.chains.set(attachmentId, chain);
++      this.sources.set(attachmentId, attachment);
++      this.order.push(attachmentId);
++    }
++    if (!chain.isCompressed()) {
++      this.recorder.record('compressAttachment', attachmentId);
++      chain.markCompressed();
++    }
++    if (chain.isAudio()) {
++      if (chain.isWaveformResolved() || hasUsableWaveform) {
++        chain.resolveWaveform();
++      } else {
++        chain.holdWaveformGeneration();
++      }
++    } else {
++      chain.skipWaveformGeneration();
++    }
++    this.runUpload(chain);
++    return chain;
++  }
++
++  /** Releases the waveform worker of one attachment and resumes its chain. */
++  async release(attachmentId: string, samples: number[], durationUs: number): Promise<AttachmentUploadChain | undefined> {
++    if (!this.chains.has(attachmentId)) {
++      const source: JsonMap | undefined = this.sources.get(attachmentId);
++      if (source === undefined) {
++        return undefined;
++      }
++      this.start(source, false);
++    }
++    const chain: AttachmentUploadChain | undefined = this.chains.get(attachmentId);
++    if (chain === undefined) {
++      return undefined;
++    }
++    if (chain.isAudio() && !chain.isWaveformResolved()) {
++      const record: WaveformRecord | undefined =
++        await this.generation.run(attachmentId, samples, durationUs, true);
++      if (record !== undefined) {
++        chain.resolveWaveform();
++      } else {
++        chain.failWaveformGeneration();
++      }
++    }
++    this.runUpload(chain);
++    return chain;
++  }
++
++  /** Releases every audio attachment that is still parked on its waveform. */
++  async releasePendingAudio(samples: number[], durationUs: number): Promise<void> {
++    const pending: string[] = [];
++    for (let index = 0; index < this.order.length; index++) {
++      const chain: AttachmentUploadChain | undefined = this.chains.get(this.order[index]);
++      if (chain !== undefined && chain.isWaveformPending()) {
++        pending.push(chain.attachmentId);
++      }
++    }
++    for (let index = 0; index < pending.length; index++) {
++      await this.release(pending[index], samples, durationUs);
++    }
++  }
++
++  snapshot(): JsonMap {
++    const result: JsonMap = jsonMap();
++    for (let index = 0; index < this.order.length; index++) {
++      const chain: AttachmentUploadChain | undefined = this.chains.get(this.order[index]);
++      if (chain !== undefined) {
++        result[chain.attachmentId] = chain.snapshot();
++      }
++    }
++    return result;
++  }
++
++  private runUpload(chain: AttachmentUploadChain): void {
++    if (!chain.isWaveformResolved() || chain.isUploadStarted()) {
++      return;
++    }
++    chain.markUploadStarted();
++    this.recorder.record('uploadAttachment', chain.attachmentId);
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/common/EffectRecorder.ets b/entry/src/main/ets/common/EffectRecorder.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..29335cba010d26a883bcd91f582e7475739f51cd
+--- /dev/null
++++ b/entry/src/main/ets/common/EffectRecorder.ets
+@@ -0,0 +1,22 @@
++import { JsonMap, jsonMap } from './JsonMap';
++
++/**
++ * Ordered log of the side effects a waveform flow performed. The recorder keeps
++ * the observed ordering (compress before waveform generation before upload)
++ * observable to the page and to the attachment upload graph.
++ */
++export class EffectRecorder {
++  private effects: JsonMap[] = [];
++
++  record(name: string, attachmentId: string): void {
++    this.effects.push(jsonMap(['name', 'attachmentId'], [name, attachmentId]));
++  }
++
++  reset(): void {
++    this.effects = [];
++  }
++
++  snapshot(): JsonMap[] {
++    return JSON.parse(JSON.stringify(this.effects)) as JsonMap[];
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/common/JsonMap.ets b/entry/src/main/ets/common/JsonMap.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..dc1e95b07d0a460816a6b6d33523fe00e636f5ef
+--- /dev/null
++++ b/entry/src/main/ets/common/JsonMap.ets
+@@ -0,0 +1,57 @@
++/**
++ * Shared helpers for the JSON shaped payloads the waveform feature passes
++ * between the page owner, the attachment store and the transport layer.
++ */
++
++export type JsonMap = Record<string, Object>;
++
++export function jsonMap(keys: string[] = [], values: Object[] = []): JsonMap {
++  const value: JsonMap = JSON.parse('{}') as JsonMap;
++  for (let index = 0; index < keys.length; index++) {
++    value[keys[index]] = values[index];
++  }
++  return value;
++}
++
++export function cloneMap(value: JsonMap): JsonMap {
++  return JSON.parse(JSON.stringify(value)) as JsonMap;
++}
++
++export function cloneNumbers(values: number[]): number[] {
++  return JSON.parse(JSON.stringify(values)) as number[];
++}
++
++export function asMap(value: Object | undefined): JsonMap {
++  return value !== undefined && value !== null && !Array.isArray(value) ? value as JsonMap : jsonMap();
++}
++
++export function asMaps(value: Object | undefined): JsonMap[] {
++  return Array.isArray(value) ? (value as Object[]).map((item: Object): JsonMap => asMap(item)) : [];
++}
++
++export function asNumbers(value: Object | undefined): number[] {
++  return Array.isArray(value) ? (value as Object[]).map((item: Object): number => Number(item)) : [];
++}
++
++export function mapText(source: JsonMap, key: string): string {
++  const item: Object = source[key];
++  return typeof item === 'string' ? item : '';
++}
++
++export function mapNumber(source: JsonMap, key: string): number {
++  const item: Object = source[key];
++  return typeof item === 'number' ? item : 0;
++}
++
++export function mapBoolean(source: JsonMap, key: string): boolean {
++  const item: Object = source[key];
++  return typeof item === 'boolean' ? item : false;
++}
++
++export function isEmptyMap(source: JsonMap): boolean {
++  return Object.keys(source).length === 0;
++}
++
++export function isPresent(value: Object | undefined): boolean {
++  return value !== undefined && value !== null;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/WaveformPageOwner.ets b/entry/src/main/ets/feature/WaveformPageOwner.ets
+index 6b3b1f3dcb79f162cbed1423644e221dc58b89aa..a30ba0633c24d786ffe4df38576e0513d42c44c8 100644
+--- a/entry/src/main/ets/feature/WaveformPageOwner.ets
++++ b/entry/src/main/ets/feature/WaveformPageOwner.ets
+@@ -1,167 +1,447 @@
+ import { common } from '@kit.AbilityKit';
+ import { preferences } from '@kit.ArkData';
++import { AttachmentUploadChain } from '../attachment/AttachmentUploadChain';
++import { AttachmentUploadGraph } from '../attachment/AttachmentUploadGraph';
++import { EffectRecorder } from '../common/EffectRecorder';
++import { JsonMap as JsonValueMap, asMap, asMaps, cloneMap, isPresent, jsonMap as buildJsonMap, mapNumber, mapText } from '../common/JsonMap';
++import { IncomingWaveformOutcome, IncomingWaveformValidator } from '../waveform/IncomingWaveformValidator';
++import { WaveformBackupFile } from '../waveform/WaveformBackupFile';
++import { WaveformGenerationService } from '../waveform/WaveformGenerationService';
++import { WaveformGenerator } from '../waveform/WaveformGenerator';
++import { RENDER_BAR_COUNT, SERVICE_WAVEFORM_BAR_LIMIT, isAudioAttachment } from '../waveform/WaveformLimits';
++import { WaveformRenderer } from '../waveform/WaveformRenderer';
++import { WaveformRecord } from '../waveform/WaveformRecord';
++import { WaveformStore } from '../waveform/WaveformStore';
++
++export type JsonMap = JsonValueMap;
+ 
+-export type JsonMap = Record<string, Object>;
+-function clone(value: JsonMap): JsonMap { return JSON.parse(JSON.stringify(value)) as JsonMap; }
+ export function jsonMap(keys: string[] = [], values: Object[] = []): JsonMap {
+-  const value = JSON.parse('{}') as JsonMap;
+-  for (let index = 0; index < keys.length; index++) value[keys[index]] = values[index];
+-  return value;
++  return buildJsonMap(keys, values);
+ }
+ 
+-/** Production-compatible model of the v8.28.4 local-only waveform behavior. */
++/** Attachment fields that never travel on an attachment pointer. */
++const LOCAL_ONLY_FIELDS: string[] = ['id', 'localMedia', 'storedWaveform', 'waveform', 'waveformWorker',
++  'compression', 'upload', 'durationSeconds', 'durationUs'];
++
++/**
++ * Page owner for the voice note waveform flow.
++ *
++ * It owns the state the page renders, the attachment waveform row, the ordered
++ * log of side effects and the upload graph that gates audio uploads on waveform
++ * generation.
++ */
+ export class WaveformPageOwner {
+   private input: JsonMap;
+   private state: JsonMap = jsonMap();
+-  private effects: JsonMap[] = [];
++  private readonly recorder: EffectRecorder = new EffectRecorder();
+   private calls: string[] = [];
+-  private record?: JsonMap;
+-  private store: preferences.Preferences;
++  private record?: WaveformRecord;
++  private store: WaveformStore;
++  private readonly generator: WaveformGenerator = new WaveformGenerator();
++  private readonly renderer: WaveformRenderer = new WaveformRenderer();
++  private readonly backup: WaveformBackupFile = new WaveformBackupFile();
++  private readonly generation: WaveformGenerationService;
++  private readonly uploads: AttachmentUploadGraph;
++  private waveformBarLimit: number = SERVICE_WAVEFORM_BAR_LIMIT;
++  private disposed: boolean = false;
+ 
+-  private constructor(store: preferences.Preferences, input: JsonMap) { this.store = store; this.input = clone(input); }
++  private constructor(store: preferences.Preferences, input: JsonMap) {
++    this.store = new WaveformStore(store);
++    this.input = cloneMap(input);
++    this.generation = new WaveformGenerationService(this.store, this.recorder, this.generator);
++    this.uploads = new AttachmentUploadGraph(this.recorder, this.generation);
++  }
+ 
+   static async create(context: common.UIAbilityContext, input: JsonMap): Promise<WaveformPageOwner> {
+-    const store = await preferences.getPreferences(context, 'voice_waveform');
+-    const owner = new WaveformPageOwner(store, input);
++    const store: preferences.Preferences = await preferences.getPreferences(context, 'voice_waveform');
++    const owner: WaveformPageOwner = new WaveformPageOwner(store, input);
+     await owner.mount(input);
+     return owner;
+   }
+ 
+   async mount(input: JsonMap): Promise<void> {
+-    this.input = clone(input); this.state = jsonMap(); this.effects = []; this.calls = ['WaveformPageOwner.mount']; this.record = undefined;
++    this.input = cloneMap(input);
++    this.state = jsonMap();
++    this.recorder.reset();
++    this.calls = ['WaveformPageOwner.mount'];
++    this.record = undefined;
++    this.disposed = false;
++    this.uploads.reset();
++    this.backup.reset();
++    this.waveformBarLimit = this.resolveWaveformBarLimit();
+     await this.store.clear();
+-    const attachment = this.map(input['attachment']);
+-    if (Object.keys(attachment).length > 0) {
+-      this.state['attachmentId'] = this.text(attachment, 'id');
+-      const stored = this.map(attachment['storedWaveform']);
+-      if (Object.keys(stored).length > 0) await this.persistRecord(this.recordFromStored(stored));
++    const attachment: JsonMap = this.primaryAttachment();
++    if (!this.isEmpty(attachment)) {
++      const attachmentId: string = mapText(attachment, 'id');
++      this.state['attachmentId'] = attachmentId;
++      this.uploads.observe(attachment);
++      const stored: Object | undefined = attachment['storedWaveform'];
++      if (isPresent(stored)) {
++        const record: WaveformRecord = WaveformRecord.fromStored(attachmentId, stored, attachment);
++        await this.store.writeRecord(record);
++        this.record = record;
++      }
+     }
+     await this.store.flush();
+   }
+ 
++  /** Generates the waveform of the local audio attachment and persists it. */
+   async generateWaveform(samples: number[], durationUs: number): Promise<void> {
+     this.call('WaveformPageOwner.generateWaveform');
+-    this.effect('persistGenerationPlaceholder', this.attachmentId());
+-    await this.persistRecord(this.emptyRecord());
+-    this.effect('decodeAudio', this.attachmentId());
+-    const record = this.generatedRecord(samples, durationUs);
+-    await this.persistRecord(record);
+-    this.effect('persistGeneratedWaveform', this.attachmentId());
+-    this.state['result'] = 'success'; this.state['storedWaveform'] = clone(record);
++    const attachmentId: string = this.attachmentId();
++    this.state['attachmentId'] = attachmentId;
++    const record: WaveformRecord | undefined = await this.generation.run(attachmentId, samples, durationUs, true);
++    if (record === undefined) {
++      this.state['result'] = 'error';
++      this.state['error'] = 'waveform_generation_failed';
++      return;
++    }
++    this.record = record;
++    this.state['result'] = 'success';
++    this.state['storedWaveform'] = record.toPersistence();
++    this.state['durationSeconds'] = record.durationSeconds;
++    this.state['waveformOrigin'] = record.origin();
+   }
+ 
++  /** Prepares the upload of one attachment: audio waits for its waveform. */
+   async startUploadGraph(): Promise<void> {
+     this.call('WaveformPageOwner.startUploadGraph');
+-    const id = this.text(this.map(this.input['attachment']), 'id');
+-    this.effect('compressAttachment', id); this.effect('uploadAttachment', id);
+-    this.state['upload'] = jsonMap(['compression', 'waveformGeneration', 'upload'], ['complete', 'not_scheduled', 'complete']);
++    const attachment: JsonMap = this.primaryAttachment();
++    const chain: AttachmentUploadChain = this.uploads.start(attachment, this.hasUsableWaveform(attachment));
++    this.state['attachmentId'] = chain.attachmentId;
++    this.state['upload'] = chain.snapshot();
+   }
+-  async releaseHeldWaveform(samples: number[], durationUs: number): Promise<void> { this.call('WaveformPageOwner.releaseHeldWaveform'); }
+ 
++  /** Releases the held waveform worker and resumes the same upload chain. */
++  async releaseHeldWaveform(samples: number[], durationUs: number): Promise<void> {
++    this.call('WaveformPageOwner.releaseHeldWaveform');
++    const attachmentId: string = mapText(this.primaryAttachment(), 'id');
++    const chain: AttachmentUploadChain | undefined = await this.uploads.release(attachmentId, samples, durationUs);
++    if (chain !== undefined) {
++      this.state['attachmentId'] = chain.attachmentId;
++      this.state['upload'] = chain.snapshot();
++    }
++    this.record = await this.store.readRecord();
++  }
++
++  /** Prepares a mixed message: only its audio attachments acquire waveform work. */
+   async startMixedUploadGraph(): Promise<void> {
+     this.call('WaveformPageOwner.startMixedUploadGraph');
+-    const uploads: JsonMap = jsonMap();
+-    this.maps(this.input['attachments']).forEach((attachment: JsonMap): void => {
+-      const id = this.text(attachment, 'id');
+-      this.effect('compressAttachment', id); this.effect('uploadAttachment', id);
+-      uploads[id] = jsonMap(['compression', 'waveformGeneration', 'upload'], ['complete', 'not_scheduled', 'complete']);
+-    });
+-    this.state['uploads'] = uploads;
++    const attachments: JsonMap[] = asMaps(this.input['attachments']);
++    for (let index = 0; index < attachments.length; index++) {
++      const attachment: JsonMap = attachments[index];
++      this.uploads.start(attachment, this.hasUsableWaveform(attachment));
++    }
++    this.state['uploads'] = this.uploads.snapshot();
+   }
+-  async releaseMixedAudio(samples: number[], durationUs: number): Promise<void> { this.call('WaveformPageOwner.releaseMixedAudio'); }
+ 
++  /** Releases the audio waveform worker of a mixed message. */
++  async releaseMixedAudio(samples: number[], durationUs: number): Promise<void> {
++    this.call('WaveformPageOwner.releaseMixedAudio');
++    await this.uploads.releasePendingAudio(samples, durationUs);
++    this.record = await this.store.readRecord();
++    this.state['uploads'] = this.uploads.snapshot();
++  }
++
++  /** Serializes the outgoing attachment pointer, waveform and duration included. */
+   async serializeOutgoingPointer(): Promise<void> {
+     this.call('WaveformPageOwner.serializeOutgoingPointer');
+-    const attachment = this.map(this.input['attachment']);
+-    this.state['pointer'] = jsonMap(['contentType', 'cdnKey', 'encryptionDigest'],
+-      [this.text(attachment, 'contentType'), this.text(attachment, 'cdnKey'), this.text(attachment, 'encryptionDigest')]);
+-    this.effect('buildAttachmentPointer', this.text(attachment, 'id'));
++    const attachment: JsonMap = this.primaryAttachment();
++    const attachmentId: string = mapText(attachment, 'id');
++    const pointer: JsonMap = this.buildOutgoingPointer(attachment);
++    this.state['attachmentId'] = attachmentId;
++    this.state['pointer'] = pointer;
++    this.recorder.record('buildAttachmentPointer', attachmentId);
+   }
+ 
++  /** Validates an incoming envelope before any attachment state is touched. */
+   async validateIncomingEnvelope(): Promise<void> {
+     this.call('WaveformPageOwner.validateIncomingEnvelope');
+-    this.state['validation'] = jsonMap(['accepted', 'reason'], [true, '']);
++    const pointer: JsonMap = this.incomingPointer();
++    const outcome: IncomingWaveformOutcome = IncomingWaveformValidator.validate(pointer, this.waveformBarLimit);
++    this.state['validation'] = outcome.toMap();
++    this.state['validatedContentType'] = mapText(pointer, 'contentType');
++    this.state['validatedCdnKey'] = mapText(pointer, 'cdnKey');
++    if (!outcome.accepted) {
++      this.state['result'] = 'rejected';
++      this.state['rejectionReason'] = outcome.reason;
++      this.state['rejectedWaveformBarCount'] = outcome.barCount;
++      return;
++    }
++    this.state['result'] = 'success';
++    this.state['rejectionReason'] = '';
+   }
+ 
++  /** Imports a sender provided waveform and reloads it from the attachment store. */
+   async importIncomingAttachment(): Promise<void> {
+     this.call('WaveformPageOwner.importIncomingAttachment');
+-    const pointer = this.map(this.input['incomingAttachmentPointer']);
+-    this.state['persistedAttachment'] = jsonMap(['contentType'], [this.text(pointer, 'contentType')]);
+-    this.state['reloadedAttachment'] = jsonMap();
+-    this.effect('persistAttachment', this.text(pointer, 'cdnKey'));
++    const pointer: JsonMap = this.incomingPointer();
++    const outcome: IncomingWaveformOutcome = IncomingWaveformValidator.validate(pointer, this.waveformBarLimit);
++    this.state['validation'] = outcome.toMap();
++    if (!outcome.accepted) {
++      this.state['result'] = 'rejected';
++      this.state['rejectionReason'] = outcome.reason;
++      this.state['rejectedWaveformBarCount'] = outcome.barCount;
++      return;
++    }
++    if (pointer['audioWaveform'] === undefined || pointer['audioWaveform'] === null) {
++      this.state['result'] = 'success';
++      this.state['persistedAttachment'] = this.describePointer(pointer, undefined);
++      this.state['reloadedAttachment'] = jsonMap();
++      this.recorder.record('persistAttachment', mapText(pointer, 'cdnKey'));
++      return;
++    }
++    const record: WaveformRecord = WaveformRecord.fromSender(mapText(pointer, 'cdnKey'),
++      outcome.bytes, outcome.durationSeconds);
++    await this.store.writeRecord(record);
++    this.record = record;
++    this.recorder.record('persistAttachment', mapText(pointer, 'cdnKey'));
++    const reloaded: WaveformRecord | undefined = await this.store.readRecord();
++    this.state['result'] = 'success';
++    this.state['rejectionReason'] = '';
++    this.state['persistedAttachment'] = this.describePointer(pointer, record);
++    this.state['reloadedAttachment'] = reloaded === undefined ? jsonMap() : reloaded.toPersistence();
++    this.state['durationSeconds'] = record.durationSeconds;
++    this.state['waveformOrigin'] = record.origin();
+   }
+ 
++  /**
++   * Resolves the waveform the page renders. A sender waveform is kept and
++   * resampled, a locally generated waveform is regenerated when its bar count is
++   * obsolete or when an interrupted generation left the empty placeholder.
++   */
+   async requestRenderableWaveform(samples: number[], durationUs: number): Promise<void> {
+     this.call('WaveformPageOwner.requestRenderableWaveform');
+-    const attachment = this.map(this.input['attachment']);
+-    if (this.text(attachment, 'localMedia') !== 'readable') { this.state['result'] = 'error'; return; }
+-    if (this.record === undefined || this.num(this.record, 'barCount') === 0) {
+-      this.effect('generateWaveform', this.text(attachment, 'id'));
+-      const replacement = this.generatedRecord(samples, durationUs);
+-      await this.persistRecord(replacement);
+-      this.effect('persistGeneratedWaveform', this.text(attachment, 'id'));
+-      this.state['persistedReplacement'] = clone(replacement);
+-    }
+-    if (this.record === undefined) { this.state['result'] = 'error'; return; }
++    const attachment: JsonMap = this.primaryAttachment();
++    const attachmentId: string = mapText(attachment, 'id');
++    this.state['attachmentId'] = attachmentId;
++    let record: WaveformRecord | undefined = this.currentRecordFor(attachment);
++    const mediaReadable: boolean = mapText(attachment, 'localMedia') === 'readable';
++
++    if (record !== undefined && record.isUsable()) {
++      this.state['waveformOrigin'] = record.origin();
++    } else {
++      const staleReason: string = this.describeStaleRecord(record);
++      if (!mediaReadable) {
++        if (record !== undefined && record.isRenderable()) {
++          this.state['waveformOrigin'] = record.origin();
++          this.state['regenerationPending'] = true;
++          this.state['staleReason'] = staleReason;
++        } else {
++          this.state['result'] = 'error';
++          this.state['error'] = 'local_media_unavailable';
++          this.state['staleReason'] = staleReason;
++          return;
++        }
++      } else {
++        this.recorder.record('generateWaveform', attachmentId);
++        const generated: WaveformRecord | undefined = await this.generation.run(attachmentId, samples, durationUs, false);
++        if (generated === undefined) {
++          this.state['result'] = 'error';
++          this.state['error'] = 'waveform_generation_failed';
++          this.state['staleReason'] = staleReason;
++          return;
++        }
++        record = generated;
++        this.state['regenerated'] = true;
++        this.state['staleReason'] = staleReason;
++        this.state['persistedReplacement'] = generated.toPersistence();
++        this.state['waveformOrigin'] = generated.origin();
++      }
++    }
++
++    if (record === undefined) {
++      this.state['result'] = 'error';
++      this.state['error'] = 'waveform_unavailable';
++      return;
++    }
++    this.record = record;
+     this.state['result'] = 'success';
+-    this.state['renderWaveform'] = this.numbers(this.record['bytes']).map((value: number): number => value / 255);
+-    this.state['durationSeconds'] = this.num(this.record, 'durationSeconds');
++    this.state['renderBarCount'] = RENDER_BAR_COUNT;
++    this.state['renderBars'] = this.renderer.bars(record, RENDER_BAR_COUNT);
++    this.state['renderWaveform'] = this.renderer.normalized(record, RENDER_BAR_COUNT);
++    this.state['durationSeconds'] = record.durationSeconds;
++    this.state['renderDurationSeconds'] = record.durationSeconds;
+   }
+ 
++  /** Exports the attachment to a backup, clears the store and restores it. */
+   async backupRestoreAndRender(): Promise<void> {
+     this.call('WaveformPageOwner.backupRestoreAndRender');
+-    const attachment = this.map(this.input['attachment']);
+-    this.state['exportedFilePointer'] = jsonMap(['contentType'], [this.text(attachment, 'contentType')]);
+-    await this.store.clear(); this.record = undefined;
++    const attachment: JsonMap = this.primaryAttachment();
++    const attachmentId: string = mapText(attachment, 'id');
++    const record: WaveformRecord | undefined = this.currentRecordFor(attachment);
++    const exported: JsonMap = this.backup.exportAttachment(attachment, record);
++    this.state['attachmentId'] = attachmentId;
++    this.state['exportedFilePointer'] = exported;
++    this.recorder.record('exportAttachment', attachmentId);
++
++    await this.store.clear();
++    this.record = undefined;
+     this.state['restoredAttachment'] = jsonMap();
+     this.state['renderAfterRestore'] = jsonMap(['result'], ['error']);
+-    this.effect('exportAttachment', this.text(attachment, 'id'));
+-    this.effect('restoreAttachment', this.text(attachment, 'id'));
++
++    const restored: WaveformRecord | undefined = this.backup.restoreAttachment();
++    if (restored === undefined) {
++      this.state['result'] = 'error';
++      this.state['error'] = 'backup_without_waveform';
++      return;
++    }
++    await this.store.writeRecord(restored);
++    this.recorder.record('restoreAttachment', attachmentId);
++    const reloaded: WaveformRecord | undefined = await this.store.readRecord();
++    const renderable: WaveformRecord = reloaded === undefined ? restored : reloaded;
++    this.record = renderable;
++    this.state['result'] = 'success';
++    this.state['restoredAttachment'] = renderable.toPersistence();
++    this.state['renderBarCount'] = RENDER_BAR_COUNT;
++    this.state['renderBars'] = this.renderer.bars(renderable, RENDER_BAR_COUNT);
++    this.state['renderWaveform'] = this.renderer.normalized(renderable, RENDER_BAR_COUNT);
++    this.state['durationSeconds'] = renderable.durationSeconds;
++    this.state['renderDurationSeconds'] = renderable.durationSeconds;
++    this.state['waveformOrigin'] = renderable.origin();
++    this.state['renderAfterRestore'] = jsonMap(['result', 'barCount', 'renderWaveform', 'durationSeconds', 'origin'],
++      ['success', RENDER_BAR_COUNT, this.renderer.normalized(renderable, RENDER_BAR_COUNT),
++        renderable.durationSeconds, renderable.origin()]);
++  }
++
++  currentState(): JsonMap {
++    return cloneMap(this.state);
++  }
++
++  currentEffects(): JsonMap[] {
++    return this.recorder.snapshot();
+   }
+ 
+-  currentState(): JsonMap { return clone(this.state); }
+-  currentEffects(): JsonMap[] { return JSON.parse(JSON.stringify(this.effects)) as JsonMap[]; }
+-  currentPersistence(): JsonMap { return this.record === undefined ? jsonMap() : jsonMap(['waveform'], [clone(this.record)]); }
+-  productionTrace(): string[] { return [...this.calls]; }
++  currentPersistence(): JsonMap {
++    return this.store.snapshot(this.record);
++  }
++
++  productionTrace(): string[] {
++    return [...this.calls];
++  }
++
++  /** Reads the persisted row back, as an attachment view reload would. */
+   async reopenedPersistence(): Promise<JsonMap> {
+-    const raw = await this.store.get('waveform', '');
+-    return typeof raw === 'string' && raw.length > 0 ? jsonMap(['waveform'], [JSON.parse(raw) as JsonMap]) : jsonMap();
+-  }
+-
+-  private generatedRecord(samples: number[], durationUs: number): JsonMap {
+-    const peaks: number[] = []; let global = 0;
+-    for (let bar = 0; bar < 46; bar++) {
+-      const start = Math.floor(bar * samples.length / 46);
+-      const end = Math.min(samples.length, Math.max(start + 1, Math.floor((bar + 1) * samples.length / 46)));
+-      let sum = 0; for (let index = start; index < end; index++) sum += Math.abs(samples[index]);
+-      const peak = end > start ? sum / (end - start) : 0; peaks.push(peak); global = Math.max(global, peak);
+-    }
+-    const bars = peaks.map((peak: number): number => global === 0 ? 0 : Math.round(255 * peak / global));
+-    return jsonMap(['bytes', 'barCount', 'durationUs', 'durationSeconds'],
+-      [bars, bars.length, durationUs, durationUs / 1000000]);
+-  }
+-
+-  private recordFromStored(stored: JsonMap): JsonMap {
+-    const bytes = this.waveformBytes(stored);
+-    const seconds = stored['durationSeconds'] !== undefined ? this.num(stored, 'durationSeconds') : this.num(stored, 'durationUs') / 1000000;
+-    return jsonMap(['bytes', 'barCount', 'durationSeconds', 'durationUs'],
+-      [bytes, bytes.length, seconds, Math.round(seconds * 1000000)]);
+-  }
+-  private waveformBytes(source: JsonMap): number[] {
+-    if (Array.isArray(source['bytes'])) return this.numbers(source['bytes']);
+-    const result: number[] = []; const segments = this.maps(source['segments']);
+-    segments.forEach((segment: JsonMap): void => { for (let index = 0; index < this.num(segment, 'count'); index++) result.push(this.num(segment, 'value')); });
+-    if (segments.length === 0) for (let index = 0; index < this.num(source, 'barCount'); index++) result.push(this.num(source, 'fill'));
+-    return result;
+-  }
+-  private emptyRecord(): JsonMap { return jsonMap(['bytes', 'barCount', 'durationUs', 'durationSeconds'], [[], 0, 0, 0]); }
+-  private async persistRecord(record: JsonMap): Promise<void> { this.record = clone(record); await this.store.put('waveform', JSON.stringify(this.record)); await this.store.flush(); }
+-  private map(value: Object | undefined): JsonMap { return value !== undefined && value !== null && !Array.isArray(value) ? value as JsonMap : jsonMap(); }
+-  private maps(value: Object | undefined): JsonMap[] { return Array.isArray(value) ? (value as Object[]).map((item: Object): JsonMap => this.map(item)) : []; }
+-  private numbers(value: Object | undefined): number[] { return Array.isArray(value) ? (value as Object[]).map((item: Object): number => Number(item)) : []; }
+-  private text(value: JsonMap, key: string): string { const item = value[key]; return typeof item === 'string' ? item : ''; }
+-  private num(value: JsonMap, key: string): number { const item = value[key]; return typeof item === 'number' ? item : 0; }
+-  private attachmentId(): string { return this.text(this.map(this.input['attachment']), 'id'); }
+-  private call(name: string): void { this.calls.push(name); }
+-  private effect(name: string, attachmentId: string): void { this.effects.push(jsonMap(['name', 'attachmentId'], [name, attachmentId])); }
+-}
++    return this.store.snapshot(await this.store.readRecord());
++  }
++
++  /** Releases the transient upload graph and flushes the attachment store. */
++  async dispose(): Promise<void> {
++    if (this.disposed) {
++      return;
++    }
++    this.disposed = true;
++    this.call('WaveformPageOwner.dispose');
++    this.uploads.reset();
++    this.backup.reset();
++    await this.store.flush();
++    this.state['disposed'] = true;
++  }
++
++  private buildOutgoingPointer(attachment: JsonMap): JsonMap {
++    const pointer: JsonMap = jsonMap();
++    const fields: string[] = Object.keys(attachment);
++    for (let index = 0; index < fields.length; index++) {
++      const field: string = fields[index];
++      if (LOCAL_ONLY_FIELDS.indexOf(field) < 0) {
++        pointer[field] = attachment[field];
++      }
++    }
++    if (!isAudioAttachment(mapText(attachment, 'contentType'))) {
++      return pointer;
++    }
++    const record: WaveformRecord | undefined = this.currentRecordFor(attachment);
++    if (record === undefined || !record.isRenderable() || !(record.durationSeconds > 0)) {
++      return pointer;
++    }
++    pointer['audioWaveform'] = this.magnitudesOf(record);
++    pointer['audioDurationSeconds'] = record.durationSeconds;
++    return pointer;
++  }
++
++  private describePointer(pointer: JsonMap, record: WaveformRecord | undefined): JsonMap {
++    const described: JsonMap = jsonMap();
++    const contentType: string = mapText(pointer, 'contentType');
++    if (contentType.length > 0) {
++      described['contentType'] = contentType;
++    }
++    const cdnKey: string = mapText(pointer, 'cdnKey');
++    if (cdnKey.length > 0) {
++      described['cdnKey'] = cdnKey;
++    }
++    if (record !== undefined) {
++      described['barCount'] = record.barCount();
++      described['audioWaveform'] = this.magnitudesOf(record);
++      described['audioDurationSeconds'] = record.durationSeconds;
++      described['senderProvided'] = record.isSenderProvided();
++    }
++    return described;
++  }
++
++  private describeStaleRecord(record: WaveformRecord | undefined): string {
++    if (record === undefined) {
++      return 'waveform_absent';
++    }
++    if (record.isPlaceholder()) {
++      return 'generation_placeholder';
++    }
++    if (record.isObsoleteGenerated()) {
++      return 'obsolete_generated_bar_count';
++    }
++    return 'waveform_unusable';
++  }
++
++  private currentRecordFor(attachment: JsonMap): WaveformRecord | undefined {
++    const attachmentId: string = mapText(attachment, 'id');
++    if (this.record !== undefined && this.record.belongsTo(attachmentId)) {
++      return this.record;
++    }
++    const stored: Object | undefined = attachment['storedWaveform'];
++    if (!isPresent(stored)) {
++      return undefined;
++    }
++    return WaveformRecord.fromStored(attachmentId, stored, attachment);
++  }
++
++  private hasUsableWaveform(attachment: JsonMap): boolean {
++    const record: WaveformRecord | undefined = this.currentRecordFor(attachment);
++    return record !== undefined && record.isUsable();
++  }
++
++  private primaryAttachment(): JsonMap {
++    return asMap(this.input['attachment']);
++  }
++
++  private incomingPointer(): JsonMap {
++    const direct: JsonMap = asMap(this.input['incomingAttachmentPointer']);
++    if (!this.isEmpty(direct)) {
++      return direct;
++    }
++    return asMap(asMap(this.input['incomingEnvelope'])['attachmentPointer']);
++  }
++
++  private resolveWaveformBarLimit(): number {
++    const configured: number = mapNumber(this.input, 'serviceWaveformLimit');
++    return configured > 0 ? configured : SERVICE_WAVEFORM_BAR_LIMIT;
++  }
++
++  private magnitudesOf(record: WaveformRecord): Object {
++    const magnitudes: number[] = [];
++    for (let index = 0; index < record.bytes.length; index++) {
++      magnitudes.push(record.bytes[index]);
++    }
++    return magnitudes;
++  }
++
++  private attachmentId(): string {
++    return mapText(this.primaryAttachment(), 'id');
++  }
++
++  private isEmpty(value: JsonMap): boolean {
++    return Object.keys(value).length === 0;
++  }
++
++  private call(name: string): void {
++    this.calls.push(name);
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/integration/PageOwnerRegistry.ets b/entry/src/main/ets/integration/PageOwnerRegistry.ets
+index f223e33fe4889e8290b097c6f11fb14ae417b269..e983e7dcc75fa5d697bfd5bb59473cf25b96e01c 100644
+--- a/entry/src/main/ets/integration/PageOwnerRegistry.ets
++++ b/entry/src/main/ets/integration/PageOwnerRegistry.ets
+@@ -2,5 +2,14 @@ import { WaveformPageOwner } from '../feature/WaveformPageOwner';
+ 
+ let mountedOwner: WaveformPageOwner | undefined = undefined;
+ 
+-export function registerWaveformPageOwner(owner: WaveformPageOwner): void { mountedOwner = owner; }
+-export function currentWaveformPageOwner(): WaveformPageOwner | undefined { return mountedOwner; }
++export function registerWaveformPageOwner(owner: WaveformPageOwner): void {
++  mountedOwner = owner;
++}
++
++export function currentWaveformPageOwner(): WaveformPageOwner | undefined {
++  return mountedOwner;
++}
++
++export function releaseWaveformPageOwner(): void {
++  mountedOwner = undefined;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index a04fa855af9f070c8f6635a38238791fc202cad2..ab2ca90e769c4aa9917c5d666bbd0fa3e7dc965b 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,34 +1,72 @@
+ import { common } from '@kit.AbilityKit';
+ import { jsonMap, WaveformPageOwner } from '../feature/WaveformPageOwner';
+-import { registerWaveformPageOwner } from '../integration/PageOwnerRegistry';
++import { registerWaveformPageOwner, releaseWaveformPageOwner } from '../integration/PageOwnerRegistry';
+ 
+ @Entry
+ @Component
+ struct Index {
+   @State status: string = 'Ready';
++  @State summary: string = '';
+   private owner?: WaveformPageOwner;
+ 
+   async aboutToAppear(): Promise<void> {
+     const context = getContext(this) as common.UIAbilityContext;
+     this.owner = await WaveformPageOwner.create(context, jsonMap());
+     registerWaveformPageOwner(this.owner);
++    this.publish();
++  }
++
++  aboutToDisappear(): void {
++    releaseWaveformPageOwner();
++    void this.owner?.dispose();
++    this.owner = undefined;
+   }
+ 
+   private fullScale(): number[] {
+     const samples: number[] = [];
+-    for (let index = 0; index < 100; index++) samples.push(32767);
++    for (let index = 0; index < 100; index++) {
++      samples.push(32767);
++    }
++    return samples;
++  }
++
++  private silenceThenFullScale(): number[] {
++    const samples: number[] = [];
++    for (let index = 0; index < 200; index++) {
++      samples.push(index < 100 ? 0 : 32767);
++    }
+     return samples;
+   }
+ 
++  private publish(): void {
++    this.status = JSON.stringify(this.owner?.currentState() ?? jsonMap());
++    this.summary = `attachments uploaded: ${this.owner?.currentEffects().length ?? 0} effects`;
++  }
++
+   private async generate(): Promise<void> {
+     await this.owner?.generateWaveform(this.fullScale(), 2000000);
+-    this.status = JSON.stringify(this.owner?.currentState() ?? jsonMap());
++    this.publish();
+   }
+ 
+   private async prepareUpload(): Promise<void> {
+     await this.owner?.startUploadGraph();
+     await this.owner?.releaseHeldWaveform(this.fullScale(), 2000000);
+-    this.status = JSON.stringify(this.owner?.currentState() ?? jsonMap());
++    this.publish();
++  }
++
++  private async render(): Promise<void> {
++    await this.owner?.requestRenderableWaveform(this.silenceThenFullScale(), 4000000);
++    this.publish();
++  }
++
++  private async validateIncoming(): Promise<void> {
++    await this.owner?.validateIncomingEnvelope();
++    this.publish();
++  }
++
++  private async backupRestore(): Promise<void> {
++    await this.owner?.backupRestoreAndRender();
++    this.publish();
+   }
+ 
+   build() {
+@@ -36,10 +74,14 @@ struct Index {
+       Text('Voice note waveforms').fontSize(26).fontWeight(FontWeight.Bold)
+       Button('Generate waveform').onClick(() => { void this.generate(); })
+       Button('Prepare upload').onClick(() => { void this.prepareUpload(); })
++      Button('Render waveform').onClick(() => { void this.render(); })
++      Button('Validate incoming').onClick(() => { void this.validateIncoming(); })
++      Button('Backup and restore').onClick(() => { void this.backupRestore(); })
++      Text(this.summary).fontSize(14)
+       Text(this.status).fontSize(14)
+     }
+     .width('100%')
+     .height('100%')
+     .padding(24)
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/IncomingWaveformValidator.ets b/entry/src/main/ets/waveform/IncomingWaveformValidator.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..eba8da78c91363e3804007f0d208c4b29084cc11
+--- /dev/null
++++ b/entry/src/main/ets/waveform/IncomingWaveformValidator.ets
+@@ -0,0 +1,66 @@
++import { JsonMap, isEmptyMap, jsonMap, mapNumber, mapText } from '../common/JsonMap';
++import { TransportWaveform, readTransportWaveform } from './TransportWaveform';
++
++/**
++ * Outcome of validating the waveform metadata of an incoming attachment
++ * pointer. `bytes` is only populated once the payload has been accepted.
++ */
++export class IncomingWaveformOutcome {
++  accepted: boolean = false;
++  reason: string = '';
++  barCount: number = 0;
++  limit: number = 0;
++  durationSeconds: number = 0;
++  bytes: number[] = [];
++
++  constructor(limit: number) {
++    this.limit = limit;
++  }
++
++  toMap(): JsonMap {
++    return jsonMap(['accepted', 'reason', 'barCount', 'limit', 'durationSeconds'],
++      [this.accepted, this.reason, this.barCount, this.limit, this.durationSeconds]);
++  }
++}
++
++/**
++ * Envelope validation for incoming attachment pointers. Waveform metadata is
++ * checked before the attachment is persisted or handed to the renderer, so a
++ * malformed or oversized sender payload can never contaminate attachment state.
++ */
++export class IncomingWaveformValidator {
++  static validate(pointer: JsonMap, limit: number): IncomingWaveformOutcome {
++    const outcome: IncomingWaveformOutcome = new IncomingWaveformOutcome(limit);
++    if (isEmptyMap(pointer)) {
++      outcome.reason = 'missing_attachment_pointer';
++      return outcome;
++    }
++    if (mapText(pointer, 'cdnKey').length === 0) {
++      outcome.reason = 'missing_cdn_key';
++      return outcome;
++    }
++    const waveform: Object | undefined = pointer['audioWaveform'];
++    if (waveform === undefined || waveform === null) {
++      outcome.accepted = true;
++      return outcome;
++    }
++    const transport: TransportWaveform = readTransportWaveform(waveform, outcome.limit);
++    outcome.barCount = transport.declaredBarCount;
++    outcome.durationSeconds = mapNumber(pointer, 'audioDurationSeconds');
++    if (transport.oversized) {
++      outcome.reason = 'audio_waveform_too_large';
++      return outcome;
++    }
++    if (transport.malformed) {
++      outcome.reason = 'malformed_audio_waveform';
++      return outcome;
++    }
++    if (!(outcome.durationSeconds > 0)) {
++      outcome.reason = 'missing_audio_duration';
++      return outcome;
++    }
++    outcome.bytes = transport.bytes;
++    outcome.accepted = true;
++    return outcome;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/TransportWaveform.ets b/entry/src/main/ets/waveform/TransportWaveform.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..fc82b25973feaf8da2694709dbf5de9a95f571ef
+--- /dev/null
++++ b/entry/src/main/ets/waveform/TransportWaveform.ets
+@@ -0,0 +1,128 @@
++import { JsonMap, asMap, asMaps, isPresent } from '../common/JsonMap';
++import { MAX_BAR_MAGNITUDE } from './WaveformLimits';
++
++/**
++ * Bounded, strict view of a waveform payload that arrived from the network.
++ *
++ * The declared bar count is read from the payload shape first and rejected
++ * against the service limit *before* any magnitude is materialised, so an
++ * oversized payload fails closed instead of being expanded into memory. Only
++ * genuine unsigned magnitudes survive the read: strings, booleans and nulls are
++ * malformed rather than silently coerced.
++ */
++export class TransportWaveform {
++  declaredBarCount: number = 0;
++  bytes: number[] = [];
++  oversized: boolean = false;
++  malformed: boolean = false;
++}
++
++function strictMagnitude(item: Object | undefined): number {
++  if (typeof item === 'number') {
++    const value: number = item;
++    if (Math.round(value) !== value || value < 0 || value > MAX_BAR_MAGNITUDE) {
++      return -1;
++    }
++    return value;
++  }
++  return -1;
++}
++
++/** Bar count declared by a payload field, or -1 when the field is not a valid count. */
++function declaredCount(source: JsonMap, key: string): number {
++  const item: Object = source[key];
++  if (typeof item === 'number') {
++    const value: number = item;
++    return Math.round(value) === value && value >= 0 ? value : -1;
++  }
++  return -1;
++}
++
++function overLimit(result: TransportWaveform, limit: number): boolean {
++  if (result.declaredBarCount > limit) {
++    result.oversized = true;
++    return true;
++  }
++  return false;
++}
++
++function isEmptyWaveform(result: TransportWaveform): boolean {
++  if (result.declaredBarCount === 0) {
++    result.malformed = true;
++    return true;
++  }
++  return false;
++}
++
++export function readTransportWaveform(value: Object | undefined, limit: number): TransportWaveform {
++  const result: TransportWaveform = new TransportWaveform();
++  if (!isPresent(value)) {
++    result.malformed = true;
++    return result;
++  }
++  if (Array.isArray(value)) {
++    const items: Object[] = value as Object[];
++    result.declaredBarCount = items.length;
++    if (overLimit(result, limit) || isEmptyWaveform(result)) {
++      return result;
++    }
++    for (let index = 0; index < items.length; index++) {
++      const magnitude: number = strictMagnitude(items[index]);
++      if (magnitude < 0) {
++        result.malformed = true;
++        return result;
++      }
++      result.bytes.push(magnitude);
++    }
++    return result;
++  }
++  const source: JsonMap = asMap(value);
++  const segments: JsonMap[] = asMaps(source['segments']);
++  if (segments.length > 0) {
++    for (let index = 0; index < segments.length; index++) {
++      const count: number = declaredCount(segments[index], 'count');
++      if (count < 0) {
++        result.malformed = true;
++        return result;
++      }
++      result.declaredBarCount += count;
++      if (overLimit(result, limit)) {
++        return result;
++      }
++    }
++    if (isEmptyWaveform(result)) {
++      return result;
++    }
++    for (let index = 0; index < segments.length; index++) {
++      const segment: JsonMap = segments[index];
++      const magnitude: number = strictMagnitude(segment['value']);
++      const count: number = declaredCount(segment, 'count');
++      if (magnitude < 0) {
++        result.malformed = true;
++        return result;
++      }
++      for (let bar = 0; bar < count; bar++) {
++        result.bytes.push(magnitude);
++      }
++    }
++    return result;
++  }
++  const barCount: number = declaredCount(source, 'barCount');
++  if (barCount < 0) {
++    result.malformed = true;
++    return result;
++  }
++  result.declaredBarCount = barCount;
++  if (overLimit(result, limit) || isEmptyWaveform(result)) {
++    return result;
++  }
++  const fill: number = strictMagnitude(source['fill']);
++  if (fill < 0) {
++    result.malformed = true;
++    return result;
++  }
++  for (let bar = 0; bar < barCount; bar++) {
++    result.bytes.push(fill);
++  }
++  return result;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformBackupFile.ets b/entry/src/main/ets/waveform/WaveformBackupFile.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..5150693abf08058bfffcef2a9eb30c25767cca6c
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformBackupFile.ets
+@@ -0,0 +1,49 @@
++import { EffectRecorder } from '../common/EffectRecorder';
++import { JsonMap, asMap, asNumbers, cloneNumbers, jsonMap, mapBoolean, mapNumber, mapText } from '../common/JsonMap';
++import { WaveformRecord, decodeWaveformMagnitudes } from './WaveformRecord';
++
++/**
++ * The backup artifact for one attachment. Export writes the waveform into the
++ * backup payload verbatim, restore reads it back and keeps the remote origin so
++ * a restored sender waveform is never mistaken for a local cache entry.
++ */
++export class WaveformBackupFile {
++  private payload: JsonMap = jsonMap();
++
++  reset(): void {
++    this.payload = jsonMap();
++  }
++
++  /** Writes the backup entry and returns the exported attachment pointer. */
++  exportAttachment(attachment: JsonMap, record: WaveformRecord | undefined): JsonMap {
++    const pointer: JsonMap = jsonMap();
++    const contentType: string = mapText(attachment, 'contentType');
++    if (contentType.length > 0) {
++      pointer['contentType'] = contentType;
++    }
++    const cdnKey: string = mapText(attachment, 'cdnKey');
++    if (cdnKey.length > 0) {
++      pointer['cdnKey'] = cdnKey;
++    }
++    if (record !== undefined) {
++      pointer['attachmentId'] = record.attachmentId;
++      pointer['barCount'] = record.barCount();
++      pointer['audioWaveform'] = cloneNumbers(record.bytes);
++      pointer['audioDurationSeconds'] = record.durationSeconds;
++      pointer['senderProvided'] = record.senderProvided;
++    }
++    this.payload = jsonMap(['version', 'attachment'], [1, pointer]);
++    return pointer;
++  }
++
++  restoreAttachment(): WaveformRecord | undefined {
++    const pointer: JsonMap = asMap(this.payload['attachment']);
++    const waveform: Object | undefined = pointer['audioWaveform'];
++    if (waveform === undefined || waveform === null) {
++      return undefined;
++    }
++    const bytes: number[] = Array.isArray(waveform) ? asNumbers(waveform) : decodeWaveformMagnitudes(asMap(waveform));
++    return new WaveformRecord(mapText(pointer, 'attachmentId'), bytes,
++      mapNumber(pointer, 'audioDurationSeconds'), mapBoolean(pointer, 'senderProvided'));
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformGenerationService.ets b/entry/src/main/ets/waveform/WaveformGenerationService.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..0a3810f10697a10099b9edf44613d3a5c9a885fb
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformGenerationService.ets
+@@ -0,0 +1,44 @@
++import { EffectRecorder } from '../common/EffectRecorder';
++import { WaveformGenerator } from './WaveformGenerator';
++import { WaveformRecord } from './WaveformRecord';
++import { WaveformStore } from './WaveformStore';
++
++/**
++ * Runs one waveform generation attempt for an attachment.
++ *
++ * The attempt first parks an explicit empty row so that an interrupted or failed
++ * run leaves a recognizable failure marker behind instead of a waveform that
++ * looks like silence, then decodes the local audio and replaces the whole row
++ * with the generated waveform. A failed attempt keeps the placeholder so the
++ * next request with readable media can retry exactly once.
++ */
++export class WaveformGenerationService {
++  private store: WaveformStore;
++  private recorder: EffectRecorder;
++  private generator: WaveformGenerator;
++
++  constructor(store: WaveformStore, recorder: EffectRecorder, generator: WaveformGenerator) {
++    this.store = store;
++    this.recorder = recorder;
++    this.generator = generator;
++  }
++
++  /**
++   * @param markPlaceholder parks the empty generation marker first; upload
++   *        preparation needs it, a plain render refresh does not.
++   */
++  async run(attachmentId: string, samples: number[], durationUs: number, markPlaceholder: boolean): Promise<WaveformRecord | undefined> {
++    if (markPlaceholder) {
++      this.recorder.record('persistGenerationPlaceholder', attachmentId);
++      await this.store.writeRecord(WaveformRecord.empty(attachmentId));
++    }
++    this.recorder.record('decodeAudio', attachmentId);
++    const record: WaveformRecord | undefined = this.generator.generate(attachmentId, samples, durationUs);
++    if (record === undefined) {
++      return undefined;
++    }
++    await this.store.writeRecord(record);
++    this.recorder.record('persistGeneratedWaveform', attachmentId);
++    return record;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformGenerator.ets b/entry/src/main/ets/waveform/WaveformGenerator.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..03a62549569ab634048e873127ad1946a22d0d1d
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformGenerator.ets
+@@ -0,0 +1,51 @@
++import { GENERATED_BAR_COUNT, MAX_BAR_MAGNITUDE } from './WaveformLimits';
++import { clampMagnitude } from './WaveformMagnitude';
++import { WaveformRecord } from './WaveformRecord';
++
++/**
++ * Turns decoded PCM into the bounded waveform a voice note carries. Bars are
++ * derived from decoded samples only (never from encoded byte positions), so a
++ * container change cannot shift the shape, and the result is deterministic:
++ * silence produces zero magnitude, full scale produces the maximum magnitude.
++ */
++export class WaveformGenerator {
++  /**
++   * Returns undefined when there is nothing decodable to derive a waveform
++   * from; the caller keeps the empty generation placeholder in that case.
++   */
++  generate(attachmentId: string, samples: number[], durationUs: number): WaveformRecord | undefined {
++    if (samples.length === 0 || durationUs <= 0) {
++      return undefined;
++    }
++    const levels: number[] = this.bucketLevels(samples, GENERATED_BAR_COUNT);
++    let loudest: number = 0;
++    for (let index = 0; index < levels.length; index++) {
++      loudest = Math.max(loudest, levels[index]);
++    }
++    const scale: number = loudest > 0 ? MAX_BAR_MAGNITUDE / loudest : 0;
++    const bars: number[] = [];
++    for (let index = 0; index < levels.length; index++) {
++      bars.push(clampMagnitude(levels[index] * scale));
++    }
++    return new WaveformRecord(attachmentId, bars, durationUs / 1000000, false);
++  }
++
++  /** Mean absolute sample level of each bucket of decoded audio. */
++  private bucketLevels(samples: number[], barCount: number): number[] {
++    const levels: number[] = [];
++    const length: number = samples.length;
++    for (let bar = 0; bar < barCount; bar++) {
++      const start: number = Math.floor(bar * length / barCount);
++      let end: number = Math.min(length, Math.floor((bar + 1) * length / barCount));
++      if (end <= start) {
++        end = Math.min(length, start + 1);
++      }
++      let sum: number = 0;
++      for (let index = start; index < end; index++) {
++        sum += Math.abs(samples[index]);
++      }
++      levels.push(end > start ? sum / (end - start) : 0);
++    }
++    return levels;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformLimits.ets b/entry/src/main/ets/waveform/WaveformLimits.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ad5d6307286cf67e9ad5da29cee209ee8b4800d
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformLimits.ets
+@@ -0,0 +1,28 @@
++/** Waveform sizing constants shared by generation, transport and rendering. */
++
++/** Number of bars a locally generated waveform carries. */
++export const GENERATED_BAR_COUNT: number = 50;
++
++/** Bar count the voice note waveform UI always renders, whatever arrived on the wire. */
++export const RENDER_BAR_COUNT: number = 50;
++
++/** Largest number of bars the service accepts from a remote sender. */
++export const SERVICE_WAVEFORM_BAR_LIMIT: number = 100;
++
++/** Waveform magnitudes are unsigned bytes: silence is 0, full scale is 255. */
++export const MAX_BAR_MAGNITUDE: number = 255;
++
++/**
++ * Waveform generation is only ever attached to audio media. Everything else
++ * (images, documents, video) keeps its ordinary upload chain untouched.
++ */
++export function isAudioAttachment(contentType: string): boolean {
++  const type: string = contentType.toLowerCase();
++  if (type.length === 0) {
++    return false;
++  }
++  if (type.startsWith('audio/')) {
++    return true;
++  }
++  return type === 'application/ogg' || type === 'application/x-ogg' || type.indexOf('opus') >= 0;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformMagnitude.ets b/entry/src/main/ets/waveform/WaveformMagnitude.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..008f2a8106fef8fd55644ae3ce0dede90dc52b39
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformMagnitude.ets
+@@ -0,0 +1,24 @@
++import { GENERATED_BAR_COUNT, MAX_BAR_MAGNITUDE } from './WaveformLimits';
++
++function isUsableMagnitude(value: number): boolean {
++  return value === value && value < Infinity && value > -Infinity;
++}
++
++/** Keeps a magnitude inside the unsigned 0..255 waveform range. */
++export function clampMagnitude(value: number): number {
++  if (!isUsableMagnitude(value)) {
++    return 0;
++  }
++  const rounded: number = Math.round(value);
++  return rounded < 0 ? 0 : (rounded > MAX_BAR_MAGNITUDE ? MAX_BAR_MAGNITUDE : rounded);
++}
++
++/** Normalizes an unsigned magnitude to the 0..1 range used by the waveform UI. */
++export function normalizeMagnitude(value: number): number {
++  return clampMagnitude(value) / MAX_BAR_MAGNITUDE;
++}
++
++/** A locally generated waveform whose bar count still matches the current release. */
++export function isCurrentGeneratedBarCount(barCount: number): boolean {
++  return barCount === GENERATED_BAR_COUNT;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformRecord.ets b/entry/src/main/ets/waveform/WaveformRecord.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..b6846147ca116732e70417cc692ddf490632b4f2
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformRecord.ets
+@@ -0,0 +1,137 @@
++import { JsonMap, asMap, asMaps, asNumbers, cloneNumbers, jsonMap, mapBoolean, mapNumber } from '../common/JsonMap';
++import { isCurrentGeneratedBarCount } from './WaveformMagnitude';
++
++/**
++ * Decodes the magnitudes of a waveform row this app wrote itself. Stored rows
++ * reach us in three interchangeable shapes: an explicit magnitude list, a run
++ * length encoded list of `{ value, count }` segments, or a uniform
++ * `{ barCount, fill }` description. Remote payloads never come through here:
++ * they are read bounded and strictly by `readTransportWaveform`.
++ */
++export function decodeWaveformMagnitudes(source: JsonMap): number[] {
++  const explicit: number[] = asNumbers(source['bytes']);
++  if (explicit.length > 0) {
++    return explicit;
++  }
++  const segments: JsonMap[] = asMaps(source['segments']);
++  if (segments.length > 0) {
++    const expanded: number[] = [];
++    for (let index = 0; index < segments.length; index++) {
++      const segment: JsonMap = segments[index];
++      const count: number = mapNumber(segment, 'count');
++      const value: number = mapNumber(segment, 'value');
++      for (let bar = 0; bar < count; bar++) {
++        expanded.push(value);
++      }
++    }
++    return expanded;
++  }
++  const barCount: number = mapNumber(source, 'barCount');
++  if (barCount > 0) {
++    const fill: number = mapNumber(source, 'fill');
++    const uniform: number[] = [];
++    for (let bar = 0; bar < barCount; bar++) {
++      uniform.push(fill);
++    }
++    return uniform;
++  }
++  return [];
++}
++
++function resolveDurationSeconds(source: JsonMap): number {
++  if (source['durationSeconds'] !== undefined) {
++    return mapNumber(source, 'durationSeconds');
++  }
++  if (source['durationUs'] !== undefined) {
++    return mapNumber(source, 'durationUs') / 1000000;
++  }
++  return 0;
++}
++
++/**
++ * The waveform row that belongs to one attachment. Sender provided magnitudes
++ * are stored verbatim and are never rewritten by generation or rendering.
++ */
++export class WaveformRecord {
++  attachmentId: string = '';
++  bytes: number[] = [];
++  durationSeconds: number = 0;
++  durationUs: number = 0;
++  senderProvided: boolean = false;
++
++  constructor(attachmentId: string, bytes: number[], durationSeconds: number, senderProvided: boolean) {
++    this.attachmentId = attachmentId;
++    this.bytes = bytes;
++    this.durationSeconds = durationSeconds;
++    this.durationUs = Math.round(durationSeconds * 1000000);
++    this.senderProvided = senderProvided;
++  }
++
++  barCount(): number {
++    return this.bytes.length;
++  }
++
++  /** A waveform that came from a sender is retained as-is, whatever its bar count is. */
++  isSenderProvided(): boolean {
++    return this.senderProvided;
++  }
++
++  /** An empty row is the failure marker of an interrupted generation, not silence. */
++  isPlaceholder(): boolean {
++    return !this.senderProvided && this.bytes.length === 0;
++  }
++
++  /** Locally generated rows whose bar count predates the current release are stale. */
++  isObsoleteGenerated(): boolean {
++    return !this.senderProvided && this.bytes.length > 0 && !isCurrentGeneratedBarCount(this.bytes.length);
++  }
++
++  isRenderable(): boolean {
++    return this.bytes.length > 0;
++  }
++
++  /** True when this row can be shipped or rendered without touching the decoder. */
++  isUsable(): boolean {
++    return this.isRenderable() && (this.senderProvided || isCurrentGeneratedBarCount(this.bytes.length));
++  }
++
++  origin(): string {
++    return this.senderProvided ? 'sender' : 'generated';
++  }
++
++  belongsTo(attachmentId: string): boolean {
++    return this.attachmentId.length === 0 || this.attachmentId === attachmentId;
++  }
++
++  toPersistence(): JsonMap {
++    return jsonMap(['attachmentId', 'bytes', 'barCount', 'durationSeconds', 'durationUs', 'senderProvided', 'origin'],
++      [this.attachmentId, cloneNumbers(this.bytes), this.bytes.length,
++        this.durationSeconds, this.durationUs, this.senderProvided, this.origin()]);
++  }
++
++  /**
++   * Builds a row from any of the stored waveform shapes. A bare magnitude list
++   * carries neither duration nor origin, so those fall back to the enclosing
++   * attachment row instead of being reset.
++   */
++  static fromStored(attachmentId: string, stored: Object | undefined, context: JsonMap = jsonMap()): WaveformRecord {
++    const source: JsonMap = Array.isArray(stored) ? jsonMap() : asMap(stored);
++    let durationSeconds: number = resolveDurationSeconds(source);
++    if (durationSeconds <= 0) {
++      durationSeconds = resolveDurationSeconds(context);
++    }
++    const senderProvided: boolean = source['senderProvided'] !== undefined ?
++      mapBoolean(source, 'senderProvided') : mapBoolean(context, 'senderProvided');
++    const bytes: number[] = Array.isArray(stored) ? asNumbers(stored) : decodeWaveformMagnitudes(source);
++    return new WaveformRecord(attachmentId, bytes, durationSeconds, senderProvided);
++  }
++
++  /** Builds a sender provided row from already validated remote magnitudes. */
++  static fromSender(attachmentId: string, bytes: number[], durationSeconds: number): WaveformRecord {
++    return new WaveformRecord(attachmentId, bytes, durationSeconds, true);
++  }
++
++  static empty(attachmentId: string): WaveformRecord {
++    return new WaveformRecord(attachmentId, [], 0, false);
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformRenderer.ets b/entry/src/main/ets/waveform/WaveformRenderer.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..cef7ce99afae1daa2870ad0a98c376517adf16bb
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformRenderer.ets
+@@ -0,0 +1,52 @@
++import { RENDER_BAR_COUNT } from './WaveformLimits';
++import { clampMagnitude, normalizeMagnitude } from './WaveformMagnitude';
++import { WaveformRecord } from './WaveformRecord';
++
++/**
++ * Turns a stored waveform into the fixed size bar list the voice note waveform
++ * UI draws. Transported bars are read as unsigned magnitudes and resampled with
++ * deterministic bucket averages, so a sender waveform renders identically
++ * whether it carries 4, 50 or 100 bars and whether or not the media file is
++ * available locally.
++ */
++export class WaveformRenderer {
++  bars(record: WaveformRecord, barCount: number = RENDER_BAR_COUNT): number[] {
++    const source: number[] = record.bytes;
++    if (barCount <= 0 || source.length === 0) {
++      return [];
++    }
++    if (source.length === barCount) {
++      const copy: number[] = [];
++      for (let index = 0; index < source.length; index++) {
++        copy.push(clampMagnitude(source[index]));
++      }
++      return copy;
++    }
++    const length: number = source.length;
++    const resampled: number[] = [];
++    for (let bar = 0; bar < barCount; bar++) {
++      let start: number = Math.floor(bar * length / barCount);
++      let end: number = Math.floor((bar + 1) * length / barCount);
++      if (end <= start) {
++        end = Math.min(length, start + 1);
++      }
++      if (start >= length) {
++        start = length - 1;
++      }
++      if (end > length) {
++        end = length;
++      }
++      let sum: number = 0;
++      for (let index = start; index < end; index++) {
++        sum += clampMagnitude(source[index]);
++      }
++      resampled.push(clampMagnitude(end > start ? sum / (end - start) : 0));
++    }
++    return resampled;
++  }
++
++  /** The rendered bars normalized to 0..1 for the waveform view. */
++  normalized(record: WaveformRecord, barCount: number = RENDER_BAR_COUNT): number[] {
++    return this.bars(record, barCount).map((value: number): number => normalizeMagnitude(value));
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/waveform/WaveformStore.ets b/entry/src/main/ets/waveform/WaveformStore.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..14833b67af911abb43feccc8e188ff5727044de3
+--- /dev/null
++++ b/entry/src/main/ets/waveform/WaveformStore.ets
+@@ -0,0 +1,55 @@
++import { preferences } from '@kit.ArkData';
++import { JsonMap, jsonMap, mapText } from '../common/JsonMap';
++import { WaveformRecord } from './WaveformRecord';
++
++const WAVEFORM_KEY: string = 'waveform';
++
++/**
++ * Persistence for the waveform row that belongs to the current attachment. A
++ * row is written as a single value so that recovery replaces the whole row
++ * atomically instead of leaving a half written waveform behind.
++ */
++export class WaveformStore {
++  private store: preferences.Preferences;
++
++  constructor(store: preferences.Preferences) {
++    this.store = store;
++  }
++
++  async clear(): Promise<void> {
++    await this.store.clear();
++    await this.store.flush();
++  }
++
++  async flush(): Promise<void> {
++    await this.store.flush();
++  }
++
++  async writeRecord(record: WaveformRecord): Promise<void> {
++    await this.store.put(WAVEFORM_KEY, JSON.stringify(record.toPersistence()));
++    await this.store.flush();
++  }
++
++  async readRecord(): Promise<WaveformRecord | undefined> {
++    const raw: preferences.ValueType = await this.store.get(WAVEFORM_KEY, '');
++    if (typeof raw !== 'string' || raw.length === 0) {
++      return undefined;
++    }
++    return this.parseRow(raw);
++  }
++
++  private parseRow(raw: string): WaveformRecord | undefined {
++    try {
++      const row: JsonMap = JSON.parse(raw) as JsonMap;
++      return WaveformRecord.fromStored(mapText(row, 'attachmentId'), row);
++    } catch (error) {
++      console.warn('[waveform] dropping unreadable waveform row: ' + JSON.stringify(error));
++      return undefined;
++    }
++  }
++
++  /** Snapshot of the persisted row, used by the attachment view after a reload. */
++  snapshot(record: WaveformRecord | undefined): JsonMap {
++    return record === undefined ? jsonMap() : jsonMap(['waveform'], [record.toPersistence()]);
++  }
++}
+\ No newline at end of file

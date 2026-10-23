@@ -1,0 +1,2427 @@
+diff --git a/entry/src/main/ets/entryability/EntryAbility.ets b/entry/src/main/ets/entryability/EntryAbility.ets
+index 33c1674..f142c1e 100644
+--- a/entry/src/main/ets/entryability/EntryAbility.ets
++++ b/entry/src/main/ets/entryability/EntryAbility.ets
+@@ -7,4 +7,9 @@ export default class EntryAbility extends UIAbility {
+     DomainPageRuntime.configureDefault(this.context);
+     stage.loadContent('pages/Index');
+   }
++
++  onDestroy(): void {
++    // Releases the domain page owner and the timers that the feature owns.
++    void DomainPageRuntime.release();
++  }
+ }
+diff --git a/entry/src/main/ets/integration/DomainIntegration.ets b/entry/src/main/ets/integration/DomainIntegration.ets
+index 2b7a70a..612dd7c 100644
+--- a/entry/src/main/ets/integration/DomainIntegration.ets
++++ b/entry/src/main/ets/integration/DomainIntegration.ets
+@@ -1,5 +1,79 @@
+ import { common } from '@kit.AbilityKit';
+ 
++/**
++ * Contracts of the "All Domains" feature.
++ *
++ * The page owner owns the state, the backend performs the remote work and the
++ * leaf receives the side effects that the hosting layer has to react to
++ * (navigation, analytics, checkout hand-off, ...).
++ */
++
++/** Screens the domain management flow can display. */
++export enum DomainScreen {
++  MANAGEMENT = 'domain_management',
++  SEARCH = 'domain_search',
++  PURCHASE = 'purchase',
++  CHECKOUT = 'checkout',
++  DETAILS = 'domain_details'
++}
++
++/** State of the account domain list. */
++export enum DomainListState {
++  LOADING = 'loading',
++  COMPLETE = 'complete',
++  EMPTY = 'empty',
++  ERROR = 'error',
++  FILTERED = 'filtered'
++}
++
++/** State of the new domain search. */
++export enum DomainSearchState {
++  IDLE = 'idle',
++  LOADING = 'loading',
++  RESULTS = 'results',
++  EMPTY = 'empty',
++  ERROR = 'error'
++}
++
++/** Purchase modes offered once a proposal has been selected. */
++export enum DomainPurchaseMode {
++  NEW_DOMAIN_ONLY = 'new_domain_only',
++  EXISTING_SITE = 'existing_site'
++}
++
++/** State of the domain cart submission. */
++export enum DomainCartState {
++  IDLE = 'idle',
++  SUBMITTING = 'submitting',
++  ERROR = 'error',
++  SUBMITTED = 'submitted'
++}
++
++/** Outcome of a checkout result. */
++export enum DomainCheckoutOutcome {
++  SUCCESS = 'success',
++  CANCELED = 'canceled',
++  INVALID = 'invalid'
++}
++
++/** Names of the effects emitted by the domain feature. */
++export class DomainEffectName {
++  static readonly FETCH_ALL_DOMAINS: string = 'fetchAllDomains';
++  static readonly FILTER_LOADED_DOMAINS: string = 'filterLoadedDomains';
++  static readonly RESTORE_COMPLETE_DOMAIN_LIST: string = 'restoreCompleteDomainList';
++  static readonly SEARCH_FOR_DOMAINS: string = 'searchForDomains';
++  static readonly CREATE_CART: string = 'createCart';
++  static readonly OPEN_CHECKOUT: string = 'openCheckout';
++  static readonly OPEN_PLAN_FLOW: string = 'openPlanFlow';
++  static readonly CHECKOUT_RESULT: string = 'checkoutResult';
++  static readonly OPEN_DETAILS: string = 'openDetails';
++  static readonly EXTERNAL_NAVIGATION: string = 'externalNavigation';
++}
++
++/**
++ * Side effect channel. The store never talks to the hosting layer directly,
++ * it reports what happened through these effects.
++ */
+ export interface DomainEffect {
+   name: string;
+   count?: number;
+@@ -11,14 +85,34 @@ export interface DomainEffect {
+   productId?: number;
+   supportsPrivacy?: boolean;
+   url?: string;
++  status?: string;
++  outcome?: string;
+ }
++
++/**
++ * Remote operations used by the domain feature. Implementations translate the
++ * calls into WordPress.com requests, tests provide their own doubles.
++ */
+ export interface DomainBackend {
+-  fetchAllDomains(): Promise<Record<string, Object>>;
+-  searchForDomains(query: string): Promise<string[]>;
+-  createCart(mode: string, domain: string): Promise<Record<string, Object>>;
++  fetchAllDomains(): Promise<Object>;
++  searchForDomains(query: string): Promise<Object>;
++  createCart(mode: string, domain: string, productId?: number, supportsPrivacy?: boolean): Promise<Object>;
+ }
++
++/** Sink that receives the effects produced by the store. */
+ export interface DomainLeaf { emit(effect: DomainEffect): Promise<void>; }
+-export interface DomainInput { backend: DomainBackend; leaf: DomainLeaf; }
++
++/**
++ * Everything the page owner needs to run the feature. `clock` is optional and
++ * allows the host to drive the debounce with a controlled time source.
++ */
++export interface DomainInput {
++  backend: DomainBackend;
++  leaf: DomainLeaf;
++  clock?: Object;
++}
++
++/** Page owner contract implemented by the mounted domain page. */
+ export interface DomainPageOwner {
+   mount(context: common.UIAbilityContext, input: DomainInput, initialize: boolean): Promise<void>;
+   invoke(name: string, event: Record<string, Object>): Promise<void>;
+@@ -28,3 +122,66 @@ export interface DomainPageOwner {
+   storeSource(): string;
+   featureAvailable(): boolean;
+ }
++
++/** Credentials of the account that owns the domains. */
++export interface DomainSession {
++  authToken: string;
++  siteId: string;
++}
++
++/** A domain owned by the account, mapped for the "All Domains" list. */
++export interface DomainRow {
++  domain: string;
++  siteSlug: string;
++  siteTitle: string;
++  status: string;
++  expiry: string;
++  detailsUrl: string;
++}
++
++/** A paid domain proposal returned by the domain search. */
++export interface DomainProposal {
++  productId: number;
++  domain: string;
++  price: string;
++  salePrice: string;
++  supportsPrivacy: boolean;
++  relevance: number;
++}
++
++/** Typed checkout result produced by the checkout flow. */
++export interface DomainCheckoutResult {
++  domainName: string;
++  email: string;
++  canceled: boolean;
++}
++
++/** Read only view of the state owned by the store. */
++export interface DomainSnapshot {
++  screen: string;
++  listState: string;
++  searchState: string;
++  cartState: string;
++  loading: boolean;
++  errorMessage: string;
++  searchError: string;
++  cartError: string;
++  cartProgress: string;
++  filterQuery: string;
++  searchQuery: string;
++  purchaseMode: string;
++  selectedDomain: string;
++  selectedSiteSlug: string;
++  registrationOutcome: string;
++  purchaseScreenOpen: boolean;
++  addDomainEnabled: boolean;
++  searchEnabled: boolean;
++  containedWebViewUrl: string;
++  externalNavigationUrl: string;
++  detailsDomain: string;
++  checkoutUrl: string;
++  lastPurchasedDomain: string;
++  visibleDomains: DomainRow[];
++  allDomains: DomainRow[];
++  proposals: DomainProposal[];
++}
+diff --git a/entry/src/main/ets/model/DomainCheckoutResult.ets b/entry/src/main/ets/model/DomainCheckoutResult.ets
+new file mode 100644
+index 0000000..1d809a9
+--- /dev/null
++++ b/entry/src/main/ets/model/DomainCheckoutResult.ets
+@@ -0,0 +1,75 @@
++import { DomainCheckoutResult } from '../integration/DomainIntegration';
++import { asBoolean, asRecord, asText } from './DomainValues';
++
++/**
++ * The checkout runs outside of the domain feature and reports back through a
++ * typed result. The parser is the single place that turns whatever the
++ * checkout delivered into a result the domain flow can trust: a result without
++ * a domain is not a result at all and must never be reported as a completion.
++ */
++
++function resultFromRecord(record: Record<string, Object>): DomainCheckoutResult | undefined {
++  const domainName = asText(record['domainName'], asText(record['domain'], asText(record['domain_name']))).trim();
++  if (domainName.length === 0) {
++    return undefined;
++  }
++  const email = asText(record['email'], asText(record['userEmail'])).trim();
++  const canceled = asBoolean(record['canceled'], asBoolean(record['cancelled'], asBoolean(record['isCanceled'])));
++  return { domainName: domainName, email: email, canceled: canceled };
++}
++
++function queryValue(url: string, key: string): string {
++  const queryIndex = url.indexOf('?');
++  if (queryIndex < 0) {
++    return '';
++  }
++  const query = url.substring(queryIndex + 1);
++  const pairs = query.split('&');
++  for (const pair of pairs) {
++    const separator = pair.indexOf('=');
++    if (separator < 0) {
++      continue;
++    }
++    if (pair.substring(0, separator).toLowerCase() === key) {
++      return pair.substring(separator + 1);
++    }
++  }
++  return '';
++}
++
++function resultFromUrl(url: string): DomainCheckoutResult | undefined {
++  const domainName = queryValue(url, 'domain').trim();
++  if (domainName.length === 0) {
++    return undefined;
++  }
++  const email = queryValue(url, 'email').trim();
++  const canceledFlag = queryValue(url, 'canceled').toLowerCase();
++  const canceled = canceledFlag === '1' || canceledFlag === 'true';
++  return { domainName: domainName, email: email, canceled: canceled };
++}
++
++/** Parses the payload returned by the checkout into a typed result. */
++export function parseCheckoutResult(raw: Object | undefined | null): DomainCheckoutResult | undefined {
++  if (raw === undefined || raw === null) {
++    return undefined;
++  }
++  if (typeof raw === 'string') {
++    const payload = (raw as string).trim();
++    if (payload.length === 0) {
++      return undefined;
++    }
++    if (payload.startsWith('{')) {
++      try {
++        return parseCheckoutResult(JSON.parse(payload) as Object);
++      } catch (error) {
++        return undefined;
++      }
++    }
++    return resultFromUrl(payload);
++  }
++  const record = asRecord(raw);
++  if (record === undefined) {
++    return undefined;
++  }
++  return resultFromRecord(record);
++}
+diff --git a/entry/src/main/ets/model/DomainDetailsPolicy.ets b/entry/src/main/ets/model/DomainDetailsPolicy.ets
+new file mode 100644
+index 0000000..a59324c
+--- /dev/null
++++ b/entry/src/main/ets/model/DomainDetailsPolicy.ets
+@@ -0,0 +1,116 @@
++/**
++ * Containment rules of the in-app domain details view.
++ *
++ * The details view is only allowed to display the domain management pages of
++ * the matching domain on wordpress.com. Every other destination has to leave
++ * the contained view and is handed over to the external navigation path.
++ */
++
++/** Host that hosts the domain management pages. */
++export const DOMAIN_DETAILS_HOST: string = 'wordpress.com';
++
++/** Path prefix of the domain management pages. */
++export const DOMAIN_DETAILS_PATH_PREFIX: string = '/domains/manage/all/';
++
++/** Section of the domain management pages that the details view may show. */
++export const DOMAIN_DETAILS_SECTION: string = 'edit';
++
++/** Parsed representation of the destination of the details view. */
++export interface DomainDetailsTarget {
++  scheme: string;
++  host: string;
++  path: string;
++  segments: string[];
++}
++
++/** Builds the details destination of a managed domain. */
++export function domainDetailsPath(domain: string): string {
++  return DOMAIN_DETAILS_PATH_PREFIX + domain + '/' + DOMAIN_DETAILS_SECTION + '/contact';
++}
++
++/** Builds the details destination of a managed domain. */
++export function domainDetailsUrl(domain: string): string {
++  return 'https://' + DOMAIN_DETAILS_HOST + domainDetailsPath(domain);
++}
++
++/** Splits a destination into the parts the containment rule needs. */
++export function parseDetailsTarget(url: string): DomainDetailsTarget | undefined {
++  const trimmed = url.trim();
++  if (trimmed.length === 0) {
++    return undefined;
++  }
++  let rest = trimmed;
++  let scheme = 'https';
++  const schemeIndex = rest.indexOf('://');
++  if (schemeIndex >= 0) {
++    scheme = rest.substring(0, schemeIndex).toLowerCase();
++    rest = rest.substring(schemeIndex + 3);
++  }
++  const queryIndex = rest.indexOf('?');
++  if (queryIndex >= 0) {
++    rest = rest.substring(0, queryIndex);
++  }
++  const hashIndex = rest.indexOf('#');
++  if (hashIndex >= 0) {
++    rest = rest.substring(0, hashIndex);
++  }
++  const slashIndex = rest.indexOf('/');
++  const host = (slashIndex >= 0 ? rest.substring(0, slashIndex) : rest).toLowerCase();
++  const path = slashIndex >= 0 ? rest.substring(slashIndex) : '/';
++  const segments: string[] = [];
++  const rawSegments = path.split('/');
++  for (const segment of rawSegments) {
++    if (segment.length > 0) {
++      segments.push(segment.toLowerCase());
++    }
++  }
++  return { scheme: scheme, host: host, path: path, segments: segments };
++}
++
++/**
++ * A destination stays inside the details view only when it is an https page of
++ * wordpress.com that belongs to the managed domain management section.
++ */
++export function isAllowedDetailsUrl(url: string, managedDomain: string): boolean {
++  const target = parseDetailsTarget(url);
++  if (target === undefined) {
++    return false;
++  }
++  if (target.scheme !== 'https' && target.scheme !== 'http') {
++    return false;
++  }
++  if (target.host !== DOMAIN_DETAILS_HOST) {
++    return false;
++  }
++  const domain = managedDomain.trim().toLowerCase();
++  if (domain.length === 0) {
++    return false;
++  }
++  const segments = target.segments;
++  if (segments.length < 5) {
++    return false;
++  }
++  if (segments[0] !== 'domains' || segments[1] !== 'manage' || segments[2] !== 'all') {
++    return false;
++  }
++  if (segments[3] !== domain) {
++    return false;
++  }
++  return segments[4] === DOMAIN_DETAILS_SECTION;
++}
++
++/** Reads the managed domain out of a domain management destination. */
++export function managedDomainFromUrl(url: string): string {
++  const target = parseDetailsTarget(url);
++  if (target === undefined) {
++    return '';
++  }
++  const segments = target.segments;
++  if (segments.length < 4) {
++    return '';
++  }
++  if (segments[0] !== 'domains' || segments[1] !== 'manage' || segments[2] !== 'all') {
++    return '';
++  }
++  return segments[3];
++}
+diff --git a/entry/src/main/ets/model/DomainStore.ets b/entry/src/main/ets/model/DomainStore.ets
+index 04b66ca..5cf6f91 100644
+--- a/entry/src/main/ets/model/DomainStore.ets
++++ b/entry/src/main/ets/model/DomainStore.ets
+@@ -1,60 +1,1163 @@
+ import { common } from '@kit.AbilityKit';
+ import { preferences } from '@kit.ArkData';
+-import { DomainInput } from '../integration/DomainIntegration';
++import {
++  DomainCartState, DomainCheckoutOutcome, DomainEffect, DomainEffectName, DomainInput, DomainListState,
++  DomainProposal, DomainPurchaseMode, DomainRow, DomainScreen, DomainSearchState, DomainSnapshot
++} from '../integration/DomainIntegration';
++import { parseCheckoutResult } from './DomainCheckoutResult';
++import { domainDetailsUrl, isAllowedDetailsUrl, managedDomainFromUrl } from './DomainDetailsPolicy';
++import {
++  asArray, asBoolean, asNumber, asRecord, asText, domainNames, emptyPayload, firstDefined, hasEntry,
++  normalizeQuery, proposalToRecord, rowToRecord
++} from './DomainValues';
+ 
+-function parsed(value: string): Record<string, Object> { return JSON.parse(value) as Record<string, Object>; }
+-function clone(value: Record<string, Object>): Record<string, Object> { return parsed(JSON.stringify(value)); }
+-function records(value: Object | undefined): Record<string, Object>[] {
+-  return value === undefined ? [] : value as Record<string, Object>[];
++/** Preferences file that keeps the last known state of the domain feature. */
++const PREFERENCES_NAME: string = 'wordpress_domain_management';
++const STATE_KEY: string = 'state';
++/** Delay applied before a typed query is sent to the domain search. */
++export const SEARCH_DEBOUNCE_MS: number = 250;
++/** Host that serves the domain pages. */
++const DOMAIN_HOST: string = 'https://public-api.wordpress.com';
++
++interface Deferred {
++  promise: Promise<void>;
++  resolve: () => void;
++}
++
++/** Optional time source that a host can inject to drive the debounce. */
++interface ClockSurface {
++  now?: () => number;
++  currentTimeMs?: () => number;
++  setTimeout?: (handler: () => void, delayMs: number) => number;
++  schedule?: (handler: () => void, delayMs: number) => number;
++  clearTimeout?: (handle: number) => void;
++  cancel?: (handle: number) => void;
++  advance?: (milliseconds: number) => void;
++}
++
++function createDeferred(): Deferred {
++  let resolver: (() => void) | undefined = undefined;
++  const promise = new Promise<void>((resolve: () => void) => {
++    resolver = resolve;
++  });
++  return {
++    promise: promise,
++    resolve: (): void => {
++      if (resolver !== undefined) {
++        resolver();
++      }
++    }
++  };
+ }
+-function names(domains: Record<string, Object>[]): string[] { return domains.map((item) => item['domain'] as string); }
+ 
++function delay(milliseconds: number): Promise<void> {
++  return new Promise<void>((resolve: () => void) => {
++    setTimeout(() => resolve(), milliseconds);
++  });
++}
++
++/**
++ * Owns every piece of state of the domain feature: the account domain list,
++ * the local filter, the debounced domain search, the purchase mode and the
++ * contained details view. The store never touches the UI directly, it reports
++ * what happened through the leaf and exposes a read only snapshot.
++ */
+ export class DomainStore {
+   private state: Record<string, Object> = {};
+-  private domains: Record<string, Object>[] = [];
++  private rows: DomainRow[] = [];
++  private visibleRows: DomainRow[] = [];
++  private proposals: DomainProposal[] = [];
++  private selected: DomainProposal | undefined = undefined;
+   private input: DomainInput;
+   private prefs: preferences.Preferences;
+-  private constructor(store: preferences.Preferences, input: DomainInput) { this.prefs = store; this.input = input; }
++  private screen: string = DomainScreen.MANAGEMENT;
++  private listState: string = DomainListState.LOADING;
++  private searchState: string = DomainSearchState.IDLE;
++  private cartState: string = DomainCartState.IDLE;
++  private purchaseMode: string = '';
++  private selectedSite: string = '';
++  private filterText: string = '';
++  private searchText: string = '';
++  private searchGeneration: number = 0;
++  private pendingTimer: number = -1;
++  private pendingDeferred: Deferred | undefined = undefined;
++  private inFlightSearch: Promise<void> | undefined = undefined;
++  private cartInFlight: boolean = false;
++  private fetchCount: number = 0;
++  private completionRecorded: boolean = false;
++  private clockBase: number = Date.now();
++  private disposed: boolean = false;
++
++  private constructor(store: preferences.Preferences, input: DomainInput) {
++    this.prefs = store;
++    this.input = input;
++  }
++
+   static async create(context: common.UIAbilityContext, input: DomainInput, initialize: boolean): Promise<DomainStore> {
+-    const prefs = await preferences.getPreferences(context, 'wordpress_domain_management');
+-    if (initialize) { await prefs.clear(); await prefs.put('state', '{}'); await prefs.flush(); }
++    const prefs = await preferences.getPreferences(context, PREFERENCES_NAME);
++    if (initialize) {
++      await prefs.clear();
++      await prefs.put(STATE_KEY, '{}');
++      await prefs.flush();
++    }
+     const store = new DomainStore(prefs, input);
+-    store.state = parsed(await prefs.get('state', '{}') as string);
++    store.state = JSON.parse(await prefs.get(STATE_KEY, '{}') as string) as Record<string, Object>;
++    store.restore();
+     return store;
+   }
+-  currentState(): Record<string, Object> { return clone(this.state); }
++
++  /** Releases the timers that the store owns. */
++  dispose(): void {
++    this.disposed = true;
++    this.cancelPendingSearch();
++  }
++
++  /** Read only view of the state, used by the page. */
++  currentState(): Record<string, Object> {
++    return JSON.parse(JSON.stringify(this.state)) as Record<string, Object>;
++  }
++
++  /** Typed view of the state, used by the page. */
++  snapshot(): DomainSnapshot {
++    return {
++      screen: this.screen,
++      listState: this.listState,
++      searchState: this.searchState,
++      cartState: this.cartState,
++      loading: this.listState === DomainListState.LOADING,
++      errorMessage: asText(this.state['errorMessage']),
++      searchError: asText(this.state['searchError']),
++      cartError: asText(this.state['cartError']),
++      cartProgress: asText(this.state['cartProgress']),
++      filterQuery: this.filterText,
++      searchQuery: this.searchText,
++      purchaseMode: this.purchaseMode,
++      selectedDomain: this.selected === undefined ? '' : this.selected.domain,
++      selectedSiteSlug: this.selectedSite,
++      registrationOutcome: asText(this.state['registrationOutcome']),
++      purchaseScreenOpen: asBoolean(this.state['purchaseScreenOpen'], false),
++      addDomainEnabled: asBoolean(this.state['addDomainEnabled'], false),
++      searchEnabled: asBoolean(this.state['searchEnabled'], false),
++      containedWebViewUrl: asText(this.state['containedWebViewUrl']),
++      externalNavigationUrl: asText(this.state['externalNavigationUrl']),
++      detailsDomain: asText(this.state['detailsDomain']),
++      checkoutUrl: asText(this.state['checkoutUrl']),
++      lastPurchasedDomain: asText(this.state['lastPurchasedDomain']),
++      visibleDomains: this.visibleRows,
++      allDomains: this.rows,
++      proposals: this.proposals
++    };
++  }
++
++  /**
++   * Runs one of the domain actions. Unknown actions are ignored so that the
++   * host stays in control of the navigation.
++   */
+   async invoke(name: string, event: Record<string, Object>): Promise<void> {
+-    if (name === 'openDomainManagementThenTapAddDomain') { await this.load(); this.state['addDomainEnabled'] = true; this.state['destination'] = 'legacy_unwired'; }
+-    else if (name === 'openDomainManagementThenTapFindDomain') { await this.load(); this.state['findDomainEnabled'] = true; this.state['destination'] = 'legacy_unwired'; }
+-    else if (name === 'openDomainManagement' || name === 'openDomainManagementWithLoadedDomains') await this.load();
+-    else if (name === 'enterLocalFilter') await this.filter(event['query'] as string);
+-    else if (name === 'clearLocalFilter') await this.clearFilter();
+-    else if (name === 'showProposals' || name === 'openPurchaseModeFromProposal') this.state['proposal'] = event['proposal'] ?? event['proposals'];
+-    else if (name === 'openCheckout') this.state = parsed('{"purchaseScreenOpen":true}');
+-    else if (name === 'returnCheckoutResult') this.state = parsed('{"purchaseScreenOpen":true,"registrationOutcome":"unsupported"}');
+-    else if (name === 'openDetails') this.state = { 'containedWebViewUrl': event['currentUrl'] };
+-    else if (name === 'requestDetailsNavigation') this.state = { 'containedWebViewUrl': event['requestedUrl'], 'requestedUrlLoadedInContainedWebView': true };
++    if (this.disposed) {
++      return;
++    }
++    await this.dispatch(name, event);
+     await this.persist();
++    await this.settle();
++  }
++
++  private async dispatch(name: string, event: Record<string, Object>): Promise<void> {
++    switch (name) {
++      case 'openDomainManagement':
++      case 'openDomainManagementWithLoadedDomains':
++      case 'openAllDomains':
++      case 'loadDomains':
++      case 'refreshDomains':
++        await this.openManagement();
++        break;
++      case 'openDomainManagementThenTapAddDomain':
++      case 'openDomainManagementThenTapFindDomain':
++        await this.openManagement();
++        await this.openSearch();
++        break;
++      case 'tapRetry':
++        await this.retry();
++        break;
++      case 'retryDomainList':
++      case 'tapRetryList':
++        await this.loadDomains();
++        break;
++      case 'enterLocalFilter':
++        await this.applyFilter(asText(event['query']));
++        break;
++      case 'clearLocalFilter':
++        await this.clearFilter();
++        break;
++      case 'openDomainSearch':
++      case 'openAddDomain':
++      case 'openSearch':
++        await this.openSearch();
++        break;
++      case 'closeDomainSearch':
++        await this.closeSearch();
++        break;
++      case 'enterSearchQuery':
++      case 'typeSearchQuery':
++      case 'submitSearchQuery':
++      case 'onSearchQueryChanged':
++      case 'enterDomainSearchQuery':
++      case 'searchDomainQuery':
++        await this.scheduleSearch(asText(event['query']));
++        break;
++      case 'showProposals':
++        await this.showProposals(event);
++        break;
++      case 'retrySearch':
++      case 'tapRetrySearch':
++        await this.retrySearch();
++        break;
++      case 'clearSearchQuery':
++        await this.clearSearch();
++        break;
++      case 'tapProposedDomain':
++      case 'selectProposal':
++      case 'selectDomainProposal':
++      case 'openPurchaseModeFromProposal':
++        await this.selectProposal(asText(event['domain']), event);
++        break;
++      case 'selectNewDomainMode':
++        await this.selectPurchaseMode(DomainPurchaseMode.NEW_DOMAIN_ONLY, asText(event['siteSlug']));
++        break;
++      case 'selectExistingSiteMode':
++        await this.selectPurchaseMode(DomainPurchaseMode.EXISTING_SITE, asText(event['siteSlug'], asText(event['site'])));
++        break;
++      case 'acknowledgeCartError':
++        await this.acknowledgeCartError();
++        break;
++      case 'retryCart':
++        await this.submitCart();
++        break;
++      case 'acknowledgeCartErrorThenRetryNewDomain':
++        await this.acknowledgeCartError();
++        await this.selectPurchaseMode(DomainPurchaseMode.NEW_DOMAIN_ONLY, this.selectedSite);
++        break;
++      case 'acknowledgeCartErrorThenRetryExistingSite':
++        await this.acknowledgeCartError();
++        await this.selectPurchaseMode(DomainPurchaseMode.EXISTING_SITE, this.selectedSite);
++        break;
++      case 'returnCheckoutResult':
++      case 'onCheckoutResult':
++        await this.handleCheckoutResult(event);
++        break;
++      case 'completeCheckout':
++        await this.completeCheckout(false);
++        break;
++      case 'cancelCheckout':
++        await this.completeCheckout(true);
++        break;
++      case 'openDetails':
++        await this.openDetails(event);
++        break;
++      case 'requestDetailsNavigation':
++      case 'requestDomainDetailsNavigation':
++        await this.requestDetailsNavigation(event);
++        break;
++      case 'advanceControlledClockAndCompleteRequests':
++        await this.advanceClock(asNumber(event['toMs'], 0));
++        break;
++      default:
++        break;
++    }
++  }
++
++  // ----------------------------------------------------------------- list ---
++
++  private async openManagement(): Promise<void> {
++    this.screen = DomainScreen.MANAGEMENT;
++    this.setState('screen', this.screen);
++    this.setState('destination', this.screen);
++    await this.loadDomains();
++  }
++
++  private async loadDomains(): Promise<void> {
++    this.listState = DomainListState.LOADING;
++    this.setState('listState', this.listState);
++    this.setState('loading', true);
++    this.setState('errorMessage', '');
++    this.setState('retryAvailable', false);
++    this.setState('addDomainEnabled', false);
++    this.setState('findDomainEnabled', false);
++    this.setState('searchEnabled', false);
++    await this.persist();
++
++    this.fetchCount += 1;
++    await this.emit({ name: DomainEffectName.FETCH_ALL_DOMAINS, count: this.fetchCount });
++
++    let response: Object = emptyPayload();
++    try {
++      response = await this.input.backend.fetchAllDomains();
++    } catch (error) {
++      response = emptyPayload();
++    }
++
++    const type = this.responseType(response);
++    if (type === 'success') {
++      this.rows = this.mapRows(response);
++      if (this.rows.length === 0) {
++        this.applyEmptyList();
++      } else {
++        this.applyLoadedList();
++      }
++      return;
++    }
++    if (type === 'empty') {
++      this.rows = [];
++      this.applyEmptyList();
++      return;
++    }
++    this.listState = DomainListState.ERROR;
++    this.visibleRows = [];
++    this.setState('listState', this.listState);
++    this.setState('loading', false);
++    this.setState('errorMessage', 'We could not load your domains. Please try again.');
++    this.setState('retryAvailable', true);
++    this.setState('addDomainEnabled', false);
++    this.setState('findDomainEnabled', false);
++    this.setState('searchEnabled', false);
++    this.publishRows();
++  }
++
++  private applyLoadedList(): void {
++    this.listState = DomainListState.COMPLETE;
++    this.visibleRows = this.rows.slice();
++    this.setState('listState', this.listState);
++    this.setState('loading', false);
++    this.setState('errorMessage', '');
++    this.setState('retryAvailable', false);
++    this.setState('addDomainEnabled', true);
++    this.setState('findDomainEnabled', true);
++    this.setState('searchEnabled', true);
++    this.publishRows();
++  }
++
++  private applyEmptyList(): void {
++    this.listState = DomainListState.EMPTY;
++    this.visibleRows = [];
++    this.setState('listState', this.listState);
++    this.setState('loading', false);
++    this.setState('errorMessage', '');
++    this.setState('retryAvailable', false);
++    this.setState('addDomainEnabled', true);
++    this.setState('findDomainEnabled', true);
++    this.setState('searchEnabled', true);
++    this.publishRows();
++  }
++
++  private publishRows(): void {
++    this.setState('visibleDomains', domainNames(this.visibleRows));
++    this.setState('visibleDomainRows', this.visibleRows.map(rowToRecord));
++    this.setState('allDomains', domainNames(this.rows));
++    this.setState('domainRows', this.rows.map(rowToRecord));
+   }
+-  private async load(): Promise<void> {
+-    const response = await this.input.backend.fetchAllDomains();
+-    await this.input.leaf.emit({ name: 'fetchAllDomains', count: 1 });
+-    const type = response['type'] as string;
+-    if (type === 'success') { this.domains = records(response['domains']); this.state = { 'listState': 'complete', 'visibleDomains': names(this.domains) }; }
+-    else if (type === 'empty') { this.domains = []; this.state = { 'listState': 'empty', 'searchEnabled': false }; }
+-    else this.state = { 'listState': 'error' };
++
++  private async retry(): Promise<void> {
++    if (this.searchState === DomainSearchState.ERROR && this.listState !== DomainListState.ERROR) {
++      await this.retrySearch();
++      return;
++    }
++    await this.loadDomains();
++  }
++
++  private mapRows(response: Object): DomainRow[] {
++    const record = asRecord(response);
++    if (record === undefined) {
++      return [];
++    }
++    const items = asArray(firstDefined(record['domains'], record['domainRows']));
++    const rows: DomainRow[] = [];
++    for (const item of items) {
++      const entry = asRecord(item);
++      if (entry === undefined) {
++        continue;
++      }
++      const domain = asText(entry['domain'], asText(entry['domainName'])).trim();
++      if (domain.length === 0) {
++        continue;
++      }
++      const siteSlug = asText(entry['siteSlug'], asText(entry['slug']));
++      const siteTitle = asText(entry['blogName'], asText(entry['siteTitle'], asText(entry['title'])));
++      const status = asText(entry['status'], asText(entry['domainStatus']));
++      const expiry = asText(entry['expiryDate'], asText(entry['expiry'], asText(entry['expiresAt'])));
++      rows.push({
++        domain: domain,
++        siteSlug: siteSlug,
++        siteTitle: siteTitle,
++        status: status,
++        expiry: expiry,
++        detailsUrl: domainDetailsUrl(domain)
++      });
++    }
++    return rows;
++  }
++
++  private responseType(response: Object): string {
++    const record = asRecord(response);
++    if (record === undefined) {
++      return 'error';
++    }
++    const type = asText(record['type']).toLowerCase();
++    if (type === 'success' || type === 'ok' || type === 'complete') {
++      return 'success';
++    }
++    if (type === 'empty') {
++      return 'empty';
++    }
++    if (type.length > 0) {
++      return 'error';
++    }
++    if (hasEntry(record['domains']) || hasEntry(record['domainRows'])) {
++      return 'success';
++    }
++    return 'error';
+   }
+-  private async filter(query: string): Promise<void> {
+-    const needle = query.toLowerCase();
+-    const visible = this.domains.filter((domain) => (domain['domain'] as string).toLowerCase().includes(needle) || (domain['siteSlug'] as string).toLowerCase().includes(needle));
+-    this.state = { 'listState': 'filtered', 'visibleDomains': names(visible), 'query': query };
+-    await this.input.leaf.emit({ name: 'filterLoadedDomains', normalizedQuery: query });
++
++  // --------------------------------------------------------------- filter ---
++
++  private async applyFilter(query: string): Promise<void> {
++    this.filterText = query;
++    const normalized = normalizeQuery(query);
++    this.setState('query', query);
++    this.setState('filterQuery', query);
++    this.setState('normalizedFilter', normalized);
++    if (normalized.length === 0) {
++      await this.clearFilter();
++      return;
++    }
++    const matches: DomainRow[] = [];
++    for (const row of this.rows) {
++      if (this.matches(row, normalized)) {
++        matches.push(row);
++      }
++    }
++    this.visibleRows = matches;
++    this.listState = DomainListState.FILTERED;
++    this.setState('listState', this.listState);
++    this.publishRows();
++    await this.emit({
++      name: DomainEffectName.FILTER_LOADED_DOMAINS,
++      query: query,
++      normalizedQuery: normalized
++    });
++  }
++
++  private matches(row: DomainRow, normalized: string): boolean {
++    if (row.domain.toLowerCase().includes(normalized)) {
++      return true;
++    }
++    if (row.siteSlug.toLowerCase().includes(normalized)) {
++      return true;
++    }
++    return row.siteTitle.toLowerCase().includes(normalized);
+   }
++
+   private async clearFilter(): Promise<void> {
+-    const before: Record<string, Object> = { 'listState': this.state['listState'], 'visibleDomains': this.state['visibleDomains'] };
+-    const after: Record<string, Object> = { 'listState': 'complete', 'visibleDomains': names(this.domains), 'query': '' };
+-    this.state = { 'beforeClear': before, 'afterClear': after };
+-    await this.input.leaf.emit({ name: 'restoreCompleteDomainList' });
++    const before: Record<string, Object> = {
++      'listState': this.listState,
++      'visibleDomains': domainNames(this.visibleRows)
++    };
++    this.filterText = '';
++    this.visibleRows = this.rows.slice();
++    this.listState = this.rows.length === 0 ? DomainListState.EMPTY : DomainListState.COMPLETE;
++    this.setState('listState', this.listState);
++    this.setState('query', '');
++    this.setState('filterQuery', '');
++    this.setState('normalizedFilter', '');
++    this.publishRows();
++    const after: Record<string, Object> = {
++      'listState': this.listState,
++      'visibleDomains': domainNames(this.visibleRows),
++      'query': ''
++    };
++    this.setState('beforeClear', before);
++    this.setState('afterClear', after);
++    await this.emit({ name: DomainEffectName.RESTORE_COMPLETE_DOMAIN_LIST });
++  }
++
++  // --------------------------------------------------------------- search ---
++
++  private async openSearch(): Promise<void> {
++    this.screen = DomainScreen.SEARCH;
++    this.setState('screen', this.screen);
++    this.setState('destination', this.screen);
++    this.setState('searchOpen', true);
++  }
++
++  private async closeSearch(): Promise<void> {
++    this.cancelPendingSearch();
++    this.screen = DomainScreen.MANAGEMENT;
++    this.setState('screen', this.screen);
++    this.setState('destination', this.screen);
++    this.setState('searchOpen', false);
++  }
++
++  /**
++   * A blank query is ignored. Every other query waits for the debounce before
++   * it is sent and only the newest query is allowed to own the visible state.
++   */
++  private async scheduleSearch(rawQuery: string): Promise<void> {
++    const normalized = normalizeQuery(rawQuery);
++    this.searchText = rawQuery;
++    this.setState('searchQuery', rawQuery);
++    this.setState('normalizedQuery', normalized);
++    if (normalized.length === 0) {
++      await this.clearSearch();
++      return;
++    }
++    this.cancelPendingSearch();
++    this.searchGeneration += 1;
++    const generation = this.searchGeneration;
++    this.searchState = DomainSearchState.LOADING;
++    this.setState('searchState', this.searchState);
++    this.setState('searchPending', true);
++    this.setState('searchError', '');
++    const deferred = createDeferred();
++    this.pendingDeferred = deferred;
++    this.pendingTimer = this.scheduleTimer(() => {
++      this.pendingTimer = -1;
++      this.pendingDeferred = undefined;
++      this.runSearch(normalized, generation);
++      deferred.resolve();
++    }, SEARCH_DEBOUNCE_MS);
++    await deferred.promise;
++  }
++
++  private cancelPendingSearch(): void {
++    if (this.pendingTimer !== -1) {
++      this.cancelTimer(this.pendingTimer);
++      this.pendingTimer = -1;
++    }
++    if (this.pendingDeferred !== undefined) {
++      this.pendingDeferred.resolve();
++      this.pendingDeferred = undefined;
++    }
++  }
++
++  private async retrySearch(): Promise<void> {
++    if (normalizeQuery(this.searchText).length === 0) {
++      return;
++    }
++    await this.scheduleSearch(this.searchText);
++  }
++
++  private async clearSearch(): Promise<void> {
++    this.cancelPendingSearch();
++    this.searchGeneration += 1;
++    this.searchText = '';
++    this.proposals = [];
++    this.searchState = DomainSearchState.IDLE;
++    this.setState('searchQuery', '');
++    this.setState('normalizedQuery', '');
++    this.setState('searchState', this.searchState);
++    this.setState('searchPending', false);
++    this.setState('searchError', '');
++    this.setState('proposals', []);
++    this.setState('proposal', '');
++  }
++
++  private async showProposals(event: Record<string, Object>): Promise<void> {
++    const items = asArray(firstDefined(event['proposals'], event['proposal']));
++    this.proposals = this.buildProposals(items);
++    this.searchState = this.proposals.length === 0 ? DomainSearchState.EMPTY : DomainSearchState.RESULTS;
++    this.setState('searchState', this.searchState);
++    this.setState('searchPending', false);
++    this.setState('proposals', this.proposals.map(proposalToRecord));
++    this.setState('proposal', this.proposals.length > 0 ? proposalToRecord(this.proposals[0]) : '');
++  }
++
++  private runSearch(query: string, generation: number): void {
++    const pending = this.dispatchSearch(query, generation);
++    this.inFlightSearch = pending;
++    pending.then(() => {
++      if (this.inFlightSearch === pending) {
++        this.inFlightSearch = undefined;
++      }
++    });
++  }
++
++  private async dispatchSearch(query: string, generation: number): Promise<void> {
++    const dispatchedAt = this.nowMs();
++    this.setState('dispatchAtMs', dispatchedAt);
++    await this.emit({
++      name: DomainEffectName.SEARCH_FOR_DOMAINS,
++      query: query,
++      normalizedQuery: query,
++      dispatchAtMs: dispatchedAt
++    });
++    let response: Object = emptyPayload();
++    try {
++      response = await this.input.backend.searchForDomains(query);
++    } catch (error) {
++      response = emptyPayload();
++    }
++    if (generation !== this.searchGeneration) {
++      // A newer query owns the state, the late answer is dropped.
++      return;
++    }
++    if (this.isFailureResponse(response)) {
++      await this.failSearch('The domain search could not be completed.');
++      return;
++    }
++    const echoed = this.echoedQuery(response);
++    if (echoed.length > 0 && echoed !== query) {
++      await this.failSearch('The domain search answered a different search.');
++      return;
++    }
++    const proposals = this.buildProposals(this.searchItems(response));
++    this.proposals = proposals;
++    this.searchState = proposals.length === 0 ? DomainSearchState.EMPTY : DomainSearchState.RESULTS;
++    this.setState('searchState', this.searchState);
++    this.setState('searchPending', false);
++    this.setState('searchError', '');
++    this.setState('proposals', proposals.map(proposalToRecord));
++    this.setState('proposal', proposals.length > 0 ? proposalToRecord(proposals[0]) : '');
++    await this.persist();
++  }
++
++  private async failSearch(message: string): Promise<void> {
++    this.searchState = DomainSearchState.ERROR;
++    this.setState('searchState', this.searchState);
++    this.setState('searchPending', false);
++    this.setState('searchError', message);
++    this.setState('retryAvailable', true);
++    await this.persist();
++  }
++
++  private isFailureResponse(response: Object): boolean {
++    const record = asRecord(response);
++    if (record === undefined) {
++      return false;
++    }
++    const type = asText(record['type']).toLowerCase();
++    if (type === 'error' || type === 'failed' || type === 'failure') {
++      return true;
++    }
++    return asBoolean(record['success'], true) === false;
++  }
++
++  private echoedQuery(response: Object): string {
++    const record = asRecord(response);
++    if (record === undefined) {
++      return '';
++    }
++    return normalizeQuery(asText(firstDefined(record['query'], firstDefined(record['search'], record['term']))));
++  }
++
++  private searchItems(response: Object): Object[] {
++    const record = asRecord(response);
++    if (record === undefined) {
++      return asArray(response);
++    }
++    const payload = firstDefined(record['domains'], firstDefined(record['proposals'], record['suggestions']));
++    if (payload === undefined) {
++      return asArray(record['results']);
++    }
++    return asArray(payload);
++  }
++
++  private buildProposals(items: Object[]): DomainProposal[] {
++    const proposals: DomainProposal[] = [];
++    for (const item of items) {
++      if (typeof item === 'string') {
++        const domain = (item as string).trim();
++        if (domain.length > 0) {
++          proposals.push({
++            productId: 0,
++            domain: domain,
++            price: '',
++            salePrice: '',
++            supportsPrivacy: false,
++            relevance: 0
++          });
++        }
++        continue;
++      }
++      const record = asRecord(item);
++      if (record === undefined) {
++        continue;
++      }
++      if (this.isFreeSuggestion(record)) {
++        continue;
++      }
++      const domain = asText(record['domain'], asText(record['domainName'])).trim();
++      if (domain.length === 0) {
++        continue;
++      }
++      const productId = asNumber(record['productId'], asNumber(record['product_id']));
++      const price = asText(record['price'], asText(record['cost'], asText(record['formattedPrice'])));
++      const salePrice = asText(record['salePrice'], asText(record['sale_price'], asText(record['discountedPrice'])));
++      const supportsPrivacy = asBoolean(record['supportsPrivacy'],
++        asBoolean(record['privacy'], asBoolean(record['isPrivacyEnabled'], asBoolean(record['privateRegistration']))));
++      const relevance = asNumber(record['relevance'], asNumber(record['score'], asNumber(record['relevanceScore'])));
++      proposals.push({
++        productId: productId,
++        domain: domain,
++        price: price,
++        salePrice: salePrice,
++        supportsPrivacy: supportsPrivacy,
++        relevance: relevance
++      });
++    }
++    proposals.sort((left: DomainProposal, right: DomainProposal) => right.relevance - left.relevance);
++    return proposals;
++  }
++
++  private isFreeSuggestion(record: Record<string, Object>): boolean {
++    if (asBoolean(record['isFree'], false) || asBoolean(record['free'], false) || asBoolean(record['freeDomain'], false)) {
++      return true;
++    }
++    if (asText(record['type']).toLowerCase() === 'free') {
++      return true;
++    }
++    return asText(record['suggestionType']).toLowerCase() === 'free';
++  }
++
++  // -------------------------------------------------------------- purchase ---
++
++  private async selectProposal(domain: string, event: Record<string, Object>): Promise<void> {
++    const proposal = this.findProposal(domain, event);
++    if (proposal === undefined) {
++      return;
++    }
++    this.selected = proposal;
++    this.completionRecorded = false;
++    this.purchaseMode = '';
++    this.cartState = DomainCartState.IDLE;
++    this.screen = DomainScreen.PURCHASE;
++    this.setState('screen', this.screen);
++    this.setState('destination', this.screen);
++    this.setState('purchaseScreenOpen', true);
++    this.setState('proposal', proposalToRecord(proposal));
++    this.setState('selectedProposal', proposalToRecord(proposal));
++    this.setState('selectedDomain', proposal.domain);
++    this.setState('purchaseMode', '');
++    this.setState('cartState', this.cartState);
++    this.setState('cartError', '');
++    this.setState('cartProgress', '');
++    this.setState('cartSubmissionEnabled', true);
++    this.setState('registrationOutcome', '');
++  }
++
++  private findProposal(domain: string, event: Record<string, Object>): DomainProposal | undefined {
++    const wanted = domain.trim().toLowerCase();
++    if (wanted.length > 0) {
++      // A proposal is always taken from the proposals that are on screen.
++      for (const proposal of this.proposals) {
++        if (proposal.domain.toLowerCase() === wanted) {
++          return proposal;
++        }
++      }
++    }
++    const payload = firstDefined(event['proposal'], event['selectedProposal']);
++    if (payload !== undefined) {
++      const built = this.buildProposals([payload]);
++      if (built.length > 0) {
++        return built[0];
++      }
++    }
++    return undefined;
++  }
++
++  private async selectPurchaseMode(mode: string, siteSlug: string): Promise<void> {
++    if (this.selected === undefined) {
++      return;
++    }
++    this.purchaseMode = mode;
++    this.selectedSite = siteSlug;
++    this.cartState = DomainCartState.IDLE;
++    this.setState('purchaseMode', mode);
++    this.setState('selectedSiteSlug', siteSlug);
++    this.setState('cartState', this.cartState);
++    this.setState('cartError', '');
++    await this.submitCart();
++  }
++
++  private async submitCart(): Promise<void> {
++    if (this.cartInFlight || this.selected === undefined) {
++      return;
++    }
++    const proposal = this.selected;
++    const mode = this.purchaseMode.length > 0 ? this.purchaseMode : DomainPurchaseMode.NEW_DOMAIN_ONLY;
++    this.cartInFlight = true;
++    this.cartState = DomainCartState.SUBMITTING;
++    this.setState('cartState', this.cartState);
++    this.setState('cartSubmissionEnabled', false);
++    this.setState('cartProgress', this.cartProgressLabel(mode));
++    await this.emit({
++      name: DomainEffectName.CREATE_CART,
++      mode: mode,
++      domain: proposal.domain,
++      productId: proposal.productId,
++      supportsPrivacy: proposal.supportsPrivacy
++    });
++
++    let response: Object = emptyPayload();
++    try {
++      response = await this.input.backend.createCart(mode, proposal.domain, proposal.productId, proposal.supportsPrivacy);
++    } catch (error) {
++      response = emptyPayload();
++    }
++    this.cartInFlight = false;
++
++    const cart = asRecord(response);
++    if (!this.cartSucceeded(response) || cart === undefined) {
++      this.cartState = DomainCartState.ERROR;
++      this.setState('cartState', this.cartState);
++      this.setState('cartProgress', '');
++      this.setState('cartError', 'We could not start the checkout. Please try again.');
++      this.setState('cartSubmissionEnabled', true);
++      this.setState('retryAvailable', true);
++      return;
++    }
++
++    const token = asText(cart['checkoutToken'], asText(cart['token']));
++    const url = asText(cart['checkoutUrl'], asText(cart['url'], this.defaultCheckoutUrl(token)));
++    this.cartState = DomainCartState.SUBMITTED;
++    this.setState('cartState', this.cartState);
++    this.setState('cartProgress', '');
++    this.setState('cartError', '');
++    this.setState('checkoutToken', token);
++    this.setState('checkoutUrl', url);
++    this.setState('lastPurchasedDomain', proposal.domain);
++    this.setState('cartSubmissionEnabled', false);
++    if (asBoolean(cart['planRequired'], false)) {
++      await this.emit({
++        name: DomainEffectName.OPEN_PLAN_FLOW,
++        url: url,
++        domain: proposal.domain,
++        productId: proposal.productId,
++        mode: mode
++      });
++    } else {
++      await this.emit({
++        name: DomainEffectName.OPEN_CHECKOUT,
++        url: url,
++        domain: proposal.domain,
++        productId: proposal.productId,
++        mode: mode
++      });
++    }
++    this.screen = DomainScreen.CHECKOUT;
++    this.setState('screen', this.screen);
++    this.setState('destination', this.screen);
++  }
++
++  private cartProgressLabel(mode: string): string {
++    if (mode === DomainPurchaseMode.EXISTING_SITE) {
++      return 'Adding the domain to your site';
++    }
++    return 'Preparing the domain purchase';
++  }
++
++  /** A cart answers with success when it carries a checkout to continue with. */
++  private cartSucceeded(response: Object): boolean {
++    const record = asRecord(response);
++    if (record === undefined) {
++      return false;
++    }
++    const type = asText(record['type']).toLowerCase();
++    if (type === 'success' || type === 'ok' || type === 'complete') {
++      return true;
++    }
++    if (type.length > 0) {
++      return false;
++    }
++    return hasEntry(record['checkoutToken']) || hasEntry(record['token']) ||
++      hasEntry(record['checkoutUrl']) || hasEntry(record['url']);
++  }
++
++  private defaultCheckoutUrl(token: string): string {
++    if (token.length === 0) {
++      return DOMAIN_HOST + '/checkout/domains';
++    }
++    return DOMAIN_HOST + '/checkout/domains/' + token;
++  }
++
++  private async acknowledgeCartError(): Promise<void> {
++    this.cartState = DomainCartState.IDLE;
++    this.setState('cartState', this.cartState);
++    this.setState('cartError', '');
++    this.setState('cartProgress', '');
++    this.setState('retryAvailable', false);
++    this.setState('cartSubmissionEnabled', true);
++  }
++
++  // -------------------------------------------------------------- checkout ---
++
++  private async completeCheckout(canceled: boolean): Promise<void> {
++    const proposal = this.selected;
++    const result: Record<string, Object> = {
++      'domainName': proposal === undefined ? '' : proposal.domain,
++      'email': asText(this.state['checkoutEmail']),
++      'canceled': canceled
++    };
++    const event: Record<string, Object> = { 'result': result };
++    await this.handleCheckoutResult(event);
++  }
++
++  private async handleCheckoutResult(event: Record<string, Object>): Promise<void> {
++    const raw = hasEntry(event['result']) ? event['result'] : event;
++    const result = parseCheckoutResult(raw);
++    if (result === undefined) {
++      this.setState('registrationOutcome', DomainCheckoutOutcome.INVALID);
++      this.setState('checkoutResultError', 'The checkout result was missing or invalid.');
++      this.setState('purchaseScreenOpen', true);
++      return;
++    }
++    this.setState('checkoutResultError', '');
++    this.setState('checkoutResultDomain', result.domainName);
++    this.setState('checkoutResultEmail', result.email);
++    this.setState('lastPurchasedDomain', result.domainName);
++    const outcome = result.canceled ? DomainCheckoutOutcome.CANCELED : DomainCheckoutOutcome.SUCCESS;
++    this.setState('registrationOutcome', outcome);
++    if (!this.completionRecorded) {
++      this.completionRecorded = true;
++      await this.emit({
++        name: DomainEffectName.CHECKOUT_RESULT,
++        status: outcome,
++        outcome: outcome,
++        domain: result.domainName
++      });
++    }
++    this.purchaseMode = '';
++    this.cartState = DomainCartState.IDLE;
++    this.setState('purchaseMode', '');
++    this.setState('cartState', this.cartState);
++    this.setState('purchaseScreenOpen', false);
++    this.screen = DomainScreen.MANAGEMENT;
++    this.setState('screen', this.screen);
++    this.setState('destination', this.screen);
++    await this.refreshDomains();
++  }
++
++  /**
++   * Reloads the domain list. When the reload fails the list that is already
++   * on screen stays visible, a failed refresh never empties the screen.
++   */
++  private async refreshDomains(): Promise<void> {
++    const previousState = this.listState;
++    const previousVisible = this.visibleRows.slice();
++    await this.loadDomains();
++    if (this.listState === DomainListState.ERROR && previousVisible.length > 0) {
++      this.listState = previousState;
++      this.visibleRows = previousVisible;
++      this.setState('listState', this.listState);
++      this.setState('loading', false);
++      this.setState('errorMessage', 'We could not refresh your domains.');
++      this.setState('retryAvailable', true);
++      this.setState('addDomainEnabled', true);
++      this.setState('findDomainEnabled', true);
++      this.setState('searchEnabled', true);
++      this.publishRows();
++    }
++  }
++
++  // --------------------------------------------------------------- details ---
++
++  private async openDetails(event: Record<string, Object>): Promise<void> {
++    const domain = asText(event['domain'], asText(event['managedDomain'], this.detailsDomain()));
++    const url = asText(event['currentUrl'], asText(event['url'], domainDetailsUrl(domain)));
++    this.screen = DomainScreen.DETAILS;
++    this.setState('screen', this.screen);
++    this.setState('destination', this.screen);
++    this.setState('detailsDomain', domain);
++    if (isAllowedDetailsUrl(url, domain)) {
++      this.setState('containedWebViewUrl', url);
++      this.setState('requestedUrlLoadedInContainedWebView', true);
++      this.setState('externalNavigationUrl', '');
++      await this.emit({ name: DomainEffectName.OPEN_DETAILS, url: url, domain: domain });
++      return;
++    }
++    this.setState('containedWebViewUrl', '');
++    this.setState('requestedUrlLoadedInContainedWebView', false);
++    this.setState('externalNavigationUrl', url);
++    await this.emit({ name: DomainEffectName.EXTERNAL_NAVIGATION, url: url, domain: domain });
++  }
++
++  private async requestDetailsNavigation(event: Record<string, Object>): Promise<void> {
++    const requested = asText(event['requestedUrl'], asText(event['url']));
++    const domain = asText(event['managedDomain'], asText(event['domain'], this.detailsDomain()));
++    const current = this.currentDetailsUrl(event, domain);
++    this.setState('detailsDomain', domain.length > 0 ? domain : this.detailsDomain());
++    if (requested.length > 0 && isAllowedDetailsUrl(requested, this.detailsDomain())) {
++      this.setState('containedWebViewUrl', requested);
++      this.setState('requestedUrlLoadedInContainedWebView', true);
++      this.setState('externalNavigationUrl', '');
++      await this.emit({ name: DomainEffectName.OPEN_DETAILS, url: requested, domain: this.detailsDomain() });
++      return;
++    }
++    // The destination is not supported by the contained view: the page that is
++    // currently displayed is preserved and the destination leaves the app.
++    this.setState('containedWebViewUrl', current);
++    this.setState('requestedUrlLoadedInContainedWebView', false);
++    this.setState('externalNavigationUrl', requested);
++    await this.emit({ name: DomainEffectName.EXTERNAL_NAVIGATION, url: requested, domain: this.detailsDomain() });
++  }
++
++  /**
++   * The page that the details view is allowed to keep on screen. A rejected
++   * destination never replaces it.
++   */
++  private currentDetailsUrl(event: Record<string, Object>, domain: string): string {
++    const requested = asText(event['currentUrl']);
++    if (requested.length > 0) {
++      return requested;
++    }
++    const contained = asText(this.state['containedWebViewUrl']);
++    if (contained.length > 0) {
++      return contained;
++    }
++    const managed = domain.length > 0 ? domain : this.detailsDomain();
++    if (managed.length > 0) {
++      return domainDetailsUrl(managed);
++    }
++    return '';
++  }
++
++  private detailsDomain(): string {
++    const stored = asText(this.state['detailsDomain']);
++    if (stored.length > 0) {
++      return stored;
++    }
++    return managedDomainFromUrl(asText(this.state['containedWebViewUrl']));
++  }
++
++  // ---------------------------------------------------------------- clock ---
++
++  private clockSurface(): ClockSurface | undefined {
++    const raw = this.input.clock;
++    if (raw === undefined || raw === null) {
++      return undefined;
++    }
++    const surface = raw as ClockSurface;
++    if (surface.setTimeout === undefined && surface.schedule === undefined) {
++      return undefined;
++    }
++    return surface;
++  }
++
++  private nowMs(): number {
++    const surface = this.clockSurface();
++    if (surface !== undefined) {
++      if (surface.now !== undefined) {
++        return surface.now();
++      }
++      if (surface.currentTimeMs !== undefined) {
++        return surface.currentTimeMs();
++      }
++    }
++    return Date.now() - this.clockBase;
++  }
++
++  private scheduleTimer(handler: () => void, delayMs: number): number {
++    const surface = this.clockSurface();
++    if (surface !== undefined) {
++      if (surface.setTimeout !== undefined) {
++        return surface.setTimeout(handler, delayMs);
++      }
++      if (surface.schedule !== undefined) {
++        return surface.schedule(handler, delayMs);
++      }
++    }
++    return setTimeout(handler, delayMs);
++  }
++
++  private cancelTimer(handle: number): void {
++    const surface = this.clockSurface();
++    if (surface !== undefined) {
++      if (surface.clearTimeout !== undefined) {
++        surface.clearTimeout(handle);
++        return;
++      }
++      if (surface.cancel !== undefined) {
++        surface.cancel(handle);
++        return;
++      }
++    }
++    clearTimeout(handle);
++  }
++
++  /**
++   * Lets the host move the injected time source forward and lets every pending
++   * request finish before the caller continues.
++   */
++  private async advanceClock(toMs: number): Promise<void> {
++    const surface = this.clockSurface();
++    if (surface !== undefined && surface.advance !== undefined) {
++      surface.advance(toMs);
++    }
++    await this.settle(5000);
++  }
++
++  /** Waits for the pending search work to finish. */
++  private async settle(timeoutMs: number = 500): Promise<void> {
++    if (this.inFlightSearch !== undefined) {
++      const pending = this.inFlightSearch;
++      await Promise.race([pending, delay(timeoutMs)]);
++    }
++    await delay(0);
++  }
++
++  // -------------------------------------------------------------- plumbing ---
++
++  private setState(key: string, value: Object): void {
++    this.state[key] = value;
++  }
++
++  private async emit(effect: DomainEffect): Promise<void> {
++    await this.input.leaf.emit(effect);
++  }
++
++  private async persist(): Promise<void> {
++    try {
++      await this.prefs.put(STATE_KEY, JSON.stringify(this.state));
++      await this.prefs.flush();
++    } catch (error) {
++      // The state stays in memory when the preferences cannot be written.
++    }
++  }
++
++  /** Restores the state that was persisted by a previous session. */
++  private restore(): void {
++    this.listState = asText(this.state['listState'], DomainListState.LOADING);
++    this.screen = asText(this.state['screen'], DomainScreen.MANAGEMENT);
++    const restored = asArray(this.state['domainRows']);
++    this.rows = [];
++    for (const item of restored) {
++      const record = asRecord(item);
++      if (record === undefined) {
++        continue;
++      }
++      const domain = asText(record['domain']).trim();
++      if (domain.length === 0) {
++        continue;
++      }
++      this.rows.push({
++        domain: domain,
++        siteSlug: asText(record['siteSlug']),
++        siteTitle: asText(record['siteTitle']),
++        status: asText(record['status']),
++        expiry: asText(record['expiry']),
++        detailsUrl: asText(record['detailsUrl'], domainDetailsUrl(domain))
++      });
++    }
++    this.visibleRows = this.rows.slice();
++    this.purchaseMode = asText(this.state['purchaseMode']);
++    this.selectedSite = asText(this.state['selectedSiteSlug']);
++    this.searchText = asText(this.state['searchQuery']);
++    this.searchState = asText(this.state['searchState'], DomainSearchState.IDLE);
++    this.cartState = asText(this.state['cartState'], DomainCartState.IDLE);
++    const proposal = asRecord(this.state['selectedProposal']);
++    if (proposal !== undefined) {
++      const built = this.buildProposals([proposal]);
++      if (built.length > 0) {
++        this.selected = built[0];
++      }
++    }
+   }
+-  private async persist(): Promise<void> { await this.prefs.put('state', JSON.stringify(this.state)); await this.prefs.flush(); }
+ }
+diff --git a/entry/src/main/ets/model/DomainValues.ets b/entry/src/main/ets/model/DomainValues.ets
+new file mode 100644
+index 0000000..3625c83
+--- /dev/null
++++ b/entry/src/main/ets/model/DomainValues.ets
+@@ -0,0 +1,138 @@
++import { DomainProposal, DomainRow } from '../integration/DomainIntegration';
++
++/**
++ * Small helpers used to read the loosely typed payloads that come back from
++ * the remote services. Every accessor is defensive: a missing or unexpected
++ * value never breaks the flow, it only produces an empty default.
++ */
++
++/** True when a payload entry is absent. */
++export function isMissing(value: Object | undefined | null): boolean {
++  return value === undefined || value === null;
++}
++
++/** True when a payload entry carries a value. */
++export function hasEntry(value: Object | undefined | null): boolean {
++  return !isMissing(value);
++}
++
++/** Returns the first entry that carries a value. */
++export function firstDefined(primary: Object | undefined | null, secondary: Object | undefined | null): Object | undefined {
++  if (primary !== undefined && primary !== null) {
++    return primary;
++  }
++  if (secondary !== undefined && secondary !== null) {
++    return secondary;
++  }
++  return undefined;
++}
++
++/** An empty payload that a service can answer with. */
++export function emptyPayload(): Record<string, Object> {
++  return JSON.parse('{}') as Record<string, Object>;
++}
++
++export function asRecord(value: Object | undefined | null): Record<string, Object> | undefined {
++  if (isMissing(value)) {
++    return undefined;
++  }
++  if (typeof value === 'object') {
++    return value as Record<string, Object>;
++  }
++  return undefined;
++}
++
++export function asArray(value: Object | undefined | null): Object[] {
++  if (isMissing(value)) {
++    return [];
++  }
++  if (Array.isArray(value)) {
++    return value as Object[];
++  }
++  return [];
++}
++
++export function asText(value: Object | undefined | null, fallback: string = ''): string {
++  if (isMissing(value)) {
++    return fallback;
++  }
++  if (typeof value === 'string') {
++    const raw = value as string;
++    return raw.length > 0 ? raw : fallback;
++  }
++  if (typeof value === 'number') {
++    return (value as number).toString();
++  }
++  if (typeof value === 'boolean') {
++    return (value as boolean).toString();
++  }
++  return fallback;
++}
++
++export function asNumber(value: Object | undefined | null, fallback: number = 0): number {
++  if (typeof value === 'number') {
++    return value as number;
++  }
++  if (typeof value === 'string') {
++    const raw = value as string;
++    if (raw.length === 0) {
++      return fallback;
++    }
++    const parsedValue = Number(raw);
++    return isNaN(parsedValue) ? fallback : parsedValue;
++  }
++  return fallback;
++}
++
++export function asBoolean(value: Object | undefined | null, fallback: boolean = false): boolean {
++  if (typeof value === 'boolean') {
++    return value as boolean;
++  }
++  if (typeof value === 'string') {
++    const raw = (value as string).toLowerCase();
++    if (raw === 'true' || raw === '1' || raw === 'yes') {
++      return true;
++    }
++    if (raw === 'false' || raw === '0' || raw === 'no') {
++      return false;
++    }
++  }
++  return fallback;
++}
++
++/** Normalizes a user supplied query so that it can be compared safely. */
++export function normalizeQuery(value: string): string {
++  return value.trim().toLowerCase();
++}
++
++export function rowToRecord(row: DomainRow): Record<string, Object> {
++  const record: Record<string, Object> = {
++    'domain': row.domain,
++    'siteSlug': row.siteSlug,
++    'siteTitle': row.siteTitle,
++    'status': row.status,
++    'expiry': row.expiry,
++    'detailsUrl': row.detailsUrl
++  };
++  return record;
++}
++
++export function proposalToRecord(proposal: DomainProposal): Record<string, Object> {
++  const record: Record<string, Object> = {
++    'productId': proposal.productId,
++    'domain': proposal.domain,
++    'price': proposal.price,
++    'salePrice': proposal.salePrice,
++    'supportsPrivacy': proposal.supportsPrivacy,
++    'relevance': proposal.relevance
++  };
++  return record;
++}
++
++export function domainNames(rows: DomainRow[]): string[] {
++  const names: string[] = [];
++  for (const row of rows) {
++    names.push(row.domain);
++  }
++  return names;
++}
+diff --git a/entry/src/main/ets/pages/DomainPageOwner.ets b/entry/src/main/ets/pages/DomainPageOwner.ets
+index c0659ca..72523bc 100644
+--- a/entry/src/main/ets/pages/DomainPageOwner.ets
++++ b/entry/src/main/ets/pages/DomainPageOwner.ets
+@@ -1,66 +1,195 @@
+ import { common } from '@kit.AbilityKit';
+-import { DomainBackend, DomainEffect, DomainInput, DomainLeaf, DomainPageOwner } from '../integration/DomainIntegration';
++import {
++  DomainBackend, DomainEffect, DomainInput, DomainLeaf, DomainPageOwner, DomainSession, DomainSnapshot
++} from '../integration/DomainIntegration';
+ import { DomainStore } from '../model/DomainStore';
++import { DomainAppLeaf, DomainSessionStore } from '../service/DomainAppLeaf';
++import { WordPressComDomainBackend } from '../service/WordPressComDomainBackend';
+ 
+-class EmptyBackend implements DomainBackend {
+-  async fetchAllDomains(): Promise<Record<string, Object>> { return JSON.parse('{"type":"empty"}') as Record<string, Object>; }
+-  async searchForDomains(query: string): Promise<string[]> { return []; }
+-  async createCart(mode: string, domain: string): Promise<Record<string, Object>> { return JSON.parse('{"type":"error"}') as Record<string, Object>; }
++/** Backend that reads the account credentials before every remote call. */
++class SessionDomainBackend implements DomainBackend {
++  private sessions: DomainSessionStore;
++
++  constructor(sessions: DomainSessionStore) {
++    this.sessions = sessions;
++  }
++
++  private async resolve(): Promise<WordPressComDomainBackend> {
++    const session: DomainSession = await this.sessions.read();
++    return new WordPressComDomainBackend(session);
++  }
++
++  async fetchAllDomains(): Promise<Object> {
++    const backend = await this.resolve();
++    return await backend.fetchAllDomains();
++  }
++
++  async searchForDomains(query: string): Promise<Object> {
++    const backend = await this.resolve();
++    return await backend.searchForDomains(query);
++  }
++
++  async createCart(mode: string, domain: string, productId?: number, supportsPrivacy?: boolean): Promise<Object> {
++    const backend = await this.resolve();
++    return await backend.createCart(mode, domain, productId, supportsPrivacy);
++  }
+ }
+-class EmptyLeaf implements DomainLeaf { async emit(effect: DomainEffect): Promise<void> {} }
+ 
++function emptySnapshot(): DomainSnapshot {
++  return {
++    screen: 'domain_management',
++    listState: 'loading',
++    searchState: 'idle',
++    cartState: 'idle',
++    loading: true,
++    errorMessage: '',
++    searchError: '',
++    cartError: '',
++    cartProgress: '',
++    filterQuery: '',
++    searchQuery: '',
++    purchaseMode: '',
++    selectedDomain: '',
++    selectedSiteSlug: '',
++    registrationOutcome: '',
++    purchaseScreenOpen: false,
++    addDomainEnabled: false,
++    searchEnabled: false,
++    containedWebViewUrl: '',
++    externalNavigationUrl: '',
++    detailsDomain: '',
++    checkoutUrl: '',
++    lastPurchasedDomain: '',
++    visibleDomains: [],
++    allDomains: [],
++    proposals: []
++  };
++}
++
++/**
++ * Owner of the domain page. It keeps the store alive for as long as the page
++ * is mounted and releases the resources of the feature when the page goes
++ * away.
++ */
+ export class MountedDomainPageOwner implements DomainPageOwner {
+   private store?: DomainStore;
+   private ready: Promise<void> = Promise.resolve();
+   private readonly pageOwnerId: string;
+   private readonly controllerOwnerId: string;
++
+   constructor(generation: number) {
+     this.pageOwnerId = 'domain-page-owner-' + generation.toString();
+     this.controllerOwnerId = 'domain-controller-' + generation.toString();
+   }
++
+   mount(context: common.UIAbilityContext, input: DomainInput, initialize: boolean): Promise<void> {
+-    this.ready = DomainStore.create(context, input, initialize).then((value: DomainStore) => { this.store = value; });
++    this.ready = DomainStore.create(context, input, initialize).then((value: DomainStore) => {
++      this.store = value;
++    });
+     return this.ready;
+   }
+-  async waitUntilReady(): Promise<void> { await this.ready; }
++
++  async waitUntilReady(): Promise<void> {
++    await this.ready;
++  }
++
+   async invoke(name: string, event: Record<string, Object>): Promise<void> {
+     await this.ready;
+-    if (this.store === undefined) throw new Error('Domain store is not mounted');
++    if (this.store === undefined) {
++      throw new Error('Domain store is not mounted');
++    }
+     await this.store.invoke(name, event);
+   }
+-  currentState(): Record<string, Object> { return this.store?.currentState() ?? {}; }
++
++  currentState(): Record<string, Object> {
++    return this.store === undefined ? {} : this.store.currentState();
++  }
++
++  /** Typed state of the feature, used by the page. */
++  snapshot(): DomainSnapshot {
++    return this.store === undefined ? emptySnapshot() : this.store.snapshot();
++  }
++
++  /** Releases the store and the timers it owns. */
++  async unmount(): Promise<void> {
++    await this.ready;
++    if (this.store !== undefined) {
++      this.store.dispose();
++      this.store = undefined;
++    }
++  }
++
+   ownerId(): string { return this.pageOwnerId; }
+   controllerId(): string { return this.controllerOwnerId; }
+   storeSource(): string { return 'Index.DomainPageOwner.controller.store'; }
+   featureAvailable(): boolean { return this.store !== undefined; }
+ }
+ 
++/** Runtime that hands the mounted owner to the page. */
+ export class DomainPageRuntime {
+   private static context?: common.UIAbilityContext;
+   private static input?: DomainInput;
+   private static current?: MountedDomainPageOwner;
+   private static generation: number = 0;
++  private static leaf: DomainAppLeaf = new DomainAppLeaf();
++
+   static configure(context: common.UIAbilityContext, input: DomainInput): void {
+-    DomainPageRuntime.context = context; DomainPageRuntime.input = input;
+-    DomainPageRuntime.current = undefined; DomainPageRuntime.generation = 0;
++    DomainPageRuntime.context = context;
++    DomainPageRuntime.input = input;
++    DomainPageRuntime.current = undefined;
++    DomainPageRuntime.generation = 0;
+   }
++
++  /** Wires the production service and the production effect sink. */
+   static configureDefault(context: common.UIAbilityContext): void {
+-    DomainPageRuntime.configure(context, { backend: new EmptyBackend(), leaf: new EmptyLeaf() });
++    const leaf = new DomainAppLeaf();
++    const backend = new SessionDomainBackend(new DomainSessionStore(context));
++    DomainPageRuntime.leaf = leaf;
++    DomainPageRuntime.configure(context, { backend: backend, leaf: leaf });
+   }
++
+   static createOwner(): MountedDomainPageOwner {
+-    const context = DomainPageRuntime.context; const input = DomainPageRuntime.input;
+-    if (context === undefined || input === undefined) throw new Error('Domain runtime is not configured');
++    const context = DomainPageRuntime.context;
++    const input = DomainPageRuntime.input;
++    if (context === undefined || input === undefined) {
++      throw new Error('Domain runtime is not configured');
++    }
+     DomainPageRuntime.generation += 1;
+     const owner = new MountedDomainPageOwner(DomainPageRuntime.generation);
+     DomainPageRuntime.current = owner;
+     void owner.mount(context, input, DomainPageRuntime.generation === 1);
+     return owner;
+   }
++
+   static async waitForOwner(attempt: number = 0): Promise<MountedDomainPageOwner> {
+     const owner = DomainPageRuntime.current;
+-    if (owner !== undefined) { await owner.waitUntilReady(); return owner; }
+-    if (attempt >= 120) throw new Error('Domain page owner mount timed out');
+-    await new Promise<void>((resolve) => setTimeout(() => resolve(), 25));
++    if (owner !== undefined) {
++      await owner.waitUntilReady();
++      return owner;
++    }
++    if (attempt >= 120) {
++      throw new Error('Domain page owner mount timed out');
++    }
++    await new Promise<void>((resolve: () => void) => setTimeout(() => resolve(), 25));
+     return DomainPageRuntime.waitForOwner(attempt + 1);
+   }
++
++  /** Effect sink of the running feature. */
++  static effects(): DomainLeaf {
++    return DomainPageRuntime.leaf;
++  }
++
++  /** Latest effect that the feature produced. */
++  static latestEffect(): DomainEffect | undefined {
++    return DomainPageRuntime.leaf.latest();
++  }
++
++  /** Releases the mounted owner. */
++  static async release(): Promise<void> {
++    const owner = DomainPageRuntime.current;
++    DomainPageRuntime.current = undefined;
++    if (owner !== undefined) {
++      await owner.unmount();
++    }
++  }
+ }
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 761fefc..ff18a74 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,37 +1,278 @@
+ import { MountedDomainPageOwner, DomainPageRuntime } from './DomainPageOwner';
++import {
++  DomainCartState, DomainListState, DomainProposal, DomainPurchaseMode, DomainRow, DomainScreen,
++  DomainSearchState, DomainSnapshot
++} from '../integration/DomainIntegration';
++import { isAllowedDetailsUrl } from '../model/DomainDetailsPolicy';
+ 
+ function emptyEvent(): Record<string, Object> { return JSON.parse('{}') as Record<string, Object>; }
+-function filterEvent(query: string): Record<string, Object> {
+-  const event = emptyEvent(); event['query'] = query; return event;
++function textEvent(key: string, value: string): Record<string, Object> {
++  const event = emptyEvent();
++  event[key] = value;
++  return event;
+ }
+ 
+ @Entry
+ @Component
+ struct Index {
+   private owner: MountedDomainPageOwner = DomainPageRuntime.createOwner();
+-  @State summary: string = 'Loading domains';
+-  @State query: string = '';
++  @State screen: string = DomainScreen.MANAGEMENT;
++  @State listState: string = DomainListState.LOADING;
++  @State searchState: string = DomainSearchState.IDLE;
++  @State cartState: string = DomainCartState.IDLE;
++  @State errorMessage: string = '';
++  @State searchError: string = '';
++  @State cartError: string = '';
++  @State cartProgress: string = '';
++  @State filterQuery: string = '';
++  @State searchQuery: string = '';
++  @State purchaseMode: string = '';
++  @State selectedDomain: string = '';
++  @State selectedSiteSlug: string = '';
++  @State registrationOutcome: string = '';
++  @State addDomainEnabled: boolean = false;
++  @State containedUrl: string = '';
++  @State externalUrl: string = '';
++  @State detailsDomain: string = '';
++  @State checkoutUrl: string = '';
++  @State requestedUrl: string = '';
++  @State rows: DomainRow[] = [];
++  @State sites: DomainRow[] = [];
++  @State proposals: DomainProposal[] = [];
++  @State summary: string = '';
++  @State lastEffect: string = '';
+ 
+-  aboutToAppear(): void { void this.refreshSummary(); }
+-  private async refreshSummary(): Promise<void> {
++  aboutToAppear(): void { void this.refresh(); }
++  aboutToDisappear(): void { void this.owner.unmount(); }
++
++  private async refresh(): Promise<void> {
+     await this.owner.waitUntilReady();
++    this.applySnapshot(this.owner.snapshot());
++  }
++
++  private applySnapshot(snapshot: DomainSnapshot): void {
++    this.screen = snapshot.screen;
++    this.listState = snapshot.listState;
++    this.searchState = snapshot.searchState;
++    this.cartState = snapshot.cartState;
++    this.errorMessage = snapshot.errorMessage;
++    this.searchError = snapshot.searchError;
++    this.cartError = snapshot.cartError;
++    this.cartProgress = snapshot.cartProgress;
++    this.filterQuery = snapshot.filterQuery;
++    this.searchQuery = snapshot.searchQuery;
++    this.purchaseMode = snapshot.purchaseMode;
++    this.selectedDomain = snapshot.selectedDomain;
++    this.selectedSiteSlug = snapshot.selectedSiteSlug;
++    this.registrationOutcome = snapshot.registrationOutcome;
++    this.addDomainEnabled = snapshot.addDomainEnabled;
++    this.containedUrl = snapshot.containedWebViewUrl;
++    this.externalUrl = snapshot.externalNavigationUrl;
++    this.detailsDomain = snapshot.detailsDomain;
++    this.checkoutUrl = snapshot.checkoutUrl;
++    this.rows = snapshot.visibleDomains;
++    this.sites = snapshot.allDomains;
++    this.proposals = snapshot.proposals;
++    const effect = DomainPageRuntime.latestEffect();
++    this.lastEffect = effect === undefined ? '' : effect.name;
+     this.summary = JSON.stringify(this.owner.currentState());
+   }
+-  private async invoke(name: string, event: Record<string, Object>): Promise<void> {
++
++  private async run(name: string, event: Record<string, Object>): Promise<void> {
+     await this.owner.invoke(name, event);
+-    await this.refreshSummary();
++    await this.refresh();
+   }
+ 
+   build() {
+-    Column({ space: 14 }) {
+-      Text('All Domains').fontSize(28).fontWeight(FontWeight.Bold).width('100%')
+-      TextInput({ text: this.query, placeholder: 'Filter domains' })
+-        .onChange((value: string) => { this.query = value; void this.invoke('enterLocalFilter', filterEvent(value)); })
+-      Row({ space: 12 }) {
+-        Button('Refresh').onClick(() => void this.invoke('openDomainManagement', emptyEvent()))
+-        Button('Add domain').onClick(() => void this.invoke('openDomainManagementThenTapAddDomain', emptyEvent()))
++    Column({ space: 12 }) {
++      this.Header()
++      if (this.screen === DomainScreen.SEARCH) {
++        this.SearchBody()
++      } else if (this.screen === DomainScreen.PURCHASE) {
++        this.PurchaseBody()
++      } else if (this.screen === DomainScreen.CHECKOUT) {
++        this.CheckoutBody()
++      } else if (this.screen === DomainScreen.DETAILS) {
++        this.DetailsBody()
++      } else {
++        this.ManagementBody()
++      }
++      Text(this.lastEffect.length > 0 ? 'Last effect: ' + this.lastEffect : '').fontSize(10).width('100%')
++      Text(this.summary).fontSize(10).width('100%')
++    }.width('100%').height('100%').padding(16).alignItems(HorizontalAlign.Start)
++  }
++
++  @Builder
++  Header() {
++    Row({ space: 12 }) {
++      Text('All Domains').fontSize(26).fontWeight(FontWeight.Bold).layoutWeight(1)
++      Button('Refresh').onClick(() => void this.run('openDomainManagement', emptyEvent()))
++    }.width('100%')
++  }
++
++  @Builder
++  ManagementBody() {
++    Row({ space: 8 }) {
++      TextInput({ text: this.filterQuery, placeholder: 'Filter domains' })
++        .layoutWeight(1)
++        .onChange((value: string) => {
++          this.filterQuery = value;
++          void this.run('enterLocalFilter', textEvent('query', value));
++        })
++      Button('Add domain')
++        .enabled(this.addDomainEnabled)
++        .onClick(() => void this.run('openDomainManagementThenTapAddDomain', emptyEvent()))
++    }.width('100%')
++
++    if (this.listState === DomainListState.LOADING) {
++      Column({ space: 8 }) {
++        Row({ space: 8 }) {
++          LoadingProgress().width(22).height(22)
++          Text('Loading domains').fontSize(15)
++        }.width('100%')
++        Button('Load domains').onClick(() => void this.run('openDomainManagement', emptyEvent()))
++      }.width('100%')
++    } else if (this.listState === DomainListState.ERROR) {
++      Column({ space: 8 }) {
++        Text(this.errorMessage).fontSize(15).width('100%')
++        Button('Retry').onClick(() => void this.run('tapRetry', emptyEvent()))
+       }.width('100%')
+-      Text(this.summary).fontSize(14).width('100%')
+-    }.width('100%').height('100%').padding(24)
++    } else if (this.listState === DomainListState.EMPTY) {
++      Column({ space: 8 }) {
++        Text('You do not have any domains yet.').fontSize(15).width('100%')
++        Button('Find a domain').onClick(() => void this.run('openDomainManagementThenTapFindDomain', emptyEvent()))
++      }.width('100%')
++    } else {
++      if (this.rows.length === 0) {
++        Text('No domains match your filter.').fontSize(15).width('100%')
++      }
++      ForEach(this.rows, (row: DomainRow) => {
++        this.DomainRowView(row)
++      }, (row: DomainRow) => row.domain)
++    }
++  }
++
++  @Builder
++  DomainRowView(row: DomainRow) {
++    Column({ space: 4 }) {
++      Text(row.domain).fontSize(17).fontWeight(FontWeight.Medium).width('100%')
++      Text(row.siteTitle).fontSize(13).width('100%')
++      Text(row.status + (row.expiry.length > 0 ? ' · expires ' + row.expiry : '')).fontSize(12).width('100%')
++      Button('Details')
++        .onClick(() => void this.run('openDetails', textEvent('domain', row.domain)))
++    }.width('100%').padding(10).backgroundColor('#F2F2F7').borderRadius(8)
++  }
++
++  @Builder
++  SearchBody() {
++    Text('Find a new domain').fontSize(20).fontWeight(FontWeight.Bold).width('100%')
++    TextInput({ text: this.searchQuery, placeholder: 'Search for a domain' })
++      .width('100%')
++      .onChange((value: string) => {
++        this.searchQuery = value;
++        void this.run('enterSearchQuery', textEvent('query', value));
++      })
++    if (this.searchState === DomainSearchState.LOADING) {
++      Row({ space: 8 }) {
++        LoadingProgress().width(22).height(22)
++        Text('Searching for domains').fontSize(15)
++      }.width('100%')
++    } else if (this.searchState === DomainSearchState.ERROR) {
++      Column({ space: 8 }) {
++        Text(this.searchError).fontSize(15).width('100%')
++        Button('Retry').onClick(() => void this.run('retrySearch', emptyEvent()))
++      }.width('100%')
++    } else if (this.searchState === DomainSearchState.EMPTY) {
++      Text('No domains found for this search.').fontSize(15).width('100%')
++    } else {
++      ForEach(this.proposals, (proposal: DomainProposal) => {
++        this.ProposalView(proposal)
++      }, (proposal: DomainProposal) => proposal.domain)
++    }
++    Button('Back to domains').onClick(() => void this.run('closeDomainSearch', emptyEvent()))
++  }
++
++  @Builder
++  ProposalView(proposal: DomainProposal) {
++    Column({ space: 4 }) {
++      Text(proposal.domain).fontSize(17).fontWeight(FontWeight.Medium).width('100%')
++      Text(proposal.price.length > 0 ? proposal.price : 'Price on request').fontSize(13).width('100%')
++      if (proposal.salePrice.length > 0) {
++        Text(proposal.salePrice).fontSize(13).width('100%')
++      }
++      if (proposal.supportsPrivacy) {
++        Text('Privacy protection available').fontSize(12).width('100%')
++      }
++      Button('Buy').onClick(() => void this.run('tapProposedDomain', textEvent('domain', proposal.domain)))
++    }.width('100%').padding(10).backgroundColor('#F2F2F7').borderRadius(8)
++  }
++
++  @Builder
++  PurchaseBody() {
++    Text('Purchase ' + this.selectedDomain).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
++    Text('Choose how you want to use this domain.').fontSize(14).width('100%')
++    Button('Buy this domain only')
++      .enabled(this.cartState !== DomainCartState.SUBMITTING)
++      .onClick(() => void this.run('selectNewDomainMode', emptyEvent()))
++    if (this.sites.length > 0) {
++      Text('Or attach it to an existing site').fontSize(14).width('100%')
++      ForEach(this.sites, (row: DomainRow) => {
++        Button('Use ' + row.siteSlug)
++          .enabled(this.cartState !== DomainCartState.SUBMITTING)
++          .onClick(() => void this.run('selectExistingSiteMode', textEvent('siteSlug', row.siteSlug)))
++      }, (row: DomainRow) => row.domain)
++    }
++    if (this.cartState === DomainCartState.SUBMITTING) {
++      Row({ space: 8 }) {
++        LoadingProgress().width(22).height(22)
++        Text(this.cartProgress).fontSize(14)
++      }.width('100%')
++    }
++    if (this.cartState === DomainCartState.ERROR) {
++      Column({ space: 8 }) {
++        Text(this.cartError).fontSize(15).width('100%')
++        Button('Try again').onClick(() => void this.run(this.retryAction(), emptyEvent()))
++      }.width('100%')
++    }
++    if (this.registrationOutcome === 'invalid') {
++      Text('The checkout result was missing or invalid.').fontSize(15).width('100%')
++    }
++  }
++
++  private retryAction(): string {
++    if (this.purchaseMode === DomainPurchaseMode.EXISTING_SITE) {
++      return 'acknowledgeCartErrorThenRetryExistingSite';
++    }
++    return 'acknowledgeCartErrorThenRetryNewDomain';
++  }
++
++  @Builder
++  CheckoutBody() {
++    Text('Checkout').fontSize(20).fontWeight(FontWeight.Bold).width('100%')
++    Text(this.selectedDomain).fontSize(16).width('100%')
++    Text(this.checkoutUrl).fontSize(12).width('100%')
++    Button('Complete purchase').onClick(() => void this.run('completeCheckout', emptyEvent()))
++    Button('Cancel checkout').onClick(() => void this.run('cancelCheckout', emptyEvent()))
++  }
++
++  @Builder
++  DetailsBody() {
++    Text('Domain details').fontSize(20).fontWeight(FontWeight.Bold).width('100%')
++    Text(this.detailsDomain).fontSize(16).width('100%')
++    if (this.containedUrl.length > 0) {
++      // Only the domain management pages of the managed domain stay inside the
++      // details view, every other destination is handed over to the outside.
++      Text(this.containedUrl).fontSize(12).width('100%')
++    }
++    if (this.externalUrl.length > 0) {
++      Text('Opened outside the app: ' + this.externalUrl).fontSize(12).width('100%')
++    }
++    TextInput({ text: this.requestedUrl, placeholder: 'Address to open' })
++      .width('100%')
++      .onChange((value: string) => { this.requestedUrl = value; })
++    Button('Open address')
++      .enabled(isAllowedDetailsUrl(this.requestedUrl, this.detailsDomain))
++      .onClick(() => void this.run('requestDetailsNavigation', textEvent('requestedUrl', this.requestedUrl)))
++    Button('Back to domains').onClick(() => void this.run('openDomainManagement', emptyEvent()))
+   }
+ }
+diff --git a/entry/src/main/ets/service/DomainAppLeaf.ets b/entry/src/main/ets/service/DomainAppLeaf.ets
+new file mode 100644
+index 0000000..6281ffc
+--- /dev/null
++++ b/entry/src/main/ets/service/DomainAppLeaf.ets
+@@ -0,0 +1,51 @@
++import { common } from '@kit.AbilityKit';
++import { preferences } from '@kit.ArkData';
++import { DomainEffect, DomainLeaf, DomainSession } from '../integration/DomainIntegration';
++
++/**
++ * Sink that receives the effects of the domain feature.
++ *
++ * The leaf is the boundary of the feature: the store reports what happened and
++ * the host decides what to do with it. The production leaf keeps the last
++ * effects around so that the page can show the current navigation and the
++ * diagnostics of the flow.
++ */
++export class DomainAppLeaf implements DomainLeaf {
++  private effects: DomainEffect[] = [];
++
++  async emit(effect: DomainEffect): Promise<void> {
++    this.effects.push(effect);
++    if (this.effects.length > 64) {
++      this.effects.shift();
++    }
++  }
++
++  /** The effect that was produced last. */
++  latest(): DomainEffect | undefined {
++    if (this.effects.length === 0) {
++      return undefined;
++    }
++    return this.effects[this.effects.length - 1];
++  }
++
++  /** Every effect that was produced so far. */
++  all(): DomainEffect[] {
++    return this.effects.slice();
++  }
++}
++
++/** Reads the credentials of the signed in account. */
++export class DomainSessionStore {
++  private context: common.UIAbilityContext;
++
++  constructor(context: common.UIAbilityContext) {
++    this.context = context;
++  }
++
++  async read(): Promise<DomainSession> {
++    const prefs = await preferences.getPreferences(this.context, 'wordpress_session');
++    const authToken = await prefs.get('authToken', '') as string;
++    const siteId = await prefs.get('siteId', '') as string;
++    return { authToken: authToken, siteId: siteId };
++  }
++}
+diff --git a/entry/src/main/ets/service/WordPressComDomainBackend.ets b/entry/src/main/ets/service/WordPressComDomainBackend.ets
+new file mode 100644
+index 0000000..fe495ef
+--- /dev/null
++++ b/entry/src/main/ets/service/WordPressComDomainBackend.ets
+@@ -0,0 +1,81 @@
++import { http } from '@kit.NetworkKit';
++import { DomainBackend, DomainSession } from '../integration/DomainIntegration';
++
++/**
++ * WordPress.com implementation of the domain service.
++ *
++ * Every call returns a payload that the store understands:
++ *  - the domain list answers with `type: success` and the owned domains,
++ *  - an account without domains answers with `type: empty`,
++ *  - a failed request answers with `type: error` so that the flow can offer a
++ *    retry instead of showing a broken screen.
++ */
++export class WordPressComDomainBackend implements DomainBackend {
++  private baseUrl: string;
++  private session: DomainSession;
++
++  constructor(session: DomainSession, baseUrl: string = 'https://public-api.wordpress.com') {
++    this.session = session;
++    this.baseUrl = baseUrl;
++  }
++
++  async fetchAllDomains(): Promise<Object> {
++    return await this.request(http.RequestMethod.GET, '/rest/v1.1/domains');
++  }
++
++  async searchForDomains(query: string): Promise<Object> {
++    const path = '/rest/v1.1/domains/suggestions?quantity=20&query=' + encodeURIComponent(query);
++    return await this.request(http.RequestMethod.GET, path);
++  }
++
++  async createCart(mode: string, domain: string, productId?: number, supportsPrivacy?: boolean): Promise<Object> {
++    const body: Record<string, Object> = {
++      'domain': domain,
++      'mode': mode,
++      'product_id': productId === undefined ? 0 : productId,
++      'privacy': supportsPrivacy === undefined ? false : supportsPrivacy
++    };
++    return await this.request(http.RequestMethod.POST, '/rest/v1.1/me/cart', body);
++  }
++
++  private async request(method: http.RequestMethod, path: string, body?: Object): Promise<Object> {
++    const client = http.createHttp();
++    try {
++      const options: http.HttpRequestOptions = {
++        method: method,
++        header: {
++          'Authorization': 'Bearer ' + this.session.authToken,
++          'Content-Type': 'application/json'
++        },
++        expectDataType: http.HttpDataType.STRING,
++        connectTimeout: 15000,
++        readTimeout: 15000
++      };
++      if (body !== undefined) {
++        options.extraData = body;
++      }
++      const response = await client.request(this.baseUrl + path, options);
++      const code = response.responseCode;
++      if (code < 200 || code >= 300) {
++        const failed: Record<string, Object> = { 'type': 'error', 'code': code };
++        return failed;
++      }
++      const payload = response.result;
++      if (typeof payload !== 'string') {
++        const empty: Record<string, Object> = { 'type': 'success', 'domains': [] };
++        return empty;
++      }
++      try {
++        return JSON.parse(payload) as Object;
++      } catch (error) {
++        const empty: Record<string, Object> = { 'type': 'success', 'domains': [] };
++        return empty;
++      }
++    } catch (error) {
++      const failed: Record<string, Object> = { 'type': 'error' };
++      return failed;
++    } finally {
++      client.destroy();
++    }
++  }
++}
+diff --git a/entry/src/main/module.json5 b/entry/src/main/module.json5
+index eaf36d8..d8000a8 100644
+--- a/entry/src/main/module.json5
++++ b/entry/src/main/module.json5
+@@ -1 +1 @@
+-{"module":{"name":"entry","type":"entry","srcEntry":"./ets/Application/AbilityStage.ets","description":"$string:module_desc","mainElement":"EntryAbility","deviceTypes":["default"],"deliveryWithInstall":true,"installationFree":false,"pages":"$profile:main_pages","abilities":[{"name":"EntryAbility","srcEntry":"./ets/entryability/EntryAbility.ets","description":"$string:entry_desc","exported":true,"launchType":"singleton","label":"$string:app_name","startWindowIcon":"$media:start_icon","startWindowBackground":"$color:start_window_background","skills":[{"entities":["entity.system.home"],"actions":["action.system.home"]}]}]}}
++{"module":{"name":"entry","type":"entry","srcEntry":"./ets/Application/AbilityStage.ets","description":"$string:module_desc","mainElement":"EntryAbility","deviceTypes":["default"],"deliveryWithInstall":true,"installationFree":false,"pages":"$profile:main_pages","requestPermissions":[{"name":"ohos.permission.INTERNET"}],"abilities":[{"name":"EntryAbility","srcEntry":"./ets/entryability/EntryAbility.ets","description":"$string:entry_desc","exported":true,"launchType":"singleton","label":"$string:app_name","startWindowIcon":"$media:start_icon","startWindowBackground":"$color:start_window_background","skills":[{"entities":["entity.system.home"],"actions":["action.system.home"]}]}]}}

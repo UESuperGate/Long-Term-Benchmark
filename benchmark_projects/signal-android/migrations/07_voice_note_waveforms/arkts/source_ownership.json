@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "taskId": "07_voice_note_waveforms",
+  "androidBoundary": {
+    "repository": "https://github.com/signalapp/Signal-Android.git",
+    "baseRef": "v8.28.4",
+    "baseCommit": "d0b314d2d7197c38737c6189d1f6c294e76e247e",
+    "finalRef": "v8.30.0",
+    "finalCommit": "d8d36376f480eb4669efe8bfee94b2c196a9f7bd"
+  },
+  "canonicalContract": {
+    "path": "canonical/transitions.json",
+    "bytes": 25862,
+    "sha256": "9e5d2084472bfd71189b4ccafe646811327b4527460d9cb9046bad0600c88396"
+  },
+  "compiledCandidateProduction": {
+    "base": [
+      {
+        "path": "arkts/base/entry/src/main/ets/entryability/EntryAbility.ets",
+        "bytes": 351,
+        "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+      },
+      {
+        "path": "arkts/base/entry/src/main/ets/feature/WaveformPageOwner.ets",
+        "bytes": 9814,
+        "sha256": "99cc38b6fd4445830b72a2f7e6418471dcc35d5e8a758fc2bdb10ea418bd279c"
+      },
+      {
+        "path": "arkts/base/entry/src/main/ets/integration/PageOwnerRegistry.ets",
+        "bytes": 328,
+        "sha256": "73bd08462ea36b524916d5192655796647ec7790b5c1d3b10cd1f1f6f119a2a7"
+      },
+      {
+        "path": "arkts/base/entry/src/main/ets/pages/Index.ets",
+        "bytes": 1490,
+        "sha256": "53b20ef565f70eb716fa1e2fc52ce35363d29519cf01318d1653c8703e46fdfd"
+      }
+    ],
+    "final": [
+      {
+        "path": "arkts/final/entry/src/main/ets/entryability/EntryAbility.ets",
+        "bytes": 351,
+        "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+      },
+      {
+        "path": "arkts/final/entry/src/main/ets/feature/WaveformPageOwner.ets",
+        "bytes": 14181,
+        "sha256": "425900397e329cc90f434cefead993cb0dffd5cff58ed52ba4437882f73ecd25"
+      },
+      {
+        "path": "arkts/final/entry/src/main/ets/integration/PageOwnerRegistry.ets",
+        "bytes": 328,
+        "sha256": "73bd08462ea36b524916d5192655796647ec7790b5c1d3b10cd1f1f6f119a2a7"
+      },
+      {
+        "path": "arkts/final/entry/src/main/ets/pages/Index.ets",
+        "bytes": 1490,
+        "sha256": "53b20ef565f70eb716fa1e2fc52ce35363d29519cf01318d1653c8703e46fdfd"
+      }
+    ]
+  },
+  "evaluatorAdapters": [
+    {
+      "path": "arkts/evaluator/RuntimeHarness.ets",
+      "bytes": 4011,
+      "sha256": "33b91b856edacf1b791064055456eb38683912c6d0efe3fec2d34178536ffac8"
+    },
+    {
+      "path": "arkts/evaluator/EntryAbility.evaluator.ets",
+      "bytes": 621,
+      "sha256": "1aebbf9866045296cb905dd489ef87cc4dd40476bccc06c126d5d2355e87bace"
+    },
+    {
+      "path": "evaluator/run_arkts_semantics.py",
+      "classification": "device runner outside candidate production",
+      "bytes": 11890,
+      "sha256": "53c5ecd7b2a66c85fe74090034044e4ecfbdcc7151fbe05c9a72d578c6f01b40"
+    }
+  ],
+  "binding": {
+    "path": "arkts/bindings.json",
+    "bytes": 19414,
+    "sha256": "05086b970917e0023fe52837dbd65ce171f15b57f792f11d0b9c8c46e491aa0c"
+  },
+  "pageOwner": "Index creates and renders the same WaveformPageOwner registered for evaluator observation",
+  "persistence": "ArkData Preferences voice_waveform store is reopened after each event",
+  "sourceObserver": false,
+  "caseIdSwitchInCandidateProduction": false,
+  "arbitraryStandaloneCandidateBinding": true,
+  "moduleMapping": [
+    {
+      "android": "Activity and WaveformPageOwner page state",
+      "arkts": "EntryAbility, Index, PageOwnerRegistry, and WaveformPageOwner"
+    },
+    {
+      "android": "SharedPreferences waveform record",
+      "arkts": "ArkData Preferences voice_waveform record"
+    },
+    {
+      "android": "waveform worker and attachment transport leaves",
+      "arkts": "event-driven effect boundary retained by WaveformPageOwner"
+    }
+  ],
+  "unsupportedPlatformSpecificBehavior": [
+    "Android media codec and Signal network jobs are represented by deterministic external leaf events around application-owned ordering.",
+    "Pixel-level waveform drawing is represented by the same 46 normalized render bars on ArkUI."
+  ]
+}

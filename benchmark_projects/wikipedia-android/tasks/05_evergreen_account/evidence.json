@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_evergreen_account",
+  "baseAbsence": [
+    {
+      "path": "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageActivity.kt",
+      "atCommit": "12d1dd2bffea3db7ead5a69b2025bcbf287fe64d",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageScreen.kt",
+      "atCommit": "12d1dd2bffea3db7ead5a69b2025bcbf287fe64d",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt",
+      "atCommit": "12d1dd2bffea3db7ead5a69b2025bcbf287fe64d",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt",
+      "atCommit": "12d1dd2bffea3db7ead5a69b2025bcbf287fe64d",
+      "status": "missing"
+    }
+  ],
+  "semanticBoundary": "The base has login and account-creation screens but no reading-history-driven encouragement, impression preferences, defer/repeat lifecycle, permanent dismissal, or external-link suppression for this feature.",
+  "finalProduction": [
+    {
+      "path": "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageViewModel.kt",
+      "sha256": "6b4875496f424363f53e73fc6396ba0c48d5984a15350d3da9e24efe4eb34ed7",
+      "symbols": [
+        "shouldShow",
+        "hasReadOnTwoDaysWithinAFortnight",
+        "hasReturnedSinceLastImpression",
+        "UiState"
+      ],
+      "facts": [
+        "A permanent logged-in account is rejected before reading-history eligibility is evaluated, while a temporary account may continue.",
+        "The first impression requires two distinct qualifying reading days, with a 14-day span bound, a 7-day minimum age for the earlier day, and a 365-day history cutoff.",
+        "After one impression, at least two distinct reading days after the persisted impression date are required.",
+        "An invalid persisted date returns false rather than throwing or creating another impression.",
+        "Constructing the screen ViewModel increments the impression count, stores the current date, and loads personalized counts from production DAOs."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageActivity.kt",
+      "sha256": "71cd522ccacc79a928d78d10080a873647ca533d311d3b9dfde43cd9506aa5ae",
+      "symbols": [
+        "requestLogin",
+        "onCloseClick",
+        "onCreateAccountClick",
+        "onMaybeLaterClick"
+      ],
+      "facts": [
+        "The close control writes the terminal impression value before finishing.",
+        "Maybe later finishes without overwriting the ordinary impression count.",
+        "Create account launches the registration-first LoginActivity with the encouragement source.",
+        "A successful login result finishes the encouragement activity."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/activity/BaseActivity.kt",
+      "sha256": "234f6e3a6490780278e584029e298086e012c8b0edb8c669b110a3425fc52711",
+      "symbols": [
+        "showOnboardingIfNeeded"
+      ],
+      "facts": [
+        "Initial onboarding and higher-priority Reading Challenge and Year in Review flows run before account encouragement.",
+        "A PageActivity launched by ACTION_VIEW with a non-null URI is recognized as an external article link and does not start the encouragement.",
+        "Ordinary eligible launches start CreateAccountEncourageActivity through the real application routing path."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/createaccount/CreateAccountEncourageScreen.kt",
+      "sha256": "d782a4d7d47558d597255798a0a90788fabc907a47e16eae865d8933bc5b1def",
+      "symbols": [
+        "CreateAccountEncourageScreen"
+      ],
+      "facts": [
+        "The Compose surface presents personalized account-benefit cards and distinct close, create-account, and Maybe later actions."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/history/db/HistoryEntryDao.kt",
+      "sha256": "235db178693104783633f73e7e4f7d6294ee4cc1035b127cea3854eadfd49eaf",
+      "symbols": [
+        "hasReadingDaysApartWithin",
+        "getDistinctReadingDaysCountSince",
+        "getDistinctEntriesCountSince"
+      ],
+      "facts": [
+        "Eligibility is derived from persisted distinct reading days and recent history rather than an evaluator-supplied boolean."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/settings/Prefs.kt",
+      "sha256": "248b0f3f088b3770f64e8611d50d995adfbfd93c1707c56d0999c74ddaa07603",
+      "symbols": [
+        "createAccountEncourageImpressions",
+        "createAccountEncourageLastImpressionDate"
+      ],
+      "facts": [
+        "The impression count and last-impression date use the production preference store and survive activity and application recreation."
+      ]
+    }
+  ],
+  "finalTests": [
+    {
+      "path": "app/src/androidTest/java/org/wikipedia/createaccount/CreateAccountEncourageTest.kt",
+      "sha256": "6b63732c162af1a0476d0a141619ab9b18146f6a0ecc2c761cea8cbb1830e095",
+      "changeStatus": "added_in_boundary",
+      "facts": [
+        "Exercises first eligibility boundaries with persisted HistoryEntry rows.",
+        "Verifies permanent-account suppression and temporary-account eligibility.",
+        "Verifies one-day deferral, invalid persisted date handling, the second impression, two-impression cap, and permanent close behavior through Android runtime UI."
+      ],
+      "coverageGap": "The upstream test does not complete the real registration result or explicitly launch an external article deep link; those transitions require evaluator-owned runtime coverage through the production activity-result and routing paths."
+    }
+  ],
+  "externalLeaves": [
+    {
+      "name": "authentication service",
+      "policy": "Control login completion, but execute CreateAccountEncourageActivity's registration-first intent mapping and activity-result handling."
+    },
+    {
+      "name": "analytics transport",
+      "policy": "Observe application-owned funnel and interaction dispatch without requiring live delivery."
+    }
+  ],
+  "claimSources": [
+    {
+      "claim": "The interval adds the evergreen account-creation encouragement, eligibility logic, actions, persistence, and targeted instrumentation tests.",
+      "sources": [
+        "https://github.com/wikimedia/apps-android-wikipedia/pull/6832",
+        "https://github.com/wikimedia/apps-android-wikipedia/commit/d679fd1a9530fbe08cb9d117a49ca5d4ff79dce2"
+      ]
+    }
+  ]
+}

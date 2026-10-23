@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wordpress-android",
+  "taskId": "05_domain_management",
+  "title": "All Domains management, search, and purchase lifecycle",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "baseRef": "23.6",
+    "baseCommit": "08547658c58afeb4f0db8da183c8ef9928ed6b41",
+    "finalRef": "23.7",
+    "finalCommit": "3dbc6929c7a74a12af63a616a22b0674010d122d",
+    "ancestry": {
+      "isAncestor": true,
+      "mergeBase": "08547658c58afeb4f0db8da183c8ef9928ed6b41",
+      "aheadCommitCount": 694,
+      "releaseBranchException": null
+    }
+  },
+  "releaseNotes": [
+    {
+      "version": "23.7",
+      "url": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/23.7",
+      "summary": "Adds the All Domains screen so Jetpack users can manage domains from the app."
+    },
+    {
+      "version": "23.7",
+      "url": "https://github.com/wordpress-mobile/WordPress-Android/pull/19599",
+      "summary": "The release-note pull request records the end-to-end domain-management capability delivered by the implementation commits in this boundary."
+    }
+  ],
+  "functionalAreas": [
+    "domain list loading",
+    "empty and error recovery",
+    "local domain filtering",
+    "debounced remote domain search",
+    "domain purchase mode selection",
+    "cart submission and retry",
+    "checkout completion and cancellation",
+    "domain detail URL containment"
+  ],
+  "stateSurfaces": [
+    "all domains list",
+    "new domain search",
+    "purchase mode screen",
+    "cart submission state",
+    "checkout result",
+    "domain details web view"
+  ],
+  "eventEntrypoints": [
+    "open domain management",
+    "refresh after a list failure",
+    "enter or clear a local filter",
+    "enter a domain search query",
+    "select a proposed domain",
+    "choose a new-domain or existing-site purchase mode",
+    "retry a failed cart submission",
+    "complete or cancel checkout",
+    "follow a domain-details URL"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementActivity.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/MyDomainsScreen.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchActivity.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModel.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/domainsfetcher/NewDomainsSearchRepository.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModel.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewClient.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewNavigationDelegate.kt"
+    ],
+    "testPaths": [
+      "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModelTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/domains/management/newdomainsearch/domainsfetcher/NewDomainsSearchRepositoryTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewClientTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewNavigationDelegateTest.kt"
+    ],
+    "pullRequests": [
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/19466",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/19566",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/19597",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/19599"
+    ],
+    "commits": [
+      "d15990ee9e9f1710ee0ac3ae2638131e9f58f59d",
+      "1ea605253b28631a6f29c09cd20d943805f38828",
+      "1f8039830c4c160aa22a3f3b7c498043db93e394",
+      "365b1ce0b13a1987d06d376f581e650c162cc132"
+    ]
+  },
+  "nonGoals": [
+    "Use live WordPress.com domain, product, cart, plan, or checkout services during evaluation.",
+    "Change server-side pricing, eligibility, domain availability, or registration behavior.",
+    "Require a specific Android class layout, Compose implementation, or ArkUI widget hierarchy.",
+    "Treat analytics payloads or pixel-level visual parity as benchmark semantics."
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawReleaseEvidence": "raw_release_evidence.json",
+    "transitionsDraft": "transitions.draft.json",
+    "transitions": "transitions.json"
+  }
+}

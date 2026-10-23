@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "taskId": "07_voice_note_waveforms",
+  "workingDirectory": ".",
+  "currentPolicy": {
+    "mode": "calibration_and_agent_evaluation_complete",
+    "deviceCommandsAllowed": false,
+    "agentEvaluationAllowed": false,
+    "cleanupAllowed": false
+  },
+  "android": {
+    "baseProject": "android/base",
+    "finalProject": "android/final",
+    "buildCommand": ["bash", "android/build.sh", "{role}"],
+    "buildOutputs": [
+      "{project}/app/build/outputs/apk/debug/app-debug.apk",
+      "{project}/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+    ],
+    "buildLog": "build-logs/android-{role}.log",
+    "semanticCommandDeferred": ["python3", "evaluator/run_android_semantics.py", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "runtime": "Android API37 Activity page owner plus instrumentation",
+    "deviceLock": "/tmp/long-term-benchmark-android-device.lock",
+    "fullBuildLock": "/tmp/long-term-benchmark-android-full-build.lock",
+    "reportRelativePath": "results/android-{role}.json",
+    "calibration": {
+      "base": "0/10 pass, 10/10 fail, 0 not_scored",
+      "final": "10/10 pass, 0/10 fail, 0 not_scored",
+      "evidence": "provenance/android-calibration/calibration-summary.json"
+    }
+  },
+  "arkts": {
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": ["bash", "arkts/build.sh", "{role}"],
+    "buildOutput": "{project}/entry/build/default/outputs/default/entry-default-unsigned.hap",
+    "buildLog": "build-logs/arkts-{role}.log",
+    "semanticCommandDeferred": ["python3", "evaluator/run_arkts_semantics.py", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "runtime": "OpenHarmony API23 EntryAbility and mounted ArkUI Index page owner",
+    "deviceTarget": "127.0.0.1:10178",
+    "deviceLock": "/tmp/ltb-arkts-device-73ccdb837c3b8a06",
+    "reportRelativePath": "results/arkts-{role}.json",
+    "calibration": {
+      "base": "0/10 pass, 10/10 fail, 0 not_scored",
+      "final": "10/10 pass, 0/10 fail, 0 not_scored",
+      "evidence": "provenance/arkts-calibration/calibration-summary.json"
+    }
+  },
+  "agentEvaluation": {
+    "runId": "deeper_mining_minimax_m3_runtime_20261023",
+    "model": "minimax-token-plan/MiniMax-M3",
+    "summary": "results/agent-evaluation-summary.json",
+    "cleanupEvidence": "provenance/post-agent-cleanup.json",
+    "android": "code generation pass, standalone compile pass, semantic 2/10, 0 not_scored",
+    "arkts": "code generation pass, standalone compile pass, semantic 1/10, 0 not_scored"
+  },
+  "resultPolicy": "Offline compilation is reported separately from runtime semantics. Native Android API37 and OpenHarmony API23 calibration both require base 0/10, final 10/10, and zero not_scored cases; agent benchmark metrics are code generation, standalone compile, and real runtime semantic pass rate."
+}

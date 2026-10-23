@@ -1,0 +1,403 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_domain_management",
+  "description": "Platform-neutral runtime transitions for the completed All Domains management, search, purchase, checkout, and contained-details lifecycle introduced in WordPress Android 23.7",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_001_loaded_add_domain_entry",
+      "key": "loaded_add_domain_entry",
+      "functionalArea": "list_loading_and_entry",
+      "given": {
+        "accountDomainsResponse": {
+          "type": "success",
+          "domains": [
+            {"domain": "alpha.example", "siteSlug": "alpha-site", "blogName": "Alpha Studio", "status": "active"},
+            {"domain": "beta.example", "siteSlug": "beta-site", "blogName": "Beta Journal", "status": "expiring"}
+          ]
+        },
+        "domainManagementOpen": false
+      },
+      "event": {"name": "openDomainManagementThenTapAddDomain"},
+      "expected": {
+        "state": {
+          "listState": "complete",
+          "visibleDomains": ["alpha.example", "beta.example"],
+          "addDomainEnabled": true,
+          "destination": "new_domain_search"
+        },
+        "effects": [
+          {"name": "fetchAllDomains", "count": 1},
+          {"name": "openNewDomainSearch", "count": 1}
+        ],
+        "absentEffects": ["mutateDomainList", "openDomainDetails", "submitCart"]
+      },
+      "invariants": [
+        "the visible rows are produced by the application-owned all-domains mapping",
+        "the add action is enabled only after a loaded or empty result",
+        "opening search does not alter the loaded account-domain collection"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt#fetchAllDomains",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt#onAddDomainClicked",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementActivity.kt#handleActionEvents",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/MyDomainsScreen.kt#MyDomainsScreen"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt#GIVEN successful domains result WHEN initialized THEN send populated list loaded complete UI state"
+        ],
+        "baseSemanticGap": "Android 23.6 can render the early loaded list, but the visible add action is wired to an empty callback and cannot open the new-domain search flow."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_002_empty_find_domain_entry",
+      "key": "empty_find_domain_entry",
+      "functionalArea": "empty_state",
+      "given": {"accountDomainsResponse": {"type": "empty"}, "domainManagementOpen": false},
+      "event": {"name": "openDomainManagementThenTapFindDomain"},
+      "expected": {
+        "state": {"listState": "empty", "searchEnabled": false, "findDomainEnabled": true, "destination": "new_domain_search"},
+        "effects": [
+          {"name": "fetchAllDomains", "count": 1},
+          {"name": "openNewDomainSearch", "count": 1}
+        ],
+        "absentEffects": ["showLoadedRows", "submitCart", "openDomainDetails"]
+      },
+      "invariants": [
+        "an empty account is distinct from a failed load",
+        "the empty-state action traverses the same production add-domain route as the toolbar action",
+        "no synthetic domain is inserted before search"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt#fetchAllDomains",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/MyDomainsScreen.kt#EmptyScreen",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementActivity.kt#handleActionEvents"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt#GIVEN empty domains result WHEN initialized THEN send empty UI state"
+        ],
+        "testEvidenceGap": "The upstream suite verifies the empty state but does not directly execute the empty CTA through the Activity navigator.",
+        "baseSemanticGap": "Android 23.6 renders the empty CTA with a no-op callback, so tapping it cannot enter new-domain search."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_003_error_retry_recovery",
+      "key": "error_retry_recovery",
+      "functionalArea": "list_failure_recovery",
+      "given": {
+        "accountDomainResponses": [
+          {"type": "error"},
+          {"type": "success", "domains": [{"domain": "recovered.example", "siteSlug": "recovered", "blogName": "Recovered Site", "status": "active"}]}
+        ],
+        "domainManagementOpen": false
+      },
+      "setup": [{"name": "openDomainManagement"}, {"name": "waitForListError"}],
+      "event": {"name": "tapRetry"},
+      "expected": {
+        "state": {"statesInOrder": ["error", "loading", "complete"], "visibleDomains": ["recovered.example"], "retryVisibleAfterSuccess": false},
+        "effects": [{"name": "fetchAllDomains", "count": 2}],
+        "absentEffects": ["openNewDomainSearch", "submitCart", "retainBlockingErrorAfterSuccess"]
+      },
+      "invariants": [
+        "the error precondition is established by the first production fetch",
+        "retry performs a new all-domains request rather than relabeling the old error",
+        "only the successful retry result becomes visible"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt#onRefresh",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt#fetchAllDomains",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/ErrorScreen.kt#ErrorScreen",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/MyDomainsScreen.kt#MyDomainsScreen"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt#GIVEN error domains result WHEN initialized THEN send error UI state",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt#onRefresh fetches all the domains again"
+        ],
+        "baseSemanticGap": "Android 23.6 has an error presentation but no retry callback or onRefresh transition, so it cannot recover without recreating the screen."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_004_filter_clear_round_trip",
+      "key": "filter_clear_round_trip",
+      "functionalArea": "local_filtering",
+      "given": {
+        "loadedDomains": [
+          {"domain": "alpha.example", "siteSlug": "alpha", "blogName": "Studio North"},
+          {"domain": "beta.example", "siteSlug": "beta", "blogName": "Daily Notes"}
+        ],
+        "filterQuery": "STUDIO",
+        "givenEstablishedBy": [{"name": "enterLocalFilter", "query": "STUDIO"}]
+      },
+      "setup": [{"name": "openDomainManagementWithLoadedDomains"}, {"name": "enterLocalFilter", "query": "STUDIO"}, {"name": "waitForFilteredState"}],
+      "event": {"name": "clearLocalFilter"},
+      "expected": {
+        "state": {
+          "beforeClear": {"listState": "filtered", "visibleDomains": ["alpha.example"]},
+          "afterClear": {"listState": "complete", "visibleDomains": ["alpha.example", "beta.example"], "query": ""}
+        },
+        "effects": [{"name": "filterLoadedDomains", "normalizedQuery": "STUDIO"}, {"name": "restoreCompleteDomainList"}],
+        "absentEffects": ["fetchAllDomainsAgain", "remoteDomainSearch", "mutateStoredDomains"]
+      },
+      "invariants": [
+        "the filtered precondition is reached through the rendered query input",
+        "site-title matching is case-insensitive even when domain and site slug do not match",
+        "clearing restores the exact source identities without a network request"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt#onSearchQueryChanged",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/DomainManagementViewModel.kt#filterDomains",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/util/DomainLocalSearchEngine.kt#filter",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/MyDomainsScreen.kt#MyDomainsSearchInput"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt#GIVEN successful domains result and query is not blank WHEN search query changed THEN return populated loaded filtered UI state",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/DomainManagementViewModelTest.kt#GIVEN successful domains result and blank query WHEN search query changed THEN return populated loaded complete UI state",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/util/DomainLocalSearchEngineTest.kt"
+        ],
+        "baseSemanticGap": "Android 23.6 filters only domain and siteSlug in composable-local state; a query that matches only blogName cannot establish the required filtered precondition."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_005_debounced_latest_search",
+      "key": "debounced_latest_search",
+      "functionalArea": "remote_domain_search",
+      "given": {
+        "searchOpen": true,
+        "clockMs": 0,
+        "querySequence": [
+          {"atMs": 0, "query": "old", "completion": {"atMs": 700, "domains": ["old.example"]}},
+          {"atMs": 100, "query": "latest", "completion": {"atMs": 500, "domains": ["latest.example"]}}
+        ]
+      },
+      "event": {"name": "advanceControlledClockAndCompleteRequests", "toMs": 700},
+      "expected": {
+        "state": {"normalizedQuery": "latest", "searchState": "populated", "visibleDomains": ["latest.example"]},
+        "effects": [{"name": "searchForDomains", "query": "latest", "dispatchAtMs": 350, "count": 1}],
+        "absentEffects": ["searchForBlankQuery", "publishOldQueryResult", "showOldExample"]
+      },
+      "invariants": [
+        "the 250 ms debounce is observed with a controlled production clock",
+        "only the latest normalized query owns visible state",
+        "a stale completion cannot replace the latest proposals"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModel.kt#SEARCH_QUERY_DELAY_MS",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModel.kt#onSearchQueryChanged",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModel.kt#flatMapLatest",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/domainsfetcher/NewDomainsSearchRepository.kt#searchForDomains"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModelTest.kt#GIVEN few queries requested within 250 ms query delay WHEN onSearchQueryChanged THEN search for domains with the last query only",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModelTest.kt#GIVEN recent query is appeared when previous request is in progress WHEN onSearchQueryChanged THEN cancel previous request and return result for the last query only"
+        ],
+        "baseSemanticGap": "Android 23.6 has no new-domain search activity, debounced query state, or stale-request cancellation path."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_006_purchase_mode_entry",
+      "key": "purchase_mode_entry",
+      "functionalArea": "purchase_routing",
+      "given": {
+        "searchState": "populated",
+        "proposal": {"productId": 42, "domain": "chosen.example", "price": "$12", "supportsPrivacy": true}
+      },
+      "event": {"name": "tapProposedDomain", "domain": "chosen.example"},
+      "expected": {
+        "state": {
+          "destination": "purchase_domain",
+          "purchaseUiState": "initial",
+          "availableModes": ["new_domain_only", "existing_site"],
+          "selectedProposal": {"productId": 42, "domain": "chosen.example", "supportsPrivacy": true}
+        },
+        "effects": [{"name": "openPurchaseDomain", "productId": 42, "domain": "chosen.example", "supportsPrivacy": true}],
+        "absentEffects": ["submitCart", "openCheckout", "dropPrivacyCapability"]
+      },
+      "invariants": [
+        "the proposal is selected through the visible search result",
+        "product, domain, and privacy fields survive activity routing unchanged",
+        "entering purchase mode does not choose a mode or submit a cart"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModel.kt#onDomainTapped",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchActivity.kt#handleActionEvents",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt#productArg",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt#domainArg",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt#privacyArg"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/newdomainsearch/NewDomainSearchViewModelTest.kt#WHEN a domain is tapped THEN send PurchaseDomain action event",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt#WHEN ViewModel initialized THEN the ui is set to the Initial state"
+        ],
+        "baseSemanticGap": "Android 23.6 has no proposal-selection route carrying productId, domain, and supportsPrivacy into its generic purchase shell."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_007_cart_failure_retry",
+      "key": "cart_failure_retry",
+      "functionalArea": "cart_failure_recovery",
+      "given": {
+        "purchaseMode": "new_domain_only",
+        "selectedProposal": {"productId": 42, "domain": "retry.example", "supportsPrivacy": true},
+        "cartResponses": [{"type": "error"}, {"type": "success", "checkoutToken": "cart-2"}],
+        "givenEstablishedBy": [{"name": "selectNewDomainMode"}, {"name": "waitForCartError"}]
+      },
+      "setup": [{"name": "openPurchaseModeFromProposal"}, {"name": "selectNewDomainMode"}, {"name": "waitForCartError"}],
+      "event": {"name": "acknowledgeCartErrorThenRetryNewDomain"},
+      "expected": {
+        "state": {
+          "beforeRetry": "error_submitting_cart",
+          "statesAfterEvent": ["initial", "submitting_domain_only_cart", "initial"],
+          "destination": "domain_checkout",
+          "checkoutDomain": "retry.example"
+        },
+        "effects": [
+          {"name": "createCart", "mode": "domain_only", "domain": "retry.example", "count": 2},
+          {"name": "openDomainCheckout", "domain": "retry.example", "count": 1}
+        ],
+        "absentEffects": ["openCheckoutAfterFailedCart", "chooseExistingSite", "submitDuplicateCartWhileLoading"]
+      },
+      "invariants": [
+        "the error state is established by executing the production cart request",
+        "acknowledging the error restores the same proposal before the explicit retry",
+        "only the successful retry emits checkout navigation"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModel.kt#onNewDomainSelected",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModel.kt#createCart",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModel.kt#onErrorButtonTapped",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt#handleActionEvents"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt#WHEN an error occurs while submitting the cart THEN the ui is set to the ErrorSubmittingCart state",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt#WHEN the error button is tapped THEN the ui is set to the Initial state",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt#WHEN new domain selected THEN the cart is submitted with the selected domain"
+        ],
+        "baseSemanticGap": "Android 23.6 does not submit a cart, expose cart progress/error state, or retry with the selected product and domain."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_008_checkout_cancel",
+      "key": "checkout_cancel",
+      "functionalArea": "checkout_completion",
+      "given": {
+        "checkout": {"status": "open", "domain": "cancel.example", "email": "owner@example.test"},
+        "purchaseScreenOpen": true
+      },
+      "event": {"name": "returnCheckoutResult", "result": {"domainName": "cancel.example", "email": "owner@example.test", "canceled": true}},
+      "expected": {
+        "state": {"destination": "all_domains", "purchaseScreenOpen": false, "checkoutError": false, "registrationOutcome": "canceled"},
+        "effects": [{"name": "openDomainManagement", "count": 1}],
+        "absentEffects": ["treatCancelAsRegisteredDomain", "showCheckoutError", "resubmitCart"]
+      },
+      "invariants": [
+        "the cancellation enters through the typed checkout result contract",
+        "cancellation closes the purchase flow without claiming registration success",
+        "the selected domain identity remains available for the returning domain-management refresh"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/DomainRegistrationCheckoutWebViewActivity.kt#OpenCheckout.parseResult",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/DomainRegistrationCompletedEvent.kt",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModel.kt#onDomainRegistrationComplete",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt#handleActionEvents"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt#WHEN check out is cancelled THEN go to the all domains screen"
+        ],
+        "testEvidenceGap": "The upstream view-model test asserts navigation but does not separately assert the visible cancellation outcome label; the runtime adapter must retain the typed canceled flag in its observation.",
+        "baseSemanticGap": "Android 23.6 has no checkout result receiver or cancellation-to-All-Domains transition in PurchaseDomainViewModel."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_009_checkout_success",
+      "key": "checkout_success",
+      "functionalArea": "checkout_completion",
+      "given": {
+        "checkout": {"status": "open", "domain": "registered.example", "email": "owner@example.test"},
+        "purchaseScreenOpen": true
+      },
+      "event": {"name": "returnCheckoutResult", "result": {"domainName": "registered.example", "email": "owner@example.test", "canceled": false}},
+      "expected": {
+        "state": {"destination": "all_domains", "purchaseScreenOpen": false, "checkoutError": false, "registrationOutcome": "completed"},
+        "effects": [{"name": "recordDomainPurchaseCompleted"}, {"name": "openDomainManagement", "count": 1}],
+        "absentEffects": ["showCheckoutError", "resubmitCart", "remainOnPurchaseScreen"]
+      },
+      "invariants": [
+        "the successful result enters through the production activity-result parser",
+        "completion is recorded once before returning to All Domains",
+        "no additional cart is created after checkout completion"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/DomainRegistrationCheckoutWebViewActivity.kt#OpenCheckout.parseResult",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModel.kt#onDomainRegistrationComplete",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainActivity.kt#handleActionEvents"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt#WHEN check out is successful THEN go to the all domains screen",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/purchasedomain/PurchaseDomainViewModelTest.kt#WHEN check out is complete THEN track DOMAIN_MANAGEMENT_PURCHASE_DOMAIN_COMPLETED event"
+        ],
+        "baseSemanticGap": "Android 23.6 has no checkout completion callback or production route back to All Domains."
+      }
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "dm_state_010_details_url_allowlist_rejection",
+      "key": "details_url_allowlist_rejection",
+      "functionalArea": "domain_details_containment",
+      "given": {
+        "managedDomain": "some.domain",
+        "detailsWebView": {"currentUrl": "https://wordpress.com/domains/manage/all/some.domain/edit/contact", "contained": true},
+        "requestedUrl": "https://google.com/domains/manage/all/some.domain/edit/contact"
+      },
+      "event": {"name": "requestDetailsNavigation"},
+      "expected": {
+        "state": {"containedWebViewUrl": "https://wordpress.com/domains/manage/all/some.domain/edit/contact", "requestedUrlLoadedInContainedWebView": false},
+        "effects": [{"name": "redirectToExternalBrowser", "url": "https://google.com/domains/manage/all/some.domain/edit/contact", "count": 1}],
+        "absentEffects": ["loadRejectedUrlInContainedWebView", "replaceManagedDomain", "closeDomainManagement"]
+      },
+      "invariants": [
+        "an edit-shaped path on another host is still rejected",
+        "only wordpress.com and the matching managed-domain edit path may remain contained",
+        "rejection preserves the current allowed details page"
+      ],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewNavigationDelegate.kt#allowedUrls",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewClient.kt#shouldOverrideUrlLoading",
+          "WordPress/src/main/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewClient.kt#doUpdateVisitedHistory"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewNavigationDelegateTest.kt#when browsing outside in another host, then the web view cannot navigate",
+          "WordPress/src/test/java/org/wordpress/android/ui/domains/management/details/DomainManagementDetailsWebViewClientTest.kt"
+        ],
+        "baseSemanticGap": "Android 23.6 has no domain-bound details navigation delegate or external redirect callback for unsupported hosts and paths."
+      }
+    }
+  ]
+}

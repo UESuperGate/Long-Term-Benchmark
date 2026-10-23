@@ -1,0 +1,2692 @@
+diff --git a/entry/src/main/ets/entryability/EntryAbility.ets b/entry/src/main/ets/entryability/EntryAbility.ets
+index 729ea119248c8f10ce05f254b6dedc4871eb04f9..cd15dde1333ecef805434babe952e9d5fbf8166b 100644
+--- a/entry/src/main/ets/entryability/EntryAbility.ets
++++ b/entry/src/main/ets/entryability/EntryAbility.ets
+@@ -1,11 +1,38 @@
+ import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
+ import { window } from '@kit.ArkUI';
++import { EvergreenLaunchContext } from '../model/EvergreenLaunchContext';
+ 
++/**
++ * Production entry of the application.
++ *
++ * The ability only publishes launch information to the application-owned
++ * `EvergreenLaunchContext` and loads the ArkUI page that owns the evergreen
++ * account-creation encouragement.  Launch classification happens here: an
++ * article URI means an external deep link, which the page routes ahead of the
++ * encouragement.
++ */
+ export default class EntryAbility extends UIAbility {
+   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
++    EvergreenLaunchContext.updateFromWant(want);
+   }
+ 
+   onWindowStageCreate(windowStage: window.WindowStage): void {
+-    windowStage.loadContent('pages/Index');
++    windowStage.loadContent('pages/Index').catch((error: Error) => {
++      console.error('EntryAbility: loading pages/Index failed: ' + String(error && error.message));
++    });
+   }
+-}
++
++  /** A deep link can arrive while the application is already running. */
++  onNewWant(want: Want): void {
++    EvergreenLaunchContext.updateFromWant(want);
++    const uri: string = want !== undefined && want.uri !== undefined ? want.uri : '';
++    if (uri.length === 0) {
++      return;
++    }
++    EvergreenLaunchContext.openExternalArticle(uri);
++  }
++
++  onDestroy(): void {
++    EvergreenLaunchContext.reset();
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/EvergreenDates.ets b/entry/src/main/ets/model/EvergreenDates.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..b2ba44194f61a448f3256038067ff2b83a1c6ac2
+--- /dev/null
++++ b/entry/src/main/ets/model/EvergreenDates.ets
+@@ -0,0 +1,139 @@
++/**
++ * Calendar helpers shared by the evergreen account-creation encouragement.
++ *
++ * The encouragement reasons about *local calendar days*: a reader who opened
++ * three articles in the same evening has read on a single reading day.  All
++ * comparisons therefore happen on whole days ("epoch days") instead of on
++ * wall-clock timestamps so that results never depend on the device time zone or
++ * on daylight-saving transitions.
++ */
++
++export interface EvergreenCalendarDate {
++  year: number;
++  month: number;
++  day: number;
++}
++
++const MILLISECONDS_PER_DAY: number = 86400000;
++const ISO_DATE_LENGTH: number = 10;
++const INVALID_NUMBER: number = -1;
++
++function digitValue(code: number): number {
++  return code >= 48 && code <= 57 ? code - 48 : INVALID_NUMBER;
++}
++
++function parseUnsigned(value: string): number {
++  if (value.length === 0) {
++    return INVALID_NUMBER;
++  }
++  let result: number = 0;
++  for (let index = 0; index < value.length; index++) {
++    const digit: number = digitValue(value.charCodeAt(index));
++    if (digit === INVALID_NUMBER) {
++      return INVALID_NUMBER;
++    }
++    result = result * 10 + digit;
++  }
++  return result;
++}
++
++function pad(value: number): string {
++  return value < 10 ? '0' + String(value) : String(value);
++}
++
++/**
++ * Strict `YYYY-MM-DD` parser.  Anything else - including the empty string and
++ * values such as `not-a-date` - is rejected so that callers fail closed instead
++ * of silently substituting a guessed date.
++ */
++export function parseCalendarDate(value: string): EvergreenCalendarDate | undefined {
++  const trimmed: string = value.trim();
++  if (trimmed.length !== ISO_DATE_LENGTH) {
++    return undefined;
++  }
++  if (trimmed.charAt(4) !== '-' || trimmed.charAt(7) !== '-') {
++    return undefined;
++  }
++  const year: number = parseUnsigned(trimmed.substring(0, 4));
++  const month: number = parseUnsigned(trimmed.substring(5, 7));
++  const day: number = parseUnsigned(trimmed.substring(8, 10));
++  if (year < 1970 || month < 1 || month > 12 || day < 1 || day > 31) {
++    return undefined;
++  }
++  const roundTrip: EvergreenCalendarDate = fromEpochDay(toEpochDay({ year: year, month: month, day: day }));
++  if (roundTrip.year !== year || roundTrip.month !== month || roundTrip.day !== day) {
++    return undefined;
++  }
++  return { year: year, month: month, day: day };
++}
++
++export function toEpochDay(date: EvergreenCalendarDate): number {
++  return Math.floor(Date.UTC(date.year, date.month - 1, date.day) / MILLISECONDS_PER_DAY);
++}
++
++export function fromEpochDay(epochDay: number): EvergreenCalendarDate {
++  const instant: Date = new Date(epochDay * MILLISECONDS_PER_DAY);
++  return {
++    year: instant.getUTCFullYear(),
++    month: instant.getUTCMonth() + 1,
++    day: instant.getUTCDate()
++  };
++}
++
++export function formatCalendarDate(date: EvergreenCalendarDate): string {
++  return String(date.year) + '-' + pad(date.month) + '-' + pad(date.day);
++}
++
++export function formatEpochDay(epochDay: number): string {
++  return formatCalendarDate(fromEpochDay(epochDay));
++}
++
++/** Number of whole days between two calendar days; positive when `to` is later. */
++export function daysBetween(from: EvergreenCalendarDate, to: EvergreenCalendarDate): number {
++  return toEpochDay(to) - toEpochDay(from);
++}
++
++/**
++ * Accepts the ISO day as well as longer ISO-8601 timestamps such as
++ * `2026-08-25T21:04:00Z`, and returns the calendar day in `YYYY-MM-DD` form.
++ * Values that are not ISO dates return an empty string.
++ */
++export function normalizeCalendarDay(value: string): string {
++  const trimmed: string = value.trim();
++  if (trimmed.length === 0) {
++    return '';
++  }
++  const candidate: string = trimmed.length >= ISO_DATE_LENGTH ? trimmed.substring(0, ISO_DATE_LENGTH) : trimmed;
++  const parsed: EvergreenCalendarDate | undefined = parseCalendarDate(candidate);
++  return parsed === undefined ? '' : formatCalendarDate(parsed);
++}
++
++export function isCalendarDay(value: string): boolean {
++  return parseCalendarDate(value) !== undefined;
++}
++
++/** The current local calendar day of the device, used as the prompt's clock. */
++export function todayCalendarDay(): string {
++  const now: Date = new Date();
++  return formatCalendarDate({ year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() });
++}
++
++/** Ascending, de-duplicated list of calendar days. */
++export function sortDistinctDays(days: string[]): string[] {
++  const seen: number[] = [];
++  const result: string[] = [];
++  for (let index = 0; index < days.length; index++) {
++    const parsed: EvergreenCalendarDate | undefined = parseCalendarDate(days[index]);
++    if (parsed === undefined) {
++      continue;
++    }
++    const day: string = formatCalendarDate(parsed);
++    const epoch: number = toEpochDay(parsed);
++    if (seen.indexOf(epoch) === -1) {
++      seen.push(epoch);
++      result.push(day);
++    }
++  }
++  result.sort((left: string, right: string): number => (left < right ? -1 : (left > right ? 1 : 0)));
++  return result;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/EvergreenEligibility.ets b/entry/src/main/ets/model/EvergreenEligibility.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..93d629f1605d84748be8da3ca34580b1860381eb
+--- /dev/null
++++ b/entry/src/main/ets/model/EvergreenEligibility.ets
+@@ -0,0 +1,318 @@
++/**
++ * Decision engine for the evergreen account-creation encouragement.
++ *
++ * The rules implemented here are the ones described by the product requirement:
++ *
++ *  - the encouragement is only considered once onboarding and every
++ *    higher-priority launch prompt have finished;
++ *  - readers with a permanent account are never prompted (this check happens
++ *    before reading history is queried at all);
++ *  - a permanently dismissed reader is never prompted again;
++ *  - at most {@link EvergreenThresholds.maximumImpressions} ordinary
++ *    impressions are ever shown;
++ *  - the first impression needs two distinct reading days less than a fortnight
++ *    apart whose earlier day is at least a week old, using only the most recent
++ *    year of history;
++ *  - the second impression needs at least two distinct reading days strictly
++ *    after the persisted first-impression day;
++ *  - an unparsable persisted impression day fails closed;
++ *  - an external article deep link never shows the encouragement.
++ *
++ * The function is pure: it neither records impressions nor writes preferences.
++ */
++
++import { EvergreenCalendarDate, formatCalendarDate, formatEpochDay, parseCalendarDate, toEpochDay } from './EvergreenDates';
++import {
++  EVERGREEN_ACCOUNT_REGISTERED,
++  EVERGREEN_LAUNCH_EXTERNAL_ARTICLE,
++  EVERGREEN_LAUNCH_ORDINARY,
++  EvergreenAccountKind,
++  EvergreenLaunchKind
++} from './EvergreenLaunchSnapshot';
++
++export interface EvergreenThresholds {
++  /** Only history from the most recent year is considered. */
++  historyWindowDays: number;
++  /** Number of distinct reading days that make a reader qualify. */
++  minimumDistinctReadingDays: number;
++  /** Exclusive upper bound for the distance between the two qualifying days. */
++  maximumDaysApart: number;
++  /** The earlier qualifying day must be at least this many days old. */
++  minimumEarliestDayAgeDays: number;
++  /** Distinct reading days after the first impression that allow a second one. */
++  minimumReturnReadingDays: number;
++  /** Upper bound of ordinary impressions for the whole lifetime. */
++  maximumImpressions: number;
++}
++
++export const DEFAULT_EVERGREEN_THRESHOLDS: EvergreenThresholds = {
++  historyWindowDays: 365,
++  minimumDistinctReadingDays: 2,
++  maximumDaysApart: 14,
++  minimumEarliestDayAgeDays: 7,
++  minimumReturnReadingDays: 2,
++  maximumImpressions: 2
++};
++
++export const EVERGREEN_REASON_ELIGIBLE_FIRST: string = 'eligible_first_impression';
++export const EVERGREEN_REASON_ELIGIBLE_SECOND: string = 'eligible_second_impression';
++export const EVERGREEN_REASON_EXTERNAL_LINK: string = 'external_article_deep_link';
++export const EVERGREEN_REASON_ONBOARDING: string = 'onboarding_incomplete';
++export const EVERGREEN_REASON_PRIORITY_PROMPT: string = 'higher_priority_prompt_pending';
++export const EVERGREEN_REASON_REGISTERED: string = 'permanent_account_suppressed';
++export const EVERGREEN_REASON_DISMISSED: string = 'permanently_dismissed';
++export const EVERGREEN_REASON_IMPRESSION_LIMIT: string = 'impression_limit_reached';
++export const EVERGREEN_REASON_INVALID_DATE: string = 'invalid_last_impression_date';
++export const EVERGREEN_REASON_STALE_HISTORY: string = 'reading_history_outside_window';
++export const EVERGREEN_REASON_NO_HISTORY: string = 'insufficient_reading_history';
++export const EVERGREEN_REASON_NO_RETURN_DAYS: string = 'insufficient_return_reading_days';
++export const EVERGREEN_REASON_NO_CLOCK: string = 'unavailable_application_clock';
++export const EVERGREEN_REASON_DISABLED: string = 'feature_disabled';
++
++export interface EvergreenEligibilityQuery {
++  account: EvergreenAccountKind;
++  launchType: EvergreenLaunchKind;
++  permanentlyDismissed: boolean;
++  impressions: number;
++  lastImpressionDate: string;
++  /** Every calendar day of the application-owned reading history, including stale rows. */
++  readingDays: string[];
++  today: string;
++  onboardingComplete: boolean;
++  higherPriorityPromptPending: boolean;
++  featureEnabled: boolean;
++}
++
++export interface EvergreenQualifyingPair {
++  earliestDay: string;
++  latestDay: string;
++}
++
++export interface EvergreenEligibilityResult {
++  evaluated: boolean;
++  shouldShow: boolean;
++  reason: string;
++  account: EvergreenAccountKind;
++  accountEligible: boolean;
++  launchType: EvergreenLaunchKind;
++  today: string;
++  impressions: number;
++  maximumImpressions: number;
++  lastImpressionDate: string;
++  permanentlyDismissed: boolean;
++  historyWindowDays: number;
++  historyWindowStart: string;
++  minimumDaysApart: number;
++  minimumEarliestDayAgeDays: number;
++  minimumReturnReadingDays: number;
++  /** Distinct reading days inside the eligibility window, ascending. */
++  readingDaysInWindow: string[];
++  readingDayCount: number;
++  /** Distinct reading days strictly after the persisted impression day. */
++  returnReadingDays: string[];
++  returnReadingDayCount: number;
++  qualifyingDays: number;
++  earliestQualifyingDay: string;
++  latestQualifyingDay: string;
++  onboardingComplete: boolean;
++  higherPriorityPromptPending: boolean;
++  /** False when the decision was taken before the reading history was queried. */
++  historyQueried: boolean;
++}
++
++function distinctDaysInWindow(
++  readingDays: string[], windowStart: number, today: number): string[] {
++  const result: string[] = [];
++  const seen: number[] = [];
++  for (let index = 0; index < readingDays.length; index++) {
++    const parsed: EvergreenCalendarDate | undefined = parseCalendarDate(readingDays[index]);
++    if (parsed === undefined) {
++      continue;
++    }
++    const epoch: number = toEpochDay(parsed);
++    if (epoch < windowStart || epoch > today) {
++      continue;
++    }
++    if (seen.indexOf(epoch) === -1) {
++      seen.push(epoch);
++      result.push(formatCalendarDate(parsed));
++    }
++  }
++  result.sort((left: string, right: string): number => (left < right ? -1 : (left > right ? 1 : 0)));
++  return result;
++}
++
++function emptyResult(
++  query: EvergreenEligibilityQuery, thresholds: EvergreenThresholds, reason: string,
++  shouldShow: boolean, accountEligible: boolean, historyQueried: boolean,
++  daysInWindow: string[], windowStart: number): EvergreenEligibilityResult {
++  return {
++    evaluated: true,
++    shouldShow: shouldShow,
++    reason: reason,
++    account: query.account,
++    accountEligible: accountEligible,
++    launchType: query.launchType,
++    today: query.today,
++    impressions: query.impressions,
++    maximumImpressions: thresholds.maximumImpressions,
++    lastImpressionDate: query.lastImpressionDate,
++    permanentlyDismissed: query.permanentlyDismissed,
++    historyWindowDays: thresholds.historyWindowDays,
++    historyWindowStart: formatEpochDay(windowStart),
++    minimumDaysApart: thresholds.maximumDaysApart,
++    minimumEarliestDayAgeDays: thresholds.minimumEarliestDayAgeDays,
++    minimumReturnReadingDays: thresholds.minimumReturnReadingDays,
++    readingDaysInWindow: daysInWindow,
++    readingDayCount: daysInWindow.length,
++    returnReadingDays: [],
++    returnReadingDayCount: 0,
++    qualifyingDays: 0,
++    earliestQualifyingDay: '',
++    latestQualifyingDay: '',
++    onboardingComplete: query.onboardingComplete,
++    higherPriorityPromptPending: query.higherPriorityPromptPending,
++    historyQueried: historyQueried
++  };
++}
++
++/**
++ * Finds the first pair of reading days that satisfies both time-window
++ * constraints: the days are closer together than the fortnight limit and the
++ * earlier of them is old enough.
++ */
++export function findEvergreenQualifyingPair(
++  daysInWindow: string[], today: number, thresholds: EvergreenThresholds): EvergreenQualifyingPair | undefined {
++  if (daysInWindow.length < thresholds.minimumDistinctReadingDays) {
++    return undefined;
++  }
++  for (let earlier = 0; earlier < daysInWindow.length; earlier++) {
++    const earlierDate: EvergreenCalendarDate | undefined = parseCalendarDate(daysInWindow[earlier]);
++    if (earlierDate === undefined) {
++      continue;
++    }
++    if (today - toEpochDay(earlierDate) < thresholds.minimumEarliestDayAgeDays) {
++      continue;
++    }
++    for (let later = earlier + 1; later < daysInWindow.length; later++) {
++      const laterDate: EvergreenCalendarDate | undefined = parseCalendarDate(daysInWindow[later]);
++      if (laterDate === undefined) {
++        continue;
++      }
++      if (toEpochDay(laterDate) - toEpochDay(earlierDate) < thresholds.maximumDaysApart) {
++        return { earliestDay: daysInWindow[earlier], latestDay: daysInWindow[later] };
++      }
++    }
++  }
++  return undefined;
++}
++
++export function isEvergreenAccountEligible(account: EvergreenAccountKind): boolean {
++  return account !== EVERGREEN_ACCOUNT_REGISTERED;
++}
++
++export function evaluateEvergreenEligibility(
++  query: EvergreenEligibilityQuery, thresholds: EvergreenThresholds): EvergreenEligibilityResult {
++  const accountEligible: boolean = isEvergreenAccountEligible(query.account);
++  const today: EvergreenCalendarDate | undefined = parseCalendarDate(query.today);
++  if (today === undefined) {
++    // Fail closed: without a usable clock no impression can be dated.
++    return emptyResult(query, thresholds, EVERGREEN_REASON_NO_CLOCK, false, accountEligible, false, [],
++      0);
++  }
++  const todayEpoch: number = toEpochDay(today);
++  const windowStart: number = todayEpoch - thresholds.historyWindowDays;
++  const daysInWindow: string[] = distinctDaysInWindow(query.readingDays, windowStart, todayEpoch);
++
++  if (query.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE) {
++    return emptyResult(query, thresholds, EVERGREEN_REASON_EXTERNAL_LINK, false, accountEligible, false,
++      daysInWindow, windowStart);
++  }
++  if (!query.featureEnabled) {
++    return emptyResult(query, thresholds, EVERGREEN_REASON_DISABLED, false, accountEligible, false,
++      daysInWindow, windowStart);
++  }
++  if (!query.onboardingComplete) {
++    return emptyResult(query, thresholds, EVERGREEN_REASON_ONBOARDING, false, accountEligible, false,
++      daysInWindow, windowStart);
++  }
++  if (query.higherPriorityPromptPending) {
++    return emptyResult(query, thresholds, EVERGREEN_REASON_PRIORITY_PROMPT, false, accountEligible, false,
++      daysInWindow, windowStart);
++  }
++  if (!accountEligible) {
++    // Permanent accounts return before any reading history is queried.
++    return emptyResult(query, thresholds, EVERGREEN_REASON_REGISTERED, false, false, false, [], windowStart);
++  }
++  if (query.permanentlyDismissed) {
++    return emptyResult(query, thresholds, EVERGREEN_REASON_DISMISSED, false, accountEligible, false, [],
++      windowStart);
++  }
++
++  const impressions: number = query.impressions > 0 ? Math.floor(query.impressions) : 0;
++  const knownImpressionQuery: EvergreenEligibilityQuery = {
++    account: query.account, launchType: query.launchType, permanentlyDismissed: query.permanentlyDismissed,
++    impressions: impressions, lastImpressionDate: query.lastImpressionDate, readingDays: query.readingDays,
++    today: query.today, onboardingComplete: query.onboardingComplete,
++    higherPriorityPromptPending: query.higherPriorityPromptPending, featureEnabled: query.featureEnabled
++  };
++
++  if (impressions >= thresholds.maximumImpressions) {
++    return emptyResult(knownImpressionQuery, thresholds, EVERGREEN_REASON_IMPRESSION_LIMIT, false, accountEligible,
++      false, [], windowStart);
++  }
++
++  if (impressions >= 1) {
++    const lastImpression: EvergreenCalendarDate | undefined = parseCalendarDate(query.lastImpressionDate);
++    if (lastImpression === undefined) {
++      // An unparsable persisted day suppresses the repeat prompt; the stored
++      // value is left untouched rather than replaced by a guessed date.
++      return emptyResult(knownImpressionQuery, thresholds, EVERGREEN_REASON_INVALID_DATE, false, accountEligible,
++        false, [], windowStart);
++    }
++    const lastEpoch: number = toEpochDay(lastImpression);
++    const returnDays: string[] = [];
++    for (let index = 0; index < daysInWindow.length; index++) {
++      const day: EvergreenCalendarDate | undefined = parseCalendarDate(daysInWindow[index]);
++      if (day !== undefined && toEpochDay(day) > lastEpoch) {
++        returnDays.push(daysInWindow[index]);
++      }
++    }
++    if (returnDays.length < thresholds.minimumReturnReadingDays) {
++      const suppressed: EvergreenEligibilityResult = emptyResult(knownImpressionQuery, thresholds,
++        EVERGREEN_REASON_NO_RETURN_DAYS, false, accountEligible, true, daysInWindow, windowStart);
++      suppressed.returnReadingDays = returnDays;
++      suppressed.returnReadingDayCount = returnDays.length;
++      return suppressed;
++    }
++    const eligibleSecond: EvergreenEligibilityResult = emptyResult(knownImpressionQuery, thresholds,
++      EVERGREEN_REASON_ELIGIBLE_SECOND, true, accountEligible, true, daysInWindow, windowStart);
++    eligibleSecond.returnReadingDays = returnDays;
++    eligibleSecond.returnReadingDayCount = returnDays.length;
++    eligibleSecond.qualifyingDays = daysInWindow.length;
++    eligibleSecond.earliestQualifyingDay = returnDays[0];
++    eligibleSecond.latestQualifyingDay = returnDays[returnDays.length - 1];
++    return eligibleSecond;
++  }
++
++  const pair: EvergreenQualifyingPair | undefined =
++    findEvergreenQualifyingPair(daysInWindow, todayEpoch, thresholds);
++  if (pair === undefined) {
++    const reason: string = daysInWindow.length === 0 && query.readingDays.length > 0
++      ? EVERGREEN_REASON_STALE_HISTORY
++      : EVERGREEN_REASON_NO_HISTORY;
++    return emptyResult(knownImpressionQuery, thresholds, reason, false, accountEligible, true, daysInWindow,
++      windowStart);
++  }
++  const eligibleFirst: EvergreenEligibilityResult = emptyResult(knownImpressionQuery, thresholds,
++    EVERGREEN_REASON_ELIGIBLE_FIRST, true, accountEligible, true, daysInWindow, windowStart);
++  eligibleFirst.qualifyingDays = daysInWindow.length;
++  eligibleFirst.earliestQualifyingDay = pair.earliestDay;
++  eligibleFirst.latestQualifyingDay = pair.latestDay;
++  return eligibleFirst;
++}
++
++/** Convenience wrapper for the "ordinary launch" question asked by the page owner. */
++export function isOrdinaryEvergreenLaunch(launchType: EvergreenLaunchKind): boolean {
++  return launchType === EVERGREEN_LAUNCH_ORDINARY;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/EvergreenLaunchContext.ets b/entry/src/main/ets/model/EvergreenLaunchContext.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..596320cb4a9f9477b8190581b8654fc56988e032
+--- /dev/null
++++ b/entry/src/main/ets/model/EvergreenLaunchContext.ets
+@@ -0,0 +1,170 @@
++/**
++ * Launch-time wiring for the evergreen account-creation encouragement.
++ *
++ * `EntryAbility` publishes the launch information here (ordinary launch,
++ * external article deep link, account and onboarding state) and the ArkUI page
++ * owner registers itself so that a deep link arriving while the application is
++ * already running can be routed to the live page.
++ *
++ * The module also owns the two external leaves of the feature:
++ *  - analytics, which receives impression and interaction events, and
++ *  - authentication, which is asked for a registration-first sign-up.
++ *
++ * Neither leaf is implemented in this module: the application installs a host
++ * for them, and until it does, the requests are recorded and logged so the
++ * encouragement keeps working.
++ */
++
++import { common, Want } from '@kit.AbilityKit';
++import { EvergreenEffect, EvergreenInput, EvergreenLeaf, EvergreenPageOwner } from '../integration/EvergreenPageIntegration';
++import {
++  EVERGREEN_LAUNCH_EXTERNAL_ARTICLE,
++  EvergreenLaunchSnapshot,
++  emptyEvergreenLaunchSnapshot,
++  launchSnapshotFromWant
++} from './EvergreenLaunchSnapshot';
++import { EVERGREEN_EFFECT_AUTHENTICATION } from './EvergreenStore';
++
++const EVENT_LOG_LIMIT: number = 64;
++
++/** External authentication entry point the encouragement hands over to. */
++export interface EvergreenAuthenticationHost {
++  /** Starts the registration-first authentication flow. */
++  startRegistrationFirst(source: string): Promise<void>;
++}
++
++class EvergreenApplicationLeaf implements EvergreenLeaf {
++  private analytics: EvergreenEffect[] = [];
++  private authenticationHost?: EvergreenAuthenticationHost;
++  private pendingAuthenticationRequests: string[] = [];
++
++  async emit(effect: EvergreenEffect): Promise<void> {
++    this.analytics.push(effect);
++    if (this.analytics.length > EVENT_LOG_LIMIT) {
++      this.analytics.shift();
++    }
++    console.info('EvergreenApp: ' + effect.name + ' ' + JSON.stringify(effect));
++    if (effect.name === EVERGREEN_EFFECT_AUTHENTICATION && this.authenticationHost !== undefined) {
++      const host: EvergreenAuthenticationHost = this.authenticationHost;
++      try {
++        await host.startRegistrationFirst(String(effect.source));
++      } catch (error) {
++        console.error('EvergreenApp: authentication request failed: ' + String(error));
++      }
++      return;
++    }
++    if (effect.name === EVERGREEN_EFFECT_AUTHENTICATION) {
++      this.pendingAuthenticationRequests.push(String(effect.source));
++    }
++  }
++
++  setAuthenticationHost(host: EvergreenAuthenticationHost | undefined): void {
++    this.authenticationHost = host;
++  }
++
++  recordedEvents(): EvergreenEffect[] {
++    return this.analytics.slice();
++  }
++
++  pendingAuthentication(): string[] {
++    return this.pendingAuthenticationRequests.slice();
++  }
++}
++
++export class EvergreenLaunchContext {
++  private static snapshot: EvergreenLaunchSnapshot = emptyEvergreenLaunchSnapshot();
++  private static runtimeInput?: EvergreenInput;
++  private static owner?: EvergreenPageOwner;
++  private static leaf: EvergreenApplicationLeaf = new EvergreenApplicationLeaf();
++
++  /** Snapshot of the launch currently being served. */
++  static currentSnapshot(): EvergreenLaunchSnapshot {
++    return EvergreenLaunchContext.snapshot;
++  }
++
++  /** Called by `EntryAbility` for both cold starts and new wants. */
++  static updateFromWant(want: Want): EvergreenLaunchSnapshot {
++    const fromWant: EvergreenLaunchSnapshot = launchSnapshotFromWant(want);
++    EvergreenLaunchContext.snapshot = fromWant;
++    return fromWant;
++  }
++
++  static registerRuntimeInput(input: EvergreenInput | undefined): void {
++    EvergreenLaunchContext.runtimeInput = input;
++  }
++
++  static attach(owner: EvergreenPageOwner): void {
++    EvergreenLaunchContext.owner = owner;
++  }
++
++  static detach(owner: EvergreenPageOwner | undefined): void {
++    if (EvergreenLaunchContext.owner === owner) {
++      EvergreenLaunchContext.owner = undefined;
++    }
++  }
++
++  static attachedOwner(): EvergreenPageOwner | undefined {
++    return EvergreenLaunchContext.owner;
++  }
++
++  static setAuthenticationHost(host: EvergreenAuthenticationHost | undefined): void {
++    EvergreenLaunchContext.leaf.setAuthenticationHost(host);
++  }
++
++  static recordedEvents(): EvergreenEffect[] {
++    return EvergreenLaunchContext.leaf.recordedEvents();
++  }
++
++  static pendingAuthenticationRequests(): string[] {
++    return EvergreenLaunchContext.leaf.pendingAuthentication();
++  }
++
++  /** Routes a deep link to the running page, if one is attached. */
++  static async openExternalArticle(uri: string): Promise<boolean> {
++    const owner: EvergreenPageOwner | undefined = EvergreenLaunchContext.owner;
++    if (owner === undefined) {
++      return false;
++    }
++    const event: Record<string, Object> = { 'name': 'openExternalArticleDeepLink', 'uri': uri };
++    try {
++      await owner.dispatch(event);
++    } catch (error) {
++      console.error('EvergreenLaunchContext: deep link routing failed: ' + String(error));
++      return false;
++    }
++    return true;
++  }
++
++  /**
++   * Input used when the application mounts the page itself.  A runtime may
++   * register an input first, in which case that one is used instead.
++   */
++  static productionInput(context: common.UIAbilityContext): EvergreenInput {
++    const registered: EvergreenInput | undefined = EvergreenLaunchContext.runtimeInput;
++    if (registered !== undefined) {
++      return registered;
++    }
++    const snapshot: EvergreenLaunchSnapshot = EvergreenLaunchContext.snapshot;
++    const launch: Record<string, Object> = {};
++    launch['type'] = snapshot.launchType;
++    launch['uri'] = snapshot.deepLinkUri;
++    const state: Record<string, Object> = {};
++    state['launch'] = launch;
++    state['clockDate'] = snapshot.today;
++    state['account'] = snapshot.account;
++    state['onboardingComplete'] = snapshot.onboardingComplete;
++    state['evergreenAccountEnabled'] = snapshot.featureEnabled;
++    const persistence: Record<string, Object> = {};
++    return { state: state, persistence: persistence, leaf: EvergreenLaunchContext.leaf };
++  }
++
++  static isExternalArticleLaunch(): boolean {
++    return EvergreenLaunchContext.snapshot.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE;
++  }
++
++  static reset(): void {
++    EvergreenLaunchContext.snapshot = emptyEvergreenLaunchSnapshot();
++    EvergreenLaunchContext.owner = undefined;
++    EvergreenLaunchContext.runtimeInput = undefined;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/EvergreenLaunchSnapshot.ets b/entry/src/main/ets/model/EvergreenLaunchSnapshot.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..74ef3f15c25892254319d5220e43ea5039051ad0
+--- /dev/null
++++ b/entry/src/main/ets/model/EvergreenLaunchSnapshot.ets
+@@ -0,0 +1,471 @@
++/**
++ * Normalises everything the application is allowed to know at launch into a
++ * single application-owned snapshot.
++ *
++ * Two sources feed the snapshot:
++ *  - the OpenHarmony launch information produced by `EntryAbility` (ordinary
++ *    launch, external article deep link, onboarding state), and
++ *  - the application-owned stores (reading history rows, saved-item count and
++ *    the `evergreen_account` preference snapshot).
++ *
++ * Nothing here decides anything: the snapshot only describes facts.  All
++ * encouragement policy lives in `EvergreenEligibility`.
++ */
++
++import { EvergreenInput } from '../integration/EvergreenPageIntegration';
++import { EvergreenCalendarDate, normalizeCalendarDay, parseCalendarDate, todayCalendarDay } from './EvergreenDates';
++
++export type EvergreenAccountKind = 'logged_out' | 'temporary' | 'registered';
++
++export type EvergreenLaunchKind = 'ordinary' | 'external_article_deep_link';
++
++export const EVERGREEN_LAUNCH_ORDINARY: EvergreenLaunchKind = 'ordinary';
++export const EVERGREEN_LAUNCH_EXTERNAL_ARTICLE: EvergreenLaunchKind = 'external_article_deep_link';
++
++export const EVERGREEN_ACCOUNT_LOGGED_OUT: EvergreenAccountKind = 'logged_out';
++export const EVERGREEN_ACCOUNT_TEMPORARY: EvergreenAccountKind = 'temporary';
++export const EVERGREEN_ACCOUNT_REGISTERED: EvergreenAccountKind = 'registered';
++
++const MAX_SNAPSHOT_NESTING_DEPTH: number = 3;
++const DATE_ITEM_KEYS: string[] = [
++  'date', 'day', 'localdate', 'historydate', 'readdate', 'visitdate', 'visitedon', 'timestamp', 'time'
++];
++const ACCOUNT_OBJECT_KEYS: string[] = ['registered', 'isregistered', 'hasaccount', 'loggedin', 'haspermanentaccount'];
++const TEMPORARY_OBJECT_KEYS: string[] = ['temporary', 'istemporary', 'tempaccount', 'temp'];
++const ACCOUNT_TYPE_KEYS: string[] = ['type', 'kind', 'state', 'accounttype', 'accountstate', 'accountstatus',
++  'status', 'account'];
++const ACCOUNT_KIND_KEYS: string[] = ['account', 'accounttype', 'accountstate', 'accountstatus', 'accountkind',
++  'account_state'];
++const REGISTERED_TEXT: string[] = ['register', 'permanent', 'user', 'loggedin', 'signedin', 'creator'];
++const LOGGED_OUT_TEXT: string[] = ['loggedout', 'anonymous', 'anon', 'guest', 'signedout', 'unregistered'];
++
++export interface EvergreenLaunchSnapshot {
++  /** Local calendar day used as "now" by the encouragement. */
++  today: string;
++  account: EvergreenAccountKind;
++  launchType: EvergreenLaunchKind;
++  deepLinkUri: string;
++  /** Every calendar day the reader is recorded as having read on. */
++  readingDays: string[];
++  onboardingComplete: boolean;
++  higherPriorityPromptPending: boolean;
++  /** Surface restored from a previously created page, used when the process is recreated. */
++  restoredSurface: string;
++  restoredEncouragementVisible: boolean;
++  /** Persisted encouragement counters taken from the `evergreen_account` preferences. */
++  impressions: number;
++  lastImpressionDate: string;
++  permanentlyDismissed: boolean;
++  /** Saved items ("reading list") count shown on the encouragement screen. */
++  savedCount: number;
++  featureEnabled: boolean;
++}
++
++export function emptyEvergreenLaunchSnapshot(): EvergreenLaunchSnapshot {
++  return {
++    today: todayCalendarDay(),
++    account: EVERGREEN_ACCOUNT_LOGGED_OUT,
++    launchType: EVERGREEN_LAUNCH_ORDINARY,
++    deepLinkUri: '',
++    readingDays: [],
++    onboardingComplete: true,
++    higherPriorityPromptPending: false,
++    restoredSurface: 'main',
++    restoredEncouragementVisible: false,
++    impressions: 0,
++    lastImpressionDate: '',
++    permanentlyDismissed: false,
++    savedCount: 0,
++    featureEnabled: true
++  };
++}
++
++function text(value: Object | undefined): string {
++  return value === undefined || value === null ? '' : String(value);
++}
++
++const TRUE_WORDS: string[] = ['true', '1', 'yes', 'complete', 'completed', 'done', 'finished', 'enabled'];
++const FALSE_WORDS: string[] = ['false', '0', 'no', 'pending', 'incomplete', 'inprogress', 'skipped', 'disabled', ''];
++
++function flag(value: Object | undefined, fallback: boolean): boolean {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const raw: string = compactToken(text(value));
++  if (TRUE_WORDS.indexOf(raw) >= 0) {
++    return true;
++  }
++  if (FALSE_WORDS.indexOf(raw) >= 0) {
++    return false;
++  }
++  return fallback;
++}
++
++/** Lower-cased token without separators, so `logged_out` and `loggedOut` match. */
++function compactToken(value: string): string {
++  let token: string = '';
++  for (let index = 0; index < value.length; index++) {
++    const code: number = value.charCodeAt(index);
++    const isDigit: boolean = code >= 48 && code <= 57;
++    const isLetter: boolean = (code >= 97 && code <= 122) || (code >= 65 && code <= 90);
++    if (isDigit || isLetter) {
++      token += value.charAt(index).toLowerCase();
++    }
++  }
++  return token;
++}
++
++function count(value: Object | undefined, fallback: number): number {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const parsed: number = Number(text(value));
++  return isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
++}
++
++function record(value: Object | undefined): Record<string, Object> | undefined {
++  if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
++    return undefined;
++  }
++  return value as Record<string, Object>;
++}
++
++/**
++ * Case-insensitive field lookup.  Launch information reaches the application
++ * from several places - a `Want`, the persisted preference snapshot and the
++ * runtime snapshot of the page - and the same field is spelled differently in
++ * each of them, so every field is resolved by its name rather than by one
++ * particular spelling.
++ */
++export function lookupValue(recordValue: Record<string, Object> | undefined, key: string): Object | undefined {
++  if (recordValue === undefined) {
++    return undefined;
++  }
++  const direct: Object | undefined = recordValue[key];
++  if (direct !== undefined) {
++    return direct;
++  }
++  const wanted: string = key.toLowerCase();
++  const keys: string[] = Object.keys(recordValue);
++  for (let index = 0; index < keys.length; index++) {
++    if (keys[index].toLowerCase() === wanted) {
++      return recordValue[keys[index]];
++    }
++  }
++  return undefined;
++}
++
++function firstDefined(
++  sources: Array<Record<string, Object> | undefined>, keys: string[]): Object | undefined {
++  for (let index = 0; index < sources.length; index++) {
++    const source: Record<string, Object> | undefined = sources[index];
++    if (source === undefined) {
++      continue;
++    }
++    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
++      const value: Object | undefined = lookupValue(source, keys[keyIndex]);
++      if (value !== undefined && value !== null) {
++        return value;
++      }
++    }
++  }
++  return undefined;
++}
++
++export function parseAccountKind(value: Object | undefined): EvergreenAccountKind {
++  if (value === undefined || value === null) {
++    return EVERGREEN_ACCOUNT_LOGGED_OUT;
++  }
++  if (typeof value === 'object' && !Array.isArray(value)) {
++    const details: Record<string, Object> | undefined = record(value);
++    if (details !== undefined) {
++      for (let index = 0; index < TEMPORARY_OBJECT_KEYS.length; index++) {
++        if (flag(lookupValue(details, TEMPORARY_OBJECT_KEYS[index]), false)) {
++          return EVERGREEN_ACCOUNT_TEMPORARY;
++        }
++      }
++      for (let index = 0; index < ACCOUNT_OBJECT_KEYS.length; index++) {
++        if (flag(lookupValue(details, ACCOUNT_OBJECT_KEYS[index]), false)) {
++          return EVERGREEN_ACCOUNT_REGISTERED;
++        }
++      }
++      for (let index = 0; index < ACCOUNT_TYPE_KEYS.length; index++) {
++        const nested: Object | undefined = lookupValue(details, ACCOUNT_TYPE_KEYS[index]);
++        if (nested !== undefined) {
++          return parseAccountKind(nested);
++        }
++      }
++    }
++    return EVERGREEN_ACCOUNT_LOGGED_OUT;
++  }
++  const raw: string = compactToken(text(value).trim());
++  if (raw === '1') {
++    return EVERGREEN_ACCOUNT_TEMPORARY;
++  }
++  if (raw === '2') {
++    return EVERGREEN_ACCOUNT_REGISTERED;
++  }
++  if (raw.length === 0) {
++    return EVERGREEN_ACCOUNT_LOGGED_OUT;
++  }
++  if (raw.includes('temp')) {
++    return EVERGREEN_ACCOUNT_TEMPORARY;
++  }
++  for (let index = 0; index < LOGGED_OUT_TEXT.length; index++) {
++    if (raw.includes(LOGGED_OUT_TEXT[index])) {
++      return EVERGREEN_ACCOUNT_LOGGED_OUT;
++    }
++  }
++  for (let index = 0; index < REGISTERED_TEXT.length; index++) {
++    if (raw.includes(REGISTERED_TEXT[index])) {
++      return EVERGREEN_ACCOUNT_REGISTERED;
++    }
++  }
++  return EVERGREEN_ACCOUNT_LOGGED_OUT;
++}
++
++export function parseLaunchKind(value: Object | undefined): EvergreenLaunchKind {
++  const raw: string = text(value).trim().toLowerCase();
++  if (raw.length === 0) {
++    return EVERGREEN_LAUNCH_ORDINARY;
++  }
++  if (raw.includes('deep') || raw.includes('external') || raw.includes('browsable')
++    || raw.includes('view') || raw.includes('scheme')) {
++    return EVERGREEN_LAUNCH_EXTERNAL_ARTICLE;
++  }
++  return EVERGREEN_LAUNCH_ORDINARY;
++}
++
++function readingDayFromItem(item: Object): string {
++  if (typeof item !== 'object' || item === null) {
++    return normalizeCalendarDay(text(item));
++  }
++  const details: Record<string, Object> | undefined = record(item);
++  if (details === undefined) {
++    return '';
++  }
++  for (let index = 0; index < DATE_ITEM_KEYS.length; index++) {
++    const candidate: string = normalizeCalendarDay(text(details[DATE_ITEM_KEYS[index]]));
++    if (candidate.length > 0) {
++      return candidate;
++    }
++  }
++  return '';
++}
++
++/**
++ * Collects every calendar day recorded in the application-owned reading
++ * history.  History rows are kept as they were produced: stale rows are not
++ * discarded here, the eligibility query decides which of them are inside the
++ * time window.
++ */
++function collectReadingDays(source: Record<string, Object> | undefined, into: string[], depth: number): void {
++  if (source === undefined || depth < 0) {
++    return;
++  }
++  const keys: string[] = Object.keys(source);
++  for (let index = 0; index < keys.length; index++) {
++    const value: Object | undefined = source[keys[index]];
++    if (value === undefined || value === null) {
++      continue;
++    }
++    if (Array.isArray(value)) {
++      const items: Object[] = value as Object[];
++      for (let item = 0; item < items.length; item++) {
++        const day: string = readingDayFromItem(items[item]);
++        if (day.length > 0) {
++          into.push(day);
++        }
++      }
++    } else if (typeof value === 'object') {
++      collectReadingDays(value as Record<string, Object>, into, depth - 1);
++    }
++  }
++}
++
++export function readingDaysOf(sources: Array<Record<string, Object> | undefined>): string[] {
++  const collected: string[] = [];
++  for (let index = 0; index < sources.length; index++) {
++    collectReadingDays(sources[index], collected, MAX_SNAPSHOT_NESTING_DEPTH);
++  }
++  return collected;
++}
++
++function launchUriOf(sources: Array<Record<string, Object> | undefined>): string {
++  const raw: Object | undefined = firstDefined(sources, ['uri', 'deeplink', 'deeplinkuri', 'targeturi', 'url']);
++  return text(raw).trim();
++}
++
++/**
++ * Launch information may arrive as `launch: 'ordinary'`,
++ * `launch: { type, uri }` or as separate `launchType` / `uri` fields.  All of
++ * them are folded into one ordered list of records, the most specific first.
++ */
++export function launchSources(
++  state: Record<string, Object> | undefined,
++  persistence?: Record<string, Object> | undefined): Array<Record<string, Object> | undefined> {
++  const sources: Array<Record<string, Object> | undefined> = [];
++  if (state === undefined) {
++    return sources;
++  }
++  const entry: Object | undefined = lookupValue(state, 'launch');
++  if (entry !== undefined && entry !== null) {
++    if (typeof entry === 'object' && !Array.isArray(entry)) {
++      sources.push(entry as Record<string, Object>);
++    } else {
++      const described: Record<string, Object> = {};
++      described['type'] = String(entry);
++      sources.push(described);
++    }
++  }
++  sources.push(state);
++  if (persistence !== undefined) {
++    sources.push(persistence);
++  }
++  return sources;
++}
++
++function launchTypeOf(sources: Array<Record<string, Object> | undefined>): EvergreenLaunchKind {
++  const raw: Object | undefined = firstDefined(sources, ['type', 'launchtype', 'intent', 'action']);
++  const kind: EvergreenLaunchKind = parseLaunchKind(raw);
++  if (kind === EVERGREEN_LAUNCH_ORDINARY && launchUriOf(sources).length > 0) {
++    return EVERGREEN_LAUNCH_EXTERNAL_ARTICLE;
++  }
++  return kind;
++}
++
++function restoredVisibilityOf(sources: Array<Record<string, Object> | undefined>): boolean {
++  const visible: Object | undefined = firstDefined(
++    sources, ['accountencouragementvisible', 'visible', 'encouragementvisible', 'isshown', 'shown']);
++  if (visible !== undefined) {
++    return flag(visible, false);
++  }
++  return false;
++}
++
++function restoredSurfaceOf(sources: Array<Record<string, Object> | undefined>, visible: boolean): string {
++  const raw: string = text(firstDefined(sources, ['surface', 'screensurface', 'destination'])).trim().toLowerCase();
++  if (raw.length > 0) {
++    return raw;
++  }
++  return visible ? 'account_encouragement' : 'main';
++}
++
++/**
++ * Builds the launch snapshot from the input handed to the page owner plus the
++ * persisted `evergreen_account` preference snapshot.
++ */
++export function buildEvergreenLaunchSnapshot(input: EvergreenInput | undefined): EvergreenLaunchSnapshot {
++  const snapshot: EvergreenLaunchSnapshot = emptyEvergreenLaunchSnapshot();
++  if (input === undefined) {
++    return snapshot;
++  }
++  const state: Record<string, Object> | undefined = record(input.state);
++  const persistence: Record<string, Object> | undefined = record(input.persistence);
++
++  // The base store keeps a JSON copy of the preference snapshot under `snapshot`;
++  // it is only used as a fallback when individual keys are missing.
++  const archive: Record<string, Object> | undefined = persistence === undefined
++    ? undefined
++    : readArchivedSnapshot(text(lookupValue(persistence, 'snapshot')));
++
++  // Runtime facts are read from the page input first and from the persisted
++  // preference snapshot second, so the same description of the reader works no
++  // matter which record describes it.
++  const facts: Array<Record<string, Object> | undefined> = [state, persistence, archive];
++
++  snapshot.account = parseAccountKind(firstDefined(facts, ACCOUNT_KIND_KEYS.concat(ACCOUNT_TYPE_KEYS)));
++
++  const clock: string = text(firstDefined(facts, ['clockdate', 'today', 'currentdate', 'now', 'date']));
++  snapshot.today = clock.length > 0 && parseCalendarDate(clock.substring(0, 10)) !== undefined
++    ? normalizeCalendarDay(clock)
++    : todayCalendarDay();
++
++  const launchSource: Array<Record<string, Object> | undefined> = launchSources(state, persistence);
++  snapshot.launchType = launchTypeOf(launchSource);
++  snapshot.deepLinkUri = launchUriOf(launchSource);
++
++  snapshot.readingDays = readingDaysOf([state, persistence, archive]);
++
++  snapshot.onboardingComplete = flag(
++    firstDefined(facts, ['onboardingcomplete', 'hascompletedonboarding', 'onboarding', 'onboarded', 'onboardingdone']),
++    true);
++  snapshot.higherPriorityPromptPending = flag(
++    firstDefined(facts,
++      ['higherprioritypromptpending', 'pendinglaunchprompt', 'higherpriorityprompt', 'pendingprompt', 'launchprompt']),
++    false);
++  snapshot.featureEnabled = flag(
++    firstDefined(facts,
++      ['evergreenaccountenabled', 'evergreenenabled', 'featureenabled', 'evergreenfeatureenabled', 'featureavailable']),
++    true);
++
++  snapshot.restoredEncouragementVisible = restoredVisibilityOf(facts);
++  snapshot.restoredSurface = restoredSurfaceOf(facts, snapshot.restoredEncouragementVisible);
++
++  const persistedSource: Array<Record<string, Object> | undefined> = [persistence, state, archive];
++  snapshot.impressions = count(
++    firstDefined(persistedSource, ['impressions', 'impressioncount', 'impressioncounter', 'showncount']), 0);
++  snapshot.lastImpressionDate = text(
++    firstDefined(persistedSource, ['lastimpressiondate', 'lastshown', 'lastimpression', 'lastimpressionday']));
++  snapshot.permanentlyDismissed = flag(
++    firstDefined(persistedSource,
++      ['permanentlydismissed', 'permanentdismissal', 'dismissed', 'optout', 'optedout']),
++    false);
++  snapshot.savedCount = count(
++    firstDefined([state, archive], ['savedcount', 'readinglistcount', 'bookmarkcount', 'saved', 'readinglist']),
++    count(firstDefined([persistence], ['savedcount']), 0));
++  return snapshot;
++}
++
++function readArchivedSnapshot(raw: string): Record<string, Object> | undefined {
++  const trimmed: string = raw.trim();
++  if (trimmed.length === 0) {
++    return undefined;
++  }
++  try {
++    const parsed: Object = JSON.parse(trimmed) as Object;
++    return record(parsed);
++  } catch (error) {
++    return undefined;
++  }
++}
++
++/** Reads the launch information carried by an OpenHarmony `Want`. */
++export function launchSnapshotFromWant(want: Object | undefined): EvergreenLaunchSnapshot {
++  const snapshot: EvergreenLaunchSnapshot = emptyEvergreenLaunchSnapshot();
++  if (want === undefined || want === null) {
++    return snapshot;
++  }
++  const details: Record<string, Object> | undefined = record(want);
++  if (details === undefined) {
++    return snapshot;
++  }
++  const uri: string = text(lookupValue(details, 'uri')).trim();
++  if (uri.length > 0) {
++    snapshot.launchType = EVERGREEN_LAUNCH_EXTERNAL_ARTICLE;
++    snapshot.deepLinkUri = uri;
++  } else {
++    snapshot.launchType = parseLaunchKind(firstDefined([details], ['launchtype', 'action']));
++  }
++  const parameters: Record<string, Object> | undefined = record(lookupValue(details, 'parameters'));
++  if (parameters !== undefined) {
++    const accountValue: Object | undefined = firstDefined([parameters], ACCOUNT_KIND_KEYS.concat(ACCOUNT_TYPE_KEYS));
++    if (accountValue !== undefined) {
++      snapshot.account = parseAccountKind(accountValue);
++    }
++    snapshot.featureEnabled = flag(firstDefined([parameters],
++      ['evergreenaccountenabled', 'evergreenenabled', 'featureenabled']), snapshot.featureEnabled);
++  }
++  return snapshot;
++}
++
++/** True when the encouragement screen is currently the restored destination. */
++export function restoredEncouragementSurface(snapshot: EvergreenLaunchSnapshot): boolean {
++  const surface: string = snapshot.restoredSurface.toLowerCase();
++  return surface.includes('account') || surface.includes('encourage') || surface.includes('signup')
++    || surface.includes('promo') || surface.includes('login');
++}
++
++export function parsedToday(snapshot: EvergreenLaunchSnapshot): EvergreenCalendarDate | undefined {
++  return parseCalendarDate(snapshot.today);
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/EvergreenPreferences.ets b/entry/src/main/ets/model/EvergreenPreferences.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..8db42a16848bdd1107c4e9410c0f35c04e1d11d9
+--- /dev/null
++++ b/entry/src/main/ets/model/EvergreenPreferences.ets
+@@ -0,0 +1,224 @@
++/**
++ * Persistence for the evergreen account-creation encouragement.
++ *
++ * The encouragement owns a dedicated `evergreen_account` preferences file with
++ * three durable keys:
++ *
++ *  - `impressions`             number of ordinary impressions already shown
++ *  - `lastImpressionDate`      local calendar day of the last impression
++ *  - `permanentlyDismissed`    set by the close control, never by "Maybe later"
++ *
++ * plus application-owned reading history rows and the saved-item count used for
++ * the personalised copy.  If the preferences file cannot be opened the store
++ * falls back to an in-memory implementation so the application keeps running
++ * instead of crashing.
++ */
++
++import { common } from '@kit.AbilityKit';
++import { preferences } from '@kit.ArkData';
++
++export const EVERGREEN_PREFERENCES_NAME: string = 'evergreen_account';
++export const EVERGREEN_KEY_IMPRESSIONS: string = 'impressions';
++export const EVERGREEN_KEY_LAST_IMPRESSION_DATE: string = 'lastImpressionDate';
++export const EVERGREEN_KEY_PERMANENTLY_DISMISSED: string = 'permanentlyDismissed';
++export const EVERGREEN_KEY_SAVED_COUNT: string = 'savedCount';
++export const EVERGREEN_KEY_READING_HISTORY: string = 'readingHistory';
++export const EVERGREEN_KEY_SNAPSHOT: string = 'snapshot';
++
++export interface EvergreenPersistedState {
++  impressions: number;
++  lastImpressionDate: string;
++  permanentlyDismissed: boolean;
++  savedCount: number;
++  readingHistoryJson: string;
++}
++
++export class EvergreenPreferences {
++  private store?: preferences.Preferences;
++  private memory: Record<string, Object> = {};
++  private durable: boolean = false;
++
++  private constructor(store?: preferences.Preferences) {
++    this.store = store;
++    this.durable = store !== undefined;
++  }
++
++  static async open(context: common.UIAbilityContext): Promise<EvergreenPreferences> {
++    try {
++      const store: preferences.Preferences =
++        await preferences.getPreferences(context, EVERGREEN_PREFERENCES_NAME);
++      return new EvergreenPreferences(store);
++    } catch (error) {
++      console.error('EvergreenPreferences: falling back to in-memory storage: ' + String(error));
++      return new EvergreenPreferences(undefined);
++    }
++  }
++
++  static inMemory(): EvergreenPreferences {
++    return new EvergreenPreferences(undefined);
++  }
++
++  isDurable(): boolean {
++    return this.durable;
++  }
++
++  /**
++   * Replaces the persisted encouragement state with the snapshot the
++   * application starts from.  Values the application owns but the snapshot does
++   * not describe are cleared as well, so a re-mounted page never keeps counters
++   * from an unrelated reader state.
++   */
++  async seed(state: EvergreenPersistedState): Promise<void> {
++    this.memory = {};
++    try {
++      if (this.store !== undefined) {
++        await this.store.clear();
++      }
++    } catch (error) {
++      console.error('EvergreenPreferences: clear failed: ' + String(error));
++    }
++    await this.write(EVERGREEN_KEY_IMPRESSIONS, state.impressions);
++    await this.write(EVERGREEN_KEY_LAST_IMPRESSION_DATE, state.lastImpressionDate);
++    await this.write(EVERGREEN_KEY_PERMANENTLY_DISMISSED, state.permanentlyDismissed);
++    await this.write(EVERGREEN_KEY_SAVED_COUNT, state.savedCount);
++    await this.write(EVERGREEN_KEY_READING_HISTORY, state.readingHistoryJson);
++    await this.write(EVERGREEN_KEY_SNAPSHOT, this.snapshotJson(state));
++    await this.flush();
++  }
++
++  private snapshotJson(state: EvergreenPersistedState): string {
++    const record: Record<string, Object> = {};
++    record[EVERGREEN_KEY_IMPRESSIONS] = state.impressions;
++    record[EVERGREEN_KEY_LAST_IMPRESSION_DATE] = state.lastImpressionDate;
++    record[EVERGREEN_KEY_PERMANENTLY_DISMISSED] = state.permanentlyDismissed;
++    record[EVERGREEN_KEY_SAVED_COUNT] = state.savedCount;
++    return JSON.stringify(record);
++  }
++
++  private async write(key: string, value: Object): Promise<void> {
++    this.memory[key] = value;
++    try {
++      if (this.store !== undefined) {
++        await this.store.put(key, value as preferences.ValueType);
++      }
++    } catch (error) {
++      console.error('EvergreenPreferences: write of ' + key + ' failed: ' + String(error));
++    }
++  }
++
++  private async flush(): Promise<void> {
++    try {
++      if (this.store !== undefined) {
++        await this.store.flush();
++      }
++    } catch (error) {
++      console.error('EvergreenPreferences: flush failed: ' + String(error));
++    }
++  }
++
++  private async readRaw(key: string): Promise<Object | undefined> {
++    try {
++      if (this.store !== undefined) {
++        const value: preferences.ValueType = await this.store.get(key, '');
++        if (typeof value === 'string' && value.length === 0) {
++          return this.memory[key];
++        }
++        return value as Object;
++      }
++    } catch (error) {
++      console.error('EvergreenPreferences: read of ' + key + ' failed: ' + String(error));
++    }
++    return this.memory[key];
++  }
++
++  /** Reads the durable state back, which is what a recreated application sees. */
++  async reload(): Promise<EvergreenPersistedState> {
++    const impressions: Object | undefined = await this.readRaw(EVERGREEN_KEY_IMPRESSIONS);
++    const lastImpression: Object | undefined = await this.readRaw(EVERGREEN_KEY_LAST_IMPRESSION_DATE);
++    const dismissed: Object | undefined = await this.readRaw(EVERGREEN_KEY_PERMANENTLY_DISMISSED);
++    const saved: Object | undefined = await this.readRaw(EVERGREEN_KEY_SAVED_COUNT);
++    const history: Object | undefined = await this.readRaw(EVERGREEN_KEY_READING_HISTORY);
++    return {
++      impressions: numberOf(impressions, 0),
++      lastImpressionDate: textOf(lastImpression, ''),
++      permanentlyDismissed: flagOf(dismissed, false),
++      savedCount: numberOf(saved, 0),
++      readingHistoryJson: textOf(history, '')
++    };
++  }
++
++  async saveImpression(date: string): Promise<void> {
++    const current: EvergreenPersistedState = await this.reload();
++    await this.write(EVERGREEN_KEY_IMPRESSIONS, current.impressions + 1);
++    await this.write(EVERGREEN_KEY_LAST_IMPRESSION_DATE, date);
++    await this.flush();
++  }
++
++  async savePermanentDismissal(date: string): Promise<void> {
++    await this.write(EVERGREEN_KEY_PERMANENTLY_DISMISSED, true);
++    await this.write(EVERGREEN_KEY_LAST_IMPRESSION_DATE, date);
++    await this.flush();
++  }
++
++  /**
++   * Writes the current state of the encouragement without clearing anything
++   * else, so suppressed launches leave the durable impression values exactly as
++   * they were.
++   */
++  async saveState(state: EvergreenPersistedState): Promise<void> {
++    await this.write(EVERGREEN_KEY_IMPRESSIONS, state.impressions);
++    await this.write(EVERGREEN_KEY_LAST_IMPRESSION_DATE, state.lastImpressionDate);
++    await this.write(EVERGREEN_KEY_PERMANENTLY_DISMISSED, state.permanentlyDismissed);
++    await this.write(EVERGREEN_KEY_SAVED_COUNT, state.savedCount);
++    await this.write(EVERGREEN_KEY_READING_HISTORY, state.readingHistoryJson);
++    await this.write(EVERGREEN_KEY_SNAPSHOT, this.snapshotJson(state));
++    await this.flush();
++  }
++
++  async saveReadingHistory(json: string, savedCount: number): Promise<void> {
++    await this.write(EVERGREEN_KEY_READING_HISTORY, json);
++    await this.write(EVERGREEN_KEY_SAVED_COUNT, savedCount);
++    await this.flush();
++  }
++
++  /** Observable copy of the durable state. */
++  async snapshotRecord(): Promise<Record<string, Object>> {
++    const state: EvergreenPersistedState = await this.reload();
++    const record: Record<string, Object> = {};
++    record[EVERGREEN_KEY_IMPRESSIONS] = state.impressions;
++    record[EVERGREEN_KEY_LAST_IMPRESSION_DATE] = state.lastImpressionDate;
++    record[EVERGREEN_KEY_PERMANENTLY_DISMISSED] = state.permanentlyDismissed;
++    record[EVERGREEN_KEY_SAVED_COUNT] = state.savedCount;
++    record['durable'] = this.durable;
++    return record;
++  }
++}
++
++function textOf(value: Object | undefined, fallback: string): string {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  return String(value);
++}
++
++function numberOf(value: Object | undefined, fallback: number): number {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const parsed: number = Number(String(value));
++  return isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
++}
++
++function flagOf(value: Object | undefined, fallback: boolean): boolean {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const raw: string = String(value).trim().toLowerCase();
++  if (raw === 'true' || raw === '1') {
++    return true;
++  }
++  if (raw === 'false' || raw === '0' || raw === '') {
++    return false;
++  }
++  return fallback;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/EvergreenReadingHistory.ets b/entry/src/main/ets/model/EvergreenReadingHistory.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..ff9ff08256aac662caf24bb2cc5b3925b09836b5
+--- /dev/null
++++ b/entry/src/main/ets/model/EvergreenReadingHistory.ets
+@@ -0,0 +1,154 @@
++/**
++ * Application-owned reading history.
++ *
++ * The encouragement never invents reading activity: it asks this store for the
++ * calendar days on which the reader actually opened articles.  Rows are kept
++ * exactly as they were recorded - including rows older than the eligibility
++ * window, which the eligibility query then filters out.
++ */
++
++import { EvergreenCalendarDate, parseCalendarDate, sortDistinctDays, toEpochDay } from './EvergreenDates';
++
++export interface EvergreenHistoryRow {
++  /** Local calendar day in `YYYY-MM-DD` form. */
++  date: string;
++  /** Number of article reads recorded on that day. */
++  reads: number;
++  /** Titles of the articles read on that day, without duplicates. */
++  articles: string[];
++}
++
++export class EvergreenReadingHistory {
++  private rows: EvergreenHistoryRow[] = [];
++
++  constructor(days: string[] = []) {
++    this.seed(days);
++  }
++
++  /** Installs the days known to the application, one reading day each. */
++  seed(days: string[]): void {
++    this.rows = [];
++    for (let index = 0; index < days.length; index++) {
++      this.recordRead(days[index], '');
++    }
++  }
++
++  recordRead(day: string, article: string): boolean {
++    const parsed: EvergreenCalendarDate | undefined = parseCalendarDate(day);
++    if (parsed === undefined) {
++      return false;
++    }
++    const normalized: string = day.trim();
++    for (let index = 0; index < this.rows.length; index++) {
++      if (this.rows[index].date === normalized) {
++        this.rows[index].reads += 1;
++        if (article.length > 0 && this.rows[index].articles.indexOf(article) === -1) {
++          this.rows[index].articles.push(article);
++        }
++        return true;
++      }
++    }
++    const row: EvergreenHistoryRow = { date: normalized, reads: 1, articles: [] };
++    if (article.length > 0) {
++      row.articles.push(article);
++    }
++    this.rows.push(row);
++    this.sortRows();
++    return true;
++  }
++
++  private sortRows(): void {
++    this.rows.sort((left: EvergreenHistoryRow, right: EvergreenHistoryRow): number =>
++      left.date < right.date ? -1 : (left.date > right.date ? 1 : 0));
++  }
++
++  /** Every reading day held by the store, ascending, including stale rows. */
++  distinctDays(): string[] {
++    const days: string[] = [];
++    for (let index = 0; index < this.rows.length; index++) {
++      days.push(this.rows[index].date);
++    }
++    return sortDistinctDays(days);
++  }
++
++  distinctDaysInWindow(windowStart: number, today: number): string[] {
++    const days: string[] = [];
++    for (let index = 0; index < this.rows.length; index++) {
++      const parsed: EvergreenCalendarDate | undefined = parseCalendarDate(this.rows[index].date);
++      if (parsed === undefined) {
++        continue;
++      }
++      const epoch: number = toEpochDay(parsed);
++      if (epoch >= windowStart && epoch <= today) {
++        days.push(this.rows[index].date);
++      }
++    }
++    return sortDistinctDays(days);
++  }
++
++  totalReadsInWindow(windowStart: number, today: number): number {
++    let total: number = 0;
++    for (let index = 0; index < this.rows.length; index++) {
++      const parsed: EvergreenCalendarDate | undefined = parseCalendarDate(this.rows[index].date);
++      if (parsed === undefined) {
++        continue;
++      }
++      const epoch: number = toEpochDay(parsed);
++      if (epoch >= windowStart && epoch <= today) {
++        total += this.rows[index].reads;
++      }
++    }
++    return total;
++  }
++
++  totalReads(): number {
++    let total: number = 0;
++    for (let index = 0; index < this.rows.length; index++) {
++      total += this.rows[index].reads;
++    }
++    return total;
++  }
++
++  rowCount(): number {
++    return this.rows.length;
++  }
++
++  toJson(): string {
++    return JSON.stringify(this.rows);
++  }
++
++  restoreFromJson(raw: string): void {
++    this.rows = [];
++    const trimmed: string = raw.trim();
++    if (trimmed.length === 0) {
++      return;
++    }
++    try {
++      const parsed: Object = JSON.parse(trimmed) as Object;
++      if (Array.isArray(parsed)) {
++        const items: Object[] = parsed as Object[];
++        for (let index = 0; index < items.length; index++) {
++          const entry: Object = items[index];
++          if (typeof entry !== 'object' || entry === null) {
++            continue;
++          }
++          const details: Record<string, Object> = entry as Record<string, Object>;
++          const date: EvergreenCalendarDate | undefined =
++            parseCalendarDate(String(details['date'] === undefined ? '' : details['date']));
++          if (date === undefined) {
++            continue;
++          }
++          const reads: number = Number(details['reads'] === undefined ? 1 : details['reads']);
++          this.rows.push({
++            date: String(details['date']),
++            reads: isFinite(reads) && reads > 0 ? Math.floor(reads) : 1,
++            articles: []
++          });
++        }
++        this.sortRows();
++      }
++    } catch (error) {
++      this.rows = [];
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/EvergreenStore.ets b/entry/src/main/ets/model/EvergreenStore.ets
+index 9b116d5d36a5711eac8d9080a4e47b95ca3c246e..1088f738904cc669f1d08b5f9217645fee7e2a5f 100644
+--- a/entry/src/main/ets/model/EvergreenStore.ets
++++ b/entry/src/main/ets/model/EvergreenStore.ets
+@@ -1,41 +1,925 @@
++/**
++ * Application-owned store for the evergreen account-creation encouragement.
++ *
++ * Responsibilities:
++ *  - own the reader's reading history and the durable `evergreen_account`
++ *    preference snapshot;
++ *  - answer "should this launch show the encouragement?" through
++ *    `EvergreenEligibility`, including the ordinary-launch probe the page owner
++ *    exposes;
++ *  - record exactly one impression per shown screen, with its local date;
++ *  - wire the three screen actions ("Maybe later", close, "Create account") to
++ *    durable state and to the analytics / authentication leaves;
++ *  - route external article deep links ahead of the encouragement;
++ *  - recover from persistence, history and leaf failures instead of crashing.
++ */
++
+ import { common } from '@kit.AbilityKit';
+-import { preferences } from '@kit.ArkData';
+-import { EvergreenEffect, EvergreenInput } from '../integration/EvergreenPageIntegration';
++import { EvergreenEffect, EvergreenInput, EvergreenLeaf } from '../integration/EvergreenPageIntegration';
++import {
++  DEFAULT_EVERGREEN_THRESHOLDS,
++  EvergreenEligibilityResult,
++  EvergreenThresholds,
++  evaluateEvergreenEligibility
++} from './EvergreenEligibility';
++import {
++  EVERGREEN_ACCOUNT_LOGGED_OUT,
++  EVERGREEN_ACCOUNT_REGISTERED,
++  EVERGREEN_ACCOUNT_TEMPORARY,
++  EVERGREEN_LAUNCH_EXTERNAL_ARTICLE,
++  EVERGREEN_LAUNCH_ORDINARY,
++  EvergreenAccountKind,
++  EvergreenLaunchKind,
++  EvergreenLaunchSnapshot,
++  buildEvergreenLaunchSnapshot,
++  emptyEvergreenLaunchSnapshot,
++  lookupValue,
++  parseLaunchKind
++} from './EvergreenLaunchSnapshot';
++import { EvergreenPersistedState, EvergreenPreferences } from './EvergreenPreferences';
++import { EvergreenReadingHistory } from './EvergreenReadingHistory';
++import { EvergreenCalendarDate, normalizeCalendarDay, parseCalendarDate, toEpochDay } from './EvergreenDates';
++
++const EFFECT_SOURCE: string = 'evergreen_account_encouragement';
++
++/** Analytics effect carrying an impression or an interaction with the screen. */
++export const EVERGREEN_EFFECT_ENCOURAGEMENT: string = 'logEvergreenAccountEncouragement';
++/** Effect handed to the authentication leaf when "Create account" is chosen. */
++export const EVERGREEN_EFFECT_AUTHENTICATION: string = 'startAuthentication';
++/** Effect emitted when an external article deep link is routed. */
++export const EVERGREEN_EFFECT_EXTERNAL_ARTICLE: string = 'loadRequestedExternalArticle';
++
++const EFFECT_NAME_ENCOURAGEMENT: string = EVERGREEN_EFFECT_ENCOURAGEMENT;
++const EFFECT_NAME_AUTHENTICATION: string = EVERGREEN_EFFECT_AUTHENTICATION;
++const EFFECT_NAME_EXTERNAL_ARTICLE: string = EVERGREEN_EFFECT_EXTERNAL_ARTICLE;
++
++const AUTH_RESULT_KEYS: string[] = [
++  'authenticationleafresult', 'leafresult', 'authenticationresult', 'authresult', 'accountresult',
++  'loginresult', 'registrationresult', 'result', 'outcome'
++];
++const READ_DATE_KEYS: string[] = ['date', 'day', 'readdate', 'historydate', 'clockdate', 'today'];
++const READ_ARTICLE_KEYS: string[] = ['article', 'title', 'pagetitle', 'articleid', 'uri'];
++const EVENT_NESTED_LAUNCH_KEYS: string[] = ['launch', 'deepLink', 'deeplink', 'target'];
++const EVENT_NESTED_AUTH_KEYS: string[] = ['authentication', 'auth', 'account', 'login'];
++
++function clone(value: Record<string, Object>): Record<string, Object> {
++  return JSON.parse(JSON.stringify(value)) as Record<string, Object>;
++}
++
++function text(value: Object | undefined): string {
++  return value === undefined || value === null ? '' : String(value);
++}
++
++/** Lower-cased alphanumeric token of an event name, used for intent routing. */
++function normalizedToken(value: string): string {
++  let token: string = '';
++  for (let index = 0; index < value.length; index++) {
++    const code: number = value.charCodeAt(index);
++    if ((code >= 97 && code <= 122) || (code >= 65 && code <= 90) || (code >= 48 && code <= 57)) {
++      token += value.charAt(index).toLowerCase();
++    }
++  }
++  return token;
++}
++
++function containsAny(token: string, needles: string[]): boolean {
++  for (let index = 0; index < needles.length; index++) {
++    if (token.indexOf(needles[index]) >= 0) {
++      return true;
++    }
++  }
++  return false;
++}
++
++function firstText(record: Record<string, Object> | undefined, keys: string[]): string {
++  if (record === undefined) {
++    return '';
++  }
++  for (let index = 0; index < keys.length; index++) {
++    const value: Object | undefined = lookupValue(record, keys[index]);
++    if (value !== undefined && value !== null && text(value).trim().length > 0) {
++      return text(value).trim();
++    }
++  }
++  return '';
++}
++
++interface ExternalArticle {
++  language: string;
++  title: string;
++  article: string;
++}
+ 
+-function clone(value: Record<string, Object>): Record<string, Object> { return JSON.parse(JSON.stringify(value)) as Record<string, Object>; }
++/**
++ * Resolves the article requested by an external deep link.  The article the
++ * reader asked for stays the visible destination; the encouragement never
++ * replaces it.
++ */
++export function parseExternalArticle(uri: string): ExternalArticle {
++  const empty: ExternalArticle = { language: '', title: '', article: '' };
++  const trimmed: string = uri.trim();
++  if (trimmed.length === 0) {
++    return empty;
++  }
++  let rest: string = trimmed;
++  const schemeIndex: number = rest.indexOf('://');
++  if (schemeIndex >= 0) {
++    rest = rest.substring(schemeIndex + 3);
++  }
++  let host: string = rest;
++  let path: string = '';
++  const slashIndex: number = rest.indexOf('/');
++  if (slashIndex >= 0) {
++    host = rest.substring(0, slashIndex);
++    path = rest.substring(slashIndex + 1);
++  }
++  const queryIndex: number = path.indexOf('?');
++  if (queryIndex >= 0) {
++    path = path.substring(0, queryIndex);
++  }
++  const segments: string[] = path.split('/');
++  let language: string = host.split('.')[0];
++  if (language.indexOf('wikipedia') >= 0 || language.indexOf('wikimedia') >= 0) {
++    language = '';
++  }
++  let title: string = '';
++  for (let index = segments.length - 1; index >= 0; index--) {
++    if (segments[index].length > 0) {
++      title = segments[index];
++      break;
++    }
++  }
++  if (title.indexOf('wiki=') === 0) {
++    title = title.substring(5);
++  }
++  if (title.length === 0) {
++    return { language: language, title: '', article: language };
++  }
++  const article: string = language.length > 0 ? language + ':' + title : title;
++  return { language: language, title: title, article: article };
++}
+ 
+ export class EvergreenStore {
+   private state: Record<string, Object> = { 'surface': 'main', 'accountEncouragementVisible': false };
+   private persistence: Record<string, Object> = {};
+   private decision: Record<string, Object> = { 'evaluated': false, 'shouldShow': false };
++  private decisionAfterRelaunch: Record<string, Object> = {};
++  private routing: Record<string, Object> = {};
++  private historyDayList: string[] = [];
++
+   private input?: EvergreenInput;
+-  private store?: preferences.Preferences;
++  private preferences?: EvergreenPreferences;
++  private history: EvergreenReadingHistory = new EvergreenReadingHistory();
++  private thresholds: EvergreenThresholds = DEFAULT_EVERGREEN_THRESHOLDS;
++  private snapshot: EvergreenLaunchSnapshot = emptyEvergreenLaunchSnapshot();
++
++  private today: string = '';
++  private account: EvergreenAccountKind = EVERGREEN_ACCOUNT_LOGGED_OUT;
++  private launchType: EvergreenLaunchKind = EVERGREEN_LAUNCH_ORDINARY;
++  private deepLinkUri: string = '';
++  private article: string = '';
++  private articleTitle: string = '';
++  private articleLanguage: string = '';
++  private surface: string = 'main';
++  private encouragementVisible: boolean = false;
++  private encouragementState: string = 'not_evaluated';
++  private impressions: number = 0;
++  private lastImpressionDate: string = '';
++  private permanentlyDismissed: boolean = false;
++  private savedCount: number = 0;
++  private onboardingComplete: boolean = true;
++  private higherPriorityPromptPending: boolean = false;
++  private featureEnabled: boolean = true;
++
++  private authenticationRequested: boolean = false;
++  private authenticationCreateAccountFirst: boolean = false;
++  private authenticationActive: boolean = false;
++  private authenticationCompleted: boolean = false;
++  private authenticationSucceeded: boolean = false;
++  private authenticationResult: string = '';
++
++  private effectsEmitted: number = 0;
++  private lastEffect: string = '';
++  private lastFailure: string = '';
++  private mounted: boolean = false;
++
++  // ---------------------------------------------------------------- lifecycle
+ 
+   async mount(context: common.UIAbilityContext, input: EvergreenInput): Promise<void> {
+     this.input = input;
+-    this.persistence = clone(input.persistence);
+-    this.store = await preferences.getPreferences(context, 'evergreen_account');
+-    await this.store.clear();
+-    await this.store.put('snapshot', JSON.stringify(this.persistence));
+-    await this.store.flush();
++    this.snapshot = buildEvergreenLaunchSnapshot(input);
++    const snapshot: EvergreenLaunchSnapshot = this.snapshot;
++    this.today = snapshot.today;
++    this.account = snapshot.account;
++    this.launchType = snapshot.launchType;
++    this.deepLinkUri = snapshot.deepLinkUri;
++    this.onboardingComplete = snapshot.onboardingComplete;
++    this.higherPriorityPromptPending = snapshot.higherPriorityPromptPending;
++    this.featureEnabled = snapshot.featureEnabled;
++    this.savedCount = snapshot.savedCount;
++    this.impressions = snapshot.impressions;
++    this.lastImpressionDate = snapshot.lastImpressionDate;
++    this.permanentlyDismissed = snapshot.permanentlyDismissed;
++
++    this.history = new EvergreenReadingHistory(snapshot.readingDays);
++    const requested: ExternalArticle = parseExternalArticle(this.deepLinkUri);
++    this.article = this.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE ? requested.article : '';
++    this.articleTitle = requested.title;
++    this.articleLanguage = requested.language;
++    this.surface = this.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE ? 'article' : snapshot.restoredSurface;
++    this.encouragementVisible = this.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE
++      ? false
++      : snapshot.restoredEncouragementVisible;
++    this.encouragementState = this.encouragementVisible ? 'shown' : 'not_evaluated';
++    this.mounted = true;
++    this.lastFailure = '';
++    this.decisionAfterRelaunch = {};
++
++    this.preferences = await EvergreenPreferences.open(context);
++    await this.seedPersistence();
++    await this.evaluateLaunch(this.launchType);
++    this.syncRecords();
+   }
+ 
+   async dispatch(event: Record<string, Object>): Promise<void> {
+-    if (String(event['name']) === 'openExternalArticleDeepLink') {
+-      this.state = { 'surface': 'article', 'article': 'en:Ada_Lovelace', 'accountEncouragementVisible': false };
+-      await this.emit({ name: 'loadRequestedExternalArticle' });
++    const name: string = normalizedToken(text(event['name']));
++    try {
++      const declaredLaunch: EvergreenLaunchKind | undefined = this.declaredLaunchOf(event);
++      if (this.isExternalLinkIntent(name, event, declaredLaunch)) {
++        await this.handleExternalArticle(this.uriOf(event));
++        this.syncRecords();
++        return;
++      }
++      if (containsAny(name, ['maybe', 'notnow', 'defer', 'snooze'])
++        || (name.indexOf('later') >= 0 && name.indexOf('relaunch') < 0)) {
++        await this.handleMaybeLater();
++        if (this.isRelaunchIntent(name)) {
++          await this.relaunch();
++        }
++      } else if (containsAny(name, ['close', 'dismiss', 'permanent', 'optout'])) {
++        await this.handlePermanentClose();
++        if (this.isRelaunchIntent(name)) {
++          await this.relaunch();
++        }
++      } else if (this.isAuthenticationIntent(name, event)) {
++        await this.handleAuthentication(name, event);
++      } else if (this.isRelaunchIntent(name)) {
++        await this.relaunch();
++      } else if (this.isResumeIntent(name)) {
++        if (declaredLaunch !== undefined) {
++          this.launchType = declaredLaunch;
++        }
++        await this.resume();
++      } else if (containsAny(name, ['read', 'article', 'visit', 'pageview'])) {
++        await this.recordRead(event);
++      } else {
++        // Unrelated intents leave the application on its current surface.
++        this.syncRecords();
++        return;
++      }
++      this.syncRecords();
++    } catch (error) {
++      this.recoverFromFailure(error, name);
++      this.syncRecords();
++    }
++  }
++
++  // --------------------------------------------------------------- observers
++
++  /**
++   * Answers the ordinary-launch question without touching any durable state:
++   * the deep-link router uses it to prove that a reader who is suppressed by
++   * routing would otherwise have qualified.
++   */
++  async ordinaryLaunchWouldShow(): Promise<boolean> {
++    try {
++      const result: EvergreenEligibilityResult = this.evaluate(EVERGREEN_LAUNCH_ORDINARY);
++      return result.shouldShow;
++    } catch (error) {
++      this.recoverFromFailure(error, 'ordinaryLaunchWouldShow');
++      return false;
++    }
++  }
++
++  currentState(): Record<string, Object> {
++    return clone(this.state);
++  }
++
++  currentPersistence(): Record<string, Object> {
++    return clone(this.persistence);
++  }
++
++  currentDecision(): Record<string, Object> {
++    return clone(this.decision);
++  }
++
++  currentDecisionAfterRelaunch(): Record<string, Object> {
++    return clone(this.decisionAfterRelaunch);
++  }
++
++  currentRouting(): Record<string, Object> {
++    return clone(this.routing);
++  }
++
++  currentHistoryDays(): string[] {
++    return this.historyDayList.slice();
++  }
++
++  featureAvailable(): boolean {
++    return this.featureEnabled;
++  }
++
++  // ------------------------------------------------------------------ intents
++
++  private isExternalLinkIntent(
++    name: string, event: Record<string, Object>, declaredLaunch: EvergreenLaunchKind | undefined): boolean {
++    if (declaredLaunch === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE) {
++      return true;
++    }
++    return containsAny(name, ['deeplink', 'externalarticle', 'external', 'openuri', 'viewarticle']);
++  }
++
++  private isRelaunchIntent(name: string): boolean {
++    return containsAny(name, ['relaunch', 'restart', 'recreate', 'coldstart', 'reopen']);
++  }
++
++  private isResumeIntent(name: string): boolean {
++    return containsAny(name, ['resume', 'foreground', 'launch', 'startapp', 'continue']);
++  }
++
++  private isAuthenticationIntent(name: string, event: Record<string, Object>): boolean {
++    if (containsAny(name, ['auth', 'accountcreation', 'createaccount', 'register', 'signup', 'signin',
++      'login', 'createnew'])) {
++      return true;
++    }
++    const sources: Array<Record<string, Object> | undefined> = this.eventSources(event, EVENT_NESTED_AUTH_KEYS);
++    for (let index = 0; index < sources.length; index++) {
++      if (firstText(sources[index], AUTH_RESULT_KEYS).length > 0) {
++        return this.authenticationRequested || containsAny(name, ['result', 'outcome']);
++      }
++    }
++    return false;
++  }
++
++  private mentionsAccountCreation(name: string): boolean {
++    if (containsAny(name, ['cancel', 'abort', 'fail', 'error', 'skip'])) {
++      return false;
++    }
++    return containsAny(name, ['createaccount', 'register', 'signup', 'signin', 'login', 'auth'])
++      || (name.indexOf('create') >= 0 && name.indexOf('account') >= 0);
++  }
++
++  /**
++   * Event payloads may describe a launch or an authentication outcome either at
++   * the top level or inside a nested `launch` / `authentication` object, so both
++   * shapes are resolved, most specific first.
++   */
++  private eventSources(event: Record<string, Object>, nestedKeys: string[]): Array<Record<string, Object> | undefined> {
++    const sources: Array<Record<string, Object> | undefined> = [];
++    for (let index = 0; index < nestedKeys.length; index++) {
++      const nested: Object | undefined = lookupValue(event, nestedKeys[index]);
++      if (nested !== undefined && nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
++        sources.push(nested as Record<string, Object>);
++      }
++    }
++    sources.push(event);
++    return sources;
++  }
++
++  private declaredLaunchOf(event: Record<string, Object>): EvergreenLaunchKind | undefined {
++    const sources: Array<Record<string, Object> | undefined> = this.eventSources(event, EVENT_NESTED_LAUNCH_KEYS);
++    const raw: string = firstText(sources[0], ['type', 'launchtype', 'intent', 'action']);
++    if (raw.length === 0) {
++      const top: string = firstText(event, ['launch', 'launchtype', 'intent', 'type', 'action']);
++      if (top.length === 0) {
++        return undefined;
++      }
++      return parseLaunchKind(top);
++    }
++    return parseLaunchKind(raw);
++  }
++
++  private uriOf(event: Record<string, Object>): string {
++    const sources: Array<Record<string, Object> | undefined> = this.eventSources(event, EVENT_NESTED_LAUNCH_KEYS);
++    for (let index = 0; index < sources.length; index++) {
++      const raw: string = firstText(sources[index], ['uri', 'deeplink', 'deeplinkuri', 'targeturi', 'url', 'target']);
++      if (raw.length > 0) {
++        return raw;
++      }
++    }
++    return this.deepLinkUri;
++  }
++
++  private authenticationResultOf(event: Record<string, Object>, name: string): string {
++    const sources: Array<Record<string, Object> | undefined> =
++      this.eventSources(event, EVENT_NESTED_AUTH_KEYS);
++    for (let index = 0; index < sources.length; index++) {
++      const explicit: string = firstText(sources[index], AUTH_RESULT_KEYS);
++      if (explicit.length > 0) {
++        return explicit.toLowerCase();
++      }
++    }
++    if (containsAny(name, ['cancel', 'abort'])) {
++      return 'cancelled';
++    }
++    if (containsAny(name, ['fail', 'error'])) {
++      return 'failed';
++    }
++    if (containsAny(name, ['success'])) {
++      return 'success_permanent_account';
++    }
++    if (this.authenticationRequested && containsAny(name, ['complete', 'completed', 'finish', 'finished', 'result'])) {
++      return 'success_permanent_account';
++    }
++    return '';
++  }
++
++  private async handleAuthentication(name: string, event: Record<string, Object>): Promise<void> {
++    if (this.mentionsAccountCreation(name)) {
++      await this.startAuthentication();
++    }
++    const result: string = this.authenticationResultOf(event, name);
++    if (result.length > 0) {
++      await this.completeAuthentication(result);
++      return;
++    }
++    if (this.authenticationActive) {
++      await this.evaluateLaunch(this.launchType);
++    }
++  }
++
++  // ------------------------------------------------------------------ actions
++
++  /** Ordinary launch / foreground resume: show the screen and record one impression. */
++  private async resume(): Promise<void> {
++    if (this.encouragementVisible) {
++      // The screen is already on top of the reader surface.  Opening it again
++      // must not produce a second impression.
++      return;
++    }
++    const result: EvergreenEligibilityResult = await this.evaluateLaunch(this.launchType);
++    if (!result.shouldShow) {
++      return;
++    }
++    this.encouragementVisible = true;
++    this.encouragementState = result.reason;
++    await this.recordImpression(result);
++  }
++
++  /**
++   * Closes the encouragement screen and returns to the surface underneath it.
++   * The article the reader opened is never replaced by the encouragement, and
++   * the encouragement never replaces the article.
++   */
++  private closeEncouragementSurface(): void {
++    this.encouragementVisible = false;
++    this.authenticationActive = false;
++    this.surface = this.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE ? 'article' : 'main';
++  }
++
++  /** "Maybe later": closes the screen without a permanent opt-out. */
++  private async handleMaybeLater(): Promise<void> {
++    this.closeEncouragementSurface();
++    if (!this.permanentlyDismissed) {
++      this.encouragementState = 'deferred';
++    }
++    await this.persistState();
++    await this.evaluateLaunch(this.launchType);
++    await this.emit({
++      name: EFFECT_NAME_ENCOURAGEMENT,
++      interaction: 'maybe_later',
++      count: this.impressions,
++      maximum: this.thresholds.maximumImpressions,
++      historyCutoffDays: this.thresholds.historyWindowDays,
++      qualifyingDays: this.thresholds.minimumDistinctReadingDays,
++      source: EFFECT_SOURCE
++    });
++  }
++
++  /** The dismiss control of the screen: a terminal opt-out that survives restarts. */
++  private async handlePermanentClose(): Promise<void> {
++    this.closeEncouragementSurface();
++    this.encouragementState = 'dismissed';
++    this.permanentlyDismissed = true;
++    await this.persistState();
++    await this.evaluateLaunch(this.launchType);
++    await this.emit({
++      name: EFFECT_NAME_ENCOURAGEMENT,
++      interaction: 'close',
++      count: this.impressions,
++      maximum: this.thresholds.maximumImpressions,
++      source: EFFECT_SOURCE
++    });
++  }
++
++  private async startAuthentication(): Promise<void> {
++    this.authenticationRequested = true;
++    this.authenticationCreateAccountFirst = true;
++    this.authenticationActive = true;
++    this.authenticationCompleted = false;
++    this.authenticationSucceeded = false;
++    this.authenticationResult = '';
++    await this.emit({
++      name: EFFECT_NAME_AUTHENTICATION,
++      interaction: 'create_account',
++      createAccountFirst: true,
++      source: EFFECT_SOURCE
++    });
++  }
++
++  /**
++   * Applies the result reported by the authentication leaf.  Only a permanent
++   * registration suppresses the encouragement; leaving the flow without a
++   * success result returns control and claims nothing.
++   */
++  private async completeAuthentication(rawResult: string): Promise<void> {
++    const result: string = rawResult.trim().toLowerCase();
++    this.authenticationActive = false;
++    this.authenticationCompleted = true;
++    this.authenticationResult = result;
++    const temporary: boolean = result.indexOf('temp') >= 0;
++    const permanent: boolean = result.indexOf('permanent') >= 0 || result.indexOf('register') >= 0
++      || (result.indexOf('success') >= 0 && !temporary)
++      || result.indexOf('loggedin') >= 0 || result.indexOf('signedin') >= 0;
++    if (permanent || (temporary && result.indexOf('success') >= 0)) {
++      this.authenticationSucceeded = true;
++      if (!temporary) {
++        this.account = EVERGREEN_ACCOUNT_REGISTERED;
++      }
++      this.closeEncouragementSurface();
++      this.encouragementState = 'completed';
++      await this.evaluateLaunch(this.launchType);
++      this.updatePostRelaunchDecision();
++      await this.emit({
++        name: EFFECT_NAME_ENCOURAGEMENT,
++        interaction: 'create_account_result',
++        result: result,
++        source: EFFECT_SOURCE
++      });
++      return;
++    }
++    this.authenticationSucceeded = false;
++    // Leaving the flow without a success result gives the reader their surface
++    // back.  No success is claimed and no permanent opt-out is recorded, so the
++    // encouragement can come back after the usual return-reading days.
++    this.closeEncouragementSurface();
++    if (!this.permanentlyDismissed && this.account !== EVERGREEN_ACCOUNT_REGISTERED) {
++      this.encouragementState = 'deferred';
++    }
++    await this.emit({
++      name: EFFECT_NAME_ENCOURAGEMENT,
++      interaction: this.isCancellation(result) ? 'create_account_cancelled' : 'create_account_failed',
++      result: result,
++      source: EFFECT_SOURCE
++    });
++  }
++
++  private isCancellation(result: string): boolean {
++    return containsAny(result, ['cancel', 'abort', 'dismiss', 'leave', 'back', 'closed']) || result.length === 0;
++  }
++
++  /**
++   * External article routing.  It takes precedence over the encouragement and
++   * leaves every impression counter untouched.
++   */
++  private async handleExternalArticle(uri: string): Promise<void> {
++    this.launchType = EVERGREEN_LAUNCH_EXTERNAL_ARTICLE;
++    this.deepLinkUri = uri.length > 0 ? uri : this.deepLinkUri;
++    const requested: ExternalArticle = parseExternalArticle(this.deepLinkUri);
++    this.article = requested.article;
++    this.articleTitle = requested.title;
++    this.articleLanguage = requested.language;
++    this.surface = 'article';
++    this.closeEncouragementSurface();
++    if (!this.permanentlyDismissed && this.account !== EVERGREEN_ACCOUNT_REGISTERED) {
++      this.encouragementState = 'suppressed_by_routing';
++    }
++    await this.evaluateLaunch(EVERGREEN_LAUNCH_EXTERNAL_ARTICLE);
++    await this.emit({ name: EFFECT_NAME_EXTERNAL_ARTICLE, source: 'external_article_deep_link' });
++  }
++
++  /** Application (or activity) recreation: reload durable state and re-decide. */
++  private async relaunch(): Promise<void> {
++    try {
++      await this.reloadFromPersistence();
++    } catch (error) {
++      this.recoverFromFailure(error, 'relaunch');
++    }
++    this.launchType = EVERGREEN_LAUNCH_ORDINARY;
++    this.deepLinkUri = '';
++    this.article = '';
++    this.articleTitle = '';
++    this.articleLanguage = '';
++    this.surface = 'main';
++    this.closeEncouragementSurface();
++    const result: EvergreenEligibilityResult = await this.evaluateLaunch(EVERGREEN_LAUNCH_ORDINARY);
++    this.decisionAfterRelaunch = this.decisionRecord(result);
++    if (result.shouldShow) {
++      this.encouragementVisible = true;
++      this.encouragementState = result.reason;
++      await this.recordImpression(result);
+     } else {
+-      this.state = { 'surface': 'main', 'accountEncouragementVisible': false };
++      this.encouragementState = this.encouragementStateOf(result);
++    }
++  }
++
++  private encouragementStateOf(result: EvergreenEligibilityResult): string {
++    if (this.permanentlyDismissed) {
++      return 'dismissed';
++    }
++    if (this.account === EVERGREEN_ACCOUNT_REGISTERED) {
++      return 'completed';
+     }
++    return 'suppressed';
+   }
+ 
+-  async ordinaryLaunchWouldShow(): Promise<boolean> { return false; }
+-  currentState(): Record<string, Object> { return clone(this.state); }
+-  currentPersistence(): Record<string, Object> { return clone(this.persistence); }
+-  currentDecision(): Record<string, Object> { return clone(this.decision); }
+-  currentDecisionAfterRelaunch(): Record<string, Object> { return {}; }
+-  currentRouting(): Record<string, Object> { return {}; }
+-  currentHistoryDays(): string[] { return []; }
+-  featureAvailable(): boolean { return false; }
+-  private async emit(effect: EvergreenEffect): Promise<void> { await this.input?.leaf.emit(effect); }
++  private async recordRead(event: Record<string, Object>): Promise<void> {
++    const day: string = normalizeCalendarDay(firstText(event, READ_DATE_KEYS));
++    const article: string = firstText(event, READ_ARTICLE_KEYS);
++    const readingDay: string = day.length > 0 ? day : this.clockDay();
++    if (this.history.recordRead(readingDay, article)) {
++      await this.persistHistory();
++      await this.evaluateLaunch(this.launchType);
++    }
++  }
++
++  // ------------------------------------------------------------- eligibility
++
++  private clockDay(): string {
++    return this.today.length > 0 ? this.today : this.snapshot.today;
++  }
++
++  private evaluate(launch: EvergreenLaunchKind): EvergreenEligibilityResult {
++    return evaluateEvergreenEligibility({
++      account: this.account,
++      launchType: launch,
++      permanentlyDismissed: this.permanentlyDismissed,
++      impressions: this.impressions,
++      lastImpressionDate: this.lastImpressionDate,
++      readingDays: this.history.distinctDays(),
++      today: this.clockDay(),
++      onboardingComplete: this.onboardingComplete,
++      higherPriorityPromptPending: this.higherPriorityPromptPending,
++      featureEnabled: this.featureEnabled
++    }, this.thresholds);
++  }
++
++  private async evaluateLaunch(launch: EvergreenLaunchKind): Promise<EvergreenEligibilityResult> {
++    const result: EvergreenEligibilityResult = this.evaluate(launch);
++    this.decision = this.decisionRecord(result);
++    return result;
++  }
++
++  private decisionRecord(result: EvergreenEligibilityResult): Record<string, Object> {
++    const record: Record<string, Object> = {};
++    record['evaluated'] = result.evaluated;
++    record['shouldShow'] = result.shouldShow;
++    record['showAccountEncouragement'] = result.shouldShow;
++    record['reason'] = result.reason;
++    record['account'] = result.account;
++    record['accountEligible'] = result.accountEligible;
++    record['launchType'] = result.launchType;
++    record['ordinaryLaunch'] = result.launchType === EVERGREEN_LAUNCH_ORDINARY;
++    record['today'] = result.today;
++    record['impressions'] = result.impressions;
++    record['maximumImpressions'] = result.maximumImpressions;
++    record['lastImpressionDate'] = result.lastImpressionDate;
++    record['permanentlyDismissed'] = result.permanentlyDismissed;
++    record['historyWindowDays'] = result.historyWindowDays;
++    record['historyWindowStart'] = result.historyWindowStart;
++    record['minimumDaysApart'] = result.minimumDaysApart;
++    record['minimumEarliestDayAgeDays'] = result.minimumEarliestDayAgeDays;
++    record['minimumReturnReadingDays'] = result.minimumReturnReadingDays;
++    record['readingDaysInWindow'] = result.readingDaysInWindow.join(',');
++    record['readingDayCount'] = result.readingDayCount;
++    record['returnReadingDays'] = result.returnReadingDays.join(',');
++    record['returnReadingDayCount'] = result.returnReadingDayCount;
++    record['qualifyingDays'] = result.qualifyingDays;
++    record['earliestQualifyingDay'] = result.earliestQualifyingDay;
++    record['latestQualifyingDay'] = result.latestQualifyingDay;
++    record['historyQueried'] = result.historyQueried;
++    record['onboardingComplete'] = result.onboardingComplete;
++    record['higherPriorityPromptPending'] = result.higherPriorityPromptPending;
++    return record;
++  }
++
++  // ------------------------------------------------------------- persistence
++
++  /**
++   * Keeps the "what would a recreated application decide?" answer in step with
++   * the durable state, so the page owner can report it without another write.
++   */
++  private updatePostRelaunchDecision(): void {
++    try {
++      this.decisionAfterRelaunch = this.decisionRecord(this.evaluate(EVERGREEN_LAUNCH_ORDINARY));
++    } catch (error) {
++      this.decisionAfterRelaunch = { 'evaluated': true, 'shouldShow': false, 'reason': 'evaluation_failed' };
++    }
++  }
++
++  private persistedState(): EvergreenPersistedState {
++    return {
++      impressions: this.impressions,
++      lastImpressionDate: this.lastImpressionDate,
++      permanentlyDismissed: this.permanentlyDismissed,
++      savedCount: this.savedCount,
++      readingHistoryJson: this.history.toJson()
++    };
++  }
++
++  /** Installs the launch snapshot as the durable state of the file. */
++  private async seedPersistence(): Promise<void> {
++    if (this.preferences === undefined) {
++      return;
++    }
++    const state: EvergreenPersistedState = this.persistedState();
++    try {
++      await this.preferences.seed(state);
++      this.persistence = await this.preferences.snapshotRecord();
++    } catch (error) {
++      this.lastFailure = 'seedPersistence: ' + String(error);
++      this.persistence = this.persistenceRecord(state);
++    }
++    this.updatePostRelaunchDecision();
++  }
++
++  private async persistState(): Promise<void> {
++    if (this.preferences === undefined) {
++      return;
++    }
++    const state: EvergreenPersistedState = this.persistedState();
++    try {
++      await this.preferences.saveState(state);
++      this.persistence = await this.preferences.snapshotRecord();
++    } catch (error) {
++      this.lastFailure = 'persistState: ' + String(error);
++      this.persistence = this.persistenceRecord(state);
++    }
++    this.updatePostRelaunchDecision();
++  }
++
++  private async persistHistory(): Promise<void> {
++    if (this.preferences === undefined) {
++      return;
++    }
++    try {
++      await this.preferences.saveReadingHistory(this.history.toJson(), this.savedCount);
++      this.persistence = await this.preferences.snapshotRecord();
++    } catch (error) {
++      this.lastFailure = 'persistHistory: ' + String(error);
++    }
++    this.updatePostRelaunchDecision();
++  }
++
++  private async reloadFromPersistence(): Promise<void> {
++    if (this.preferences === undefined) {
++      return;
++    }
++    const state: EvergreenPersistedState = await this.preferences.reload();
++    this.impressions = state.impressions;
++    this.lastImpressionDate = state.lastImpressionDate;
++    this.permanentlyDismissed = state.permanentlyDismissed;
++    this.savedCount = state.savedCount;
++    if (state.readingHistoryJson.length > 0) {
++      this.history.restoreFromJson(state.readingHistoryJson);
++    }
++    this.persistence = await this.preferences.snapshotRecord();
++    this.updatePostRelaunchDecision();
++  }
++
++  private persistenceRecord(state: EvergreenPersistedState): Record<string, Object> {
++    const record: Record<string, Object> = {};
++    record['impressions'] = state.impressions;
++    record['lastImpressionDate'] = state.lastImpressionDate;
++    record['permanentlyDismissed'] = state.permanentlyDismissed;
++    record['savedCount'] = state.savedCount;
++    record['durable'] = false;
++    return record;
++  }
++
++  /** Showing the screen records one impression with its local date. */
++  private async recordImpression(result: EvergreenEligibilityResult): Promise<void> {
++    this.impressions += 1;
++    this.lastImpressionDate = this.clockDay();
++    await this.persistState();
++    await this.emit({
++      name: EFFECT_NAME_ENCOURAGEMENT,
++      interaction: result.reason,
++      count: this.impressions,
++      maximum: this.thresholds.maximumImpressions,
++      historyCutoffDays: this.thresholds.historyWindowDays,
++      qualifyingDays: this.thresholds.minimumDistinctReadingDays,
++      source: EFFECT_SOURCE
++    });
++  }
++
++  // ------------------------------------------------------------------- leaves
++
++  private async emit(effect: EvergreenEffect): Promise<void> {
++    this.lastEffect = effect.name;
++    this.effectsEmitted += 1;
++    const input: EvergreenInput | undefined = this.input;
++    if (input === undefined || input.leaf === undefined) {
++      return;
++    }
++    const leaf: EvergreenLeaf = input.leaf;
++    try {
++      await leaf.emit(effect);
++    } catch (error) {
++      // Analytics and authentication are external leaves: a failing leaf must
++      // never take the application surface down with it.
++      this.lastFailure = 'emit: ' + String(error);
++    }
++  }
++
++  private recoverFromFailure(error: Object, intent: string): void {
++    this.lastFailure = intent + ': ' + String(error);
++    console.error('EvergreenStore: ' + this.lastFailure);
++    this.encouragementVisible = false;
++    this.authenticationActive = false;
++    this.surface = this.surface.length > 0 ? this.surface : 'main';
++  }
++
++  // ------------------------------------------------------------------ records
++
++  private syncRecords(): void {
++    this.state = this.buildState();
++    this.historyDayList = this.history.distinctDays();
++    this.routing = this.buildRouting();
++  }
++
++  private windowBounds(): number[] {
++    const parsed: EvergreenCalendarDate | undefined = parseCalendarDate(this.clockDay());
++    const today: EvergreenCalendarDate = parsed !== undefined ? parsed : { year: 1970, month: 1, day: 1 };
++    const epoch: number = toEpochDay(today);
++    return [epoch - this.thresholds.historyWindowDays, epoch];
++  }
++
++  private buildState(): Record<string, Object> {
++    const bounds: number[] = this.windowBounds();
++    const record: Record<string, Object> = {};
++    record['surface'] = this.surface;
++    record['accountEncouragementVisible'] = this.encouragementVisible;
++    record['visibleSurface'] = this.encouragementVisible ? 'account_encouragement' : this.surface;
++    record['account'] = this.account;
++    record['encouragementState'] = this.encouragementState;
++    record['today'] = this.clockDay();
++    record['launchType'] = this.launchType;
++    record['deepLinkUri'] = this.deepLinkUri;
++    record['article'] = this.surface === 'article' ? this.article : '';
++    record['articleTitle'] = this.surface === 'article' ? this.articleTitle : '';
++    record['articleLanguage'] = this.surface === 'article' ? this.articleLanguage : '';
++    record['mounted'] = this.mounted;
++    record['featureAvailable'] = this.featureEnabled;
++    record['effectsEmitted'] = this.effectsEmitted;
++    record['lastEffect'] = this.lastEffect;
++    record['lastFailure'] = this.lastFailure;
++
++    const encouragement: Record<string, Object> = {};
++    encouragement['visible'] = this.encouragementVisible;
++    encouragement['state'] = this.encouragementState;
++    encouragement['impressionCount'] = this.impressions;
++    encouragement['maximumImpressions'] = this.thresholds.maximumImpressions;
++    encouragement['lastImpressionDate'] = this.lastImpressionDate;
++    encouragement['permanentlyDismissed'] = this.permanentlyDismissed;
++    encouragement['historyWindowDays'] = this.thresholds.historyWindowDays;
++    encouragement['readingDayCount'] = this.history.distinctDaysInWindow(bounds[0], bounds[1]).length;
++    encouragement['articlesRead'] = this.history.totalReads();
++    encouragement['articlesReadInWindow'] = this.history.totalReadsInWindow(bounds[0], bounds[1]);
++    encouragement['savedCount'] = this.savedCount;
++    record['encouragement'] = encouragement;
++
++    const authentication: Record<string, Object> = {};
++    authentication['requested'] = this.authenticationRequested;
++    authentication['createAccountFirst'] = this.authenticationCreateAccountFirst;
++    authentication['active'] = this.authenticationActive;
++    authentication['completed'] = this.authenticationCompleted;
++    authentication['succeeded'] = this.authenticationSucceeded;
++    authentication['result'] = this.authenticationResult;
++    record['authentication'] = authentication;
++    return record;
++  }
++
++  private buildRouting(): Record<string, Object> {
++    const record: Record<string, Object> = {};
++    record['launchType'] = this.launchType;
++    record['externalArticleDeepLink'] = this.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE;
++    record['uri'] = this.deepLinkUri;
++    record['destination'] = this.surface;
++    record['surface'] = this.surface;
++    record['article'] = this.surface === 'article' ? this.article : '';
++    record['articleTitle'] = this.surface === 'article' ? this.articleTitle : '';
++    record['articleLanguage'] = this.surface === 'article' ? this.articleLanguage : '';
++    record['encouragementShown'] = this.encouragementVisible;
++    record['encouragementSuppressed'] = !this.encouragementVisible;
++    record['handledBy'] = this.launchType === EVERGREEN_LAUNCH_EXTERNAL_ARTICLE
++      ? 'external_article_deep_link_router'
++      : 'application_launch';
++    return record;
++  }
+ }
++
++/** Account kinds the encouragement treats as promptable. */
++export function isPromptableAccount(account: EvergreenAccountKind): boolean {
++  return account === EVERGREEN_ACCOUNT_LOGGED_OUT || account === EVERGREEN_ACCOUNT_TEMPORARY;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index aef3499f02c0b4d67a2b091603d5b4cb15980451..4d9e482daf6b150f18519a34e2088ad1a5fc85fd 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,23 +1,67 @@
+ import { common } from '@kit.AbilityKit';
+-import { CallbackEvergreenPageOwner, EvergreenPageOwner } from '../integration/EvergreenPageIntegration';
++import {
++  CallbackEvergreenPageOwner,
++  EvergreenPageOwner
++} from '../integration/EvergreenPageIntegration';
++import { EvergreenLaunchContext } from '../model/EvergreenLaunchContext';
+ import { EvergreenStore } from '../model/EvergreenStore';
+ 
+ @Entry
+ @Component
+ struct Index {
+   @State surface: string = 'main';
++  @State accountEncouragementVisible: boolean = false;
++  @State encouragementState: string = '';
++  @State encouragementSummary: string = '';
++  @State authenticationPending: boolean = false;
++  @State articleTitle: string = '';
++  @State articleIdentifier: string = '';
++  @State account: string = 'logged_out';
+   private store: EvergreenStore = new EvergreenStore();
+   private runtimeOwnerId: string = 'EvergreenIndex:' + String(Date.now());
++  private attachedOwner?: EvergreenPageOwner;
++  private mounted: boolean = false;
++  private externalMountObserved: boolean = false;
+ 
+   async aboutToAppear(): Promise<void> {
++    const owner: EvergreenPageOwner = this.createRuntimeOwner();
++    this.attachedOwner = owner;
++    EvergreenLaunchContext.attach(owner);
++    const context: common.UIAbilityContext | undefined = this.hostContext();
++    if (context === undefined || this.mounted) {
++      return;
++    }
++    this.mounted = true;
++    try {
++      await owner.mount(context, EvergreenLaunchContext.productionInput(context));
++      this.applyState();
++      if (this.externalMountObserved) {
++        // Another owner took over the page while it was being created.
++        return;
++      }
++      // An ordinary foreground launch is where the encouragement is considered.
++      await owner.dispatch({ 'name': 'resumeApplication' });
++    } catch (error) {
++      console.error('Index: mounting the evergreen account encouragement failed: ' + String(error));
++    }
++    this.applyState();
++  }
++
++  aboutToDisappear(): void {
++    EvergreenLaunchContext.detach(this.attachedOwner);
++    this.attachedOwner = undefined;
++    this.mounted = false;
+   }
+ 
+   createRuntimeOwner(): EvergreenPageOwner {
+     const store = this.store;
+     const ownerId = this.runtimeOwnerId;
+     return new CallbackEvergreenPageOwner(
+-      async (context, input): Promise<void> => { await store.mount(context, input); },
+-      async (event): Promise<void> => { await store.dispatch(event); this.surface = String(store.currentState()['surface']); },
++      async (context, input): Promise<void> => {
++        this.externalMountObserved = true;
++        await store.mount(context, input);
++      },
++      async (event): Promise<void> => { await store.dispatch(event); this.applyState(); },
+       async (): Promise<boolean> => store.ordinaryLaunchWouldShow(),
+       (): Record<string, Object> => store.currentState(), (): Record<string, Object> => store.currentPersistence(),
+       (): Record<string, Object> => store.currentDecision(), (): Record<string, Object> => store.currentDecisionAfterRelaunch(),
+@@ -26,10 +70,97 @@ struct Index {
+     );
+   }
+ 
++  private hostContext(): common.UIAbilityContext | undefined {
++    const host: common.Context | undefined = this.getUIContext().getHostContext();
++    return host as common.UIAbilityContext | undefined;
++  }
++
++  private applyState(): void {
++    const state: Record<string, Object> = this.store.currentState();
++    this.surface = String(state['surface']);
++    this.accountEncouragementVisible = state['accountEncouragementVisible'] === true;
++    this.encouragementState = String(state['encouragementState']);
++    this.articleTitle = String(state['articleTitle']);
++    this.articleIdentifier = String(state['article']);
++    this.account = String(state['account']);
++    this.encouragementSummary = this.summaryFrom(state);
++    this.authenticationPending = this.authenticationPendingFrom(state);
++  }
++
++  /** Personalised counts, derived from the application's own stores. */
++  private summaryFrom(state: Record<string, Object>): string {
++    const details: Object | undefined = state['encouragement'];
++    if (details === undefined || details === null || typeof details !== 'object') {
++      return '';
++    }
++    const record: Record<string, Object> = details as Record<string, Object>;
++    const days: number = Number(String(record['readingDayCount']));
++    const reads: number = Number(String(record['articlesReadInWindow']));
++    const saved: number = Number(String(record['savedCount']));
++    const impressions: number = Number(String(record['impressionCount']));
++    return 'You have read ' + String(reads) + ' article opens on ' + String(days) + ' recent days, '
++      + String(saved) + ' saved. Encouragement ' + String(impressions) + ' of 2 shown.';
++  }
++
++  private authenticationPendingFrom(state: Record<string, Object>): boolean {
++    const details: Object | undefined = state['authentication'];
++    if (details === undefined || details === null || typeof details !== 'object') {
++      return false;
++    }
++    return (details as Record<string, Object>)['active'] === true;
++  }
++
++  private handleAction(name: string): void {
++    this.send(name);
++  }
++
++  private async send(name: string): Promise<void> {
++    try {
++      await this.store.dispatch({ 'name': name });
++    } catch (error) {
++      console.error('Index: ' + name + ' failed: ' + String(error));
++    }
++    this.applyState();
++  }
++
++  @Builder
++  accountEncouragementCard() {
++    Column({ space: 12 }) {
++      Text('Create an account to get more out of Wikipedia')
++        .fontSize(20)
++        .fontWeight(FontWeight.Bold)
++      Text(this.encouragementSummary).fontSize(14)
++      Text('Reader state: ' + this.encouragementState).fontSize(12)
++      if (this.authenticationPending) {
++        Text('Finishing account creation…').fontSize(12)
++      }
++      Row({ space: 12 }) {
++        Button('Maybe later')
++          .onClick(() => { this.handleAction('pressMaybeLater'); })
++        Button('Create account')
++          .onClick(() => { this.handleAction('pressCreateAccount'); })
++      }
++      Button('Close')
++        .onClick(() => { this.handleAction('pressPermanentClose'); })
++    }
++    .width('100%')
++    .padding(16)
++    .backgroundColor('#FFFFFF')
++    .borderRadius(12)
++  }
++
+   build() {
+     Column({ space: 18 }) {
+       Text('Wikipedia').fontSize(30).fontWeight(FontWeight.Bold)
+       Text(this.surface).fontSize(20)
++      Text('Account: ' + this.account).fontSize(14)
++      if (this.surface === 'article') {
++        Text(this.articleIdentifier).fontSize(16)
++        Text(this.articleTitle).fontSize(18)
++      }
++      if (this.accountEncouragementVisible) {
++        this.accountEncouragementCard()
++      }
+     }.width('100%').height('100%').padding(24)
+   }
+-}
++}
+\ No newline at end of file

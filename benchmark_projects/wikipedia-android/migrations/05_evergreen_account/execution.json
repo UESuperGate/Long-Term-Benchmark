@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_evergreen_account",
+  "android": {
+    "baseProject": "android/native/base",
+    "finalProject": "android/native/final",
+    "buildCommand": ["bash", "{project}/build.sh"],
+    "semanticCommand": ["python3", "evaluator/run_android_semantics.py", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "runtime": "API37 Activity page owner with SQLite and SharedPreferences",
+    "deviceLock": "/tmp/long-term-benchmark-android-device.lock",
+    "fullBuildLock": "/tmp/long-term-benchmark-android-full-build.lock"
+  },
+  "arkts": {
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": ["python3", "evaluator/build_arkts_calibration.py", "--project", "{project}"],
+    "semanticCommand": ["python3", "evaluator/run_arkts_semantics.py", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "runtime": "OpenHarmony API23 EntryAbility/ArkUI page owner with ArkData Preferences",
+    "deviceTarget": "127.0.0.1:10178",
+    "deviceLock": "/tmp/ltb-arkts-device-73ccdb837c3b8a06"
+  },
+  "notScoredPolicy": "Only build, device, transport, binding, or adapter failure is not_scored. Executed production behavior that misses the canonical semantics is fail.",
+  "agentRunner": {
+    "path": "agent/run_wikipedia_05_agent_eval.py",
+    "preflightCommand": ["python3", "agent/run_wikipedia_05_agent_eval.py", "preflight"],
+    "formalRunCommand": ["python3", "agent/run_wikipedia_05_agent_eval.py", "run", "--authorize-opencode-and-devices"],
+    "authorizationRequired": true,
+    "overallTimeoutSecondsPerPlatform": 3600,
+    "model": "minimax-token-plan/MiniMax-M3",
+    "subagentsAllowed": true
+  },
+  "agentEvaluation": {
+    "status": "complete",
+    "runId": "deeper_mining_minimax_m3_runtime_20261023",
+    "summary": "results/agent-evaluation-summary.json",
+    "android": "code generation pass, standalone compile pass, semantic 0/10, 0 not_scored",
+    "arkts": "code generation pass, standalone compile pass, semantic 0/10, 0 not_scored"
+  }
+}

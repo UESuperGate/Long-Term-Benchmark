@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_evergreen_account",
+  "capturedAt": "2026-10-23T19:22:30+08:00",
+  "sourceBoundary": {
+    "finalRef": "beta/50604-beta-2026-09-02",
+    "finalCommit": "669a5405fc78ef888203c974c1d67b6259f0eff2",
+    "productionReleaseTagInvented": false,
+    "audit": "The selected final is the newest immutable version-50604 tag containing d679fd1a9530fbe08cb9d117a49ca5d4ff79dce2; no production r/50604 tag exists."
+  },
+  "runtime": {
+    "deviceProfile": "Pura 90 Pro Max",
+    "target": "127.0.0.1:10178",
+    "apiLevel": 23,
+    "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+    "entryBoundary": "EntryAbility -> ArkUI Index -> EvergreenPageOwner -> EvergreenStore",
+    "transport": "HDC start parameters and unfiltered hilog parsed by evaluator marker",
+    "emulatorClosedAfterRun": true
+  },
+  "calibration": {
+    "base": {
+      "pass": 0,
+      "fail": 10,
+      "notScored": 0,
+      "report": "../results/arkts-base.json",
+      "reportSha256": "a3503a9bcb4761ec070e4c0962863a0e0c98d16271377706d4e3c86d64a2ba1b",
+      "rawEpisodes": "../results/arkts-base.raw.json",
+      "rawSha256": "4161bd37ba701ad174d94b0a04f52a22cc8d17f3302fdf7bef61ffcaad1a00ef"
+    },
+    "final": {
+      "pass": 10,
+      "fail": 0,
+      "notScored": 0,
+      "report": "../results/arkts-final.json",
+      "reportSha256": "285e8e2a0b1238d313625d65555e00e210ae7d05269d7e3ec99f2d86f33a748f",
+      "rawEpisodes": "../results/arkts-final.raw.json",
+      "rawSha256": "c62e64a86894767fbf207aa16226c962af940c387f586092d07edd4158cf00ac"
+    }
+  },
+  "firstRunEvidence": {
+    "baseTransportFailure": {
+      "summary": "0 pass, 0 fail, 10 not_scored because hilog tag filtering returned no marker lines",
+      "report": "../results/arkts-base-first-run.json",
+      "reportSha256": "3a3adcb4eed9d8ace6613f146d4cf51ce5bfe4f4e490e6c27f3612b255f80f08",
+      "raw": "../results/arkts-base-first-run.raw.json",
+      "rawSha256": "ba11a7960d6e3878968f9d88882141693ec885935cbabeebe559eccbfb997ba9",
+      "filteredHilog": "arkts-first-run-filtered-hilog.log",
+      "filteredHilogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "filteredHilogBytes": 0,
+      "unfilteredMarkerHilog": "arkts-first-run-unfiltered-marker-hilog.log",
+      "unfilteredMarkerHilogSha256": "0604d9e7cd0b3c2b3a9f8508d8fd1fe8ef95c19725752505cb793314896bb5de",
+      "unfilteredMarkerHilogBytes": 2287,
+      "repair": "Collect unfiltered hilog and retain/parse only LTB_EVERGREEN_CHUNK lines in the evaluator."
+    },
+    "finalProductionFailure": {
+      "summary": "8 pass, 2 fail, 0 not_scored; returning to main replaced UI state and discarded production reading-history observation",
+      "report": "../results/arkts-final-first-calibration.json",
+      "reportSha256": "daeafe77cdb7805d7f454aab1408dc114efbf9a52f1652c0496201a0232fdd7a",
+      "raw": "../results/arkts-final-first-calibration.raw.json",
+      "rawSha256": "9afd7b6a96f0cd879c362a47f9f1815e53b34fb3585a4559605786a269522fa7",
+      "failedCases": ["ea_registered_account_is_suppressed", "ea_stale_history_does_not_qualify"],
+      "repair": "Keep reading history as independent EvergreenStore domain state while UI surface state changes."
+    }
+  },
+  "integrity": {
+    "transitionParity": {"valid": true, "caseCount": 10, "path": "transition-parity.json"},
+    "productionCaseIdOrOracleScan": "clean",
+    "assertionsChangedDuringRuntimeRepair": false,
+    "agentResultRun": false,
+    "rawHilogRetainedPerEpisode": true
+  }
+}

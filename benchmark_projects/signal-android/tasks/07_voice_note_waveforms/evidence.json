@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "taskId": "07_voice_note_waveforms",
+  "rawEvidence": "raw_release_evidence.json",
+  "releaseEvidence": [
+    "37a99cba: Update to new waveform generation algorithm.",
+    "90cbc7a3: Add support for sending voice note waveforms."
+  ],
+  "implementationEvidence": {
+    "symbols": [
+      "AudioWaveFormGenerator",
+      "AudioFileInfo",
+      "AudioHash",
+      "AudioWaveForms",
+      "GenerateAudioWaveFormJob",
+      "UploadDependencyGraph",
+      "SignalServiceTransformExtensions",
+      "EnvelopeContentValidator",
+      "ArchiveConverterExtensions"
+    ],
+    "productionPaths": [
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioFileInfo.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioHash.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioWaveFormGenerator.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/audio/AudioWaveForms.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/jobs/GenerateAudioWaveFormJob.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/sms/UploadDependencyGraph.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/util/SignalServiceTransformExtensions.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/util/ArchiveConverterExtensions.kt",
+      "app/src/main/protowire/Database.proto",
+      "lib/archive/src/main/protowire/Backup.proto",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/EnvelopeContentValidator.kt",
+      "lib/libsignal-service/src/main/protowire/SignalService.proto"
+    ],
+    "testPaths": [
+      "app/src/test/java/org/thoughtcrime/securesms/audio/AudioWaveFormGeneratorTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/audio/AudioFileInfoTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/audio/AudioHashTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/sms/UploadDependencyGraphTest.kt",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/EnvelopeContentValidatorTest.kt",
+      "app/src/androidTest/java/org/thoughtcrime/securesms/database/AttachmentTableTest.kt"
+    ],
+    "testEvidenceNote": "Focused tests cover the new PCM-to-decibel generator, exact storage and render bar counts, unsigned resampling, sender-provided validation and duration clamping, audio-only upload dependencies, oversized incoming waveform rejection, and attachment persistence fixtures."
+  },
+  "baseFailureEvidence": [
+    "The v8.28.4 generator stores 46 bars using peak-relative normalization; the final generator stores 100 bars using the released decibel/noise-bed algorithm while keeping rendering at 46 bars.",
+    "The v8.28.4 upload graph runs compression directly into upload and does not gate audio uploads on GenerateAudioWaveFormJob.",
+    "The v8.28.4 service attachment schema and transform omit audioWaveform and audioDurationSeconds, so outgoing and incoming attachment pointers cannot carry the released metadata.",
+    "The v8.28.4 envelope validator does not reject an otherwise valid attachment pointer for an oversized waveform.",
+    "The v8.28.4 stored waveform record has no senderProvided origin flag, its renderer exposes the stored bar count directly, and a no-URI attachment cannot render a stored sender waveform.",
+    "The v8.28.4 backup FilePointer has no audio waveform or duration fields, so sender waveform metadata cannot survive export and restore."
+  ],
+  "boundaryAudit": {
+    "baseTagObject": "40f819e8316009bc5dae29621c7053d93dbd9da6",
+    "baseCommit": "d0b314d2d7197c38737c6189d1f6c294e76e247e",
+    "finalTagObject": "92339de0d972ff76e7c5cfe801c51b0713c0d05e",
+    "finalCommit": "d8d36376f480eb4669efe8bfee94b2c196a9f7bd",
+    "baseCommitObjectAvailable": true,
+    "finalCommitObjectAvailable": true,
+    "baseIsAncestor": null,
+    "baseIsAncestorReason": "The local source mirror is a shallow partial clone and does not contain enough intermediate graph objects for an independent ancestry proof.",
+    "featureCommitObjectsAvailable": true,
+    "finalTreeFeaturePresent": true,
+    "baseTreeReleasedTransportPresent": false,
+    "verification": "Local read-only tag, commit, tree, and patch queries establish exact object IDs and the semantic base/final delta; full-history ancestry remains a scored-calibration preflight."
+  },
+  "longHorizonSignals": [
+    "The capability crosses media decoding, waveform math, database serialization, job dependency ordering, outgoing transport, incoming validation, renderer adaptation, and backup conversion.",
+    "The two focused commits change 52 file entries in total and add unit, envelope-validation, upload-graph, database, and backup-fixture coverage.",
+    "The canonical graph contains independent invalid-remote, held-upload, stale-cache, interrupted-generation, and no-local-media recovery paths."
+  ]
+}

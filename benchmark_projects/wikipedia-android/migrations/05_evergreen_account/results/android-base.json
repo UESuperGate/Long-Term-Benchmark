@@ -1,0 +1,1911 @@
+{
+  "schemaVersion": 2,
+  "taskId": "05_evergreen_account",
+  "platform": "android",
+  "role": "base",
+  "observationMode": "runtime_state_transition",
+  "summary": {
+    "total": 10,
+    "pass": 0,
+    "fail": 10,
+    "notScored": 0
+  },
+  "runtime": {
+    "device": "emulator-5554",
+    "apiLevel": 37,
+    "transport": "adb instrumentation"
+  },
+  "sources": [
+    {
+      "path": "AndroidManifest.xml",
+      "sha256": "1ba5fa25439f4d1734c4d2c637953d38dc0aaadce0fb9d90ead38229ca088658",
+      "bytes": 547
+    },
+    {
+      "path": "kotlin/org/wikipedia/evergreen/BenchmarkActivity.kt",
+      "sha256": "cec7ef0f0b626624b755652630f1ab500d42f2c2ae46c73868a8ace88c259203",
+      "bytes": 1181
+    },
+    {
+      "path": "kotlin/org/wikipedia/evergreen/EvergreenPageOwner.kt",
+      "sha256": "7d0788f0f19f23d1f3c54aaad23b662c558bddb9a968fc352ee867b2cf354273",
+      "bytes": 1889
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "ea_first_eligibility_records_impression",
+      "key": "first_eligibility_records_impression",
+      "traceDigest": "41df4ba61080d615bd34908dffb71aa9be864b1841b0174cb7c4233ae6835e7a",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeApplication"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "the two reading days are established through the production history store",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the earlier reading day is at least seven days old and the two days are less than fourteen days apart",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "opening the visible production screen records exactly one impression",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_maybe_later_requires_two_return_days",
+      "key": "maybe_later_requires_two_return_days",
+      "traceDigest": "f46f34a8737e45e3f22df5419fdbc616dda549039c0482385542aa7f60ff82e5",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": "2026-08-30"
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeApplication"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "Maybe later leaves the first ordinary impression recorded rather than setting permanent dismissal",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "one distinct reading day after the impression is below the repeat threshold",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the suppression decision is observed from production eligibility as well as from the absent UI",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_close_permanently_dismisses",
+      "key": "close_permanently_dismisses",
+      "traceDigest": "42d0f55898fe91810edc90d362397364dbbdc2f848c6ac786a259f8c76aa8b22",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": "2026-09-02"
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "pressPermanentCloseAndRelaunch"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "the close control is distinct from Maybe later",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-09-02"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-09-02"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "pressPermanentCloseAndRelaunch"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the terminal dismissal value survives activity and application recreation",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-09-02"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-09-02"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "pressPermanentCloseAndRelaunch"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "later qualifying history cannot reopen the encouragement",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-09-02"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-09-02"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "pressPermanentCloseAndRelaunch"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_create_account_success_finishes_and_suppresses",
+      "key": "create_account_success_finishes_and_suppresses",
+      "traceDigest": "0adb8b3ebf6b6a753e4edb9c87af8d3905f817a5f13f4431e8f8a423f1efa9d4",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": ""
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "createAccountAndCompleteSuccessfully"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "the evaluator controls only the external authentication completion and does not replace application intent mapping or result handling",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "createAccountAndCompleteSuccessfully"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "successful registration creates a permanent rather than temporary account",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "createAccountAndCompleteSuccessfully"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "account suppression, not an artificial terminal impression value, prevents the next prompt",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "createAccountAndCompleteSuccessfully"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_registered_account_is_suppressed",
+      "key": "registered_account_is_suppressed",
+      "traceDigest": "4c742a8de04f07b8cc820d7bd8b83fc50f7c1c8e20b46b3f3676ee12f08d3a5f",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeApplication"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "qualifying history does not override permanent-account suppression",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the registered-account branch returns before history qualification",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the suppression result is taken from production eligibility, not inferred only from absent UI",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_external_article_deep_link_is_suppressed",
+      "key": "external_article_deep_link_is_suppressed",
+      "traceDigest": "6ed34fd13de7797b15d0538ac26b968de51f46d145248095f5a5acbd6f7c537a",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "article",
+          "article": "en:Ada_Lovelace",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        "effects": [
+          {
+            "name": "loadRequestedExternalArticle"
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "ordinaryLaunchWouldShow",
+          "openExternalArticleDeepLink"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "the same fixture is positively eligible on an ordinary launch through the production decision",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "article",
+                "article": "en:Ada_Lovelace",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [
+                {
+                  "name": "loadRequestedExternalArticle"
+                }
+              ],
+              "invokedProductionMethods": [
+                "mount",
+                "ordinaryLaunchWouldShow",
+                "openExternalArticleDeepLink"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "deep-link routing takes precedence without consuming an impression",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "article",
+                "article": "en:Ada_Lovelace",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [
+                {
+                  "name": "loadRequestedExternalArticle"
+                }
+              ],
+              "invokedProductionMethods": [
+                "mount",
+                "ordinaryLaunchWouldShow",
+                "openExternalArticleDeepLink"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the requested article remains the visible destination",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "article",
+                "article": "en:Ada_Lovelace",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [
+                {
+                  "name": "loadRequestedExternalArticle"
+                }
+              ],
+              "invokedProductionMethods": [
+                "mount",
+                "ordinaryLaunchWouldShow",
+                "openExternalArticleDeepLink"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_stale_history_does_not_qualify",
+      "key": "stale_history_does_not_qualify",
+      "traceDigest": "3fea79434670356288cbe6a58dc24f2362a6c9452cd0f4cd09553a8ca5ba4a9f",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeApplication"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "both stale rows remain in production history but are outside the eligibility query window",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "nearby stale days cannot qualify merely because their mutual spacing is valid",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "suppression leaves preferences unchanged",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 0,
+                "lastImpressionDate": ""
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_invalid_persisted_date_fails_closed",
+      "key": "invalid_persisted_date_fails_closed",
+      "traceDigest": "7815c54fedfa206f891822dcd0bf9ba480ec69d98bb28b78ac87fe4661a5d824",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": "not-a-date"
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeApplication"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "invalid persisted input fails closed rather than substituting a guessed date",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "not-a-date"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "not-a-date"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "recent history cannot bypass the failed date prerequisite",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "not-a-date"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "not-a-date"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the application remains on its ordinary surface and does not crash",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "not-a-date"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "not-a-date"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_two_return_days_trigger_second_impression",
+      "key": "two_return_days_trigger_second_impression",
+      "traceDigest": "194f43f0b00984789a900ae7ea6a90046d4451ffbfdcc8356d4865368283e1e5",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": "2026-08-30"
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeApplication"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "only reading days strictly after the persisted first-impression date count",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "the two return days are distinct production history days",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "opening the second visible screen increments and redates the persisted impression exactly once",
+          "passed": false,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 1,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "caseId": "ea_two_impressions_suppress_third",
+      "key": "two_impressions_suppress_third",
+      "traceDigest": "a4005ce7bdf9f764be8a2ac1e00f714e39db5d050bde1e6d2aa9df524367b954",
+      "status": "fail",
+      "observed": {
+        "featureAvailable": false,
+        "decision": {
+          "evaluated": false,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 2,
+          "lastImpressionDate": "2026-08-30"
+        },
+        "effects": [],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeApplication"
+        ]
+      },
+      "invariantChecks": [
+        {
+          "invariant": "two completed ordinary impressions are the maximum",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 2,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 2,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "additional qualifying history cannot create a third impression",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 2,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 2,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        },
+        {
+          "invariant": "suppression preserves the second impression's persisted date",
+          "passed": true,
+          "evidence": {
+            "before": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 2,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount"
+              ]
+            },
+            "after": {
+              "featureAvailable": false,
+              "decision": {
+                "evaluated": false,
+                "shouldShow": false
+              },
+              "state": {
+                "surface": "main",
+                "accountEncouragementVisible": false
+              },
+              "persistence": {
+                "impressions": 2,
+                "lastImpressionDate": "2026-08-30"
+              },
+              "effects": [],
+              "invokedProductionMethods": [
+                "mount",
+                "resumeApplication"
+              ]
+            }
+          }
+        }
+      ],
+      "runtimeBoundaryChecks": [
+        {
+          "check": "canonical given/event reached the evaluator adapter",
+          "passed": true
+        },
+        {
+          "check": "real page owner executed production methods",
+          "passed": true
+        },
+        {
+          "check": "production feature is available",
+          "passed": false
+        },
+        {
+          "check": "production persistence was reopened",
+          "passed": true
+        },
+        {
+          "check": "transition completed without evaluator early exit",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_domain_management",
+  "resultPolicy": "Runtime calibration requires Android base 0/10, Android final 10/10, ArkTS base 0/10, ArkTS final 10/10, and zero not_scored rows.",
+  "android": {
+    "environment": {
+      "compileSdk": 37,
+      "targetSdk": 37,
+      "runtimeApi": 37,
+      "jdk": 17,
+      "gradle": "8.14.3",
+      "androidGradlePlugin": "8.13.2"
+    },
+    "baseProject": "android/base",
+    "finalProject": "android/final",
+    "buildCommand": ["bash", "build.sh"],
+    "semanticCommand": [
+      "python3",
+      "android/evaluator/run_semantic.py",
+      "--project",
+      "{project}",
+      "--role",
+      "{role}",
+      "--output",
+      "{output}"
+    ],
+    "deviceSerial": "emulator-5554",
+    "deviceLock": "/tmp/long-term-benchmark-android-device.lock",
+    "buildLock": "/tmp/long-term-benchmark-android-full-build.lock"
+  },
+  "arkts": {
+    "environment": {
+      "compileSdk": 23,
+      "compatibleSdk": 23,
+      "targetSdk": 23,
+      "runtime": "ArkVM",
+      "hvigor": "6.24.5",
+      "deviceTarget": "127.0.0.1:10178"
+    },
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": ["bash", "build.sh"],
+    "semanticCommand": [
+      "python3",
+      "arkts/evaluator/run_semantic.py",
+      "--project",
+      "{project}",
+      "--role",
+      "{role}",
+      "--output",
+      "{output}"
+    ],
+    "deviceLocks": [
+      "/tmp/long-term-benchmark-arkts-device.lock",
+      "/tmp/ltb-arkts-device-73ccdb837c3b8a06"
+    ]
+  },
+  "agentEvaluation": {
+    "status": "complete",
+    "runId": "deeper_mining_minimax_m3_runtime_20261023",
+    "summary": "results/agent-evaluation-summary.json",
+    "android": "code generation pass, standalone compile pass, semantic 0/10, 0 not_scored",
+    "arkts": "code generation pass, standalone compile pass, semantic 0/10, 0 not_scored"
+  },
+  "cleanup": {
+    "retain": ["JSON reports", "build logs", "artifact hashes and byte lengths"],
+    "delete": ["APK", "HAP", "Gradle project build directories", "hvigor project build directories", ".cxx", ".gradle project caches"]
+  }
+}

@@ -1,0 +1,732 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_evergreen_account",
+  "canonicalContract": "../canonical/transitions.json",
+  "platform": "android",
+  "observationMode": "runtime_state_transition",
+  "bindingVariant": "api37_activity_page_owner_instrumentation_v1",
+  "runtime": "Android API37 BenchmarkActivity with EvergreenPageOwner, SQLite history, SharedPreferences, and evaluator-owned instrumentation",
+  "instrumentationEntrypoint": "NativeEvergreenInstrumentation.onStart",
+  "cases": [
+    {
+      "caseId": "ea_first_eligibility_records_impression",
+      "key": "first_eligibility_records_impression",
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "distinctReadingDays": [
+          "2026-08-25",
+          "2026-08-26"
+        ],
+        "impressions": 0,
+        "lastImpressionDate": "",
+        "launch": "ordinary"
+      },
+      "event": {
+        "name": "resumeApplication"
+      },
+      "expected": {
+        "decision": {
+          "evaluated": true,
+          "shouldShow": true
+        },
+        "state": {
+          "surface": "account_encouragement",
+          "visible": true,
+          "pageIndex": 0
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": "2026-09-02"
+        },
+        "effects": [
+          {
+            "name": "loadPersonalizedCountsFromApplicationData"
+          },
+          {
+            "name": "startAuthenticationEncouragementFunnel",
+            "interaction": "impression"
+          }
+        ],
+        "absentEffects": [
+          "second_impression_increment",
+          "permanent_dismissal",
+          "login_launch"
+        ]
+      },
+      "invariants": [
+        "the two reading days are established through the production history store",
+        "the earlier reading day is at least seven days old and the two days are less than fourteen days apart",
+        "opening the visible production screen records exactly one impression"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "clearPermanentAccount"
+        },
+        {
+          "name": "completeHigherPriorityLaunchPrompts"
+        },
+        {
+          "name": "clearReadingHistory"
+        },
+        {
+          "name": "setEncouragementPreferences",
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-25",
+          "article": "en:Alpha"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-26",
+          "article": "en:Beta"
+        }
+      ],
+      "traceDigest": "41df4ba61080d615bd34908dffb71aa9be864b1841b0174cb7c4233ae6835e7a",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(resumeApplication)"
+    },
+    {
+      "caseId": "ea_maybe_later_requires_two_return_days",
+      "key": "maybe_later_requires_two_return_days",
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "impressions": 1,
+        "lastImpressionDate": "2026-08-30",
+        "distinctReadingDaysAfterLastImpression": [
+          "2026-08-31"
+        ]
+      },
+      "event": {
+        "name": "resumeApplication"
+      },
+      "expected": {
+        "decision": {
+          "evaluated": true,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": "2026-08-30"
+        },
+        "effects": [
+          {
+            "name": "countDistinctReturnReadingDays",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "start_account_encouragement",
+          "impression_increment",
+          "last_impression_date_write"
+        ]
+      },
+      "invariants": [
+        "Maybe later leaves the first ordinary impression recorded rather than setting permanent dismissal",
+        "one distinct reading day after the impression is below the repeat threshold",
+        "the suppression decision is observed from production eligibility as well as from the absent UI"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "completeFirstImpressionThroughProductionUi",
+          "date": "2026-08-30",
+          "action": "maybe_later"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-31",
+          "article": "en:Return_One"
+        }
+      ],
+      "traceDigest": "f46f34a8737e45e3f22df5419fdbc616dda549039c0482385542aa7f60ff82e5",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(resumeApplication)"
+    },
+    {
+      "caseId": "ea_close_permanently_dismisses",
+      "key": "close_permanently_dismisses",
+      "given": {
+        "surface": "account_encouragement",
+        "visible": true,
+        "impressions": 1,
+        "lastImpressionDate": "2026-09-02"
+      },
+      "event": {
+        "name": "pressPermanentCloseAndRelaunch"
+      },
+      "expected": {
+        "decisionAfterRelaunch": {
+          "evaluated": true,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 100,
+          "lastImpressionDate": "2026-09-02"
+        },
+        "effects": [
+          {
+            "name": "finishAccountEncouragement"
+          }
+        ],
+        "absentEffects": [
+          "login_launch",
+          "second_impression",
+          "preference_reset"
+        ]
+      },
+      "invariants": [
+        "the close control is distinct from Maybe later",
+        "the terminal dismissal value survives activity and application recreation",
+        "later qualifying history cannot reopen the encouragement"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "openEligibleFirstImpressionThroughProductionUi"
+        }
+      ],
+      "traceDigest": "42d0f55898fe91810edc90d362397364dbbdc2f848c6ac786a259f8c76aa8b22",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(pressPermanentCloseAndRelaunch)"
+    },
+    {
+      "caseId": "ea_create_account_success_finishes_and_suppresses",
+      "key": "create_account_success_finishes_and_suppresses",
+      "given": {
+        "account": "logged_out",
+        "surface": "account_encouragement",
+        "visible": true,
+        "impressions": 1
+      },
+      "event": {
+        "name": "createAccountAndCompleteSuccessfully",
+        "authenticationLeafResult": "success_permanent_account"
+      },
+      "expected": {
+        "decisionAfterRelaunch": {
+          "evaluated": true,
+          "shouldShow": false
+        },
+        "state": {
+          "account": "registered",
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1
+        },
+        "effects": [
+          {
+            "name": "launchRegistrationFirstAuthentication",
+            "source": "encourage",
+            "createAccountFirst": true
+          },
+          {
+            "name": "finishAccountEncouragementAfterLoginResult",
+            "result": "success"
+          }
+        ],
+        "absentEffects": [
+          "permanent_dismissal_write",
+          "second_impression",
+          "encouragement_after_registered_relaunch"
+        ]
+      },
+      "invariants": [
+        "the evaluator controls only the external authentication completion and does not replace application intent mapping or result handling",
+        "successful registration creates a permanent rather than temporary account",
+        "account suppression, not an artificial terminal impression value, prevents the next prompt"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "openEligibleFirstImpressionThroughProductionUi"
+        }
+      ],
+      "traceDigest": "0adb8b3ebf6b6a753e4edb9c87af8d3905f817a5f13f4431e8f8a423f1efa9d4",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(createAccountAndCompleteSuccessfully)"
+    },
+    {
+      "caseId": "ea_registered_account_is_suppressed",
+      "key": "registered_account_is_suppressed",
+      "given": {
+        "account": "registered",
+        "distinctReadingDays": [
+          "2026-08-25",
+          "2026-08-26"
+        ],
+        "impressions": 0,
+        "launch": "ordinary"
+      },
+      "event": {
+        "name": "resumeApplication"
+      },
+      "expected": {
+        "decision": {
+          "evaluated": true,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        "effects": [
+          {
+            "name": "readPermanentAccountState"
+          }
+        ],
+        "absentEffects": [
+          "reading_history_eligibility_query",
+          "start_account_encouragement",
+          "impression_write"
+        ]
+      },
+      "invariants": [
+        "qualifying history does not override permanent-account suppression",
+        "the registered-account branch returns before history qualification",
+        "the suppression result is taken from production eligibility, not inferred only from absent UI"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "addPermanentAccountThroughApplicationAccountStore"
+        },
+        {
+          "name": "setEncouragementPreferences",
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-25",
+          "article": "en:Alpha"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-26",
+          "article": "en:Beta"
+        }
+      ],
+      "traceDigest": "4c742a8de04f07b8cc820d7bd8b83fc50f7c1c8e20b46b3f3676ee12f08d3a5f",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(resumeApplication)"
+    },
+    {
+      "caseId": "ea_external_article_deep_link_is_suppressed",
+      "key": "external_article_deep_link_is_suppressed",
+      "given": {
+        "account": "logged_out",
+        "ordinaryLaunchEligibility": true,
+        "impressions": 0,
+        "launch": {
+          "type": "external_article_deep_link",
+          "uri": "https://en.wikipedia.org/wiki/Ada_Lovelace"
+        }
+      },
+      "event": {
+        "name": "openExternalArticleDeepLink"
+      },
+      "expected": {
+        "routing": {
+          "externalArticleLinkDetected": true,
+          "encouragementConsidered": false
+        },
+        "state": {
+          "surface": "article",
+          "article": "en:Ada_Lovelace",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        "effects": [
+          {
+            "name": "loadRequestedExternalArticle"
+          }
+        ],
+        "absentEffects": [
+          "start_account_encouragement",
+          "impression_write",
+          "replace_deep_link_destination"
+        ]
+      },
+      "invariants": [
+        "the same fixture is positively eligible on an ordinary launch through the production decision",
+        "deep-link routing takes precedence without consuming an impression",
+        "the requested article remains the visible destination"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "clearPermanentAccount"
+        },
+        {
+          "name": "completeHigherPriorityLaunchPrompts"
+        },
+        {
+          "name": "setEncouragementPreferences",
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-25",
+          "article": "en:Alpha"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-26",
+          "article": "en:Beta"
+        },
+        {
+          "name": "verifyProductionEligibility",
+          "expected": true
+        }
+      ],
+      "traceDigest": "6ed34fd13de7797b15d0538ac26b968de51f46d145248095f5a5acbd6f7c537a",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(openExternalArticleDeepLink)"
+    },
+    {
+      "caseId": "ea_stale_history_does_not_qualify",
+      "key": "stale_history_does_not_qualify",
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "distinctReadingDays": [
+          "2025-08-31",
+          "2025-09-01"
+        ],
+        "impressions": 0
+      },
+      "event": {
+        "name": "resumeApplication"
+      },
+      "expected": {
+        "decision": {
+          "evaluated": true,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        "effects": [
+          {
+            "name": "queryDistinctReadingDaysWithinHistoryCutoff",
+            "historyCutoffDays": 365,
+            "qualifyingDays": 0
+          }
+        ],
+        "absentEffects": [
+          "start_account_encouragement",
+          "impression_write"
+        ]
+      },
+      "invariants": [
+        "both stale rows remain in production history but are outside the eligibility query window",
+        "nearby stale days cannot qualify merely because their mutual spacing is valid",
+        "suppression leaves preferences unchanged"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "clearPermanentAccount"
+        },
+        {
+          "name": "completeHigherPriorityLaunchPrompts"
+        },
+        {
+          "name": "setEncouragementPreferences",
+          "impressions": 0,
+          "lastImpressionDate": ""
+        },
+        {
+          "name": "clearReadingHistory"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2025-08-31",
+          "article": "en:Old_Alpha"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2025-09-01",
+          "article": "en:Old_Beta"
+        }
+      ],
+      "traceDigest": "3fea79434670356288cbe6a58dc24f2362a6c9452cd0f4cd09553a8ca5ba4a9f",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(resumeApplication)"
+    },
+    {
+      "caseId": "ea_invalid_persisted_date_fails_closed",
+      "key": "invalid_persisted_date_fails_closed",
+      "given": {
+        "account": "logged_out",
+        "impressions": 1,
+        "lastImpressionDate": "not-a-date",
+        "distinctRecentReadingDays": [
+          "2026-08-31",
+          "2026-09-01"
+        ]
+      },
+      "event": {
+        "name": "resumeApplication"
+      },
+      "expected": {
+        "decision": {
+          "evaluated": true,
+          "shouldShow": false,
+          "completedWithoutException": true
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 1,
+          "lastImpressionDate": "not-a-date"
+        },
+        "effects": [
+          {
+            "name": "parsePersistedLastImpressionDate",
+            "result": "invalid"
+          }
+        ],
+        "absentEffects": [
+          "return_history_query",
+          "start_account_encouragement",
+          "impression_write",
+          "preference_rewrite"
+        ]
+      },
+      "invariants": [
+        "invalid persisted input fails closed rather than substituting a guessed date",
+        "recent history cannot bypass the failed date prerequisite",
+        "the application remains on its ordinary surface and does not crash"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "clearPermanentAccount"
+        },
+        {
+          "name": "completeHigherPriorityLaunchPrompts"
+        },
+        {
+          "name": "setEncouragementPreferences",
+          "impressions": 1,
+          "lastImpressionDate": "not-a-date"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-31",
+          "article": "en:Return_One"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-09-01",
+          "article": "en:Return_Two"
+        }
+      ],
+      "traceDigest": "7815c54fedfa206f891822dcd0bf9ba480ec69d98bb28b78ac87fe4661a5d824",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(resumeApplication)"
+    },
+    {
+      "caseId": "ea_two_return_days_trigger_second_impression",
+      "key": "two_return_days_trigger_second_impression",
+      "given": {
+        "account": "logged_out",
+        "clockDate": "2026-09-02",
+        "impressions": 1,
+        "lastImpressionDate": "2026-08-30",
+        "distinctReadingDaysAfterLastImpression": [
+          "2026-08-31",
+          "2026-09-01"
+        ]
+      },
+      "event": {
+        "name": "resumeApplication"
+      },
+      "expected": {
+        "decision": {
+          "evaluated": true,
+          "shouldShow": true
+        },
+        "state": {
+          "surface": "account_encouragement",
+          "visible": true
+        },
+        "persistence": {
+          "impressions": 2,
+          "lastImpressionDate": "2026-09-02"
+        },
+        "effects": [
+          {
+            "name": "countDistinctReturnReadingDays",
+            "count": 2
+          },
+          {
+            "name": "startAuthenticationEncouragementFunnel",
+            "interaction": "impression"
+          }
+        ],
+        "absentEffects": [
+          "third_impression",
+          "permanent_dismissal",
+          "login_launch"
+        ]
+      },
+      "invariants": [
+        "only reading days strictly after the persisted first-impression date count",
+        "the two return days are distinct production history days",
+        "opening the second visible screen increments and redates the persisted impression exactly once"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "completeFirstImpressionThroughProductionUi",
+          "date": "2026-08-30",
+          "action": "maybe_later"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-31",
+          "article": "en:Return_One"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-09-01",
+          "article": "en:Return_Two"
+        }
+      ],
+      "traceDigest": "194f43f0b00984789a900ae7ea6a90046d4451ffbfdcc8356d4865368283e1e5",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(resumeApplication)"
+    },
+    {
+      "caseId": "ea_two_impressions_suppress_third",
+      "key": "two_impressions_suppress_third",
+      "given": {
+        "account": "logged_out",
+        "impressions": 2,
+        "lastImpressionDate": "2026-08-30",
+        "distinctReadingDaysAfterLastImpression": [
+          "2026-08-31",
+          "2026-09-01"
+        ]
+      },
+      "event": {
+        "name": "resumeApplication"
+      },
+      "expected": {
+        "decision": {
+          "evaluated": true,
+          "shouldShow": false
+        },
+        "state": {
+          "surface": "main",
+          "accountEncouragementVisible": false
+        },
+        "persistence": {
+          "impressions": 2,
+          "lastImpressionDate": "2026-08-30"
+        },
+        "effects": [
+          {
+            "name": "applyMaximumOrdinaryImpressions",
+            "maximum": 2
+          }
+        ],
+        "absentEffects": [
+          "return_history_query",
+          "start_account_encouragement",
+          "third_impression_write",
+          "last_impression_date_write"
+        ]
+      },
+      "invariants": [
+        "two completed ordinary impressions are the maximum",
+        "additional qualifying history cannot create a third impression",
+        "suppression preserves the second impression's persisted date"
+      ],
+      "traceSchemaVersion": 2,
+      "setup": [
+        {
+          "name": "setClockDate",
+          "date": "2026-09-02"
+        },
+        {
+          "name": "completeSecondImpressionThroughProductionUi",
+          "date": "2026-08-30",
+          "action": "maybe_later"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-08-31",
+          "article": "en:Later_One"
+        },
+        {
+          "name": "recordArticleRead",
+          "date": "2026-09-01",
+          "article": "en:Later_Two"
+        }
+      ],
+      "traceDigest": "a4005ce7bdf9f764be8a2ac1e00f714e39db5d050bde1e6d2aa9df524367b954",
+      "eventEntrypoint": "BenchmarkActivity.pageOwner.dispatch(resumeApplication)"
+    }
+  ]
+}

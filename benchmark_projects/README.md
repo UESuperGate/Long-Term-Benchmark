@@ -28,20 +28,47 @@ metrics.
 | Signal | Sticker management | `v7.40.2` -> `v7.43.1` | 10 |
 | Signal | Responsive media editor | `v8.22.2` -> `v8.23.0` | 10 |
 | Signal | Phone-numberless registration | `v8.26.4` -> `v8.28.0` | 10 |
+| Signal | Portable voice-note waveforms | `v8.28.4` -> `v8.30.0` | 10 |
 | WordPress | Modern pages list | `26.8` -> `26.9` | 10 |
 | WordPress | Unified support | `26.8` -> `26.9` | 10 |
 | WordPress | Redesigned site picker | `24.6` -> `24.7` | 10 |
 | WordPress | Interactive New Stats | `27.1` -> `27.6` | 10 |
+| WordPress | All Domains management | `23.6` -> `23.7` | 10 |
 | Wikipedia | Reading challenge | `r/50579-r-2026-04-14` -> `r/50585-r-2026-05-06` | 10 |
 | Wikipedia | Hybrid search | `r/50566-r-2026-02-04` -> `r/50574-r-2026-03-20` | 10 |
 | Wikipedia | Personalized Home feed | `r/50586-r-2026-05-12` -> `r/50590-r-2026-05-28` | 10 |
 | Wikipedia | Saved articles and collections | `r/50600-r-2026-07-28` -> `r/50603-r-2026-08-25` | 10 |
+| Wikipedia | Evergreen account encouragement | `r/50603-r-2026-08-25` -> `beta/50604-beta-2026-09-02` | 10 |
 
 Every task has a platform-neutral canonical transition contract and matched
 Android/ArkTS runtime adapters. Calibration is base `0/10`, final `10/10` on
 both platforms, with no unscored cases. Android scoring runs through installed
 application owners on an API 37 emulator; ArkTS scoring launches EntryAbility
 and the production ArkUI page owner on OpenHarmony API 23.
+
+## Deeper-Mining MiniMax-M3 Result
+
+The latest OpenCode + MiniMax-M3 run is
+[`deeper_mining_minimax_m3_runtime_20261023`](results/deeper_mining_minimax_m3_runtime_20261023/run-manifest.json).
+It covers the three additional tasks above. All 12 base/final calibration cells
+have the required `0/10` and `10/10` polarity, and every agent testcase is
+scored.
+
+| Platform | Code generation | Compile | Semantic testcases |
+|---|---:|---:|---:|
+| Android | 3/3 (100.00%) | 3/3 (100.00%) | 2/30 (6.67%) |
+| ArkTS | 3/3 (100.00%) | 3/3 (100.00%) | 1/30 (3.33%) |
+| Combined | 6/6 (100.00%) | 6/6 (100.00%) | 3/60 (5.00%) |
+
+| Project | Code generation | Compile | Semantic testcases |
+|---|---:|---:|---:|
+| Signal | 2/2 | 2/2 | 3/20 |
+| WordPress | 2/2 | 2/2 | 0/20 |
+| Wikipedia | 2/2 | 2/2 | 0/20 |
+
+The retained transport, adapter, and isolation incidents are debugging
+diagnostics only. Same-patch rescoring resolved every unavailable semantic row;
+none of those incidents changes the three benchmark metrics above.
 
 ## Deep-Mining MiniMax-M3 Result
 

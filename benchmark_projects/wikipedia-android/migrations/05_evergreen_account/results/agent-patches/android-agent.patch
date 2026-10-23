@@ -1,0 +1,1874 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 92647e2801837030760c39848c04b5dcc492774e..933abcd9aac84423e1114b6382721327ff56ee68 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -5,6 +5,14 @@
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+             </intent-filter>
++            <intent-filter>
++                <action android:name="android.intent.action.VIEW" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <category android:name="android.intent.category.BROWSABLE" />
++                <data android:scheme="https" android:host="en.wikipedia.org" />
++                <data android:scheme="http" android:host="en.wikipedia.org" />
++                <data android:scheme="https" android:host="en.m.wikipedia.org" />
++            </intent-filter>
+         </activity>
+     </application>
+-</manifest>
++</manifest>
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/BenchmarkActivity.kt b/app/src/main/kotlin/org/wikipedia/evergreen/BenchmarkActivity.kt
+index c8f348cd2a072328996bcd6ee7a71a0f0a1dd718..33c3fc5d4dd6ebda2c3fe6817ef292587aa10109 100644
+--- a/app/src/main/kotlin/org/wikipedia/evergreen/BenchmarkActivity.kt
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/BenchmarkActivity.kt
+@@ -1,27 +1,55 @@
+ package org.wikipedia.evergreen
+ 
+ import android.app.Activity
++import android.content.Intent
+ import android.os.Bundle
++import android.view.Gravity
++import android.view.View
++import android.widget.Button
+ import android.widget.LinearLayout
+ import android.widget.TextView
+ import org.json.JSONObject
+ 
++/**
++ * Production entry point.
++ *
++ * It hosts [EvergreenPageOwner] and renders whatever surface the page owner owns: the reader's
++ * ordinary surface, an article requested by an external deep link, or the account creation
++ * encouragement with its **Create account**, **Maybe later** and close controls.
++ */
+ class BenchmarkActivity : Activity() {
++
+     lateinit var pageOwner: EvergreenPageOwner
+         private set
++
+     private lateinit var status: TextView
++    private lateinit var articleView: TextView
++    private lateinit var encouragementPanel: LinearLayout
++    private lateinit var encouragementCounts: TextView
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         pageOwner = EvergreenPageOwner(this)
+-        pageOwner.mount(JSONObject(intent.getStringExtra("runtimeGiven") ?: "{}"))
+-        status = TextView(this).apply { textSize = 22f }
+-        setContentView(LinearLayout(this).apply {
++        pageOwner.mount(JSONObject(intent.getStringExtra(EXTRA_RUNTIME_GIVEN).orEmpty()))
++
++        val root = LinearLayout(this).apply {
+             orientation = LinearLayout.VERTICAL
++            gravity = Gravity.START
+             setPadding(32, 32, 32, 32)
+-            addView(TextView(this@BenchmarkActivity).apply { text = "Wikipedia"; textSize = 30f })
+-            addView(status)
+-        })
++        }
++        root.addView(TextView(this).apply { text = "Wikipedia"; textSize = 30f })
++        status = TextView(this).apply { textSize = 22f }
++        root.addView(status)
++        articleView = TextView(this).apply { textSize = 18f; visibility = View.GONE }
++        root.addView(articleView)
++        encouragementPanel = buildEncouragementPanel()
++        root.addView(encouragementPanel)
++        setContentView(root)
++
++        val deepLink = if (intent.action == Intent.ACTION_VIEW) intent.data?.toString() else null
++        if (!deepLink.isNullOrEmpty()) {
++            pageOwner.onExternalArticleLaunched(deepLink)
++        }
+         render()
+     }
+ 
+@@ -30,8 +58,79 @@ class BenchmarkActivity : Activity() {
+         render()
+     }
+ 
++    fun ordinaryLaunchWouldShow(): Boolean = pageOwner.ordinaryLaunchWouldShow()
++
++    fun snapshot(): JSONObject = pageOwner.snapshot()
++
++    @Suppress("DEPRECATION")
++    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
++        super.onActivityResult(requestCode, resultCode, data)
++        if (requestCode == EvergreenPageOwner.REGISTRATION_REQUEST_CODE) {
++            pageOwner.onRegistrationActivityResult(resultCode, data)
++            render()
++        }
++    }
++
++    override fun onDestroy() {
++        pageOwner.release()
++        super.onDestroy()
++    }
++
++    private fun buildEncouragementPanel(): LinearLayout {
++        val panel = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            gravity = Gravity.START
++            visibility = View.GONE
++        }
++        panel.addView(TextView(this).apply { text = "Create an account"; textSize = 24f })
++
++        val counts = TextView(this).apply { textSize = 18f }
++        panel.addView(counts)
++        encouragementCounts = counts
++
++        panel.addView(Button(this).apply {
++            text = "Create account"
++            contentDescription = "Create account"
++            setOnClickListener {
++                pageOwner.onCreateAccountSelected()
++                render()
++            }
++        })
++        panel.addView(Button(this).apply {
++            text = "Maybe later"
++            contentDescription = "Maybe later"
++            setOnClickListener {
++                pageOwner.onMaybeLaterSelected()
++                render()
++            }
++        })
++        panel.addView(TextView(this).apply {
++            text = CLOSE_GLYPH
++            contentDescription = "Close"
++            setOnClickListener {
++                pageOwner.onCloseSelected()
++                render()
++            }
++        })
++        return panel
++    }
++
+     private fun render() {
+-        val state = pageOwner.snapshot().optJSONObject("state") ?: JSONObject()
+-        status.text = state.optString("surface", "main")
++        val state = snapshot().optJSONObject("state") ?: JSONObject()
++        val surface = state.optString("surface", EvergreenPageOwner.SURFACE_MAIN)
++        status.text = surface
++
++        articleView.text = state.optString("article", "")
++        articleView.visibility =
++            if (surface == EvergreenPageOwner.SURFACE_ARTICLE) View.VISIBLE else View.GONE
++
++        val visible = state.optBoolean("accountEncouragementVisible", false)
++        encouragementPanel.visibility = if (visible) View.VISIBLE else View.GONE
++        encouragementCounts.text = state.optString("encouragementMessage", "")
++    }
++
++    companion object {
++        const val EXTRA_RUNTIME_GIVEN = "runtimeGiven"
++        private const val CLOSE_GLYPH = "✕"
+     }
+-}
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/EvergreenPageOwner.kt b/app/src/main/kotlin/org/wikipedia/evergreen/EvergreenPageOwner.kt
+index ddbcfe1c23e3ac9056a1d03b61446a1683d1275b..86553849d5fbee22ef13e8698b483c8fdb7028b4 100644
+--- a/app/src/main/kotlin/org/wikipedia/evergreen/EvergreenPageOwner.kt
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/EvergreenPageOwner.kt
+@@ -1,49 +1,422 @@
+ package org.wikipedia.evergreen
+ 
++import android.app.Activity
+ import android.content.Context
++import android.content.Intent
+ import org.json.JSONArray
+ import org.json.JSONObject
++import org.wikipedia.evergreen.auth.RegistrationFlow
++import org.wikipedia.evergreen.auth.RegistrationOutcome
++import org.wikipedia.evergreen.data.AccountStateRepository
++import org.wikipedia.evergreen.data.EvergreenAccountRepository
++import org.wikipedia.evergreen.data.LaunchPromptStateRepository
++import org.wikipedia.evergreen.data.ReadingHistoryStore
++import org.wikipedia.evergreen.data.SavedPagesStore
++import org.wikipedia.evergreen.encouragement.AccountEncouragementEligibility
++import org.wikipedia.evergreen.encouragement.LaunchPromptCoordinator
++import org.wikipedia.evergreen.encouragement.LaunchPromptCoordinator.LaunchRequest
++import org.wikipedia.evergreen.encouragement.ReadingEngagementSummary
++import org.wikipedia.evergreen.platform.AppClock
++import org.wikipedia.evergreen.platform.MethodTrace
++import org.wikipedia.evergreen.runtime.ArticleDeepLink
++import org.wikipedia.evergreen.runtime.RuntimeEventIntent
++import org.wikipedia.evergreen.runtime.RuntimeGivenAdapter
++import org.wikipedia.evergreen.runtime.containsAny
++import org.wikipedia.evergreen.runtime.firstString
+ 
++/**
++ * Page owner for the account creation encouragement.
++ *
++ * It owns the visible surface, the launch decision and the answer to it: presenting the screen
++ * and recording exactly one impression for it, deferring with **Maybe later**, opting out for
++ * good with the close control, and handing off to the registration first authentication flow.
++ *
++ * All state lives in application owned stores, so every one of those outcomes survives activity
++ * and process recreation.
++ */
+ class EvergreenPageOwner(private val context: Context) {
+-    private val given = JSONObject()
++
++    private val clock = AppClock()
++    private val trace = MethodTrace()
+     private val effects = JSONArray()
+-    private val methods = JSONArray()
+-    private var state = JSONObject().put("surface", "main").put("accountEncouragementVisible", false)
+ 
++    private val history = ReadingHistoryStore(context)
++    private val accounts = AccountStateRepository(context)
++    private val evergreen = EvergreenAccountRepository(context, clock)
++    private val savedPages = SavedPagesStore(context)
++    private val launchPrompts = LaunchPromptStateRepository(context)
++    private val engagement = ReadingEngagementSummary(history, savedPages, clock)
++    private val eligibility = AccountEncouragementEligibility(history, evergreen, accounts, clock, trace)
++    private val coordinator = LaunchPromptCoordinator(launchPrompts, eligibility, trace)
++    private val registration = RegistrationFlow(accounts)
++    private val fixture = RuntimeGivenAdapter(
++        clock = clock,
++        accounts = accounts,
++        evergreen = evergreen,
++        history = history,
++        savedPages = savedPages,
++        launchPrompts = launchPrompts,
++    )
++
++    private val given = JSONObject()
++    private var launchRequest: LaunchRequest = LaunchRequest.Ordinary
++    private var state = JSONObject()
++        .put("surface", SURFACE_MAIN)
++        .put("accountEncouragementVisible", false)
++    private var decision = JSONObject()
++        .put("evaluated", false)
++        .put("shouldShow", false)
++        .put("reason", "")
++
++    /** Establishes the application owned stores for this launch and restores the screen. */
+     fun mount(input: JSONObject) {
+-        input.keys().forEach { given.put(it, input.get(it)) }
+-        methods.put("mount")
++        trace.record("mount")
++        input.keys().forEach { key -> given.put(key, input.get(key)) }
++        fixture.apply(given)
++        launchRequest = launchRequestFrom(given)
++        restoreScreen()
+     }
+ 
+     fun dispatch(event: JSONObject) {
+-        val name = event.optString("name")
+-        methods.put(name)
+-        if (name == "openExternalArticleDeepLink") {
+-            state = JSONObject().put("surface", "article").put("article", "en:Ada_Lovelace")
+-                .put("accountEncouragementVisible", false)
+-            effects.put(JSONObject().put("name", "loadRequestedExternalArticle"))
+-        } else {
+-            state = JSONObject().put("surface", "main").put("accountEncouragementVisible", false)
++        trace.record(event.optString("name"))
++        val intent = RuntimeEventIntent.parse(event)
++        apply(intent)
++        val needsRelaunch = intent.relaunchAfterwards &&
++            intent.kind != RuntimeEventIntent.Kind.ORDINARY_LAUNCH &&
++            intent.kind != RuntimeEventIntent.Kind.EXTERNAL_DEEP_LINK
++        if (needsRelaunch) {
++            trace.record("pageOwner.relaunchApplication")
++            onLaunchRequested(LaunchRequest.Ordinary)
+         }
+     }
+ 
++    /** Production answer to "would an ordinary launch show the encouragement right now?". */
+     fun ordinaryLaunchWouldShow(): Boolean {
+-        methods.put("ordinaryLaunchWouldShow")
+-        return false
++        trace.record("ordinaryLaunchWouldShow")
++        return coordinator.evaluate(LaunchRequest.Ordinary).shouldShow
++    }
++
++    /** An ordinary application launch or resume. */
++    fun onLaunchRequested(request: LaunchRequest) {
++        launchRequest = request
++        val outcome = coordinator.evaluate(request)
++        decision = JSONObject()
++            .put("evaluated", outcome.evaluated)
++            .put("shouldShow", outcome.shouldShow)
++            .put("reason", outcome.reason)
++
++        if (request is LaunchRequest.ExternalArticle) {
++            routeExternalArticle(request.uri)
++            return
++        }
++        if (restorePendingEncouragement()) {
++            return
++        }
++        if (outcome.shouldShow) {
++            presentEncouragement(recordImpression = true)
++        } else {
++            showMainSurface()
++        }
++    }
++
++    /** Launched straight into an external article link. */
++    fun onExternalArticleLaunched(uri: String) {
++        trace.record("pageOwner.onExternalArticleLaunched")
++        onLaunchRequested(LaunchRequest.ExternalArticle(uri))
++    }
++
++    /** **Maybe later**: closes the screen without permanently opting out. */
++    fun onMaybeLaterSelected() {
++        trace.record("pageOwner.onMaybeLaterSelected")
++        evergreen.clearPendingEncouragement()
++        effects.put(
++            JSONObject()
++                .put("name", EFFECT_DEFERRED)
++                .put("impressions", evergreen.impressionCount())
++                .put("lastImpressionDate", evergreen.lastImpressionDate())
++                .put("permanentlyDismissed", evergreen.isPermanentlyDismissed())
++        )
++        showMainSurface()
++    }
++
++    /** The screen's close control: a permanent opt out that survives later launches. */
++    fun onCloseSelected() {
++        trace.record("pageOwner.onCloseSelected")
++        evergreen.dismissPermanently(clock.today())
++        effects.put(
++            JSONObject()
++                .put("name", EFFECT_DISMISSED_PERMANENTLY)
++                .put("dismissedOn", evergreen.permanentDismissalDate())
++                .put("impressions", evergreen.impressionCount())
++                .put("lastImpressionDate", evergreen.lastImpressionDate())
++        )
++        showMainSurface()
++    }
++
++    /** **Create account**: opens the registration first authentication flow. */
++    fun onCreateAccountSelected() {
++        if (!encouragementVisible()) {
++            trace.record("pageOwner.onCreateAccountSelectedUnavailable")
++            return
++        }
++        trace.record("pageOwner.onCreateAccountSelected")
++        trace.record("registrationFlow.buildRegistrationIntent")
++        val intent = registration.buildRegistrationIntent()
++        effects.put(
++            JSONObject()
++                .put("name", EFFECT_REGISTRATION_REQUESTED)
++                .put("flow", RegistrationFlow.FLOW_REGISTRATION_FIRST)
++                .put("externalPackage", RegistrationFlow.EXTERNAL_AUTHENTICATION_PACKAGE)
++                .put("externalUri", RegistrationFlow.REGISTRATION_URI)
++        )
++        if (launchExternal(intent)) {
++            return
++        }
++        effects.put(JSONObject().put("name", EFFECT_REGISTRATION_UNAVAILABLE))
++        keepEncouragementVisible()
++    }
++
++    /** Result of the authentication leaf, as reported by the harness. */
++    fun onRegistrationLeafResult(leafResult: String?) {
++        trace.record("registrationFlow.mapLeafResult")
++        applyRegistrationOutcome(registration.mapLeafResult(leafResult))
++    }
++
++    /** Result of the authentication leaf, as delivered by the activity result channel. */
++    fun onRegistrationActivityResult(resultCode: Int, data: Intent?) {
++        trace.record("registrationFlow.mapActivityResult")
++        applyRegistrationOutcome(registration.mapActivityResult(resultCode, data))
+     }
+ 
+     fun snapshot(): JSONObject {
+-        val prefs = context.getSharedPreferences(PREFS, 0)
++        val entryPoint = if (launchRequest is LaunchRequest.ExternalArticle) {
++            ENTRY_POINT_EXTERNAL_ARTICLE
++        } else {
++            ENTRY_POINT_ORDINARY
++        }
++        val externalUri = (launchRequest as? LaunchRequest.ExternalArticle)?.uri.orEmpty()
+         return JSONObject()
+-            .put("featureAvailable", false)
+-            .put("decision", JSONObject().put("evaluated", false).put("shouldShow", false))
++            .put("featureAvailable", true)
++            .put("decision", JSONObject(decision.toString()))
+             .put("state", JSONObject(state.toString()))
+-            .put("persistence", JSONObject()
+-                .put("impressions", prefs.getInt("impressions", 0))
+-                .put("lastImpressionDate", prefs.getString("lastImpressionDate", "")))
++            .put(
++                "persistence",
++                JSONObject()
++                    .put("impressions", evergreen.impressionCount())
++                    .put("lastImpressionDate", evergreen.lastImpressionDate())
++                    .put("permanentlyDismissed", evergreen.isPermanentlyDismissed())
++                    .put("permanentDismissalDate", evergreen.permanentDismissalDate())
++                    .put("pendingEncouragement", evergreen.isEncouragementPending())
++            )
++            .put(
++                "account",
++                JSONObject()
++                    .put("kind", accounts.registrationKind().storageValue)
++                    .put("isPermanent", accounts.isPermanentAccount())
++            )
++            .put(
++                "launch",
++                JSONObject()
++                    .put("entryPoint", entryPoint)
++                    .put("uri", externalUri)
++            )
+             .put("effects", JSONArray(effects.toString()))
+-            .put("invokedProductionMethods", JSONArray(methods.toString()))
++            .put("invokedProductionMethods", trace.toJsonArray())
++    }
++
++    /** Releases the resources this page owner holds. */
++    fun release() {
++        history.close()
++    }
++
++    private fun apply(intent: RuntimeEventIntent) {
++        when (intent.kind) {
++            RuntimeEventIntent.Kind.ORDINARY_LAUNCH ->
++                onLaunchRequested(LaunchRequest.Ordinary)
++            RuntimeEventIntent.Kind.EXTERNAL_DEEP_LINK ->
++                onLaunchRequested(
++                    LaunchRequest.ExternalArticle(intent.uri ?: declaredDeepLinkUri().orEmpty())
++                )
++            RuntimeEventIntent.Kind.MAYBE_LATER ->
++                onMaybeLaterSelected()
++            RuntimeEventIntent.Kind.PERMANENT_CLOSE ->
++                onCloseSelected()
++            RuntimeEventIntent.Kind.CREATE_ACCOUNT ->
++                onCreateAccountSelected()
++            RuntimeEventIntent.Kind.CREATE_ACCOUNT_THEN_OUTCOME -> {
++                onCreateAccountSelected()
++                onRegistrationLeafResult(intent.leafResult)
++            }
++            RuntimeEventIntent.Kind.REGISTRATION_OUTCOME ->
++                onRegistrationLeafResult(intent.leafResult)
++        }
++    }
++
++    private fun restoreScreen() {
++        val request = launchRequest
++        if (request is LaunchRequest.ExternalArticle) {
++            routeExternalArticle(request.uri)
++            return
++        }
++        if (restorePendingEncouragement()) {
++            return
++        }
++        showMainSurface()
++    }
++
++    /**
++     * Re-presents an encouragement that was already shown and is still awaiting an answer.
++     * Restoring never records a second impression: the impression was recorded when the screen
++     * was first presented.
++     */
++    private fun restorePendingEncouragement(): Boolean {
++        if (!evergreen.isEncouragementPending()) {
++            return false
++        }
++        if (evergreen.isPermanentlyDismissed() || accounts.isPermanentAccount()) {
++            return false
++        }
++        trace.record("pageOwner.restorePendingAccountEncouragement")
++        presentEncouragement(recordImpression = false)
++        return true
++    }
++
++    private fun presentEncouragement(recordImpression: Boolean) {
++        if (recordImpression) {
++            trace.record("evergreenAccountRepository.recordImpression")
++            evergreen.recordImpression(clock.today())
++            effects.put(
++                JSONObject()
++                    .put("name", EFFECT_IMPRESSION_RECORDED)
++                    .put("impressions", evergreen.impressionCount())
++                    .put("date", evergreen.lastImpressionDate())
++            )
++        }
++        evergreen.markEncouragementPending()
++        trace.record("pageOwner.presentAccountEncouragement")
++        effects.put(
++            JSONObject()
++                .put("name", EFFECT_ENCOURAGEMENT_PRESENTED)
++                .put("impressions", evergreen.impressionCount())
++                .put("lastImpressionDate", evergreen.lastImpressionDate())
++        )
++        state = encouragementState()
++    }
++
++    /** Re-shows a screen that is still awaiting the reader's answer, without a new impression. */
++    private fun keepEncouragementVisible() {
++        if (evergreen.isEncouragementPending()) {
++            trace.record("pageOwner.resumePendingAccountEncouragement")
++            state = encouragementState()
++            return
++        }
++        showMainSurface()
++    }
++
++    private fun encouragementState(): JSONObject {
++        val counts = engagement.current()
++        return JSONObject()
++            .put("surface", SURFACE_ENCOURAGEMENT)
++            .put("accountEncouragementVisible", true)
++            .put("encouragementMessage", counts.describe())
++            .put("readingCount", counts.articlesRead)
++            .put("savedCount", counts.pagesSaved)
++            .put("recentUseCount", counts.recentlyUsedPages)
++    }
++
++    private fun showMainSurface() {
++        trace.record("pageOwner.showMainSurface")
++        state = JSONObject()
++            .put("surface", SURFACE_MAIN)
++            .put("accountEncouragementVisible", false)
+     }
+ 
+-    companion object { const val PREFS = "evergreen-account" }
+-}
++    private fun applyRegistrationOutcome(outcome: RegistrationOutcome) {
++        trace.record("registrationFlow.applyOutcome")
++        if (!registration.applyOutcome(outcome)) {
++            effects.put(
++                JSONObject()
++                    .put("name", EFFECT_REGISTRATION_NOT_COMPLETED)
++                    .put("reason", outcome.reason)
++            )
++            keepEncouragementVisible()
++            return
++        }
++        val succeeded = outcome as RegistrationOutcome.Succeeded
++        trace.record("accountStateRepository.onRegistrationSucceeded")
++        evergreen.clearPendingEncouragement()
++        effects.put(
++            JSONObject()
++                .put("name", EFFECT_ACCOUNT_CREATED)
++                .put("permanentAccount", succeeded.permanentAccount)
++                .put("account", accounts.registrationKind().storageValue)
++        )
++        showMainSurface()
++    }
++
++    private fun routeExternalArticle(uri: String) {
++        trace.record("deepLinkRouter.routeExternalArticle")
++        val target = ArticleDeepLink.parse(uri)
++        effects.put(
++            JSONObject()
++                .put("name", EFFECT_EXTERNAL_ARTICLE_LOADED)
++                .put("uri", uri)
++                .put("article", target?.canonical.orEmpty())
++        )
++        state = JSONObject()
++            .put("surface", SURFACE_ARTICLE)
++            .put("accountEncouragementVisible", false)
++            .put("article", target?.canonical.orEmpty())
++            .put("articleTitle", target?.title.orEmpty())
++            .put("project", target?.project.orEmpty())
++            .put("deepLinkUri", uri)
++    }
++
++    @Suppress("DEPRECATION")
++    private fun launchExternal(intent: Intent): Boolean {
++        val activity = context as? Activity ?: return false
++        return try {
++            activity.startActivityForResult(intent, REGISTRATION_REQUEST_CODE)
++            true
++        } catch (e: RuntimeException) {
++            false
++        }
++    }
++
++    private fun encouragementVisible(): Boolean = state.optBoolean("accountEncouragementVisible", false)
++
++    private fun launchRequestFrom(fixture: JSONObject): LaunchRequest {
++        val launch = fixture.optJSONObject("launch") ?: return LaunchRequest.Ordinary
++        val type = launch.optString("type").lowercase()
++        val uri = launch.firstString("uri", "url", "article").orEmpty()
++        val external = type.containsAny("deep", "external", "view")
++        return if (external && uri.isNotEmpty()) LaunchRequest.ExternalArticle(uri) else LaunchRequest.Ordinary
++    }
++
++    private fun declaredDeepLinkUri(): String? {
++        val launch = given.optJSONObject("launch")
++        return launch?.firstString("uri", "url", "article") ?: given.firstString("uri", "deepLinkUri")
++    }
++
++    companion object {
++        const val PREFS = EvergreenAccountRepository.PREFS_NAME
++        const val REGISTRATION_REQUEST_CODE = 4207
++
++        const val SURFACE_MAIN = "main"
++        const val SURFACE_ARTICLE = "article"
++        const val SURFACE_ENCOURAGEMENT = EvergreenAccountRepository.SCREEN_ENCOURAGEMENT
++
++        const val ENTRY_POINT_ORDINARY = "ordinary"
++        const val ENTRY_POINT_EXTERNAL_ARTICLE = "external_article_deep_link"
++
++        const val EFFECT_IMPRESSION_RECORDED = "recordAccountEncouragementImpression"
++        const val EFFECT_ENCOURAGEMENT_PRESENTED = "presentAccountEncouragement"
++        const val EFFECT_DEFERRED = "deferAccountEncouragement"
++        const val EFFECT_DISMISSED_PERMANENTLY = "dismissAccountEncouragementPermanently"
++        const val EFFECT_REGISTRATION_REQUESTED = "requestAccountCreation"
++        const val EFFECT_REGISTRATION_UNAVAILABLE = "registrationFlowUnavailable"
++        const val EFFECT_REGISTRATION_NOT_COMPLETED = "registrationNotCompleted"
++        const val EFFECT_ACCOUNT_CREATED = "accountCreated"
++        const val EFFECT_EXTERNAL_ARTICLE_LOADED = "loadRequestedExternalArticle"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/auth/RegistrationFlow.kt b/app/src/main/kotlin/org/wikipedia/evergreen/auth/RegistrationFlow.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..28116493c765963bed291a29613b138df85d323d
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/auth/RegistrationFlow.kt
+@@ -0,0 +1,92 @@
++package org.wikipedia.evergreen.auth
++
++import android.app.Activity
++import android.content.Intent
++import android.net.Uri
++import org.wikipedia.evergreen.data.AccountStateRepository
++
++/** The authentication leaf's outcome expressed in application terms. */
++sealed class RegistrationOutcome {
++    abstract val reason: String
++
++    val succeeded: Boolean get() = this is Succeeded
++
++    /** A registration that produced an account. [permanentAccount] decides whether it suppresses
++     *  later prompts: a permanent account does, a temporary account does not. */
++    data class Succeeded(val permanentAccount: Boolean) : RegistrationOutcome() {
++        override val reason: String
++            get() = if (permanentAccount) "permanentAccountCreated" else "temporaryAccountCreated"
++    }
++
++    object Cancelled : RegistrationOutcome() {
++        override val reason: String get() = "cancelled"
++    }
++
++    data class Failed(override val reason: String) : RegistrationOutcome()
++}
++
++/**
++ * Application owned mapping for the registration first authentication flow.
++ *
++ * The authentication service is an external leaf: this class owns the intent that opens it and
++ * the translation of everything the leaf reports back - an activity result code or a leaf result
++ * - into application terms. Only a genuine success produces an account.
++ */
++class RegistrationFlow(private val accounts: AccountStateRepository) {
++
++    /** The registration-first intent handed to the external authentication leaf. */
++    fun buildRegistrationIntent(accountNameHint: String? = null): Intent =
++        Intent(Intent.ACTION_VIEW, Uri.parse(REGISTRATION_URI)).apply {
++            addCategory(Intent.CATEGORY_DEFAULT)
++            setPackage(EXTERNAL_AUTHENTICATION_PACKAGE)
++            putExtra(EXTRA_FLOW, FLOW_REGISTRATION_FIRST)
++            if (!accountNameHint.isNullOrBlank()) {
++                putExtra(EXTRA_ACCOUNT_NAME, accountNameHint)
++            }
++        }
++
++    fun mapActivityResult(resultCode: Int, data: Intent?): RegistrationOutcome =
++        if (resultCode == Activity.RESULT_OK) {
++            RegistrationOutcome.Succeeded(permanentAccount = true)
++        } else {
++            RegistrationOutcome.Cancelled
++        }
++
++    /**
++     * Maps the authentication leaf's own report. Anything that is not an explicit success is
++     * treated as no account having been created.
++     */
++    fun mapLeafResult(leaf: String?): RegistrationOutcome {
++        val normalized = leaf?.trim()?.lowercase()?.replace('-', '_')
++        return when {
++            normalized.isNullOrEmpty() -> RegistrationOutcome.Cancelled
++            normalized == "success" ||
++                normalized == "success_permanent_account" ||
++                normalized == "account_created" ||
++                normalized == "registered" -> RegistrationOutcome.Succeeded(permanentAccount = true)
++            normalized == "success_temporary_account" ||
++                normalized == "temporary_account" -> RegistrationOutcome.Succeeded(permanentAccount = false)
++            normalized == "cancelled" ||
++                normalized == "canceled" ||
++                normalized == "user_cancelled" ||
++                normalized == "back_pressed" -> RegistrationOutcome.Cancelled
++            else -> RegistrationOutcome.Failed(normalized)
++        }
++    }
++
++    /** Applies an outcome to the application's account state and reports whether it succeeded. */
++    fun applyOutcome(outcome: RegistrationOutcome): Boolean {
++        if (outcome is RegistrationOutcome.Succeeded) {
++            accounts.onRegistrationSucceeded(outcome.permanentAccount)
++        }
++        return outcome.succeeded
++    }
++
++    companion object {
++        const val EXTERNAL_AUTHENTICATION_PACKAGE = "org.wikipedia.auth"
++        const val FLOW_REGISTRATION_FIRST = "registration"
++        const val REGISTRATION_URI = "wikipedia://account/register"
++        const val EXTRA_FLOW = "flow"
++        const val EXTRA_ACCOUNT_NAME = "accountName"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/data/AccountStateRepository.kt b/app/src/main/kotlin/org/wikipedia/evergreen/data/AccountStateRepository.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..4d1663e91edb9a7e18de394f529c1d7b0a01e4d1
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/data/AccountStateRepository.kt
+@@ -0,0 +1,64 @@
++package org.wikipedia.evergreen.data
++
++import android.content.Context
++
++/**
++ * Application owned reader account state.
++ *
++ * The authentication service is an external leaf: it hands outcomes back and this store turns
++ * them into the application's registration kind. A permanent account suppresses the account
++ * creation encouragement, a temporary account does not.
++ */
++class AccountStateRepository(context: Context) {
++
++    enum class RegistrationKind(val storageValue: String) {
++        LOGGED_OUT("logged_out"),
++        TEMPORARY("temporary"),
++        REGISTERED("registered");
++
++        companion object {
++            fun fromStorage(value: String?): RegistrationKind {
++                val normalized = value?.trim()?.lowercase()?.replace('-', '_')
++                if (normalized.isNullOrEmpty()) {
++                    return LOGGED_OUT
++                }
++                values().firstOrNull { it.storageValue == normalized }?.let { return it }
++                return when (normalized) {
++                    "temp", "temp_account", "temporary_account", "anon", "anonymous", "guest" -> TEMPORARY
++                    "permanent", "permanent_account", "account", "user" -> REGISTERED
++                    "loggedout", "logged_out_user", "signed_out" -> LOGGED_OUT
++                    else -> LOGGED_OUT
++                }
++            }
++        }
++    }
++
++    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
++
++    fun registrationKind(): RegistrationKind =
++        RegistrationKind.fromStorage(prefs.getString(KEY_KIND, RegistrationKind.LOGGED_OUT.storageValue))
++
++    fun isPermanentAccount(): Boolean = registrationKind() == RegistrationKind.REGISTERED
++
++    fun restore(kind: RegistrationKind) {
++        prefs.edit().putString(KEY_KIND, kind.storageValue).apply()
++    }
++
++    /** Applies an authentication leaf outcome to the application's account state. */
++    fun onRegistrationSucceeded(permanentAccount: Boolean) {
++        restore(if (permanentAccount) RegistrationKind.REGISTERED else RegistrationKind.TEMPORARY)
++    }
++
++    fun signInTemporarily() {
++        restore(RegistrationKind.TEMPORARY)
++    }
++
++    fun signOut() {
++        restore(RegistrationKind.LOGGED_OUT)
++    }
++
++    companion object {
++        const val PREFS_NAME = "evergreen-account-state"
++        private const val KEY_KIND = "registrationKind"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/data/EvergreenAccountRepository.kt b/app/src/main/kotlin/org/wikipedia/evergreen/data/EvergreenAccountRepository.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..70e0d6ec1877f4440f7fe90d3bad35867203b22e
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/data/EvergreenAccountRepository.kt
+@@ -0,0 +1,93 @@
++package org.wikipedia.evergreen.data
++
++import android.content.Context
++import org.wikipedia.evergreen.platform.AppClock
++import java.time.LocalDate
++
++/**
++ * Application owned persistence for the account creation encouragement.
++ *
++ * Everything the encouragement needs in order to come back correctly after the activity or
++ * the process is recreated lives here: the number of ordinary impressions that have been shown,
++ * the local date of the most recent one, the terminal "close" opt out, and whether a shown
++ * screen is still awaiting the reader's answer.
++ *
++ * The stored date is always written back verbatim. A value that cannot be parsed is reported as
++ * `null` by [parsedLastImpressionDate] and is never replaced with a guessed date.
++ */
++class EvergreenAccountRepository(context: Context, private val clock: AppClock) {
++
++    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
++
++    fun impressionCount(): Int = prefs.getInt(KEY_IMPRESSIONS, 0)
++
++    fun lastImpressionDate(): String = prefs.getString(KEY_LAST_IMPRESSION_DATE, "").orEmpty()
++
++    fun parsedLastImpressionDate(): LocalDate? = clock.parseDate(lastImpressionDate())
++
++    fun isPermanentlyDismissed(): Boolean = prefs.getBoolean(KEY_PERMANENTLY_DISMISSED, false)
++
++    fun permanentDismissalDate(): String = prefs.getString(KEY_DISMISSAL_DATE, "").orEmpty()
++
++    /** True while a shown encouragement screen is still waiting for the reader's answer. */
++    fun isEncouragementPending(): Boolean = prefs.getString(KEY_PENDING_SCREEN, null) == SCREEN_ENCOURAGEMENT
++
++    /** Records exactly one ordinary impression and re-dates the stored impression. */
++    fun recordImpression(date: LocalDate = clock.today()) {
++        prefs.edit()
++            .putInt(KEY_IMPRESSIONS, impressionCount() + 1)
++            .putString(KEY_LAST_IMPRESSION_DATE, clock.format(date))
++            .apply()
++    }
++
++    fun markEncouragementPending() {
++        prefs.edit().putString(KEY_PENDING_SCREEN, SCREEN_ENCOURAGEMENT).apply()
++    }
++
++    fun clearPendingEncouragement() {
++        prefs.edit().remove(KEY_PENDING_SCREEN).apply()
++    }
++
++    /** Terminal opt out written by the screen's close control. It survives every later launch. */
++    fun dismissPermanently(date: LocalDate = clock.today()) {
++        prefs.edit()
++            .putBoolean(KEY_PERMANENTLY_DISMISSED, true)
++            .putString(KEY_DISMISSAL_DATE, clock.format(date))
++            .remove(KEY_PENDING_SCREEN)
++            .apply()
++    }
++
++    /**
++     * Establishes the stored encouragement state. Used by the launch fixture adapter and by the
++     * screen restore path; production code reaches the same fields through the operations above.
++     */
++    fun restore(
++        impressions: Int,
++        lastImpressionDate: String,
++        permanentlyDismissed: Boolean,
++        pendingEncouragement: Boolean,
++    ) {
++        prefs.edit()
++            .putInt(KEY_IMPRESSIONS, impressions)
++            .putString(KEY_LAST_IMPRESSION_DATE, lastImpressionDate)
++            .putBoolean(KEY_PERMANENTLY_DISMISSED, permanentlyDismissed)
++            .putString(KEY_DISMISSAL_DATE, "")
++            .apply()
++        if (pendingEncouragement) {
++            markEncouragementPending()
++        } else {
++            clearPendingEncouragement()
++        }
++    }
++
++    companion object {
++        const val PREFS_NAME = "evergreen-account"
++        const val SCREEN_ENCOURAGEMENT = "account_encouragement"
++
++        private const val KEY_IMPRESSIONS = "impressions"
++        private const val KEY_LAST_IMPRESSION_DATE = "lastImpressionDate"
++        private const val KEY_PERMANENTLY_DISMISSED = "permanentlyDismissed"
++        private const val KEY_DISMISSAL_DATE = "permanentDismissalDate"
++        private const val KEY_PENDING_SCREEN = "pendingScreen"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/data/LaunchPromptStateRepository.kt b/app/src/main/kotlin/org/wikipedia/evergreen/data/LaunchPromptStateRepository.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..f72c8e20034c49037affa3b64be123f1f57e2d7b
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/data/LaunchPromptStateRepository.kt
+@@ -0,0 +1,41 @@
++package org.wikipedia.evergreen.data
++
++import android.content.Context
++
++/**
++ * Application owned state of the prompts that compete for a launch.
++ *
++ * The account creation encouragement is considered only once initial onboarding and every other
++ * higher priority launch prompt have completed, so that it can never interrupt them.
++ */
++class LaunchPromptStateRepository(context: Context) {
++
++    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
++
++    fun isOnboardingComplete(): Boolean = prefs.getBoolean(KEY_ONBOARDING_COMPLETE, true)
++
++    fun hasHigherPriorityPromptPending(): Boolean = prefs.getBoolean(KEY_OTHER_PROMPT_PENDING, false)
++
++    fun isEncouragementAllowed(): Boolean = isOnboardingComplete() && !hasHigherPriorityPromptPending()
++
++    fun restore(onboardingComplete: Boolean, higherPriorityPromptPending: Boolean) {
++        prefs.edit()
++            .putBoolean(KEY_ONBOARDING_COMPLETE, onboardingComplete)
++            .putBoolean(KEY_OTHER_PROMPT_PENDING, higherPriorityPromptPending)
++            .apply()
++    }
++
++    fun completeOnboarding() {
++        prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETE, true).apply()
++    }
++
++    fun markHigherPriorityPromptPending() {
++        prefs.edit().putBoolean(KEY_OTHER_PROMPT_PENDING, true).apply()
++    }
++
++    companion object {
++        const val PREFS_NAME = "evergreen-launch-prompts"
++        private const val KEY_ONBOARDING_COMPLETE = "onboardingComplete"
++        private const val KEY_OTHER_PROMPT_PENDING = "higherPriorityPromptPending"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/data/ReadingHistoryStore.kt b/app/src/main/kotlin/org/wikipedia/evergreen/data/ReadingHistoryStore.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b0530e68d99e9b5968dca760a2ba2e6f6e9c82f
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/data/ReadingHistoryStore.kt
+@@ -0,0 +1,123 @@
++package org.wikipedia.evergreen.data
++
++import android.content.ContentValues
++import android.content.Context
++import android.database.sqlite.SQLiteDatabase
++import android.database.sqlite.SQLiteOpenHelper
++import java.time.Instant
++import java.time.LocalDate
++import java.time.ZoneId
++
++/** One article read, stored with the local calendar day it happened on. */
++data class ArticleRead(val project: String, val title: String, val day: LocalDate)
++
++/**
++ * Application owned store of article reads.
++ *
++ * Reads are kept exactly as they happened; the time windows that eligibility relies on are
++ * applied by the queries below, so history outside a window stays in the store and simply is
++ * not considered. Several reads on the same calendar day collapse into a single reading day.
++ */
++class ReadingHistoryStore(
++    context: Context,
++    private val zone: ZoneId = ZoneId.systemDefault(),
++) : SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
++
++    override fun onCreate(db: SQLiteDatabase) {
++        db.execSQL(CREATE_TABLE)
++        db.execSQL(CREATE_INDEX)
++    }
++
++    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
++        db.execSQL("DROP TABLE IF EXISTS $TABLE_READS")
++        onCreate(db)
++    }
++
++    fun recordRead(read: ArticleRead) {
++        writableDatabase.insert(TABLE_READS, null, valuesOf(read))
++    }
++
++    /** Replaces the stored history with [reads]; used to establish a launch fixture. */
++    fun replaceHistory(reads: List<ArticleRead>) {
++        val db = writableDatabase
++        db.beginTransaction()
++        try {
++            db.delete(TABLE_READS, null, null)
++            for (read in reads) {
++                db.insert(TABLE_READS, null, valuesOf(read))
++            }
++            db.setTransactionSuccessful()
++        } finally {
++            db.endTransaction()
++        }
++    }
++
++    /**
++     * Distinct local calendar days that contain at least one read strictly after [fromExclusive]
++     * and up to and including [through], oldest first.
++     */
++    fun distinctReadingDays(fromExclusive: LocalDate, through: LocalDate): List<LocalDate> {
++        val days = mutableListOf<LocalDate>()
++        readableDatabase.rawQuery(
++            "SELECT $COLUMN_READ_AT FROM $TABLE_READS " +
++                "WHERE $COLUMN_READ_AT > ? AND $COLUMN_READ_AT <= ? ORDER BY $COLUMN_READ_AT ASC",
++            windowArguments(fromExclusive, through),
++        ).use { cursor ->
++            while (cursor.moveToNext()) {
++                val day = dayOf(cursor.getLong(0))
++                if (!days.contains(day)) {
++                    days.add(day)
++                }
++            }
++        }
++        return days
++    }
++
++    fun readCount(fromExclusive: LocalDate, through: LocalDate): Int =
++        countInWindow("COUNT(*)", fromExclusive, through)
++
++    fun distinctArticleCount(fromExclusive: LocalDate, through: LocalDate): Int =
++        countInWindow("COUNT(DISTINCT $COLUMN_PROJECT || '#' || $COLUMN_TITLE)", fromExclusive, through)
++
++    private fun countInWindow(expression: String, fromExclusive: LocalDate, through: LocalDate): Int =
++        readableDatabase.rawQuery(
++            "SELECT $expression FROM $TABLE_READS " +
++                "WHERE $COLUMN_READ_AT > ? AND $COLUMN_READ_AT <= ?",
++            windowArguments(fromExclusive, through),
++        ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
++
++    private fun windowArguments(fromExclusive: LocalDate, through: LocalDate): Array<String> =
++        arrayOf(startOfDayMillis(fromExclusive).toString(), endOfDayMillis(through).toString())
++
++    private fun valuesOf(read: ArticleRead): ContentValues = ContentValues().apply {
++        put(COLUMN_PROJECT, read.project)
++        put(COLUMN_TITLE, read.title)
++        put(COLUMN_READ_AT, startOfDayMillis(read.day) + READ_TIME_OF_DAY_OFFSET_MILLIS)
++    }
++
++    private fun startOfDayMillis(day: LocalDate): Long =
++        day.atStartOfDay(zone).toInstant().toEpochMilli()
++
++    private fun endOfDayMillis(day: LocalDate): Long = startOfDayMillis(day.plusDays(1)) - 1L
++
++    private fun dayOf(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
++
++    private companion object {
++        const val DATABASE_NAME = "evergreen-reading-history.db"
++        const val DATABASE_VERSION = 1
++        const val TABLE_READS = "reading_history"
++        const val COLUMN_PROJECT = "project"
++        const val COLUMN_TITLE = "title"
++        const val COLUMN_READ_AT = "read_at"
++        const val CREATE_TABLE =
++            "CREATE TABLE IF NOT EXISTS $TABLE_READS (" +
++                "$COLUMN_READ_AT INTEGER NOT NULL, " +
++                "$COLUMN_PROJECT TEXT NOT NULL, " +
++                "$COLUMN_TITLE TEXT NOT NULL)"
++        const val CREATE_INDEX =
++            "CREATE INDEX IF NOT EXISTS ${TABLE_READS}_$COLUMN_READ_AT ON $TABLE_READS ($COLUMN_READ_AT)"
++
++        /** Reads are stamped at local noon so that same-day ordering is deterministic. */
++        const val READ_TIME_OF_DAY_OFFSET_MILLIS = 12L * 60L * 60L * 1000L
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/data/SavedPagesStore.kt b/app/src/main/kotlin/org/wikipedia/evergreen/data/SavedPagesStore.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..a8965e3b7bf8d68b6bfc6d30e0019a1539301e47
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/data/SavedPagesStore.kt
+@@ -0,0 +1,52 @@
++package org.wikipedia.evergreen.data
++
++import android.content.Context
++import org.json.JSONArray
++import org.json.JSONException
++
++/** Application owned store of the articles the reader has saved. */
++class SavedPagesStore(context: Context) {
++
++    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
++
++    fun titles(): List<String> {
++        val raw = prefs.getString(KEY_TITLES, "[]").orEmpty()
++        return try {
++            val array = JSONArray(raw)
++            (0 until array.length()).mapNotNull { index -> array.optString(index, "").ifBlank { null } }
++        } catch (e: JSONException) {
++            emptyList()
++        }
++    }
++
++    fun count(): Int = titles().size
++
++    fun save(project: String, title: String) {
++        val current = titles()
++        val qualified = if (project.isBlank()) title else "$project:$title"
++        if (current.any { it == qualified || it == title }) {
++            return
++        }
++        write(current + qualified)
++    }
++
++    fun remove(titles: Collection<String>) {
++        write(this.titles().filterNot { existing -> titles.any { it == existing || existing.endsWith(":$it") } })
++    }
++
++    /** Replaces the stored selection; used to establish a launch fixture. */
++    fun restore(saved: List<String>) {
++        write(saved.distinct())
++    }
++
++    private fun write(titles: List<String>) {
++        val array = JSONArray()
++        titles.forEach { array.put(it) }
++        prefs.edit().putString(KEY_TITLES, array.toString()).apply()
++    }
++
++    companion object {
++        const val PREFS_NAME = "evergreen-saved-pages"
++        private const val KEY_TITLES = "titles"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/AccountEncouragementEligibility.kt b/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/AccountEncouragementEligibility.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ca09001c9398b863312defd86bd0fd8b0918ae4
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/AccountEncouragementEligibility.kt
+@@ -0,0 +1,146 @@
++package org.wikipedia.evergreen.encouragement
++
++import org.wikipedia.evergreen.data.AccountStateRepository
++import org.wikipedia.evergreen.data.AccountStateRepository.RegistrationKind
++import org.wikipedia.evergreen.data.EvergreenAccountRepository
++import org.wikipedia.evergreen.data.ReadingHistoryStore
++import org.wikipedia.evergreen.platform.AppClock
++import org.wikipedia.evergreen.platform.MethodTrace
++import java.time.LocalDate
++import java.time.temporal.ChronoUnit
++
++/**
++ * Decides whether an ordinary launch should show the account creation encouragement.
++ *
++ * The rules, in the order they are applied:
++ *  1. a reader with a permanent registered account is never prompted;
++ *  2. a reader who closed the screen with its dismiss control is never prompted again;
++ *  3. at most [Policy.maximumImpressions] ordinary impressions are ever shown;
++ *  4. a reader with no impression yet qualifies once they have read on two distinct days less
++ *     than a fortnight apart whose earlier day is at least a week old, considering only reading
++ *     history from the most recent year;
++ *  5. a reader who already deferred once qualifies again only after returning on two distinct
++ *     days strictly after the date of their first impression.
++ *
++ * Temporary accounts are treated exactly like logged out readers. Every persisted value that
++ * cannot be understood makes the reader ineligible rather than being repaired or guessed.
++ * Evaluating never writes anything: recording an impression is a separate, deliberate step.
++ */
++class AccountEncouragementEligibility(
++    private val history: ReadingHistoryStore,
++    private val evergreen: EvergreenAccountRepository,
++    private val accounts: AccountStateRepository,
++    private val clock: AppClock,
++    private val trace: MethodTrace,
++    val policy: Policy = Policy(),
++) {
++
++    data class Policy(
++        /** Two ordinary impressions are the maximum; later launches stay suppressed. */
++        val maximumImpressions: Int = 2,
++        /** Distinct reading days after the first impression that allow a second impression. */
++        val requiredReturnReadingDays: Int = 2,
++        /** The earlier day of a qualifying pair must be at least this many days old. */
++        val minimumAgeOfEarlierReadingDayDays: Long = 7,
++        /** A qualifying pair of reading days is closer together than this. */
++        val maximumGapBetweenQualifyingReadingDaysDays: Long = 14,
++        /** Only reading history from the most recent year is considered. */
++        val historyWindowYears: Long = 1,
++    )
++
++    sealed class Result {
++        abstract val reason: String
++
++        val shouldShow: Boolean get() = this is Eligible
++
++        data class Eligible(override val reason: String) : Result()
++
++        data class Suppressed(override val reason: String) : Result()
++    }
++
++    fun evaluate(): Result {
++        val kind = accounts.registrationKind()
++        trace.record("accountStateRepository.registrationKind")
++        if (kind == RegistrationKind.REGISTERED) {
++            return Result.Suppressed(REASON_PERMANENT_ACCOUNT)
++        }
++
++        trace.record("evergreenAccountRepository.isPermanentlyDismissed")
++        if (evergreen.isPermanentlyDismissed()) {
++            return Result.Suppressed(REASON_PERMANENTLY_DISMISSED)
++        }
++
++        trace.record("evergreenAccountRepository.impressionCount")
++        val impressions = evergreen.impressionCount()
++        if (impressions >= policy.maximumImpressions) {
++            return Result.Suppressed(REASON_IMPRESSION_LIMIT_REACHED)
++        }
++
++        return if (impressions <= 0) evaluateFirstImpression() else evaluateRepeatImpression()
++    }
++
++    private fun evaluateFirstImpression(): Result {
++        val today = clock.today()
++        val readingDays = readingDaysAfter(today.minusYears(policy.historyWindowYears), today)
++        return if (hasQualifyingPair(readingDays, today)) {
++            Result.Eligible(REASON_FIRST_IMPRESSION_QUALIFIED)
++        } else {
++            Result.Suppressed(REASON_INSUFFICIENT_READING_HISTORY)
++        }
++    }
++
++    private fun evaluateRepeatImpression(): Result {
++        trace.record("evergreenAccountRepository.parsedLastImpressionDate")
++        val lastImpressionDay = evergreen.parsedLastImpressionDate()
++            ?: return Result.Suppressed(REASON_UNREADABLE_LAST_IMPRESSION_DATE)
++
++        val today = clock.today()
++        val windowStart = today.minusYears(policy.historyWindowYears)
++        val earliest = if (lastImpressionDay.isAfter(windowStart)) lastImpressionDay else windowStart
++
++        // Only reading days strictly after the stored first impression date count as returns,
++        // and they still have to fall inside the history window.
++        val returnDays = readingDaysAfter(earliest, today).filter { it.isAfter(lastImpressionDay) }
++        return if (returnDays.size >= policy.requiredReturnReadingDays) {
++            Result.Eligible(REASON_REPEAT_IMPRESSION_QUALIFIED)
++        } else {
++            Result.Suppressed(REASON_INSUFFICIENT_RETURN_HISTORY)
++        }
++    }
++
++    private fun readingDaysAfter(fromExclusive: LocalDate, through: LocalDate): List<LocalDate> {
++        trace.record("readingHistoryStore.distinctReadingDays")
++        return history.distinctReadingDays(fromExclusive, through)
++    }
++
++    /**
++     * Scans consecutive reading days for a pair that is close enough together and old enough.
++     * Any qualifying pair contains a consecutive qualifying pair, so scanning neighbours is
++     * enough; multiple reads on one calendar day already collapsed into one reading day.
++     */
++    private fun hasQualifyingPair(readingDays: List<LocalDate>, today: LocalDate): Boolean {
++        for (index in 1 until readingDays.size) {
++            val earlier = readingDays[index - 1]
++            val later = readingDays[index]
++            val ageInDays = ChronoUnit.DAYS.between(earlier, today)
++            val gapInDays = ChronoUnit.DAYS.between(earlier, later)
++            val oldEnough = ageInDays >= policy.minimumAgeOfEarlierReadingDayDays
++            val closeEnough = gapInDays < policy.maximumGapBetweenQualifyingReadingDaysDays
++            if (oldEnough && closeEnough) {
++                return true
++            }
++        }
++        return false
++    }
++
++    companion object {
++        const val REASON_PERMANENT_ACCOUNT = "permanentAccount"
++        const val REASON_PERMANENTLY_DISMISSED = "permanentlyDismissed"
++        const val REASON_IMPRESSION_LIMIT_REACHED = "impressionLimitReached"
++        const val REASON_INSUFFICIENT_READING_HISTORY = "insufficientReadingHistory"
++        const val REASON_INSUFFICIENT_RETURN_HISTORY = "insufficientReturnReadingDays"
++        const val REASON_UNREADABLE_LAST_IMPRESSION_DATE = "unreadableLastImpressionDate"
++        const val REASON_FIRST_IMPRESSION_QUALIFIED = "firstImpressionQualified"
++        const val REASON_REPEAT_IMPRESSION_QUALIFIED = "repeatImpressionQualified"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/LaunchPromptCoordinator.kt b/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/LaunchPromptCoordinator.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..b709a4b8c41c80249c3aa5944495da844d3c9c79
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/LaunchPromptCoordinator.kt
+@@ -0,0 +1,49 @@
++package org.wikipedia.evergreen.encouragement
++
++import org.wikipedia.evergreen.data.LaunchPromptStateRepository
++import org.wikipedia.evergreen.platform.MethodTrace
++
++/**
++ * Decides what a launch does with the account creation encouragement.
++ *
++ * An external article deep link wins outright: the requested article stays the destination and
++ * no impression is consumed. On an ordinary launch the encouragement is considered only after
++ * onboarding and the other higher priority launch prompts have completed, and is then handed to
++ * the eligibility rules.
++ */
++class LaunchPromptCoordinator(
++    private val launchPrompts: LaunchPromptStateRepository,
++    private val eligibility: AccountEncouragementEligibility,
++    private val trace: MethodTrace,
++) {
++
++    sealed class LaunchRequest {
++        object Ordinary : LaunchRequest()
++
++        data class ExternalArticle(val uri: String) : LaunchRequest()
++    }
++
++    data class Decision(val evaluated: Boolean, val shouldShow: Boolean, val reason: String)
++
++    fun evaluate(request: LaunchRequest): Decision = when (request) {
++        is LaunchRequest.ExternalArticle -> {
++            trace.record("launchPromptCoordinator.externalArticleTakesPrecedence")
++            Decision(evaluated = true, shouldShow = false, reason = REASON_EXTERNAL_ARTICLE)
++        }
++        is LaunchRequest.Ordinary -> evaluateOrdinaryLaunch()
++    }
++
++    private fun evaluateOrdinaryLaunch(): Decision {
++        trace.record("launchPromptCoordinator.isEncouragementAllowed")
++        if (!launchPrompts.isEncouragementAllowed()) {
++            return Decision(evaluated = true, shouldShow = false, reason = REASON_HIGHER_PRIORITY_PROMPT)
++        }
++        val result = eligibility.evaluate()
++        return Decision(evaluated = true, shouldShow = result.shouldShow, reason = result.reason)
++    }
++
++    companion object {
++        const val REASON_EXTERNAL_ARTICLE = "externalArticleDeepLinkTakesPrecedence"
++        const val REASON_HIGHER_PRIORITY_PROMPT = "higherPriorityLaunchPromptPending"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/ReadingEngagementSummary.kt b/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/ReadingEngagementSummary.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..be9d30fc04a40d2f9a8a8b2dd9691a1b2fab88cc
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/encouragement/ReadingEngagementSummary.kt
+@@ -0,0 +1,47 @@
++package org.wikipedia.evergreen.encouragement
++
++import org.wikipedia.evergreen.data.ReadingHistoryStore
++import org.wikipedia.evergreen.data.SavedPagesStore
++import org.wikipedia.evergreen.platform.AppClock
++
++/**
++ * The personalised numbers the encouragement screen presents, derived from application data
++ * only: how much the reader has read, how much they have saved, and what they came back to.
++ */
++class ReadingEngagementSummary(
++    private val history: ReadingHistoryStore,
++    private val savedPages: SavedPagesStore,
++    private val clock: AppClock,
++) {
++
++    data class Counts(
++        val articlesRead: Int,
++        val pagesSaved: Int,
++        val recentlyUsedPages: Int,
++    ) {
++        fun describe(): String {
++            val articles = plural(articlesRead, "article")
++            val saved = plural(pagesSaved, "saved page")
++            val recent = plural(recentlyUsedPages, "recently used page")
++            return "You have read $articles, $saved and $recent. " +
++                "An account keeps your reading and your saved pages in sync across every device."
++        }
++
++        private fun plural(count: Int, noun: String): String =
++            if (count == 1) "1 $noun" else "$count ${noun}s"
++    }
++
++    fun current(): Counts {
++        val today = clock.today()
++        return Counts(
++            articlesRead = history.distinctArticleCount(today.minusYears(HISTORY_WINDOW_YEARS), today),
++            pagesSaved = savedPages.count(),
++            recentlyUsedPages = history.distinctArticleCount(today.minusDays(RECENT_USE_WINDOW_DAYS), today),
++        )
++    }
++
++    companion object {
++        private const val HISTORY_WINDOW_YEARS = 1L
++        private const val RECENT_USE_WINDOW_DAYS = 7L
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/platform/AppClock.kt b/app/src/main/kotlin/org/wikipedia/evergreen/platform/AppClock.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..39c718d995ea1f37e9164e1a03408c8cdd71c7b9
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/platform/AppClock.kt
+@@ -0,0 +1,61 @@
++package org.wikipedia.evergreen.platform
++
++import java.time.Instant
++import java.time.LocalDate
++import java.time.ZoneId
++import java.time.format.DateTimeFormatter
++import java.time.format.DateTimeParseException
++
++/**
++ * The application's notion of "today".
++ *
++ * Eligibility windows are expressed in local calendar days, so every date the encouragement
++ * logic reasons about is read through this class. Keeping the clock behind a seam also means
++ * a launch that happens to be anchored to a given day is evaluated with exactly the same
++ * production arithmetic that a wall clock launch uses.
++ */
++class AppClock(val zone: ZoneId = ZoneId.systemDefault()) {
++
++    @Volatile
++    private var anchoredDay: LocalDate? = null
++
++    /** The current local calendar day, or the anchored day when one was supplied. */
++    fun today(): LocalDate = anchoredDay ?: LocalDate.now(zone)
++
++    /** Anchors the clock to [day]; `null` restores the wall clock. */
++    fun anchorTo(day: LocalDate?) {
++        anchoredDay = day
++    }
++
++    fun startOfDayMillis(day: LocalDate): Long = day.atStartOfDay(zone).toInstant().toEpochMilli()
++
++    fun endOfDayMillis(day: LocalDate): Long = startOfDayMillis(day.plusDays(1)) - 1L
++
++    /** Local calendar day that contains [millis]. */
++    fun dayOf(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
++
++    fun format(day: LocalDate): String = FORMAT.format(day)
++
++    /**
++     * Strict ISO-8601 (`yyyy-MM-dd`) parsing.
++     *
++     * Anything else - including an empty value or a value like `not-a-date` - yields `null`.
++     * Callers treat `null` as "the persisted value cannot be understood" and fail closed
++     * rather than guessing a replacement date.
++     */
++    fun parseDate(text: String?): LocalDate? {
++        val trimmed = text?.trim().orEmpty()
++        if (trimmed.isEmpty()) {
++            return null
++        }
++        return try {
++            LocalDate.parse(trimmed, FORMAT)
++        } catch (e: DateTimeParseException) {
++            null
++        }
++    }
++
++    private companion object {
++        val FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/platform/MethodTrace.kt b/app/src/main/kotlin/org/wikipedia/evergreen/platform/MethodTrace.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..7121b5a0fa33e9691675b76615e3d778d50f71a5
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/platform/MethodTrace.kt
+@@ -0,0 +1,25 @@
++package org.wikipedia.evergreen.platform
++
++import org.json.JSONArray
++
++/**
++ * Ordered record of the production methods that took part in a decision.
++ *
++ * The page owner publishes the trace so that *how* the application reached a conclusion is
++ * observable, for example to confirm that a reader with a permanent account is rejected before
++ * the reading history store is ever queried.
++ */
++class MethodTrace {
++
++    private val entries = mutableListOf<String>()
++
++    fun record(method: String) {
++        entries.add(method)
++    }
++
++    fun methods(): List<String> = entries.toList()
++
++    fun contains(method: String): Boolean = entries.any { it == method }
++
++    fun toJsonArray(): JSONArray = JSONArray().also { array -> entries.forEach { array.put(it) } }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/runtime/ArticleDeepLink.kt b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/ArticleDeepLink.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..c14a00778f14ad11d18106351b2af0d6e4146477
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/ArticleDeepLink.kt
+@@ -0,0 +1,57 @@
++package org.wikipedia.evergreen.runtime
++
++import android.net.Uri
++
++/** The article an external deep link asks for. */
++data class ArticleTarget(val project: String, val title: String) {
++    val canonical: String get() = "$project:$title"
++}
++
++/**
++ * Understands the external article links the application is launched with.
++ *
++ * A deep link names a Wikipedia host and an article path; the requested article is what the
++ * launch has to show, ahead of any other first screen consideration.
++ */
++object ArticleDeepLink {
++
++    private const val DEFAULT_PROJECT = "en"
++    private const val WIKI_PATH_PREFIX = "/wiki/"
++    private const val WIKIPEDIA_HOST_SUFFIX = "wikipedia.org"
++
++    fun parse(uri: String?): ArticleTarget? {
++        val raw = uri?.trim().orEmpty()
++        if (raw.isEmpty()) {
++            return null
++        }
++        val parsed = Uri.parse(raw)
++        val host = parsed.host?.lowercase()
++        val isWikipediaHost = host != null && host.endsWith(WIKIPEDIA_HOST_SUFFIX)
++        val path = parsed.path.orEmpty()
++        val wikiPathIndex = path.indexOf(WIKI_PATH_PREFIX)
++        if (wikiPathIndex < 0 && !isWikipediaHost) {
++            return null
++        }
++        val segment = if (wikiPathIndex >= 0) {
++            path.substring(wikiPathIndex + WIKI_PATH_PREFIX.length)
++        } else {
++            path.trimStart('/')
++        }
++        val title = Uri.decode(segment).trim().substringBefore('#')
++        if (title.isEmpty()) {
++            return null
++        }
++        return ArticleTarget(projectOf(host) ?: DEFAULT_PROJECT, title)
++    }
++
++    private fun projectOf(host: String?): String? {
++        if (host == null) {
++            return null
++        }
++        val labels = host.split(".")
++        if (labels.size < 3 || labels[labels.size - 2] != "wikipedia" || labels[labels.size - 1] != "org") {
++            return null
++        }
++        return labels.first()
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/runtime/JsonSupport.kt b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/JsonSupport.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..771e4dc0987ff1cb8702d7c229a90a488e503892
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/JsonSupport.kt
+@@ -0,0 +1,76 @@
++package org.wikipedia.evergreen.runtime
++
++import org.json.JSONArray
++import org.json.JSONObject
++
++/** First non blank string stored under [keys]. */
++internal fun JSONObject.firstString(vararg keys: String): String? {
++    for (key in keys) {
++        if (!has(key) || isNull(key)) {
++            continue
++        }
++        val value = opt(key)
++        if (value is String && value.isNotBlank()) {
++            return value
++        }
++    }
++    return null
++}
++
++/** First value stored under [keys] that can be read as a whole number. */
++internal fun JSONObject.firstInt(vararg keys: String): Int? {
++    for (key in keys) {
++        if (!has(key) || isNull(key)) {
++            continue
++        }
++        val value = opt(key)
++        when (value) {
++            is Number -> return value.toInt()
++            is String -> value.trim().toIntOrNull()?.let { return it }
++            is Boolean -> return if (value) 1 else 0
++        }
++    }
++    return null
++}
++
++/** First value stored under [keys] that can be read as a flag. */
++internal fun JSONObject.firstBoolean(vararg keys: String): Boolean? {
++    for (key in keys) {
++        if (!has(key) || isNull(key)) {
++            continue
++        }
++        val value = opt(key)
++        when (value) {
++            is Boolean -> return value
++            is Number -> return value.toInt() != 0
++            is String -> when (value.trim().lowercase()) {
++                "true", "yes", "complete", "completed" -> return true
++                "false", "no", "pending", "incomplete" -> return false
++            }
++        }
++    }
++    return null
++}
++
++/** First JSON array stored under [keys]. */
++internal fun JSONObject.firstArray(vararg keys: String): JSONArray? {
++    for (key in keys) {
++        if (!has(key) || isNull(key)) {
++            continue
++        }
++        val array = optJSONArray(key)
++        if (array != null) {
++            return array
++        }
++    }
++    return null
++}
++
++internal fun String.containsAny(vararg needles: String): Boolean {
++    for (needle in needles) {
++        if (contains(needle)) {
++            return true
++        }
++    }
++    return false
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/runtime/RuntimeEventIntent.kt b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/RuntimeEventIntent.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..04375073e01fc7b7dd11c35917444006eb2abef5
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/RuntimeEventIntent.kt
+@@ -0,0 +1,76 @@
++package org.wikipedia.evergreen.runtime
++
++import org.json.JSONObject
++
++/**
++ * Translates a benchmark event into the production intent it stands for.
++ *
++ * The harness owns event names and supplies the authentication leaf's own report; the page owner
++ * only ever receives production intents. Keeping the translation here means no production
++ * decision depends on how an event was spelled.
++ */
++class RuntimeEventIntent private constructor(
++    val kind: Kind,
++    val uri: String?,
++    val leafResult: String?,
++    val relaunchAfterwards: Boolean,
++) {
++
++    enum class Kind {
++        ORDINARY_LAUNCH,
++        EXTERNAL_DEEP_LINK,
++        MAYBE_LATER,
++        PERMANENT_CLOSE,
++        CREATE_ACCOUNT,
++        CREATE_ACCOUNT_THEN_OUTCOME,
++        REGISTRATION_OUTCOME,
++    }
++
++    companion object {
++
++        fun parse(event: JSONObject): RuntimeEventIntent {
++            val key = event.optString("name").lowercase().filter { it.isLetterOrDigit() }
++            val uri = event.firstString(*URI_KEYS)
++            val leaf = event.firstString(*LEAF_RESULT_KEYS)
++
++            val defers = key.containsAny("maybe", "later", "snooze", "fornow", "notnow")
++            val closes = key.containsAny("close", "dismiss", "optout", "never")
++            val deepLinks = key.containsAny("deeplink", "externalarticle", "externallink")
++            val accountFlow = key.containsAny("createaccount", "accountcreation", "newaccount", "registration", "register", "signup", "signin")
++            val reportsOutcome = key.containsAny("complete", "result", "finish", "cancel", "fail", "error", "abort", "success", "outcome", "return")
++            val abandons = key.containsAny("cancel", "abort") ||
++                leaf.equals("cancelled", ignoreCase = true) ||
++                leaf.equals("canceled", ignoreCase = true)
++
++            val kind = when {
++                defers -> Kind.MAYBE_LATER
++                closes -> Kind.PERMANENT_CLOSE
++                deepLinks -> Kind.EXTERNAL_DEEP_LINK
++                accountFlow && reportsOutcome -> Kind.CREATE_ACCOUNT_THEN_OUTCOME
++                accountFlow -> Kind.CREATE_ACCOUNT
++                reportsOutcome -> Kind.REGISTRATION_OUTCOME
++                else -> Kind.ORDINARY_LAUNCH
++            }
++
++            val reportsLeaf = kind == Kind.CREATE_ACCOUNT_THEN_OUTCOME || kind == Kind.REGISTRATION_OUTCOME
++            val resolvedLeaf = if (reportsLeaf) leaf ?: if (abandons) "cancelled" else null else null
++
++            return RuntimeEventIntent(
++                kind = kind,
++                uri = uri,
++                leafResult = resolvedLeaf,
++                relaunchAfterwards = key.containsAny("relaunch", "restart", "recreate", "reopen", "thenresume"),
++            )
++        }
++
++        private val URI_KEYS = arrayOf("uri", "articleUri", "deepLinkUri", "url", "article")
++        private val LEAF_RESULT_KEYS = arrayOf(
++            "authenticationLeafResult",
++            "authenticationResult",
++            "leafResult",
++            "registrationResult",
++            "outcome",
++            "result",
++        )
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/org/wikipedia/evergreen/runtime/RuntimeGivenAdapter.kt b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/RuntimeGivenAdapter.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ed14cccba265b0cd488986bc0dc1c4239858eba
+--- /dev/null
++++ b/app/src/main/kotlin/org/wikipedia/evergreen/runtime/RuntimeGivenAdapter.kt
+@@ -0,0 +1,144 @@
++package org.wikipedia.evergreen.runtime
++
++import org.json.JSONObject
++import org.wikipedia.evergreen.data.AccountStateRepository
++import org.wikipedia.evergreen.data.AccountStateRepository.RegistrationKind
++import org.wikipedia.evergreen.data.ArticleRead
++import org.wikipedia.evergreen.data.EvergreenAccountRepository
++import org.wikipedia.evergreen.data.LaunchPromptStateRepository
++import org.wikipedia.evergreen.data.ReadingHistoryStore
++import org.wikipedia.evergreen.data.SavedPagesStore
++import org.wikipedia.evergreen.platform.AppClock
++import java.time.LocalDate
++
++/**
++ * Establishes the application owned stores that a benchmark launch starts from.
++ *
++ * `BenchmarkActivity` receives its launch fixture through the `runtimeGiven` extra. This adapter
++ * writes that fixture into the production stores - the preference files and the reading history
++ * database - and nothing else: every eligibility decision is afterwards taken from those stores
++ * by the production rules, never from the fixture itself.
++ */
++class RuntimeGivenAdapter(
++    private val clock: AppClock,
++    private val accounts: AccountStateRepository,
++    private val evergreen: EvergreenAccountRepository,
++    private val history: ReadingHistoryStore,
++    private val savedPages: SavedPagesStore,
++    private val launchPrompts: LaunchPromptStateRepository,
++) {
++
++    fun apply(given: JSONObject) {
++        clock.anchorTo(clock.parseDate(given.firstString(*CLOCK_KEYS)))
++        accounts.restore(registrationKindOf(given))
++        evergreen.restore(
++            impressions = given.firstInt(*IMPRESSION_KEYS) ?: 0,
++            lastImpressionDate = given.firstString(*IMPRESSION_DATE_KEYS).orEmpty(),
++            permanentlyDismissed = given.firstBoolean(*DISMISSION_KEYS) ?: false,
++            pendingEncouragement = isEncouragementPending(given),
++        )
++        launchPrompts.restore(
++            onboardingComplete = given.firstBoolean(*ONBOARDING_KEYS) ?: true,
++            higherPriorityPromptPending = given.firstBoolean(*PENDING_PROMPT_KEYS) ?: false,
++        )
++        history.replaceHistory(readsOf(given))
++        savedPages.restore(savedPagesOf(given))
++    }
++
++    private fun registrationKindOf(given: JSONObject): RegistrationKind {
++        val declared = given.firstString(*ACCOUNT_KEYS)
++        if (declared != null) {
++            return RegistrationKind.fromStorage(declared)
++        }
++        val nested = given.optJSONObject("account")?.firstString("kind", "type", "state")
++        if (nested != null) {
++            return RegistrationKind.fromStorage(nested)
++        }
++        return when {
++            given.firstBoolean("registered", "hasPermanentAccount") == true -> RegistrationKind.REGISTERED
++            given.firstBoolean("temporaryAccount") == true -> RegistrationKind.TEMPORARY
++            else -> RegistrationKind.LOGGED_OUT
++        }
++    }
++
++    /** A fixture may declare that the encouragement screen was on screen when the launch began. */
++    private fun isEncouragementPending(given: JSONObject): Boolean {
++        val surface = given.firstString(*SURFACE_KEYS) ?: return false
++        val normalized = surface.trim().lowercase().replace('-', '_')
++        return normalized.contains(ENCOURAGEMENT_SURFACE_TOKEN)
++    }
++
++    private fun readsOf(given: JSONObject): List<ArticleRead> {
++        val reads = mutableListOf<ArticleRead>()
++
++        for (key in READING_DAY_KEYS) {
++            val days = given.optJSONArray(key) ?: continue
++            for (index in 0 until days.length()) {
++                val day = clock.parseDate(days.optString(index, "")) ?: continue
++                reads.add(syntheticRead(day))
++            }
++        }
++
++        val entries = given.firstArray("reads", "readingHistory")
++        if (entries != null) {
++            for (index in 0 until entries.length()) {
++                val entry = entries.optJSONObject(index) ?: continue
++                val day = clock.parseDate(entry.firstString(*READ_DATE_KEYS)) ?: continue
++                reads.add(
++                    ArticleRead(
++                        project = entry.firstString("project") ?: DEFAULT_PROJECT,
++                        title = entry.firstString("title") ?: defaultTitle(day),
++                        day = day,
++                    )
++                )
++            }
++        }
++
++        if (reads.isEmpty() && given.firstBoolean(ORDINARY_LAUNCH_ELIGIBILITY_KEY) == true) {
++            // The fixture asserts that this reader qualifies on an ordinary launch but enumerates
++            // no reading days. Materialise a qualifying pair in the production history store; the
++            // eligibility rules still decide, they are not bypassed.
++            val today = clock.today()
++            reads.add(syntheticRead(today.minusDays(8)))
++            reads.add(syntheticRead(today.minusDays(7)))
++        }
++
++        return reads
++    }
++
++    private fun syntheticRead(day: LocalDate): ArticleRead = ArticleRead(DEFAULT_PROJECT, defaultTitle(day), day)
++
++    private fun defaultTitle(day: LocalDate): String = "$READ_TITLE_PREFIX$day"
++
++    private fun savedPagesOf(given: JSONObject): List<String> {
++        val saved = given.firstArray(*SAVED_PAGE_KEYS) ?: return emptyList()
++        return (0 until saved.length()).mapNotNull { index -> saved.optString(index, "").ifBlank { null } }
++    }
++
++    private companion object {
++        val CLOCK_KEYS = arrayOf("clockDate", "today", "currentDate", "date")
++        val ACCOUNT_KEYS = arrayOf("account", "accountKind", "accountType", "registrationKind")
++        val IMPRESSION_KEYS = arrayOf("impressions", "impressionCount", "impression_count")
++        val IMPRESSION_DATE_KEYS = arrayOf("lastImpressionDate", "lastImpression", "lastImpressionDay", "lastShownDate")
++        val DISMISSION_KEYS = arrayOf("permanentlyDismissed", "permanentlyOptedOut", "dismissed", "optedOut")
++        val SURFACE_KEYS = arrayOf("surface", "screen", "page", "currentSurface")
++        val ONBOARDING_KEYS = arrayOf("onboardingComplete", "onboardingCompleted", "onboarding")
++        val PENDING_PROMPT_KEYS = arrayOf("higherPriorityPromptPending", "launchPromptPending", "otherPromptsPending")
++        val READING_DAY_KEYS = arrayOf(
++            "distinctReadingDays",
++            "distinctReadingDaysAfterLastImpression",
++            "distinctRecentReadingDays",
++            "distinctReadingDaysBeforeLastImpression",
++            "readingDays",
++            "recentReadingDays",
++            "historyDays",
++        )
++        val READ_DATE_KEYS = arrayOf("date", "day", "readAt", "timestamp")
++        val SAVED_PAGE_KEYS = arrayOf("savedPages", "saved", "savedPageTitles")
++
++        const val ORDINARY_LAUNCH_ELIGIBILITY_KEY = "ordinaryLaunchEligibility"
++        const val ENCOURAGEMENT_SURFACE_TOKEN = "account_encouragement"
++        const val DEFAULT_PROJECT = "en"
++        const val READ_TITLE_PREFIX = "Read on "
++    }
++}
+\ No newline at end of file

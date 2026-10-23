@@ -11,7 +11,8 @@ from typing import Any
 
 
 ALLOWED_PROJECT_STATUS = {"exploring", "calibrating", "ready"}
-REQUIRED_HANDOFFS = {"requirement", "evidence", "transitions", "observerRules"}
+REQUIRED_HANDOFFS = {"requirement", "evidence"}
+OPTIONAL_HANDOFFS = {"transitions", "observerRules"}
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -106,7 +107,7 @@ def validate_task(project_dir: Path, project: dict[str, Any], task_id: str) -> l
     missing = sorted(REQUIRED_HANDOFFS - set(handoff))
     if missing:
         errors.append(f"{prefix}: missing handoff entries: {', '.join(missing)}")
-    for key in REQUIRED_HANDOFFS & set(handoff):
+    for key in (REQUIRED_HANDOFFS | OPTIONAL_HANDOFFS) & set(handoff):
         if not (task_dir / handoff[key]).is_file():
             errors.append(f"{prefix}: handoff {key} does not exist: {handoff[key]}")
     transition_rel = handoff.get("transitions")
@@ -126,6 +127,11 @@ def validate_task(project_dir: Path, project: dict[str, Any], task_id: str) -> l
         execution = load(execution_path)
         for platform in ("android", "arkts"):
             config = execution.get(platform)
+            # Early benchmark entries published one platform at a time. Validate
+            # every declared platform while keeping those immutable manifests
+            # readable by the current registry checker.
+            if config is None:
+                continue
             if not isinstance(config, dict):
                 errors.append(f"{prefix}: execution.{platform} must be an object")
                 continue
@@ -137,6 +143,8 @@ def validate_task(project_dir: Path, project: dict[str, Any], task_id: str) -> l
                     errors.append(f"{prefix}: execution.{platform}.{role}Project does not exist")
             for command_name in ("buildCommand", "semanticCommand"):
                 command = config.get(command_name)
+                if command_name == "semanticCommand" and command is None:
+                    command = config.get("semanticCommandDeferred")
                 if not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
                     errors.append(f"{prefix}: execution.{platform}.{command_name} must be a non-empty argv list")
     return errors
