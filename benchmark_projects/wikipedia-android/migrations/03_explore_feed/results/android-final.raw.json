@@ -1,0 +1,1260 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_explore_feed",
+  "role": "final",
+  "episodes": [
+    {
+      "caseId": "ef_personalized_preference_restored",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "personalized_preference_restored",
+        "given": {
+          "homePreference": "PERSONALIZED",
+          "forYouCache": null,
+          "configuredLanguages": [
+            "en"
+          ],
+          "homeLanguage": "en"
+        },
+        "event": {
+          "name": "recreateHomeSurface"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "configuredLanguages": [
+              "en"
+            ]
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED"
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "configuredLanguages": [
+              "en"
+            ],
+            "forYouPhase": "loading",
+            "communityPhase": "idle"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED"
+          },
+          "effects": [
+            {
+              "name": "loadForYouContent",
+              "attempt": 1,
+              "language": "en"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED"
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "configuredLanguages": [
+              "en"
+            ],
+            "forYouPhase": "loading",
+            "communityPhase": "idle"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED"
+          },
+          "effects": [
+            {
+              "name": "loadForYouContent",
+              "attempt": 1,
+              "language": "en"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "HomeViewModel.init",
+          "HomeViewModel.loadForYouContent"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_switch_tab_lazy_load_preserves_community",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "switch_tab_lazy_load_preserves_community",
+        "given": {
+          "selectedTab": "COMMUNITY",
+          "community": {
+            "phase": "content",
+            "language": "en",
+            "cards": [
+              "DAY_HEADER:0",
+              "FEATURED_ARTICLE:Ada_Lovelace"
+            ]
+          },
+          "forYou": {
+            "phase": "idle",
+            "modules": []
+          },
+          "forYouCache": null
+        },
+        "event": {
+          "name": "selectHomeTab",
+          "tab": "FOR_YOU"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content",
+              "language": "en",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ]
+            },
+            "forYou": {
+              "phase": "idle",
+              "modules": []
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "community": {
+              "phase": "content",
+              "language": "en",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ]
+            },
+            "forYou": {
+              "phase": "idle",
+              "modules": []
+            },
+            "forYouPhase": "loading"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "communityContentUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "loadForYouContent",
+              "attempt": 1,
+              "language": "en"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "communityContentUnchanged": true
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "community": {
+              "phase": "content",
+              "language": "en",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ]
+            },
+            "forYou": {
+              "phase": "idle",
+              "modules": []
+            },
+            "forYouPhase": "loading"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "communityContentUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "loadForYouContent",
+              "attempt": 1,
+              "language": "en"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "HomeFragment.selectTab",
+          "HomeViewModel.selectTab",
+          "HomeViewModel.reloadCurrentTab"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_community_initial_retry_same_day",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "community_initial_retry_same_day",
+        "given": {
+          "clockDate": "2026-05-28",
+          "selectedTab": "COMMUNITY",
+          "community": {
+            "phase": "error",
+            "cards": [],
+            "retryAvailable": true
+          },
+          "nextFeaturedFeed": [
+            "FEATURED_ARTICLE:Ada_Lovelace"
+          ]
+        },
+        "event": {
+          "name": "retryCommunityLoad"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "error",
+              "cards": [],
+              "retryAvailable": true
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content",
+              "language": "en",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ],
+              "error": null
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "hiddenCardsUnchanged": true
+          },
+          "effects": [
+            {
+              "leaf": "featured_feed_http",
+              "attempt": 2,
+              "date": "2026-05-28",
+              "language": "en"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "hiddenCardsUnchanged": true
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content",
+              "language": "en",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ],
+              "error": null
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "hiddenCardsUnchanged": true
+          },
+          "effects": [
+            {
+              "leaf": "featured_feed_http",
+              "attempt": 2,
+              "date": "2026-05-28",
+              "language": "en"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "CommunityContentTab.ErrorState.onRetry",
+          "HomeViewModel.loadCommunityContent"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_community_inline_retry_preserves_content",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "community_inline_retry_preserves_content",
+        "given": {
+          "clockDate": "2026-05-28",
+          "selectedTab": "COMMUNITY",
+          "community": {
+            "phase": "content_with_inline_error",
+            "cards": [
+              "DAY_HEADER:0",
+              "FEATURED_ARTICLE:Ada_Lovelace"
+            ],
+            "failedLogicalAge": 1,
+            "retryAvailable": true
+          },
+          "nextFeaturedFeed": [
+            "NEWS:Recovery"
+          ]
+        },
+        "event": {
+          "name": "retryCommunityLoadMore"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content_with_inline_error",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ],
+              "failedLogicalAge": 1,
+              "retryAvailable": true
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace",
+                "DAY_HEADER:1",
+                "NEWS:Recovery"
+              ],
+              "error": null
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "existingDayZeroContentUnchanged": true
+          },
+          "effects": [
+            {
+              "leaf": "featured_feed_http",
+              "attemptForLogicalAge": 2,
+              "logicalAge": 1,
+              "date": "2026-05-27"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "existingDayZeroContentUnchanged": true
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace",
+                "DAY_HEADER:1",
+                "NEWS:Recovery"
+              ],
+              "error": null
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "existingDayZeroContentUnchanged": true
+          },
+          "effects": [
+            {
+              "leaf": "featured_feed_http",
+              "attemptForLogicalAge": 2,
+              "logicalAge": 1,
+              "date": "2026-05-27"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "CommunityContentTab.inlineRetry",
+          "HomeViewModel.loadCommunityContent"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_unavailable_language_falls_back",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "unavailable_language_falls_back",
+        "given": {
+          "selectedTab": "COMMUNITY",
+          "persistedHomeLanguage": "fr",
+          "configuredLanguages": [
+            "en",
+            "de"
+          ],
+          "primaryConfiguredLanguage": "en",
+          "community": {
+            "phase": "content",
+            "language": "fr"
+          },
+          "forYou": {
+            "phase": "content",
+            "language": "fr",
+            "modules": [
+              "CONTINUE_READING"
+            ]
+          }
+        },
+        "event": {
+          "name": "resumeHomeSurface"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "configuredLanguages": [
+              "en",
+              "de"
+            ],
+            "community": {
+              "phase": "content",
+              "language": "fr"
+            },
+            "forYou": {
+              "phase": "content",
+              "language": "fr",
+              "modules": [
+                "CONTINUE_READING"
+              ]
+            }
+          },
+          "persistence": {
+            "homeLanguage": "fr"
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "configuredLanguages": [
+              "en",
+              "de"
+            ],
+            "community": {
+              "phase": "loading",
+              "language": "en",
+              "cards": []
+            },
+            "forYou": {
+              "phase": "content",
+              "language": "fr",
+              "modules": [
+                "CONTINUE_READING"
+              ]
+            },
+            "activeLanguage": "en"
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "effects": [
+            {
+              "name": "refreshCommunityContent",
+              "language": "en",
+              "logicalAge": 0
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en"
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "configuredLanguages": [
+              "en",
+              "de"
+            ],
+            "community": {
+              "phase": "loading",
+              "language": "en",
+              "cards": []
+            },
+            "forYou": {
+              "phase": "content",
+              "language": "fr",
+              "modules": [
+                "CONTINUE_READING"
+              ]
+            },
+            "activeLanguage": "en"
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "effects": [
+            {
+              "name": "refreshCommunityContent",
+              "language": "en",
+              "logicalAge": 0
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "HomeFragment.onResume",
+          "HomeViewModel.updateSelectedLanguageIfNeeded",
+          "HomeViewModel.updateLanguage"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_foryou_same_day_cache_restored_and_filtered",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "foryou_same_day_cache_restored_and_filtered",
+        "given": {
+          "clockDate": "2026-05-28",
+          "homePreference": "PERSONALIZED",
+          "homeLanguage": "en",
+          "persistedForYouCache": {
+            "date": "2026-05-28",
+            "languages": [
+              "en"
+            ]
+          },
+          "persistedHiddenCards": [
+            "Ada_Lovelace"
+          ]
+        },
+        "event": {
+          "name": "recreateHomeSurface"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "COMMUNITY"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED",
+            "forYouCache": {
+              "date": "2026-05-28",
+              "languages": [
+                "en"
+              ]
+            },
+            "hiddenCards": [
+              "Ada_Lovelace"
+            ]
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "forYou": {
+              "phase": "content",
+              "language": "en",
+              "modules": [
+                {
+                  "type": "BASED_ON_INTEREST",
+                  "cards": [
+                    "Grace_Hopper"
+                  ]
+                }
+              ]
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED",
+            "forYouCache": {
+              "date": "2026-05-28",
+              "languages": [
+                "en"
+              ]
+            },
+            "hiddenCards": [
+              "Ada_Lovelace"
+            ],
+            "cacheDate": "2026-05-28",
+            "cacheLanguage": "en"
+          },
+          "effects": [
+            {
+              "name": "readForYouCache",
+              "language": "en"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED",
+            "forYouCache": {
+              "date": "2026-05-28",
+              "languages": [
+                "en"
+              ]
+            },
+            "hiddenCards": [
+              "Ada_Lovelace"
+            ],
+            "cacheDate": "2026-05-28",
+            "cacheLanguage": "en"
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "forYou": {
+              "phase": "content",
+              "language": "en",
+              "modules": [
+                {
+                  "type": "BASED_ON_INTEREST",
+                  "cards": [
+                    "Grace_Hopper"
+                  ]
+                }
+              ]
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED",
+            "forYouCache": {
+              "date": "2026-05-28",
+              "languages": [
+                "en"
+              ]
+            },
+            "hiddenCards": [
+              "Ada_Lovelace"
+            ],
+            "cacheDate": "2026-05-28",
+            "cacheLanguage": "en"
+          },
+          "effects": [
+            {
+              "name": "readForYouCache",
+              "language": "en"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "HomeViewModel.init",
+          "HomeViewModel.fetchForYouModules"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_interest_edit_refreshes_foryou",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "interest_edit_refreshes_foryou",
+        "given": {
+          "selectedTab": "COMMUNITY",
+          "interestEditor": {
+            "interestsUpdated": true,
+            "pendingResult": 100
+          },
+          "persistedInterests": [
+            "en:Ada_Lovelace"
+          ],
+          "forYouCache": null,
+          "forYouState": {
+            "modules": [
+              "BASED_ON_INTEREST:old"
+            ]
+          }
+        },
+        "event": {
+          "name": "finishInterestEditing"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "interestEditor": {
+              "interestsUpdated": true,
+              "pendingResult": 100
+            },
+            "forYouState": {
+              "modules": [
+                "BASED_ON_INTEREST:old"
+              ]
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "interestEditor": {
+              "interestsUpdated": true,
+              "pendingResult": 100
+            },
+            "forYouState": {
+              "modules": [
+                "BASED_ON_INTEREST:old"
+              ]
+            },
+            "interestEditorOpen": false,
+            "forYou": {
+              "phase": "loading",
+              "modules": []
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "interestArticles": [
+              "en:Ada_Lovelace"
+            ],
+            "forYouCacheBeforeReload": ""
+          },
+          "effects": [
+            {
+              "name": "activityResult",
+              "value": 100
+            },
+            {
+              "name": "refreshForYouContent",
+              "language": "en"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "interestArticles": [
+              "en:Ada_Lovelace"
+            ],
+            "forYouCacheBeforeReload": ""
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "interestEditor": {
+              "interestsUpdated": true,
+              "pendingResult": 100
+            },
+            "forYouState": {
+              "modules": [
+                "BASED_ON_INTEREST:old"
+              ]
+            },
+            "interestEditorOpen": false,
+            "forYou": {
+              "phase": "loading",
+              "modules": []
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "interestArticles": [
+              "en:Ada_Lovelace"
+            ],
+            "forYouCacheBeforeReload": ""
+          },
+          "effects": [
+            {
+              "name": "activityResult",
+              "value": 100
+            },
+            {
+              "name": "refreshForYouContent",
+              "language": "en"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "PersonalizationActivity.onFinish",
+          "HomeFragment.customizeInterestsLauncher",
+          "HomeViewModel.refreshForYouContent"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_unchanged_interest_edit_is_noop",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "unchanged_interest_edit_is_noop",
+        "given": {
+          "selectedTab": "FOR_YOU",
+          "interestEditor": {
+            "initialSelections": [
+              "topic:technology"
+            ],
+            "currentSelections": [
+              "topic:technology"
+            ],
+            "interestsUpdated": false
+          },
+          "forYouModules": [
+            "BASED_ON_INTEREST:0"
+          ],
+          "forYouCache": {
+            "date": "today",
+            "language": "en",
+            "present": true
+          }
+        },
+        "event": {
+          "name": "finishInterestEditing"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "interestEditor": {
+              "initialSelections": [
+                "topic:technology"
+              ],
+              "currentSelections": [
+                "topic:technology"
+              ],
+              "interestsUpdated": false
+            },
+            "forYouModules": [
+              "BASED_ON_INTEREST:0"
+            ],
+            "forYouPhase": "content"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "present": true
+            }
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "interestEditor": {
+              "initialSelections": [
+                "topic:technology"
+              ],
+              "currentSelections": [
+                "topic:technology"
+              ],
+              "interestsUpdated": false
+            },
+            "forYouModules": [
+              "BASED_ON_INTEREST:0"
+            ],
+            "forYouPhase": "content",
+            "interestEditorOpen": false
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "present": true
+            },
+            "interestSelections": [
+              "topic:technology"
+            ],
+            "forYouCacheUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "finishPersonalization",
+              "result": "RESULT_OK"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "present": true
+            },
+            "interestSelections": [
+              "topic:technology"
+            ],
+            "forYouCacheUnchanged": true
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "interestEditor": {
+              "initialSelections": [
+                "topic:technology"
+              ],
+              "currentSelections": [
+                "topic:technology"
+              ],
+              "interestsUpdated": false
+            },
+            "forYouModules": [
+              "BASED_ON_INTEREST:0"
+            ],
+            "forYouPhase": "content",
+            "interestEditorOpen": false
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "present": true
+            },
+            "interestSelections": [
+              "topic:technology"
+            ],
+            "forYouCacheUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "finishPersonalization",
+              "result": "RESULT_OK"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "PersonalizationActivity.onFinish",
+          "HomeFragment.customizeInterestsLauncher"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_foryou_initial_retry_same_batch",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "foryou_initial_retry_same_batch",
+        "given": {
+          "selectedTab": "FOR_YOU",
+          "forYouModules": [],
+          "forYouPhase": "error",
+          "forYouError": "IOException",
+          "failedBatch": 0,
+          "retryAvailable": true,
+          "communityPhase": "unchanged"
+        },
+        "event": {
+          "name": "retryForYouLoad"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "forYouModules": [],
+            "forYouPhase": "error",
+            "forYouError": "IOException",
+            "communityPhase": "unchanged"
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "forYouModules": [
+              "BASED_ON_INTEREST:0"
+            ],
+            "forYouPhase": "content",
+            "forYouError": null,
+            "communityPhase": "unchanged"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "modules": [
+                "BASED_ON_INTEREST:0"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "name": "fetchForYouModules",
+              "batch": 0,
+              "attempt": 2
+            },
+            {
+              "name": "writeCurrentDayForYouCache",
+              "language": "en"
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "modules": [
+                "BASED_ON_INTEREST:0"
+              ]
+            }
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "forYouModules": [
+              "BASED_ON_INTEREST:0"
+            ],
+            "forYouPhase": "content",
+            "forYouError": null,
+            "communityPhase": "unchanged"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "modules": [
+                "BASED_ON_INTEREST:0"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "name": "fetchForYouModules",
+              "batch": 0,
+              "attempt": 2
+            },
+            {
+              "name": "writeCurrentDayForYouCache",
+              "language": "en"
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "ForYouContentTab.ErrorState.onRetry",
+          "HomeViewModel.loadForYouContent",
+          "HomeViewModel.fetchForYouModules"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    },
+    {
+      "caseId": "ef_foryou_all_modules_hidden_propagates",
+      "episode": {
+        "schemaVersion": 2,
+        "taskId": "03_explore_feed",
+        "key": "foryou_all_modules_hidden_propagates",
+        "given": {
+          "selectedTab": "FOR_YOU",
+          "pendingAllModulesOffConfirmation": true,
+          "hiddenModules": [
+            "BASED_ON_INTEREST",
+            "BECAUSE_YOU_READ",
+            "CONTINUE_READING"
+          ],
+          "forYouBackingModulesPresent": true
+        },
+        "event": {
+          "name": "confirmAllModulesOff"
+        },
+        "givenEstablished": true,
+        "commonEntryObserved": true,
+        "entryOwner": "ExploreActionPrefix",
+        "before": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "pendingAllModulesOffConfirmation": true
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "hiddenModules": [
+              "BASED_ON_INTEREST",
+              "BECAUSE_YOU_READ",
+              "CONTINUE_READING"
+            ]
+          },
+          "effects": []
+        },
+        "after": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "pendingAllModulesOffConfirmation": false,
+            "forYouVisibleModules": [],
+            "forYouEmptyState": "ALL_MODULES_HIDDEN",
+            "manageModulesActionAvailable": true,
+            "manageModulesDestination": "FOR_YOU_MODULES",
+            "forYouModuleVisibility": {
+              "BASED_ON_INTEREST": false,
+              "BECAUSE_YOU_READ": false,
+              "CONTINUE_READING": false
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "hiddenModules": [
+              "BASED_ON_INTEREST",
+              "BECAUSE_YOU_READ",
+              "CONTINUE_READING"
+            ],
+            "survivesHomeRecreation": true
+          },
+          "effects": [
+            {
+              "name": "propagateHiddenModules",
+              "surfaces": [
+                "for_you_module_settings",
+                "for_you_feed"
+              ]
+            }
+          ],
+          "reopenedPersistence": {
+            "homeLanguage": "en",
+            "hiddenModules": [
+              "BASED_ON_INTEREST",
+              "BECAUSE_YOU_READ",
+              "CONTINUE_READING"
+            ],
+            "survivesHomeRecreation": true
+          }
+        },
+        "observed": {
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "pendingAllModulesOffConfirmation": false,
+            "forYouVisibleModules": [],
+            "forYouEmptyState": "ALL_MODULES_HIDDEN",
+            "manageModulesActionAvailable": true,
+            "manageModulesDestination": "FOR_YOU_MODULES",
+            "forYouModuleVisibility": {
+              "BASED_ON_INTEREST": false,
+              "BECAUSE_YOU_READ": false,
+              "CONTINUE_READING": false
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "hiddenModules": [
+              "BASED_ON_INTEREST",
+              "BECAUSE_YOU_READ",
+              "CONTINUE_READING"
+            ],
+            "survivesHomeRecreation": true
+          },
+          "effects": [
+            {
+              "name": "propagateHiddenModules",
+              "surfaces": [
+                "for_you_module_settings",
+                "for_you_feed"
+              ]
+            }
+          ]
+        },
+        "invokedProductionMethods": [
+          "HomeFragment.onCreateView",
+          "ForYouModulesScreen.onConfirmButtonClick",
+          "SettingsRepository.addHiddenModule",
+          "HomeViewModel.forYouState"
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "storageReopened": true
+      },
+      "instrumentation": "INSTRUMENTATION_CODE: 0\n"
+    }
+  ]
+}

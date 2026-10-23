@@ -13,8 +13,13 @@ const hasArgv = (argv, value) => Array.isArray(argv) && argv.includes(value);
 
 const catalog = read(path.join(root, 'catalog.json'));
 requireValue(catalog.status === 'ready', 'catalog must be ready after the formal model run');
-requireValue(catalog.latestAgentResult === '../results/multi_project_minimax_m3_runtime_v2_20261022/run-manifest.json', 'catalog formal result pointer');
-requireValue(stable(catalog.acceptedTaskIds) === stable(['01_media_keyboard', '02_sticker_management']), 'unexpected acceptedTaskIds');
+requireValue(catalog.latestAgentResult === '../results/deep_mining_minimax_m3_runtime_20261023/run-manifest.json', 'catalog formal result pointer');
+requireValue(stable(catalog.acceptedTaskIds) === stable(['01_media_keyboard', '02_sticker_management', '03_media_editor', '06_numberless_registration']), 'unexpected acceptedTaskIds');
+requireValue(stable(catalog.reviewTaskIds) === stable(['04_group_termination']), 'unexpected reviewTaskIds');
+requireValue(stable(catalog.excludedTaskIds) === stable(['05_member_labels']), 'unexpected excludedTaskIds');
+
+const legacyTaskIds = ['01_media_keyboard', '02_sticker_management'];
+const focusedTaskIds = ['03_media_editor', '06_numberless_registration'];
 
 const runnerSmoke = read(path.join(root, 'provenance', 'runner-calibration-smoke.json'));
 requireValue(runnerSmoke.valid === true, 'unified runner calibration smoke is not valid');
@@ -24,7 +29,7 @@ const noChange = read(path.join(root, 'provenance', 'no-change-agent-control.jso
 requireValue(noChange.valid === true && noChange.openCodeRun === false, 'no-change control must be valid and must not claim a model run');
 requireValue(noChange.patchArchivedBeforePrepare === true && noChange.rows.length === 4, 'no-change control coverage is incomplete');
 
-for (const taskId of catalog.acceptedTaskIds) {
+for (const taskId of legacyTaskIds) {
   const taskRoot = path.join(root, 'tasks', taskId);
   const migration = path.join(root, 'migrations', taskId);
   for (const name of ['task.json', 'requirement.md', 'evidence.json', 'raw_release_evidence.json', 'transitions.draft.json', 'transitions.json', 'observer_rules.json', 'arkts_bindings.json', 'migration_validation.json']) {
@@ -131,6 +136,73 @@ for (const taskId of catalog.acceptedTaskIds) {
   }
 }
 
+for (const taskId of focusedTaskIds) {
+  const taskRoot = path.join(root, 'tasks', taskId);
+  const migration = path.join(root, 'migrations', taskId);
+  for (const name of ['task.json', 'requirement.md', 'evidence.json', 'raw_release_evidence.json', 'transitions.draft.json', 'transitions.json']) {
+    requireValue(fs.existsSync(path.join(taskRoot, name)), `${taskId}: missing ${name}`);
+  }
+  for (const name of ['manifest.json', 'execution.json', 'canonical/transitions.json', 'arkts/transitions.json', 'arkts/bindings.json', 'android/task.json', 'results/manifest.json', 'results/agent-evaluation-summary.json', 'results/agent-bundle-audit.json']) {
+    requireValue(fs.existsSync(path.join(migration, name)), `${taskId}: missing migration ${name}`);
+  }
+
+  const canonical = read(path.join(taskRoot, 'transitions.json'));
+  const migrationCanonical = read(path.join(migration, 'canonical/transitions.json'));
+  const arktsContract = read(path.join(migration, 'arkts/transitions.json'));
+  requireValue(canonical.cases.length === 10, `${taskId}: expected ten canonical cases`);
+  requireValue(stable(canonical) === stable(migrationCanonical) && stable(canonical) === stable(arktsContract), `${taskId}: canonical copies differ`);
+  requireValue(new Set(canonical.cases.map(item => item.caseId)).size === 10, `${taskId}: duplicate case identity`);
+  requireValue(new Set(canonical.cases.map(item => item.traceDigest)).size === 10, `${taskId}: duplicate transition digest`);
+
+  const bindings = read(path.join(migration, 'arkts/bindings.json'));
+  requireValue(Object.keys(bindings.cases).length === 10, `${taskId}: binding count`);
+  requireValue(bindings.sourceObserver === false, `${taskId}: ArkTS binding must not use a source observer`);
+  for (const item of canonical.cases) {
+    requireValue(typeof bindings.cases[item.caseId] === 'string', `${taskId}: binding mismatch ${item.caseId}`);
+  }
+
+  for (const platform of ['android', 'arkts']) {
+    for (const role of ['base', 'final']) {
+      const report = read(path.join(migration, 'results', `${platform}-${role}.json`));
+      const expected = role === 'base' ? { passed: 0, failed: 10 } : { passed: 10, failed: 0 };
+      requireValue(report.compile.passed === true, `${taskId}/${platform}/${role}: production compile failed`);
+      requireValue(report.semantic.total === 10 && report.semantic.notScored === 0, `${taskId}/${platform}/${role}: incomplete native score`);
+      requireValue(report.semantic.passed === expected.passed && report.semantic.failed === expected.failed, `${taskId}/${platform}/${role}: wrong calibration polarity`);
+      requireValue(typeof report.observationMode === 'string' && report.observationMode.includes('runtime'), `${taskId}/${platform}/${role}: runtime observation missing`);
+      requireValue(report.sourceObserver !== true && report.diagnostics?.sourceObserver !== true, `${taskId}/${platform}/${role}: source observer used for scoring`);
+      requireValue(report.diagnostics?.roleAffectsVerdict !== true, `${taskId}/${platform}/${role}: role affects verdict`);
+      for (const item of report.semantic.cases) {
+        const expectedCase = canonical.cases.find(row => row.caseId === item.caseId);
+        requireValue(expectedCase?.traceDigest === item.traceDigest, `${taskId}/${platform}/${role}/${item.caseId}: contract mismatch`);
+        requireValue(Array.isArray(item.checkpoints) && item.checkpoints.length >= 2, `${taskId}/${platform}/${role}/${item.caseId}: checkpoints missing`);
+        requireValue(Array.isArray(item.productionSources) && item.productionSources.length > 0, `${taskId}/${platform}/${role}/${item.caseId}: production provenance missing`);
+      }
+    }
+
+    const controlDirectory = platform === 'android' ? 'android-controls' : 'arkts-controls';
+    for (const [name, expectedPassed] of [['no-change-agent.json', 0], ['known-final-agent.json', 10]]) {
+      const report = read(path.join(migration, 'results', controlDirectory, name));
+      requireValue(report.compile.passed === true, `${taskId}/${platform}/${name}: control compile failed`);
+      requireValue(report.semantic.passed === expectedPassed && report.semantic.notScored === 0 && report.semantic.total === 10, `${taskId}/${platform}/${name}: control polarity failed`);
+    }
+  }
+
+  const summary = read(path.join(migration, 'results', 'agent-evaluation-summary.json'));
+  requireValue(summary.runs.length === 2, `${taskId}: expected two platform agent runs`);
+  requireValue(summary.benchmarkMetrics.codeGeneration.total === 2 && summary.benchmarkMetrics.compile.passed === 2, `${taskId}: formal model metrics missing`);
+  requireValue(summary.benchmarkMetrics.semanticTestcase.scored === 20 && summary.benchmarkMetrics.semanticTestcase.notScored === 0, `${taskId}: formal model semantic score incomplete`);
+  for (const run of summary.runs) {
+    requireValue(typeof run.codeGeneration.passed === 'boolean' && run.compile.passed === true, `${taskId}/${run.platform}: independent metrics missing`);
+    requireValue(run.semanticTestcase.total === 10 && run.semanticTestcase.notScored === 0, `${taskId}/${run.platform}: agent cases are incomplete`);
+    requireValue(run.candidatePatch.reconstructionVerified === true, `${taskId}/${run.platform}: candidate reconstruction failed`);
+    requireValue(run.semanticFeedbackDuringGeneration === false && run.credentialAudit.apiKeyRecorded === false, `${taskId}/${run.platform}: generation integrity failed`);
+    for (const item of ['agent.patch', 'generated-files.json']) {
+      requireValue(fs.existsSync(path.join(migration, 'results', 'agent-runs', summary.runId, run.platform, item)), `${taskId}/${run.platform}: missing archived ${item}`);
+    }
+  }
+  requireValue(read(path.join(migration, 'results', 'agent-bundle-audit.json')).status === 'passed', `${taskId}: agent bundle audit failed`);
+}
+
 const lockSource = fs.readFileSync(path.join(root, 'migrations', 'tools', 'with_device_lock.py'), 'utf8');
 requireValue(lockSource.includes('fcntl.flock'), 'device lock wrapper must call fcntl.flock');
 
@@ -147,8 +219,8 @@ console.log(JSON.stringify({
   projectId: catalog.projectId,
   tasks: catalog.acceptedTaskIds,
   casesPerTask: 10,
-  nativeCalibration: 'android+arkts base 0/10 final 10/10',
-  noChangeAgentControl: 'android+arkts 0/10 for both tasks',
+  nativeCalibration: 'android+arkts base 0/10 final 10/10 for all accepted tasks',
+  noChangeAgentControl: 'android+arkts 0/10 for all accepted tasks',
   modelAgentStatus: 'complete',
   cacheResidue: [],
   binaryResidue: []

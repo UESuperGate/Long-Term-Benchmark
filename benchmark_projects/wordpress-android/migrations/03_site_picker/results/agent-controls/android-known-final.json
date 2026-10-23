@@ -1,0 +1,1495 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_site_picker",
+  "platform": "android",
+  "role": "agent",
+  "observationMode": "runtime_state_transition",
+  "runtime": "candidate production methods on Android API37 ART",
+  "device": {
+    "serial": "emulator-5554",
+    "apiLevel": 37
+  },
+  "semantic": {
+    "cases": [
+      {
+        "caseId": "sp_state_001_grouped_open",
+        "key": "grouped_open",
+        "traceDigest": "8b8763aa8152a8099ecc2bb4f1254534252eb23a64155656ce50b2785f074478",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "SiteViewModel.loadSites",
+          "SiteViewModel.sortSites",
+          "SiteViewModel.getSection"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "mode": "selection",
+              "orderedRows": [
+                2,
+                3,
+                4,
+                1
+              ],
+              "sections": [
+                {
+                  "name": "pinned",
+                  "localIds": [
+                    2
+                  ]
+                },
+                {
+                  "name": "recent",
+                  "localIds": [
+                    3,
+                    4
+                  ]
+                },
+                {
+                  "name": "all",
+                  "localIds": [
+                    1
+                  ]
+                }
+              ],
+              "selectedLocalId": 4
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "mode": "selection",
+            "orderedRows": [
+              2,
+              3,
+              4,
+              1
+            ],
+            "sections": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  2
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "name": "all",
+                "localIds": [
+                  1
+                ]
+              }
+            ],
+            "selectedLocalId": 4
+          },
+          "effects": [
+            {
+              "name": "readSites",
+              "source": "all_sites"
+            },
+            {
+              "name": "readPinnedAndRecentPreferences"
+            }
+          ],
+          "absentEffects": [
+            "selectSite",
+            "writePinnedPreferences",
+            "writeRecentPreferences"
+          ]
+        },
+        "effects": [
+          {
+            "name": "readSites",
+            "source": "all_sites"
+          },
+          {
+            "name": "readPinnedAndRecentPreferences"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "each available site appears exactly once",
+            "passed": true,
+            "evidence": [
+              2,
+              3,
+              4,
+              1
+            ]
+          },
+          {
+            "invariant": "a pinned site is excluded from the recent section even when its id is in recent preferences",
+            "passed": true,
+            "evidence": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  2
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "name": "all",
+                "localIds": [
+                  1
+                ]
+              }
+            ]
+          },
+          {
+            "invariant": "opening the picker does not change the active site",
+            "passed": true,
+            "evidence": 4
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_002_search_clear",
+        "key": "search_clear",
+        "traceDigest": "d65dd8388fd0dd4b4edbe8577380dcde5157f4f5d3c86806d5300abc84476a10",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "SiteViewModel.loadSites",
+          "SiteViewModel.sortSites"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "visibleLocalIds": [
+                10,
+                11
+              ]
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "searchQuery": null,
+              "orderedRows": [
+                10,
+                11,
+                12
+              ],
+              "sections": [
+                {
+                  "name": "pinned",
+                  "localIds": [
+                    10
+                  ]
+                },
+                {
+                  "name": "recent",
+                  "localIds": [
+                    11
+                  ]
+                },
+                {
+                  "name": "all",
+                  "localIds": [
+                    12
+                  ]
+                }
+              ],
+              "addSiteVisible": true
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "searchQuery": null,
+            "orderedRows": [
+              10,
+              11,
+              12
+            ],
+            "sections": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  10
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  11
+                ]
+              },
+              {
+                "name": "all",
+                "localIds": [
+                  12
+                ]
+              }
+            ],
+            "addSiteVisible": true
+          },
+          "effects": [
+            {
+              "name": "readSites",
+              "source": "all_sites"
+            }
+          ],
+          "absentEffects": [
+            "selectSite",
+            "writePinnedPreferences",
+            "writeRecentPreferences"
+          ]
+        },
+        "effects": [
+          {
+            "name": "readSites",
+            "source": "all_sites"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the search precondition is established through the real query input",
+            "passed": true,
+            "evidence": [
+              10,
+              11
+            ]
+          },
+          {
+            "invariant": "clearing search restores the complete pinned, recent, and remaining grouping",
+            "passed": true,
+            "evidence": [
+              10,
+              11,
+              12
+            ]
+          },
+          {
+            "invariant": "a site present in both preferences appears only in the pinned section",
+            "passed": true,
+            "evidence": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  10
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  11
+                ]
+              },
+              {
+                "name": "all",
+                "localIds": [
+                  12
+                ]
+              }
+            ]
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_003_pin_mode_row_noop",
+        "key": "pin_mode_row_noop",
+        "traceDigest": "ea43ce48dc8d33f145c4e3ff234ffa83676e76152d1849ac0ff74e9eaed2a512",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "ChooseSiteViewHolder.bind",
+          "ChooseSiteViewHolder.handlePinButton"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "actionMode": "pin",
+              "pinControlsVisible": true,
+              "activeLocalId": 20,
+              "pickerOpen": true,
+              "result": null,
+              "persistedPinnedLocalIds": []
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "actionMode": "pin",
+            "pinControlsVisible": true,
+            "activeLocalId": 20,
+            "pickerOpen": true,
+            "result": null,
+            "persistedPinnedLocalIds": []
+          },
+          "effects": [
+            {
+              "name": "renderPinControls",
+              "localIds": [
+                20,
+                21
+              ]
+            }
+          ],
+          "absentEffects": [
+            "selectSite",
+            "finishPicker",
+            "writeRecentPreferences",
+            "writePinnedPreferences",
+            "openLegacyVisibilityEditor"
+          ]
+        },
+        "effects": [
+          {
+            "name": "renderPinControls",
+            "localIds": [
+              20,
+              21
+            ]
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the pin-mode precondition is established through the real edit-pins action",
+            "passed": true,
+            "evidence": 0
+          },
+          {
+            "invariant": "row-body clicks and long presses are ineligible while pin mode is active",
+            "passed": true,
+            "evidence": {
+              "click": false,
+              "long": false
+            }
+          },
+          {
+            "invariant": "only an explicit pin control may change the pinned set",
+            "passed": true,
+            "evidence": []
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_004_pin_persist_reopen",
+        "key": "pin_persist_reopen",
+        "traceDigest": "5b87c631bcb1a74d44014d73aadd0296a20fd37dcd1e0d16fc5e7d6c98d3c591",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "ChooseSiteViewHolder.handlePinButton",
+          "SiteViewModel.loadSites",
+          "SiteViewModel.sortSites"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "persistedPinnedLocalIds": [
+                22
+              ],
+              "orderedRows": [
+                22,
+                21
+              ],
+              "sections": [
+                {
+                  "name": "pinned",
+                  "localIds": [
+                    22
+                  ]
+                },
+                {
+                  "name": "recent",
+                  "localIds": [
+                    21
+                  ]
+                }
+              ],
+              "pickerOpen": true
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "persistedPinnedLocalIds": [
+              22
+            ],
+            "orderedRows": [
+              22,
+              21
+            ],
+            "sections": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  22
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  21
+                ]
+              }
+            ],
+            "pickerOpen": true
+          },
+          "effects": [
+            {
+              "name": "readPinnedAndRecentPreferences"
+            },
+            {
+              "name": "readSites",
+              "source": "all_sites"
+            }
+          ],
+          "absentEffects": [
+            "selectSite",
+            "writePinnedPreferences",
+            "writeRecentPreferences"
+          ]
+        },
+        "effects": [
+          {
+            "name": "readPinnedAndRecentPreferences"
+          },
+          {
+            "name": "readSites",
+            "source": "all_sites"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the persisted pin was created through the real pin control before reopening",
+            "passed": true,
+            "evidence": [
+              22
+            ]
+          },
+          {
+            "invariant": "reopening observes the pin from durable application state",
+            "passed": true,
+            "evidence": [
+              22
+            ]
+          },
+          {
+            "invariant": "the pinned site appears exactly once and remains outside the recent section",
+            "passed": true,
+            "evidence": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  22
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  21
+                ]
+              }
+            ]
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_005_unpin_regroup",
+        "key": "unpin_regroup",
+        "traceDigest": "ba92009fbb89ead5ca41e7dd7ab8596a159254be43ba2292c22e0c31969cc708",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "ChooseSiteViewHolder.handlePinButton",
+          "SiteViewModel.loadSites",
+          "SiteViewModel.sortSites"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "persistedPinnedLocalIds": [],
+              "orderedRows": [
+                31,
+                32,
+                33
+              ],
+              "sections": [
+                {
+                  "name": "recent",
+                  "localIds": [
+                    31,
+                    32
+                  ]
+                },
+                {
+                  "name": "all",
+                  "localIds": [
+                    33
+                  ]
+                }
+              ],
+              "actionMode": "pin"
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "persistedPinnedLocalIds": [],
+            "orderedRows": [
+              31,
+              32,
+              33
+            ],
+            "sections": [
+              {
+                "name": "recent",
+                "localIds": [
+                  31,
+                  32
+                ]
+              },
+              {
+                "name": "all",
+                "localIds": [
+                  33
+                ]
+              }
+            ],
+            "actionMode": "pin"
+          },
+          "effects": [
+            {
+              "name": "writePinnedPreferences",
+              "localIds": []
+            },
+            {
+              "name": "reloadRows"
+            }
+          ],
+          "absentEffects": [
+            "selectSite",
+            "finishPicker",
+            "writeRecentPreferences"
+          ]
+        },
+        "effects": [
+          {
+            "name": "writePinnedPreferences",
+            "localIds": []
+          },
+          {
+            "name": "reloadRows"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "unpinning does not erase the site's existing recent membership",
+            "passed": true,
+            "evidence": [
+              31,
+              32
+            ]
+          },
+          {
+            "invariant": "the site appears exactly once after regrouping",
+            "passed": true,
+            "evidence": [
+              31,
+              32,
+              33
+            ]
+          },
+          {
+            "invariant": "editing remains active until the user explicitly finishes it",
+            "passed": true,
+            "evidence": "pin"
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_006_select_recent_propagation",
+        "key": "select_recent_propagation",
+        "traceDigest": "1683df8740d013393d19bb2d4aad5435a86e513fb85d8b17ca54ea15bda10698",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "AppPrefsWrapper.addRecentSiteLocalId",
+          "SiteViewModel.sortSites"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "pickerOpen": true,
+              "orderedRows": [
+                41,
+                43,
+                42
+              ],
+              "sections": [
+                {
+                  "name": "pinned",
+                  "localIds": [
+                    41
+                  ]
+                },
+                {
+                  "name": "recent",
+                  "localIds": [
+                    43,
+                    42
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "pickerOpen": true,
+            "orderedRows": [
+              41,
+              43,
+              42
+            ],
+            "sections": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  41
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  43,
+                  42
+                ]
+              }
+            ]
+          },
+          "effects": [
+            {
+              "name": "readPinnedAndRecentPreferences"
+            },
+            {
+              "name": "readSites",
+              "source": "all_sites"
+            }
+          ],
+          "absentEffects": [
+            "selectSite",
+            "writePinnedPreferences",
+            "writeRecentPreferences",
+            "changeSiteVisibility"
+          ]
+        },
+        "effects": [
+          {
+            "name": "readPinnedAndRecentPreferences"
+          },
+          {
+            "name": "readSites",
+            "source": "all_sites"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the recent-state precondition is established through the real selection flow",
+            "passed": true,
+            "evidence": [
+              43,
+              42
+            ]
+          },
+          {
+            "invariant": "the selected site is the first recent site on the next open even with fewer than 11 sites",
+            "passed": true,
+            "evidence": [
+              41,
+              43,
+              42
+            ]
+          },
+          {
+            "invariant": "pinned sites remain excluded from recent grouping",
+            "passed": true,
+            "evidence": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  41
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  43,
+                  42
+                ]
+              }
+            ]
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_007_refresh_failure_retry",
+        "key": "refresh_failure_retry",
+        "traceDigest": "986d040eebf68c86720a9cc9d176ea03ce4e7d85078c4b111e76c00b1bd4148f",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "SiteViewModel.loadSites",
+          "SiteViewModel.sortSites"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {
+              "failedRefreshPreserved": [
+                51,
+                52,
+                53
+              ]
+            }
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "refreshing": false,
+              "orderedRows": [
+                51,
+                52,
+                53,
+                54
+              ],
+              "sections": [
+                {
+                  "name": "pinned",
+                  "localIds": [
+                    51
+                  ]
+                },
+                {
+                  "name": "recent",
+                  "localIds": [
+                    52
+                  ]
+                },
+                {
+                  "name": "all",
+                  "localIds": [
+                    53,
+                    54
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "refreshing": false,
+            "orderedRows": [
+              51,
+              52,
+              53,
+              54
+            ],
+            "sections": [
+              {
+                "name": "pinned",
+                "localIds": [
+                  51
+                ]
+              },
+              {
+                "name": "recent",
+                "localIds": [
+                  52
+                ]
+              },
+              {
+                "name": "all",
+                "localIds": [
+                  53,
+                  54
+                ]
+              }
+            ]
+          },
+          "effects": [
+            {
+              "name": "fetchSites",
+              "count": 1
+            },
+            {
+              "name": "replaceDisplayedSitesAfterSuccess",
+              "count": 1
+            }
+          ],
+          "absentEffects": [
+            "clearUsableRowsBeforeRetry",
+            "selectSite",
+            "writePinnedPreferences",
+            "writeRecentPreferences"
+          ]
+        },
+        "effects": [
+          {
+            "name": "fetchSites",
+            "count": 1
+          },
+          {
+            "name": "replaceDisplayedSitesAfterSuccess",
+            "count": 1
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the failure precondition is established through the real refresh input and leaves refreshing false",
+            "passed": true,
+            "evidence": false
+          },
+          {
+            "invariant": "retry rebuilds groups from the successful store contents",
+            "passed": true,
+            "evidence": [
+              51,
+              52,
+              53,
+              54
+            ]
+          },
+          {
+            "invariant": "neither failure nor retry changes the active site",
+            "passed": true,
+            "evidence": null
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_008_wpcom_long_press_noop",
+        "key": "wpcom_long_press_noop",
+        "traceDigest": "0948db8bc1c1a2679da467fb5f080de7c0690e951acaacfc500248712e195785",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "ChooseSiteViewHolder.bind",
+          "ChooseSiteActivity.onSiteLongClick"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "actionMode": "none",
+              "activeLocalId": 60,
+              "visibleLocalIds": [
+                60,
+                61
+              ],
+              "pickerOpen": true
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "actionMode": "none",
+            "activeLocalId": 60,
+            "visibleLocalIds": [
+              60,
+              61
+            ],
+            "pickerOpen": true
+          },
+          "effects": [],
+          "absentEffects": [
+            "openLegacyVisibilityEditor",
+            "showRemoveSelfHostedDialog",
+            "selectSite",
+            "removeSite",
+            "changeSiteVisibility"
+          ]
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "a long press on a WordPress.com-accessible site is a no-op in the redesigned picker",
+            "passed": true,
+            "evidence": false
+          },
+          {
+            "invariant": "the row remains visible and selectable",
+            "passed": true,
+            "evidence": [
+              60,
+              61
+            ]
+          },
+          {
+            "invariant": "the active site is unchanged",
+            "passed": true,
+            "evidence": 60
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_009_restore_search_pin_mode",
+        "key": "restore_search_pin_mode",
+        "traceDigest": "3c0ccfb075655f275a8536b35e7e130624b58bb4244aba6504ca4b5886954014",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "ActionMode.from",
+          "SiteViewModel.loadSites"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "searchExpanded": true,
+              "searchQuery": "needle",
+              "visibleLocalIds": [
+                71
+              ],
+              "actionMode": "pin",
+              "pinControlsVisible": true,
+              "rowSelectionEnabled": false
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "searchExpanded": true,
+            "searchQuery": "needle",
+            "visibleLocalIds": [
+              71
+            ],
+            "actionMode": "pin",
+            "pinControlsVisible": true,
+            "rowSelectionEnabled": false
+          },
+          "effects": [
+            {
+              "name": "restorePickerState",
+              "state": [
+                "search_query",
+                "pin_mode"
+              ]
+            },
+            {
+              "name": "reloadFilteredRows"
+            }
+          ],
+          "absentEffects": [
+            "selectSite",
+            "writePinnedPreferences",
+            "writeRecentPreferences",
+            "openLegacyVisibilityEditor"
+          ]
+        },
+        "effects": [
+          {
+            "name": "restorePickerState",
+            "state": [
+              "search_query",
+              "pin_mode"
+            ]
+          },
+          {
+            "name": "reloadFilteredRows"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "recreation restores both the active query and pin-editing semantics",
+            "passed": true,
+            "evidence": {
+              "searchExpanded": true,
+              "searchQuery": "needle",
+              "visibleLocalIds": [
+                71
+              ],
+              "actionMode": "pin",
+              "pinControlsVisible": true,
+              "rowSelectionEnabled": false
+            }
+          },
+          {
+            "invariant": "restoration does not mutate persistent pin or recent state",
+            "passed": true,
+            "evidence": [
+              72
+            ]
+          },
+          {
+            "invariant": "the restored row remains ineligible for site selection until pin mode ends",
+            "passed": true,
+            "evidence": false
+          }
+        ],
+        "actionPrefix": null
+      },
+      {
+        "caseId": "sp_state_010_restricted_mode_selection",
+        "key": "restricted_mode_selection",
+        "traceDigest": "740395866ea0374fdae8586778b5465f6d7ad1324455ef4fc4da17f04fd8d43b",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+            "bytes": 2003,
+            "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+            "bytes": 6852,
+            "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+            "bytes": 1145,
+            "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+            "bytes": 3270,
+            "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+            "bytes": 2541,
+            "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+          }
+        ],
+        "productionBodies": [
+          "SiteViewModel.getSites",
+          "AppPrefsWrapper.addRecentSiteLocalId"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "visibleLocalIdsBeforeSelection": [
+                81,
+                82
+              ],
+              "pinEditingVisible": false,
+              "addSiteVisible": false,
+              "selectionOutcome": {
+                "status": "selected",
+                "localId": 82
+              },
+              "pickerOpen": false
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "visibleLocalIdsBeforeSelection": [
+              81,
+              82
+            ],
+            "pinEditingVisible": false,
+            "addSiteVisible": false,
+            "selectionOutcome": {
+              "status": "selected",
+              "localId": 82
+            },
+            "pickerOpen": false
+          },
+          "effects": [
+            {
+              "name": "writeRecentPreferences",
+              "localId": 82
+            },
+            {
+              "name": "publishSiteSelection",
+              "localId": 82
+            },
+            {
+              "name": "closePicker"
+            }
+          ],
+          "absentEffects": [
+            "showPinEditing",
+            "showAddSite",
+            "changeSiteVisibility"
+          ]
+        },
+        "effects": [
+          {
+            "name": "writeRecentPreferences",
+            "localId": 82
+          },
+          {
+            "name": "publishSiteSelection",
+            "localId": 82
+          },
+          {
+            "name": "closePicker"
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "management restrictions do not prevent selection of an otherwise valid self-hosted site",
+            "passed": true,
+            "evidence": [
+              81,
+              82
+            ]
+          },
+          {
+            "invariant": "restricted mode hides both pin editing and site creation",
+            "passed": true,
+            "evidence": {
+              "pin": false,
+              "add": false
+            }
+          },
+          {
+            "invariant": "selection uses the same result contract as default mode",
+            "passed": true,
+            "evidence": [
+              82,
+              81
+            ]
+          }
+        ],
+        "actionPrefix": null
+      }
+    ],
+    "summary": {
+      "passed": 10,
+      "failed": 0,
+      "notScored": 0,
+      "total": 10
+    }
+  },
+  "provenance": {
+    "contractSha256": "043838bdd21d9f9ea6238b93cb367f45e9ef2f315dabb6c6ac8539539a2beb4e",
+    "productionSources": [
+      {
+        "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt",
+        "bytes": 2003,
+        "sha256": "0302b548e1572369dfa3a44db1c064d2c85bc1af8bd00120591520bf70addbd7"
+      },
+      {
+        "path": "src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+        "bytes": 6852,
+        "sha256": "f2577995f912265214304b6c9b0e1f02ea7daefcd6890db38de5b5c4c629fa70"
+      },
+      {
+        "path": "src/main/java/org/wordpress/android/ui/main/SiteRecord.kt",
+        "bytes": 1145,
+        "sha256": "18945ce2779efd5127dab9eeae52d62701680def305e19d62ba6b9aeea116678"
+      },
+      {
+        "path": "src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt",
+        "bytes": 3270,
+        "sha256": "23a13ac31adef595e20c026ed83a24c2f8d0a1c15e2816ca76b58c1bd760019f"
+      },
+      {
+        "path": "src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt",
+        "bytes": 2541,
+        "sha256": "6fda743bfdd00db8d6b9374994cfee9959eab92f96eed2296d1e366d0037aebb"
+      }
+    ]
+  },
+  "diagnostics": {
+    "adapter": "ready",
+    "transport": "adb_instrumentation",
+    "bindingErrors": [],
+    "installErrors": [],
+    "sourcePatternScoring": false,
+    "roleMarkerUsedForVerdict": false,
+    "arbitraryCandidateDirectory": true
+  }
+}

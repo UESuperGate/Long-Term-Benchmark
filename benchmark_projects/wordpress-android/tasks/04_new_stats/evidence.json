@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_new_stats",
+  "boundaryAudit": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "sourceCheckout": "_sources/wordpress-android",
+    "sourceCheckoutModified": false,
+    "base": {
+      "ref": "27.1",
+      "resolvedCommit": "52d78ca3a60d3ae77fce80a304416eae65f68523",
+      "versionFile": "version.properties",
+      "versionName": "27.1"
+    },
+    "final": {
+      "ref": "27.6",
+      "resolvedCommit": "e6dbc793f2256380cd7ab3c9210aae0cdd07710b",
+      "versionFile": "version.properties",
+      "versionName": "27.6"
+    },
+    "ancestry": {
+      "command": "git merge-base --is-ancestor 52d78ca3a60d3ae77fce80a304416eae65f68523 e6dbc793f2256380cd7ab3c9210aae0cdd07710b",
+      "exitCode": 0,
+      "mergeBase": "52d78ca3a60d3ae77fce80a304416eae65f68523",
+      "aheadCommitCount": 135,
+      "releaseBranchException": null
+    }
+  },
+  "coreCommitContainment": [
+    {
+      "commit": "ab5cd2de23db9f263fda1e91fc5eac7d3061de08",
+      "pullRequest": 23234,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "selectable chart metrics"
+    },
+    {
+      "commit": "37789cdd1683e7615049f373ac2c96624220f1df",
+      "pullRequest": 23278,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "soft chart-bucket selection and drill-down"
+    },
+    {
+      "commit": "b8157ff5e0d8aed84bdbead24c6f99b64c83d19a",
+      "pullRequest": 23287,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "rolling and calendar period presets"
+    },
+    {
+      "commit": "13c4975ddf2f2545c514fe5f4f800a81bfc1078f",
+      "pullRequest": 23337,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "period-origin preservation across navigation and restoration"
+    },
+    {
+      "commit": "e90ed99d80a553fcb551c04097136cdf9da202df",
+      "pullRequest": 23362,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "whole calendar period charting"
+    },
+    {
+      "commit": "612014c46d863cb581d939af7f19452ad657bcd2",
+      "pullRequest": 23389,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "plan-gated states and recovery to unrestricted content"
+    },
+    {
+      "commit": "6f7b943b8b78a5c4dc6a44ce6ba031bccc870076",
+      "pullRequest": 23393,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "hourly metric fallback and explicit unavailable state"
+    },
+    {
+      "commit": "faa12df5df4ed2245ffcc8f4ae39b4f93d908ebd",
+      "pullRequest": 23394,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "metric-tab interaction alignment"
+    },
+    {
+      "commit": "7855e1190fe2e3136ee7b3a3e72e0d23b3a6adab",
+      "pullRequest": 23395,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "recent-period caching and stale-data refresh behavior"
+    },
+    {
+      "commit": "66902e3d4734eb7f5e0f1b1579724aa6c455310b",
+      "pullRequest": 23400,
+      "afterBase": true,
+      "containedByFinal": true,
+      "supports": "consistent date windows across New Stats surfaces"
+    }
+  ],
+  "inBoundaryContextCommits": [
+    {
+      "commit": "e315b629d077b4e85c9d0823110120f999fab477",
+      "pullRequest": 23178,
+      "afterBase": true,
+      "containedByFinal": true,
+      "classification": "related release work, excluded from scored scope",
+      "summary": "Latest Post Summary and per-post stats"
+    },
+    {
+      "commit": "5142261b122a3db86f004801343078341dba6fd8",
+      "pullRequest": 23406,
+      "afterBase": true,
+      "containedByFinal": true,
+      "classification": "supporting instrumentation, excluded from scored scope",
+      "summary": "New Stats interaction analytics"
+    }
+  ],
+  "baseToFinalDelta": {
+    "baseObservations": [
+      "New Stats already exists at 27.1, but the chart interaction commits, expanded period model, and result-cache path are not present.",
+      "The base chart tap path commits directly to another period rather than providing the final soft-selection state."
+    ],
+    "finalObservations": [
+      "The final tree contains selectable metric state, soft chart selection, rolling/calendar period distinctions, cached repository results, and differentiated unavailable, retryable, and plan-gated states."
+    ]
+  },
+  "finalProductionTrace": [
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+      "blob": "4492c0e250f687e5bf19e78665f174e4ffd2de83",
+      "supports": [
+        "metric choice and fallback",
+        "soft chart selection",
+        "period navigation",
+        "selection reset rules",
+        "loading and retry state"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCard.kt",
+      "blob": "41750129e2da44388d2e6c478851114cd94b53f6",
+      "supports": [
+        "metric controls",
+        "chart-bucket interaction",
+        "unavailable presentation"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsRepository.kt",
+      "blob": "1237fb021f64c32f895fabdc5f8d892adfd342e9",
+      "supports": [
+        "cache lookup",
+        "stale-data delivery and revalidation",
+        "refresh invalidation",
+        "failure preservation"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsResultCache.kt",
+      "blob": "6a42198734ae98534bb0789cf2356ff08ae61b27",
+      "supports": [
+        "bounded result reuse",
+        "request identity isolation",
+        "refresh-generation protection"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/newstats/datasource/StatsDataSourceImpl.kt",
+      "blob": "c7b39743a7194f1d05b1fe7c2c605cac001147a2",
+      "supports": [
+        "API error classification",
+        "plan-gated versus retryable failure behavior"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/newstats/components/StatsCardCommon.kt",
+      "blob": "3002806aa1fa44a5445254bcea7ac130e818f494",
+      "supports": [
+        "shared loading, error, retry, and plan-gated presentation"
+      ]
+    }
+  ],
+  "finalTestTrace": [
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt",
+      "blob": "7c54318a55288e11ccf9d315ce8a6ad956fe1aca",
+      "supports": [
+        "metric selection and hourly fallback",
+        "bar select, move, clear, and drill-down",
+        "future-bucket no-op",
+        "period navigation and state restoration",
+        "failure and retry transitions"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsRepositoryCacheTest.kt",
+      "blob": "04247c9beeea73d5a645a31f9276fa642136313c",
+      "supports": [
+        "cache hits",
+        "stale revalidation",
+        "failed-refresh preservation",
+        "pull-to-refresh invalidation",
+        "in-flight result protection"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsResultCacheTest.kt",
+      "supports": [
+        "cache identity and eviction semantics"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/newstats/datasource/StatsApiErrorTest.kt",
+      "supports": [
+        "plan-gated error classification"
+      ]
+    },
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/ui/newstats/NewStatsViewModelTest.kt",
+      "supports": [
+        "screen state restoration and period coordination"
+      ]
+    }
+  ],
+  "stateTransitionEvidence": [
+    {
+      "from": "loaded preferred metric",
+      "event": "enter an incompatible hourly period and later return",
+      "to": "supported fallback or unavailable state, then restored preference"
+    },
+    {
+      "from": "unselected chart",
+      "event": "tap, retap, move, or drill into a bucket",
+      "to": "selected, cleared, moved, or committed period state"
+    },
+    {
+      "from": "chosen rolling or calendar period",
+      "event": "page through time and restore screen state",
+      "to": "same period semantics at another date"
+    },
+    {
+      "from": "cached period",
+      "event": "background refresh fails and a later refresh succeeds",
+      "to": "preserved cached data followed by replacement data"
+    },
+    {
+      "from": "ordinary failure or plan restriction",
+      "event": "retry after recovery or switch to unrestricted content",
+      "to": "loaded stats without conflating the two failure classes"
+    }
+  ],
+  "failureRecoveryEvidence": [
+    "Repository tests cover serving stale cached data while revalidating and retaining it when background refresh fails.",
+    "Refresh invalidation and generation checks prevent an older in-flight response from repopulating cleared cache state.",
+    "View-model tests cover retry after disconnected or failed loads.",
+    "API error tests distinguish eligible plan-gated responses from generic authorization and transient errors."
+  ]
+}

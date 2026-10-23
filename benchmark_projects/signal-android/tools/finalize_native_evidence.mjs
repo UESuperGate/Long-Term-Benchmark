@@ -10,6 +10,7 @@ const catalog = read(path.join(root, 'catalog.json'));
 const controls = read(path.join(root, 'provenance', 'no-change-agent-control.json'));
 const runnerSmoke = read(path.join(root, 'provenance', 'runner-calibration-smoke.json'));
 const generatedAt = new Date().toISOString();
+const legacyTaskIds = ['01_media_keyboard', '02_sticker_management'];
 
 function read(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function write(file, value) {
@@ -45,7 +46,7 @@ for (const target of filesUnder(root)) {
   if (binaryExtensions.has(path.extname(target).toLowerCase())) binaryResidue.push(relative);
 }
 
-for (const taskId of catalog.acceptedTaskIds) {
+for (const taskId of legacyTaskIds) {
   const migration = path.join(root, 'migrations', taskId);
   const task = path.join(root, 'tasks', taskId);
   const execution = read(path.join(migration, 'execution.json'));
@@ -185,4 +186,4 @@ for (const taskId of catalog.acceptedTaskIds) {
   });
 }
 
-console.log(JSON.stringify({ projectId: catalog.projectId, tasks: catalog.acceptedTaskIds, cacheResidue, binaryResidue }));
+console.log(JSON.stringify({ projectId: catalog.projectId, tasks: legacyTaskIds, cacheResidue, binaryResidue }));

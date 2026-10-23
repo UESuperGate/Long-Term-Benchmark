@@ -1,0 +1,4363 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_reading_lists",
+  "platform": "android",
+  "role": "agent",
+  "observationMode": "runtime_state_transition",
+  "runtime": "api37_android_instrumentation_focused_production_action_prefix",
+  "codeGeneration": {
+    "passed": null,
+    "changedProductionFiles": []
+  },
+  "compile": {
+    "passed": true,
+    "command": [
+      "bash",
+      "{project}/build.sh"
+    ],
+    "artifacts": [
+      {
+        "path": "app/build/outputs/apk/debug/app-debug.apk",
+        "sha256": "6f9f40a0e14309f83b96ce97f5d2fb0233677f78d33f0854f642b3aa165eb3b3",
+        "bytes": 1346538
+      },
+      {
+        "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+        "sha256": "0f6205954cf9ea2282d70c9f7802cbcc4c1b7c5bf83d5322a705500b1cc7ab71",
+        "bytes": 12786
+      }
+    ]
+  },
+  "semantic": {
+    "passed": 10,
+    "failed": 0,
+    "notScored": 0,
+    "total": 10,
+    "cases": [
+      {
+        "caseId": "rl_all_articles_deduplicates_memberships",
+        "key": "all_articles_deduplicates_memberships",
+        "traceDigest": "d6f8d07df528095c640e70e6b32ee7d7f01b39b42b6a82b65366f0d1c8082367",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "ReadingListsViewModel.readingListsContentState",
+          "ReadingListsViewModel.buildArticleRows"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "roomLists": [
+                {
+                  "title": "Saved",
+                  "isDefault": true,
+                  "articles": [
+                    "en:Ada_Lovelace",
+                    "en:Paris"
+                  ]
+                },
+                {
+                  "title": "People",
+                  "isDefault": false,
+                  "articles": [
+                    "en:Ada_Lovelace"
+                  ]
+                },
+                {
+                  "title": "Places",
+                  "isDefault": false,
+                  "articles": [
+                    "fr:Paris"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "roomLists": [
+                  {
+                    "title": "Saved",
+                    "isDefault": true,
+                    "articles": [
+                      "en:Ada_Lovelace",
+                      "en:Paris"
+                    ]
+                  },
+                  {
+                    "title": "People",
+                    "isDefault": false,
+                    "articles": [
+                      "en:Ada_Lovelace"
+                    ]
+                  },
+                  {
+                    "title": "Places",
+                    "isDefault": false,
+                    "articles": [
+                      "fr:Paris"
+                    ]
+                  }
+                ]
+              },
+              "persistence": {},
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "openSavedSurface"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "roomLists": [
+                  {
+                    "title": "Saved",
+                    "isDefault": true,
+                    "articles": [
+                      "en:Ada_Lovelace",
+                      "en:Paris"
+                    ]
+                  },
+                  {
+                    "title": "People",
+                    "isDefault": false,
+                    "articles": [
+                      "en:Ada_Lovelace"
+                    ]
+                  },
+                  {
+                    "title": "Places",
+                    "isDefault": false,
+                    "articles": [
+                      "fr:Paris"
+                    ]
+                  }
+                ],
+                "phase": "content",
+                "articleRows": [
+                  {
+                    "article": "en:Ada_Lovelace",
+                    "containingCollections": [
+                      "Saved",
+                      "People"
+                    ]
+                  },
+                  {
+                    "article": "en:Paris",
+                    "containingCollections": [
+                      "Saved"
+                    ]
+                  },
+                  {
+                    "article": "fr:Paris",
+                    "containingCollections": [
+                      "Places"
+                    ]
+                  }
+                ],
+                "hasSavedArticles": true
+              },
+              "persistence": {
+                "roomMembershipsUnchanged": true
+              },
+              "effects": [
+                {
+                  "name": "collectListsWithPagesFlow"
+                }
+              ],
+              "reopenedPersistence": {
+                "roomMembershipsUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "roomLists": [
+              {
+                "title": "Saved",
+                "isDefault": true,
+                "articles": [
+                  "en:Ada_Lovelace",
+                  "en:Paris"
+                ]
+              },
+              {
+                "title": "People",
+                "isDefault": false,
+                "articles": [
+                  "en:Ada_Lovelace"
+                ]
+              },
+              {
+                "title": "Places",
+                "isDefault": false,
+                "articles": [
+                  "fr:Paris"
+                ]
+              }
+            ],
+            "phase": "content",
+            "articleRows": [
+              {
+                "article": "en:Ada_Lovelace",
+                "containingCollections": [
+                  "Saved",
+                  "People"
+                ]
+              },
+              {
+                "article": "en:Paris",
+                "containingCollections": [
+                  "Saved"
+                ]
+              },
+              {
+                "article": "fr:Paris",
+                "containingCollections": [
+                  "Places"
+                ]
+              }
+            ],
+            "hasSavedArticles": true
+          },
+          "persistence": {
+            "roomMembershipsUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "collectListsWithPagesFlow"
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "logical article identity is the pair of wiki language and API title",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true,
+                      "articles": [
+                        "en:Ada_Lovelace",
+                        "en:Paris"
+                      ]
+                    },
+                    {
+                      "title": "People",
+                      "isDefault": false,
+                      "articles": [
+                        "en:Ada_Lovelace"
+                      ]
+                    },
+                    {
+                      "title": "Places",
+                      "isDefault": false,
+                      "articles": [
+                        "fr:Paris"
+                      ]
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true,
+                      "articles": [
+                        "en:Ada_Lovelace",
+                        "en:Paris"
+                      ]
+                    },
+                    {
+                      "title": "People",
+                      "isDefault": false,
+                      "articles": [
+                        "en:Ada_Lovelace"
+                      ]
+                    },
+                    {
+                      "title": "Places",
+                      "isDefault": false,
+                      "articles": [
+                        "fr:Paris"
+                      ]
+                    }
+                  ],
+                  "phase": "content",
+                  "articleRows": [
+                    {
+                      "article": "en:Ada_Lovelace",
+                      "containingCollections": [
+                        "Saved",
+                        "People"
+                      ]
+                    },
+                    {
+                      "article": "en:Paris",
+                      "containingCollections": [
+                        "Saved"
+                      ]
+                    },
+                    {
+                      "article": "fr:Paris",
+                      "containingCollections": [
+                        "Places"
+                      ]
+                    }
+                  ],
+                  "hasSavedArticles": true
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "collectListsWithPagesFlow"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "collectListsWithPagesFlow"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "one All articles row retains every containing collection",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true,
+                      "articles": [
+                        "en:Ada_Lovelace",
+                        "en:Paris"
+                      ]
+                    },
+                    {
+                      "title": "People",
+                      "isDefault": false,
+                      "articles": [
+                        "en:Ada_Lovelace"
+                      ]
+                    },
+                    {
+                      "title": "Places",
+                      "isDefault": false,
+                      "articles": [
+                        "fr:Paris"
+                      ]
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true,
+                      "articles": [
+                        "en:Ada_Lovelace",
+                        "en:Paris"
+                      ]
+                    },
+                    {
+                      "title": "People",
+                      "isDefault": false,
+                      "articles": [
+                        "en:Ada_Lovelace"
+                      ]
+                    },
+                    {
+                      "title": "Places",
+                      "isDefault": false,
+                      "articles": [
+                        "fr:Paris"
+                      ]
+                    }
+                  ],
+                  "phase": "content",
+                  "articleRows": [
+                    {
+                      "article": "en:Ada_Lovelace",
+                      "containingCollections": [
+                        "Saved",
+                        "People"
+                      ]
+                    },
+                    {
+                      "article": "en:Paris",
+                      "containingCollections": [
+                        "Saved"
+                      ]
+                    },
+                    {
+                      "article": "fr:Paris",
+                      "containingCollections": [
+                        "Places"
+                      ]
+                    }
+                  ],
+                  "hasSavedArticles": true
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "collectListsWithPagesFlow"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "collectListsWithPagesFlow"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the given memberships are established through production save and collection actions",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true,
+                      "articles": [
+                        "en:Ada_Lovelace",
+                        "en:Paris"
+                      ]
+                    },
+                    {
+                      "title": "People",
+                      "isDefault": false,
+                      "articles": [
+                        "en:Ada_Lovelace"
+                      ]
+                    },
+                    {
+                      "title": "Places",
+                      "isDefault": false,
+                      "articles": [
+                        "fr:Paris"
+                      ]
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true,
+                      "articles": [
+                        "en:Ada_Lovelace",
+                        "en:Paris"
+                      ]
+                    },
+                    {
+                      "title": "People",
+                      "isDefault": false,
+                      "articles": [
+                        "en:Ada_Lovelace"
+                      ]
+                    },
+                    {
+                      "title": "Places",
+                      "isDefault": false,
+                      "articles": [
+                        "fr:Paris"
+                      ]
+                    }
+                  ],
+                  "phase": "content",
+                  "articleRows": [
+                    {
+                      "article": "en:Ada_Lovelace",
+                      "containingCollections": [
+                        "Saved",
+                        "People"
+                      ]
+                    },
+                    {
+                      "article": "en:Paris",
+                      "containingCollections": [
+                        "Saved"
+                      ]
+                    },
+                    {
+                      "article": "fr:Paris",
+                      "containingCollections": [
+                        "Places"
+                      ]
+                    }
+                  ],
+                  "hasSavedArticles": true
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "collectListsWithPagesFlow"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "collectListsWithPagesFlow"
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_collections_tab_uses_own_sort_and_excludes_default",
+        "key": "collections_tab_uses_own_sort_and_excludes_default",
+        "traceDigest": "b7ee32dd221de6464277503c5b2242a12e6cf7ec7e62ae47197d24a959cc78e4",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "ReadingListsViewModel.setSelectedTab",
+          "ReadingListsViewModel.buildCollectionsRows"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "ALL_ARTICLES",
+              "roomLists": [
+                {
+                  "title": "Saved",
+                  "isDefault": true
+                },
+                {
+                  "title": "Zoo",
+                  "isDefault": false
+                },
+                {
+                  "title": "Alpha",
+                  "isDefault": false
+                }
+              ],
+              "persistedSortModes": {
+                "ALL_ARTICLES": 1,
+                "COLLECTIONS": 0
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "roomLists": [
+                  {
+                    "title": "Saved",
+                    "isDefault": true
+                  },
+                  {
+                    "title": "Zoo",
+                    "isDefault": false
+                  },
+                  {
+                    "title": "Alpha",
+                    "isDefault": false
+                  }
+                ]
+              },
+              "persistence": {},
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "selectSavedTab",
+              "tab": "COLLECTIONS"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "COLLECTIONS",
+                "roomLists": [
+                  {
+                    "title": "Saved",
+                    "isDefault": true
+                  },
+                  {
+                    "title": "Zoo",
+                    "isDefault": false
+                  },
+                  {
+                    "title": "Alpha",
+                    "isDefault": false
+                  }
+                ],
+                "sortMode": 0,
+                "collectionRows": [
+                  "Alpha",
+                  "Zoo"
+                ],
+                "defaultCollectionVisible": false
+              },
+              "persistence": {
+                "articleSortMode": 1,
+                "collectionSortMode": 0,
+                "roomListsUnchanged": true
+              },
+              "effects": [
+                {
+                  "name": "reduceRowsForTab",
+                  "tab": "COLLECTIONS"
+                }
+              ],
+              "reopenedPersistence": {
+                "articleSortMode": 1,
+                "collectionSortMode": 0,
+                "roomListsUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "COLLECTIONS",
+            "roomLists": [
+              {
+                "title": "Saved",
+                "isDefault": true
+              },
+              {
+                "title": "Zoo",
+                "isDefault": false
+              },
+              {
+                "title": "Alpha",
+                "isDefault": false
+              }
+            ],
+            "sortMode": 0,
+            "collectionRows": [
+              "Alpha",
+              "Zoo"
+            ],
+            "defaultCollectionVisible": false
+          },
+          "persistence": {
+            "articleSortMode": 1,
+            "collectionSortMode": 0,
+            "roomListsUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "reduceRowsForTab",
+              "tab": "COLLECTIONS"
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "SORT_BY_NAME_ASC is 0 and SORT_BY_NAME_DESC is 1 in final production",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    },
+                    {
+                      "title": "Zoo",
+                      "isDefault": false
+                    },
+                    {
+                      "title": "Alpha",
+                      "isDefault": false
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "COLLECTIONS",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    },
+                    {
+                      "title": "Zoo",
+                      "isDefault": false
+                    },
+                    {
+                      "title": "Alpha",
+                      "isDefault": false
+                    }
+                  ],
+                  "sortMode": 0,
+                  "collectionRows": [
+                    "Alpha",
+                    "Zoo"
+                  ],
+                  "defaultCollectionVisible": false
+                },
+                "persistence": {
+                  "articleSortMode": 1,
+                  "collectionSortMode": 0,
+                  "roomListsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "reduceRowsForTab",
+                    "tab": "COLLECTIONS"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "articleSortMode": 1,
+                  "collectionSortMode": 0,
+                  "roomListsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "reduceRowsForTab",
+                  "tab": "COLLECTIONS"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "article and collection sort preferences persist independently",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    },
+                    {
+                      "title": "Zoo",
+                      "isDefault": false
+                    },
+                    {
+                      "title": "Alpha",
+                      "isDefault": false
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "COLLECTIONS",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    },
+                    {
+                      "title": "Zoo",
+                      "isDefault": false
+                    },
+                    {
+                      "title": "Alpha",
+                      "isDefault": false
+                    }
+                  ],
+                  "sortMode": 0,
+                  "collectionRows": [
+                    "Alpha",
+                    "Zoo"
+                  ],
+                  "defaultCollectionVisible": false
+                },
+                "persistence": {
+                  "articleSortMode": 1,
+                  "collectionSortMode": 0,
+                  "roomListsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "reduceRowsForTab",
+                    "tab": "COLLECTIONS"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "articleSortMode": 1,
+                  "collectionSortMode": 0,
+                  "roomListsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "reduceRowsForTab",
+                  "tab": "COLLECTIONS"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "switching tabs changes only presentation and does not remove the default collection from Room",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    },
+                    {
+                      "title": "Zoo",
+                      "isDefault": false
+                    },
+                    {
+                      "title": "Alpha",
+                      "isDefault": false
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "COLLECTIONS",
+                  "roomLists": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    },
+                    {
+                      "title": "Zoo",
+                      "isDefault": false
+                    },
+                    {
+                      "title": "Alpha",
+                      "isDefault": false
+                    }
+                  ],
+                  "sortMode": 0,
+                  "collectionRows": [
+                    "Alpha",
+                    "Zoo"
+                  ],
+                  "defaultCollectionVisible": false
+                },
+                "persistence": {
+                  "articleSortMode": 1,
+                  "collectionSortMode": 0,
+                  "roomListsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "reduceRowsForTab",
+                    "tab": "COLLECTIONS"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "articleSortMode": 1,
+                  "collectionSortMode": 0,
+                  "roomListsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "reduceRowsForTab",
+                  "tab": "COLLECTIONS"
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_all_articles_search_is_debounced_and_scoped",
+        "key": "all_articles_search_is_debounced_and_scoped",
+        "traceDigest": "2e492cec9975788f1286874d16d5909042b2b0dc9799f048e2e72a6cf2367066",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "ReadingListsFragment.searchActionModeCallback",
+          "ReadingListsViewModel.setSearchQuery",
+          "ReadingListsViewModel.buildSearchRows"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "ALL_ARTICLES",
+              "searchQuery": null,
+              "searchDebounceMillis": 150,
+              "articleRows": [
+                "en:Cafe",
+                "en:Tea"
+              ],
+              "collectionTitles": [
+                "Cafe Collection"
+              ]
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "sourceArticleRows": [
+                  {
+                    "article": "en:Cafe",
+                    "displayTitle": "Caf\u00e9"
+                  },
+                  {
+                    "article": "en:Tea",
+                    "displayTitle": "Tea"
+                  }
+                ]
+              },
+              "persistence": {},
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "enterSavedSearchQuery",
+              "query": "cafe",
+              "observeAfterMillis": 150
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "sourceArticleRows": [
+                  {
+                    "article": "en:Cafe",
+                    "displayTitle": "Caf\u00e9"
+                  },
+                  {
+                    "article": "en:Tea",
+                    "displayTitle": "Tea"
+                  }
+                ],
+                "searchActive": true,
+                "searchQuery": "cafe",
+                "rows": [
+                  {
+                    "type": "article",
+                    "article": "en:Cafe",
+                    "displayTitle": "Caf\u00e9"
+                  }
+                ]
+              },
+              "persistence": {
+                "roomMembershipsUnchanged": true
+              },
+              "effects": [
+                {
+                  "name": "debouncedContentReduction",
+                  "delayMillis": 150,
+                  "accentInsensitive": true
+                }
+              ],
+              "reopenedPersistence": {
+                "roomMembershipsUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "sourceArticleRows": [
+              {
+                "article": "en:Cafe",
+                "displayTitle": "Caf\u00e9"
+              },
+              {
+                "article": "en:Tea",
+                "displayTitle": "Tea"
+              }
+            ],
+            "searchActive": true,
+            "searchQuery": "cafe",
+            "rows": [
+              {
+                "type": "article",
+                "article": "en:Cafe",
+                "displayTitle": "Caf\u00e9"
+              }
+            ]
+          },
+          "persistence": {
+            "roomMembershipsUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "debouncedContentReduction",
+              "delayMillis": 150,
+              "accentInsensitive": true
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the query is entered through the production search callback",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "sourceArticleRows": [
+                    {
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    },
+                    {
+                      "article": "en:Tea",
+                      "displayTitle": "Tea"
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "sourceArticleRows": [
+                    {
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    },
+                    {
+                      "article": "en:Tea",
+                      "displayTitle": "Tea"
+                    }
+                  ],
+                  "searchActive": true,
+                  "searchQuery": "cafe",
+                  "rows": [
+                    {
+                      "type": "article",
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    }
+                  ]
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "debouncedContentReduction",
+                    "delayMillis": 150,
+                    "accentInsensitive": true
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "debouncedContentReduction",
+                  "delayMillis": 150,
+                  "accentInsensitive": true
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "a nonempty query waits for the exact 150 millisecond production debounce",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "sourceArticleRows": [
+                    {
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    },
+                    {
+                      "article": "en:Tea",
+                      "displayTitle": "Tea"
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "sourceArticleRows": [
+                    {
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    },
+                    {
+                      "article": "en:Tea",
+                      "displayTitle": "Tea"
+                    }
+                  ],
+                  "searchActive": true,
+                  "searchQuery": "cafe",
+                  "rows": [
+                    {
+                      "type": "article",
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    }
+                  ]
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "debouncedContentReduction",
+                    "delayMillis": 150,
+                    "accentInsensitive": true
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "debouncedContentReduction",
+                  "delayMillis": 150,
+                  "accentInsensitive": true
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "All articles search returns article rows only and does not mutate membership",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "sourceArticleRows": [
+                    {
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    },
+                    {
+                      "article": "en:Tea",
+                      "displayTitle": "Tea"
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "sourceArticleRows": [
+                    {
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    },
+                    {
+                      "article": "en:Tea",
+                      "displayTitle": "Tea"
+                    }
+                  ],
+                  "searchActive": true,
+                  "searchQuery": "cafe",
+                  "rows": [
+                    {
+                      "type": "article",
+                      "article": "en:Cafe",
+                      "displayTitle": "Caf\u00e9"
+                    }
+                  ]
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "debouncedContentReduction",
+                    "delayMillis": 150,
+                    "accentInsensitive": true
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "debouncedContentReduction",
+                  "delayMillis": 150,
+                  "accentInsensitive": true
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_default_only_filter_uses_all_memberships",
+        "key": "default_only_filter_uses_all_memberships",
+        "traceDigest": "1b78a36e6b4c8336f56b487e7c92b8c391008bffa8daefa3b070385197fb39fd",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "ReadingListsViewModel.setArticleFilter",
+          "ReadingListsViewModel.buildArticleRows"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "ALL_ARTICLES",
+              "selectedArticleFilter": "ALL_ARTICLES",
+              "articleMemberships": {
+                "en:Default_only": [
+                  "Saved"
+                ],
+                "en:Default_and_travel": [
+                  "Saved",
+                  "Travel"
+                ],
+                "en:Travel_only": [
+                  "Travel"
+                ]
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "articleMemberships": {
+                  "en:Default_only": [
+                    "Saved"
+                  ],
+                  "en:Default_and_travel": [
+                    "Saved",
+                    "Travel"
+                  ],
+                  "en:Travel_only": [
+                    "Travel"
+                  ]
+                }
+              },
+              "persistence": {},
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "selectArticleFilter",
+              "filter": "NOT_IN_COLLECTION"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "articleMemberships": {
+                  "en:Default_only": [
+                    "Saved"
+                  ],
+                  "en:Default_and_travel": [
+                    "Saved",
+                    "Travel"
+                  ],
+                  "en:Travel_only": [
+                    "Travel"
+                  ]
+                },
+                "selectedArticleFilter": "NOT_IN_COLLECTION",
+                "articleRows": [
+                  "en:Default_only"
+                ]
+              },
+              "persistence": {
+                "articleMembershipsUnchanged": true
+              },
+              "effects": [
+                {
+                  "name": "reduceArticleRows",
+                  "predicate": "all containing collections are default"
+                }
+              ],
+              "reopenedPersistence": {
+                "articleMembershipsUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "articleMemberships": {
+              "en:Default_only": [
+                "Saved"
+              ],
+              "en:Default_and_travel": [
+                "Saved",
+                "Travel"
+              ],
+              "en:Travel_only": [
+                "Travel"
+              ]
+            },
+            "selectedArticleFilter": "NOT_IN_COLLECTION",
+            "articleRows": [
+              "en:Default_only"
+            ]
+          },
+          "persistence": {
+            "articleMembershipsUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "reduceArticleRows",
+              "predicate": "all containing collections are default"
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the filter examines the complete containing-collection set of each deduplicated article",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleMemberships": {
+                    "en:Default_only": [
+                      "Saved"
+                    ],
+                    "en:Default_and_travel": [
+                      "Saved",
+                      "Travel"
+                    ],
+                    "en:Travel_only": [
+                      "Travel"
+                    ]
+                  }
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleMemberships": {
+                    "en:Default_only": [
+                      "Saved"
+                    ],
+                    "en:Default_and_travel": [
+                      "Saved",
+                      "Travel"
+                    ],
+                    "en:Travel_only": [
+                      "Travel"
+                    ]
+                  },
+                  "selectedArticleFilter": "NOT_IN_COLLECTION",
+                  "articleRows": [
+                    "en:Default_only"
+                  ]
+                },
+                "persistence": {
+                  "articleMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "reduceArticleRows",
+                    "predicate": "all containing collections are default"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "articleMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "reduceArticleRows",
+                  "predicate": "all containing collections are default"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "an article in any named collection is excluded even if it is also in Saved",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleMemberships": {
+                    "en:Default_only": [
+                      "Saved"
+                    ],
+                    "en:Default_and_travel": [
+                      "Saved",
+                      "Travel"
+                    ],
+                    "en:Travel_only": [
+                      "Travel"
+                    ]
+                  }
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleMemberships": {
+                    "en:Default_only": [
+                      "Saved"
+                    ],
+                    "en:Default_and_travel": [
+                      "Saved",
+                      "Travel"
+                    ],
+                    "en:Travel_only": [
+                      "Travel"
+                    ]
+                  },
+                  "selectedArticleFilter": "NOT_IN_COLLECTION",
+                  "articleRows": [
+                    "en:Default_only"
+                  ]
+                },
+                "persistence": {
+                  "articleMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "reduceArticleRows",
+                    "predicate": "all containing collections are default"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "articleMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "reduceArticleRows",
+                  "predicate": "all containing collections are default"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "filtering changes presentation only",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleMemberships": {
+                    "en:Default_only": [
+                      "Saved"
+                    ],
+                    "en:Default_and_travel": [
+                      "Saved",
+                      "Travel"
+                    ],
+                    "en:Travel_only": [
+                      "Travel"
+                    ]
+                  }
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleMemberships": {
+                    "en:Default_only": [
+                      "Saved"
+                    ],
+                    "en:Default_and_travel": [
+                      "Saved",
+                      "Travel"
+                    ],
+                    "en:Travel_only": [
+                      "Travel"
+                    ]
+                  },
+                  "selectedArticleFilter": "NOT_IN_COLLECTION",
+                  "articleRows": [
+                    "en:Default_only"
+                  ]
+                },
+                "persistence": {
+                  "articleMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "reduceArticleRows",
+                    "predicate": "all containing collections are default"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "articleMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "reduceArticleRows",
+                  "predicate": "all containing collections are default"
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_select_all_targets_visible_deduplicated_rows",
+        "key": "select_all_targets_visible_deduplicated_rows",
+        "traceDigest": "c70c1bc1dab9e3249a18e6cb4cd1e5b32edbf88328c3d8877fa24a8f0c551737",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "ReadingListsViewModel.selectAllPages"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "ALL_ARTICLES",
+              "selectedArticleFilter": "NOT_IN_COLLECTION",
+              "visibleArticleRows": [
+                {
+                  "id": 11,
+                  "article": "en:Ada_Lovelace"
+                },
+                {
+                  "id": 12,
+                  "article": "en:Grace_Hopper"
+                }
+              ],
+              "hiddenByFilter": [
+                {
+                  "id": 13,
+                  "article": "en:Paris",
+                  "collections": [
+                    "Saved",
+                    "Travel"
+                  ]
+                }
+              ],
+              "selection": {
+                "enabled": true,
+                "selectedPageIds": []
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "visibleArticleRows": [
+                  {
+                    "id": 11,
+                    "article": "en:Ada_Lovelace"
+                  },
+                  {
+                    "id": 12,
+                    "article": "en:Grace_Hopper"
+                  }
+                ]
+              },
+              "persistence": {},
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "selectAllVisibleRows"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "visibleArticleRows": [
+                  {
+                    "id": 11,
+                    "article": "en:Ada_Lovelace"
+                  },
+                  {
+                    "id": 12,
+                    "article": "en:Grace_Hopper"
+                  }
+                ],
+                "selection": {
+                  "enabled": true,
+                  "selectedPageIds": [
+                    11,
+                    12
+                  ]
+                }
+              },
+              "persistence": {
+                "roomMembershipsUnchanged": true
+              },
+              "effects": [
+                {
+                  "name": "replaceSelectionWithVisiblePageIds",
+                  "count": 2
+                }
+              ],
+              "reopenedPersistence": {
+                "roomMembershipsUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "visibleArticleRows": [
+              {
+                "id": 11,
+                "article": "en:Ada_Lovelace"
+              },
+              {
+                "id": 12,
+                "article": "en:Grace_Hopper"
+              }
+            ],
+            "selection": {
+              "enabled": true,
+              "selectedPageIds": [
+                11,
+                12
+              ]
+            }
+          },
+          "persistence": {
+            "roomMembershipsUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "replaceSelectionWithVisiblePageIds",
+              "count": 2
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "selection IDs come from the current production uiState rows",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    {
+                      "id": 11,
+                      "article": "en:Ada_Lovelace"
+                    },
+                    {
+                      "id": 12,
+                      "article": "en:Grace_Hopper"
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    {
+                      "id": 11,
+                      "article": "en:Ada_Lovelace"
+                    },
+                    {
+                      "id": 12,
+                      "article": "en:Grace_Hopper"
+                    }
+                  ],
+                  "selection": {
+                    "enabled": true,
+                    "selectedPageIds": [
+                      11,
+                      12
+                    ]
+                  }
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "replaceSelectionWithVisiblePageIds",
+                    "count": 2
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "replaceSelectionWithVisiblePageIds",
+                  "count": 2
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "one deduplicated logical row contributes at most one selected ID",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    {
+                      "id": 11,
+                      "article": "en:Ada_Lovelace"
+                    },
+                    {
+                      "id": 12,
+                      "article": "en:Grace_Hopper"
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    {
+                      "id": 11,
+                      "article": "en:Ada_Lovelace"
+                    },
+                    {
+                      "id": 12,
+                      "article": "en:Grace_Hopper"
+                    }
+                  ],
+                  "selection": {
+                    "enabled": true,
+                    "selectedPageIds": [
+                      11,
+                      12
+                    ]
+                  }
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "replaceSelectionWithVisiblePageIds",
+                    "count": 2
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "replaceSelectionWithVisiblePageIds",
+                  "count": 2
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "filtered-out rows are not selected",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    {
+                      "id": 11,
+                      "article": "en:Ada_Lovelace"
+                    },
+                    {
+                      "id": 12,
+                      "article": "en:Grace_Hopper"
+                    }
+                  ]
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    {
+                      "id": 11,
+                      "article": "en:Ada_Lovelace"
+                    },
+                    {
+                      "id": 12,
+                      "article": "en:Grace_Hopper"
+                    }
+                  ],
+                  "selection": {
+                    "enabled": true,
+                    "selectedPageIds": [
+                      11,
+                      12
+                    ]
+                  }
+                },
+                "persistence": {
+                  "roomMembershipsUnchanged": true
+                },
+                "effects": [
+                  {
+                    "name": "replaceSelectionWithVisiblePageIds",
+                    "count": 2
+                  }
+                ],
+                "reopenedPersistence": {
+                  "roomMembershipsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "replaceSelectionWithVisiblePageIds",
+                  "count": 2
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_offline_redirect_failure_saves_original_and_propagates",
+        "key": "offline_redirect_failure_saves_original_and_propagates",
+        "traceDigest": "5e9f27fc097ebb703414f4b9afb6dfda7f3a152dd2457326e73c988a88be4ffc",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "SaveArticleSheetDialog.show",
+          "SaveArticleSheetViewModel.saveArticle",
+          "SaveArticleSheetViewModel.resolveRedirect",
+          "ReadingListsViewModel.readingListsContentState"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "article": {
+                "language": "en",
+                "apiTitle": "Original_Title",
+                "displayTitle": "Original Title"
+              },
+              "memberships": [],
+              "redirectMetadataHttp": "error:io",
+              "savedSurface": {
+                "selectedTab": "ALL_ARTICLES",
+                "articleRows": []
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "article": {
+                  "language": "en",
+                  "apiTitle": "Original_Title",
+                  "displayTitle": "Original Title"
+                }
+              },
+              "persistence": {},
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "openSaveArticleSheet",
+              "article": "en:Original_Title"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "article": {
+                  "language": "en",
+                  "apiTitle": "Original_Title",
+                  "displayTitle": "Original Title"
+                },
+                "saveSheet": {
+                  "article": "en:Original_Title",
+                  "isSaved": true,
+                  "collections": []
+                },
+                "savedSurface": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleRows": [
+                    "en:Original_Title"
+                  ]
+                }
+              },
+              "persistence": {
+                "memberships": {
+                  "en:Original_Title": [
+                    "Saved"
+                  ]
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "redirect_metadata_http",
+                  "status": "failed",
+                  "exception": "IOException"
+                },
+                {
+                  "name": "addPagesToListIfNotExist",
+                  "list": "Saved",
+                  "article": "en:Original_Title"
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surfaces": [
+                    "save_article_sheet",
+                    "all_articles"
+                  ]
+                }
+              ],
+              "reopenedPersistence": {
+                "memberships": {
+                  "en:Original_Title": [
+                    "Saved"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "article": {
+              "language": "en",
+              "apiTitle": "Original_Title",
+              "displayTitle": "Original Title"
+            },
+            "saveSheet": {
+              "article": "en:Original_Title",
+              "isSaved": true,
+              "collections": []
+            },
+            "savedSurface": {
+              "selectedTab": "ALL_ARTICLES",
+              "articleRows": [
+                "en:Original_Title"
+              ]
+            }
+          },
+          "persistence": {
+            "memberships": {
+              "en:Original_Title": [
+                "Saved"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "leaf": "redirect_metadata_http",
+              "status": "failed",
+              "exception": "IOException"
+            },
+            {
+              "name": "addPagesToListIfNotExist",
+              "list": "Saved",
+              "article": "en:Original_Title"
+            },
+            {
+              "name": "roomFlowPropagation",
+              "surfaces": [
+                "save_article_sheet",
+                "all_articles"
+              ]
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the PageTitle is supplied through the real SaveArticleSheetDialog argument",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  }
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  },
+                  "saveSheet": {
+                    "article": "en:Original_Title",
+                    "isSaved": true,
+                    "collections": []
+                  },
+                  "savedSurface": {
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      "en:Original_Title"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "redirect_metadata_http",
+                    "status": "failed",
+                    "exception": "IOException"
+                  },
+                  {
+                    "name": "addPagesToListIfNotExist",
+                    "list": "Saved",
+                    "article": "en:Original_Title"
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surfaces": [
+                      "save_article_sheet",
+                      "all_articles"
+                    ]
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "redirect_metadata_http",
+                  "status": "failed",
+                  "exception": "IOException"
+                },
+                {
+                  "name": "addPagesToListIfNotExist",
+                  "list": "Saved",
+                  "article": "en:Original_Title"
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surfaces": [
+                    "save_article_sheet",
+                    "all_articles"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "IOException is controlled only at the external HTTP leaf",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  }
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  },
+                  "saveSheet": {
+                    "article": "en:Original_Title",
+                    "isSaved": true,
+                    "collections": []
+                  },
+                  "savedSurface": {
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      "en:Original_Title"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "redirect_metadata_http",
+                    "status": "failed",
+                    "exception": "IOException"
+                  },
+                  {
+                    "name": "addPagesToListIfNotExist",
+                    "list": "Saved",
+                    "article": "en:Original_Title"
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surfaces": [
+                      "save_article_sheet",
+                      "all_articles"
+                    ]
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "redirect_metadata_http",
+                  "status": "failed",
+                  "exception": "IOException"
+                },
+                {
+                  "name": "addPagesToListIfNotExist",
+                  "list": "Saved",
+                  "article": "en:Original_Title"
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surfaces": [
+                    "save_article_sheet",
+                    "all_articles"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the original language and API title remain the persisted identity",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  }
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  },
+                  "saveSheet": {
+                    "article": "en:Original_Title",
+                    "isSaved": true,
+                    "collections": []
+                  },
+                  "savedSurface": {
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      "en:Original_Title"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "redirect_metadata_http",
+                    "status": "failed",
+                    "exception": "IOException"
+                  },
+                  {
+                    "name": "addPagesToListIfNotExist",
+                    "list": "Saved",
+                    "article": "en:Original_Title"
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surfaces": [
+                      "save_article_sheet",
+                      "all_articles"
+                    ]
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "redirect_metadata_http",
+                  "status": "failed",
+                  "exception": "IOException"
+                },
+                {
+                  "name": "addPagesToListIfNotExist",
+                  "list": "Saved",
+                  "article": "en:Original_Title"
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surfaces": [
+                    "save_article_sheet",
+                    "all_articles"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the same Room write updates both visible production surfaces",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  }
+                },
+                "persistence": {},
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": {
+                    "language": "en",
+                    "apiTitle": "Original_Title",
+                    "displayTitle": "Original Title"
+                  },
+                  "saveSheet": {
+                    "article": "en:Original_Title",
+                    "isSaved": true,
+                    "collections": []
+                  },
+                  "savedSurface": {
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      "en:Original_Title"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "redirect_metadata_http",
+                    "status": "failed",
+                    "exception": "IOException"
+                  },
+                  {
+                    "name": "addPagesToListIfNotExist",
+                    "list": "Saved",
+                    "article": "en:Original_Title"
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surfaces": [
+                      "save_article_sheet",
+                      "all_articles"
+                    ]
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": {
+                    "en:Original_Title": [
+                      "Saved"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "redirect_metadata_http",
+                  "status": "failed",
+                  "exception": "IOException"
+                },
+                {
+                  "name": "addPagesToListIfNotExist",
+                  "list": "Saved",
+                  "article": "en:Original_Title"
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surfaces": [
+                    "save_article_sheet",
+                    "all_articles"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_cancel_named_unsave_is_noop",
+        "key": "cancel_named_unsave_is_noop",
+        "traceDigest": "ee1308dd08c81bc8b3ff51929a647ebafac23c09f01ed84d6640d8dd1fcf003e",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "SaveArticleSheetDialog.cancelUnsaveConfirmation"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "saveSheet": {
+                "article": "en:Ada_Lovelace",
+                "isSaved": true,
+                "pendingConfirmation": true
+              },
+              "memberships": [
+                "Saved",
+                "People"
+              ]
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "saveSheet": {
+                  "article": "en:Ada_Lovelace",
+                  "isSaved": true,
+                  "pendingConfirmation": true
+                }
+              },
+              "persistence": {
+                "memberships": [
+                  "Saved",
+                  "People"
+                ]
+              },
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "cancelUnsaveConfirmation"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "saveSheet": {
+                  "article": "en:Ada_Lovelace",
+                  "isSaved": true,
+                  "pendingConfirmation": false,
+                  "dismissed": false
+                }
+              },
+              "persistence": {
+                "memberships": [
+                  "Saved",
+                  "People"
+                ]
+              },
+              "effects": [
+                {
+                  "name": "dismissConfirmationOnly"
+                }
+              ],
+              "reopenedPersistence": {
+                "memberships": [
+                  "Saved",
+                  "People"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "saveSheet": {
+              "article": "en:Ada_Lovelace",
+              "isSaved": true,
+              "pendingConfirmation": false,
+              "dismissed": false
+            }
+          },
+          "persistence": {
+            "memberships": [
+              "Saved",
+              "People"
+            ]
+          },
+          "effects": [
+            {
+              "name": "dismissConfirmationOnly"
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the confirmation is required because at least one containing collection is nondefault",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "pendingConfirmation": true
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "pendingConfirmation": false,
+                    "dismissed": false
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                },
+                "effects": [
+                  {
+                    "name": "dismissConfirmationOnly"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                }
+              },
+              "effects": [
+                {
+                  "name": "dismissConfirmationOnly"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "cancellation invokes no ViewModel confirm method",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "pendingConfirmation": true
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "pendingConfirmation": false,
+                    "dismissed": false
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                },
+                "effects": [
+                  {
+                    "name": "dismissConfirmationOnly"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                }
+              },
+              "effects": [
+                {
+                  "name": "dismissConfirmationOnly"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "every membership and visible row remains intact",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "pendingConfirmation": true
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "pendingConfirmation": false,
+                    "dismissed": false
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                },
+                "effects": [
+                  {
+                    "name": "dismissConfirmationOnly"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": [
+                    "Saved",
+                    "People"
+                  ]
+                }
+              },
+              "effects": [
+                {
+                  "name": "dismissConfirmationOnly"
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_delete_deduplicated_article_undo_restores_memberships",
+        "key": "delete_deduplicated_article_undo_restores_memberships",
+        "traceDigest": "972703524be31d47884ea804e9f76f36ea599a041e2b07308983e31c5727964a",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "ReadingListBehaviorsUtil.showDeletePagesFromListsUndoSnackbar",
+          "ReadingListPageDao.addPagesToList"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "ALL_ARTICLES",
+              "queuedForDeletion": {
+                "en:Ada_Lovelace": [
+                  "Saved",
+                  "People"
+                ]
+              },
+              "visibleArticleRows": [
+                "en:Grace_Hopper"
+              ],
+              "undoAvailable": true
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "visibleArticleRows": [
+                  "en:Grace_Hopper"
+                ]
+              },
+              "persistence": {
+                "memberships": {
+                  "en:Ada_Lovelace": [
+                    "Saved",
+                    "People"
+                  ]
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "undoArticleDeletion"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "visibleArticleRows": [
+                  "en:Grace_Hopper"
+                ],
+                "articleRows": [
+                  {
+                    "article": "en:Ada_Lovelace",
+                    "containingCollections": [
+                      "Saved",
+                      "People"
+                    ]
+                  },
+                  {
+                    "article": "en:Grace_Hopper",
+                    "containingCollections": [
+                      "Saved"
+                    ]
+                  }
+                ]
+              },
+              "persistence": {
+                "memberships": {
+                  "en:Ada_Lovelace": [
+                    "Saved",
+                    "People"
+                  ],
+                  "en:Grace_Hopper": [
+                    "Saved"
+                  ]
+                },
+                "survivesSavedSurfaceRecreation": true
+              },
+              "effects": [
+                {
+                  "name": "addPagesToList",
+                  "article": "en:Ada_Lovelace",
+                  "lists": [
+                    "Saved",
+                    "People"
+                  ],
+                  "force": true
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles"
+                }
+              ],
+              "reopenedPersistence": {
+                "memberships": {
+                  "en:Ada_Lovelace": [
+                    "Saved",
+                    "People"
+                  ],
+                  "en:Grace_Hopper": [
+                    "Saved"
+                  ]
+                },
+                "survivesSavedSurfaceRecreation": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "visibleArticleRows": [
+              "en:Grace_Hopper"
+            ],
+            "articleRows": [
+              {
+                "article": "en:Ada_Lovelace",
+                "containingCollections": [
+                  "Saved",
+                  "People"
+                ]
+              },
+              {
+                "article": "en:Grace_Hopper",
+                "containingCollections": [
+                  "Saved"
+                ]
+              }
+            ]
+          },
+          "persistence": {
+            "memberships": {
+              "en:Ada_Lovelace": [
+                "Saved",
+                "People"
+              ],
+              "en:Grace_Hopper": [
+                "Saved"
+              ]
+            },
+            "survivesSavedSurfaceRecreation": true
+          },
+          "effects": [
+            {
+              "name": "addPagesToList",
+              "article": "en:Ada_Lovelace",
+              "lists": [
+                "Saved",
+                "People"
+              ],
+              "force": true
+            },
+            {
+              "name": "roomFlowPropagation",
+              "surface": "all_articles"
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "queued-for-delete rows are absent before undo because ReadingListWithPages filters STATUS_QUEUE_FOR_DELETE",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    "en:Grace_Hopper"
+                  ]
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ]
+                  }
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    "en:Grace_Hopper"
+                  ],
+                  "articleRows": [
+                    {
+                      "article": "en:Ada_Lovelace",
+                      "containingCollections": [
+                        "Saved",
+                        "People"
+                      ]
+                    },
+                    {
+                      "article": "en:Grace_Hopper",
+                      "containingCollections": [
+                        "Saved"
+                      ]
+                    }
+                  ]
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ],
+                    "en:Grace_Hopper": [
+                      "Saved"
+                    ]
+                  },
+                  "survivesSavedSurfaceRecreation": true
+                },
+                "effects": [
+                  {
+                    "name": "addPagesToList",
+                    "article": "en:Ada_Lovelace",
+                    "lists": [
+                      "Saved",
+                      "People"
+                    ],
+                    "force": true
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ],
+                    "en:Grace_Hopper": [
+                      "Saved"
+                    ]
+                  },
+                  "survivesSavedSurfaceRecreation": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "addPagesToList",
+                  "article": "en:Ada_Lovelace",
+                  "lists": [
+                    "Saved",
+                    "People"
+                  ],
+                  "force": true
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "undo restores logical identity and all prior memberships; database row IDs need not be preserved",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    "en:Grace_Hopper"
+                  ]
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ]
+                  }
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    "en:Grace_Hopper"
+                  ],
+                  "articleRows": [
+                    {
+                      "article": "en:Ada_Lovelace",
+                      "containingCollections": [
+                        "Saved",
+                        "People"
+                      ]
+                    },
+                    {
+                      "article": "en:Grace_Hopper",
+                      "containingCollections": [
+                        "Saved"
+                      ]
+                    }
+                  ]
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ],
+                    "en:Grace_Hopper": [
+                      "Saved"
+                    ]
+                  },
+                  "survivesSavedSurfaceRecreation": true
+                },
+                "effects": [
+                  {
+                    "name": "addPagesToList",
+                    "article": "en:Ada_Lovelace",
+                    "lists": [
+                      "Saved",
+                      "People"
+                    ],
+                    "force": true
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ],
+                    "en:Grace_Hopper": [
+                      "Saved"
+                    ]
+                  },
+                  "survivesSavedSurfaceRecreation": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "addPagesToList",
+                  "article": "en:Ada_Lovelace",
+                  "lists": [
+                    "Saved",
+                    "People"
+                  ],
+                  "force": true
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "unrelated rows are unchanged",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    "en:Grace_Hopper"
+                  ]
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ]
+                  }
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "visibleArticleRows": [
+                    "en:Grace_Hopper"
+                  ],
+                  "articleRows": [
+                    {
+                      "article": "en:Ada_Lovelace",
+                      "containingCollections": [
+                        "Saved",
+                        "People"
+                      ]
+                    },
+                    {
+                      "article": "en:Grace_Hopper",
+                      "containingCollections": [
+                        "Saved"
+                      ]
+                    }
+                  ]
+                },
+                "persistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ],
+                    "en:Grace_Hopper": [
+                      "Saved"
+                    ]
+                  },
+                  "survivesSavedSurfaceRecreation": true
+                },
+                "effects": [
+                  {
+                    "name": "addPagesToList",
+                    "article": "en:Ada_Lovelace",
+                    "lists": [
+                      "Saved",
+                      "People"
+                    ],
+                    "force": true
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles"
+                  }
+                ],
+                "reopenedPersistence": {
+                  "memberships": {
+                    "en:Ada_Lovelace": [
+                      "Saved",
+                      "People"
+                    ],
+                    "en:Grace_Hopper": [
+                      "Saved"
+                    ]
+                  },
+                  "survivesSavedSurfaceRecreation": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "addPagesToList",
+                  "article": "en:Ada_Lovelace",
+                  "lists": [
+                    "Saved",
+                    "People"
+                  ],
+                  "force": true
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles"
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_missing_collection_toggle_is_noop",
+        "key": "missing_collection_toggle_is_noop",
+        "traceDigest": "a7134c12d381a572e454f5bf7b389ce4c8b3ee3ffd32bc2caed9bab6e5db455c",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "SaveArticleSheetViewModel.toggleArticleInCollection",
+          "ReadingListDao.getListWithPagesById"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "article": "en:Ada_Lovelace",
+              "memberships": [
+                "Saved"
+              ],
+              "roomCollections": [
+                {
+                  "title": "Saved",
+                  "isDefault": true
+                }
+              ],
+              "queuedCollectionToggle": {
+                "collectionId": "observed-created-People-id",
+                "title": "People"
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "article": "en:Ada_Lovelace"
+              },
+              "persistence": {
+                "memberships": [
+                  "Saved"
+                ],
+                "roomCollections": [
+                  {
+                    "title": "Saved",
+                    "isDefault": true
+                  }
+                ]
+              },
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "resumeQueuedCollectionToggle"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "article": "en:Ada_Lovelace",
+                "saveSheet": {
+                  "article": "en:Ada_Lovelace",
+                  "isSaved": true,
+                  "collections": []
+                }
+              },
+              "persistence": {
+                "memberships": [
+                  "Saved"
+                ],
+                "roomCollections": [
+                  {
+                    "title": "Saved",
+                    "isDefault": true
+                  }
+                ]
+              },
+              "effects": [],
+              "reopenedPersistence": {
+                "memberships": [
+                  "Saved"
+                ],
+                "roomCollections": [
+                  {
+                    "title": "Saved",
+                    "isDefault": true
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "article": "en:Ada_Lovelace",
+            "saveSheet": {
+              "article": "en:Ada_Lovelace",
+              "isSaved": true,
+              "collections": []
+            }
+          },
+          "persistence": {
+            "memberships": [
+              "Saved"
+            ],
+            "roomCollections": [
+              {
+                "title": "Saved",
+                "isDefault": true
+              }
+            ]
+          },
+          "effects": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the stale ID originates from a row previously rendered by the production sheet",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": "en:Ada_Lovelace"
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": "en:Ada_Lovelace",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "collections": []
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                },
+                "effects": [],
+                "reopenedPersistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "the collection is removed by the production reading-list sync while the sheet is visible, leaving a reachable stale row callback until recomposition",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": "en:Ada_Lovelace"
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": "en:Ada_Lovelace",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "collections": []
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                },
+                "effects": [],
+                "reopenedPersistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "a missing collection never falls back to another collection",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": "en:Ada_Lovelace"
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "article": "en:Ada_Lovelace",
+                  "saveSheet": {
+                    "article": "en:Ada_Lovelace",
+                    "isSaved": true,
+                    "collections": []
+                  }
+                },
+                "persistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                },
+                "effects": [],
+                "reopenedPersistence": {
+                  "memberships": [
+                    "Saved"
+                  ],
+                  "roomCollections": [
+                    {
+                      "title": "Saved",
+                      "isDefault": true
+                    }
+                  ]
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      },
+      {
+        "caseId": "rl_login_then_refresh_retries_sync_to_completion",
+        "key": "login_then_refresh_retries_sync_to_completion",
+        "traceDigest": "e2bd3e7d4d04375eac0f9058de1f2387be3e7087bb80f096ca7754e431fc5558",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "candidate-production/root-0/org/wikipedia/readinglist/SavedActionPrefix.kt",
+            "sha256": "e21643cb2289406d99e12e633f50e160eafbe3501980be44f2a8f26c55526459",
+            "bytes": 10442
+          }
+        ],
+        "entryOwner": "SavedActionPrefix",
+        "invokedProductionMethods": [
+          "ReadingListsFragment.onCreateView",
+          "ReadingListsFragment.onRefresh",
+          "ReadingListsViewModel.setRefreshing",
+          "ReadingListSyncAdapter.manualSyncWithForce",
+          "FlowEventBus.ReadingListSyncEvent"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "ALL_ARTICLES",
+              "articleRows": [],
+              "account": {
+                "isLoggedIn": true,
+                "isTemporary": false,
+                "userName": "Ada"
+              },
+              "previousRefreshAttempt": {
+                "outcome": "login_prompt",
+                "syncStarted": false
+              },
+              "isRefreshing": false,
+              "readingListSyncEnabled": false,
+              "onboarding": "SyncReminder",
+              "nextSyncCompletion": "held"
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "isRefreshing": false,
+                "onboarding": "SyncReminder"
+              },
+              "persistence": {
+                "readingListSyncEnabled": false
+              },
+              "effects": []
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "retryPullToRefreshAndCompleteSync"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "state": {
+                "selectedTab": "ALL_ARTICLES",
+                "isRefreshing": false,
+                "onboarding": "SyncReminder",
+                "intermediate": {
+                  "isRefreshing": true,
+                  "onboarding": "None",
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleRows": [
+                    {
+                      "article": "en:Synced_Article",
+                      "containingCollections": [
+                        "Saved",
+                        "Research"
+                      ]
+                    }
+                  ]
+                },
+                "final": {
+                  "isRefreshing": false,
+                  "onboarding": "None",
+                  "selectedTab": "ALL_ARTICLES",
+                  "articleRows": [
+                    {
+                      "article": "en:Synced_Article",
+                      "containingCollections": [
+                        "Saved",
+                        "Research"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "persistence": {
+                "readingListSyncEnabled": true,
+                "memberships": {
+                  "en:Synced_Article": [
+                    "Saved",
+                    "Research"
+                  ]
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "reading_list_sync_service",
+                  "name": "manualSyncWithForce",
+                  "fromRefresh": true,
+                  "attempt": 1
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles",
+                  "whileRefreshing": true
+                },
+                {
+                  "name": "consumeReadingListSyncEvent",
+                  "setsRefreshing": false
+                }
+              ],
+              "reopenedPersistence": {
+                "readingListSyncEnabled": true,
+                "memberships": {
+                  "en:Synced_Article": [
+                    "Saved",
+                    "Research"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "observed": {
+          "state": {
+            "selectedTab": "ALL_ARTICLES",
+            "isRefreshing": false,
+            "onboarding": "SyncReminder",
+            "intermediate": {
+              "isRefreshing": true,
+              "onboarding": "None",
+              "selectedTab": "ALL_ARTICLES",
+              "articleRows": [
+                {
+                  "article": "en:Synced_Article",
+                  "containingCollections": [
+                    "Saved",
+                    "Research"
+                  ]
+                }
+              ]
+            },
+            "final": {
+              "isRefreshing": false,
+              "onboarding": "None",
+              "selectedTab": "ALL_ARTICLES",
+              "articleRows": [
+                {
+                  "article": "en:Synced_Article",
+                  "containingCollections": [
+                    "Saved",
+                    "Research"
+                  ]
+                }
+              ]
+            }
+          },
+          "persistence": {
+            "readingListSyncEnabled": true,
+            "memberships": {
+              "en:Synced_Article": [
+                "Saved",
+                "Research"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "leaf": "reading_list_sync_service",
+              "name": "manualSyncWithForce",
+              "fromRefresh": true,
+              "attempt": 1
+            },
+            {
+              "name": "roomFlowPropagation",
+              "surface": "all_articles",
+              "whileRefreshing": true
+            },
+            {
+              "name": "consumeReadingListSyncEvent",
+              "setsRefreshing": false
+            }
+          ]
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the failed signed-out setup attempt returns immediately to nonrefreshing state without dispatching sync",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder"
+                },
+                "persistence": {
+                  "readingListSyncEnabled": false
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder",
+                  "intermediate": {
+                    "isRefreshing": true,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  },
+                  "final": {
+                    "isRefreshing": false,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "reading_list_sync_service",
+                    "name": "manualSyncWithForce",
+                    "fromRefresh": true,
+                    "attempt": 1
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles",
+                    "whileRefreshing": true
+                  },
+                  {
+                    "name": "consumeReadingListSyncEvent",
+                    "setsRefreshing": false
+                  }
+                ],
+                "reopenedPersistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "reading_list_sync_service",
+                  "name": "manualSyncWithForce",
+                  "fromRefresh": true,
+                  "attempt": 1
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles",
+                  "whileRefreshing": true
+                },
+                {
+                  "name": "consumeReadingListSyncEvent",
+                  "setsRefreshing": false
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "account eligibility is refreshed through the production login event before retry",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder"
+                },
+                "persistence": {
+                  "readingListSyncEnabled": false
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder",
+                  "intermediate": {
+                    "isRefreshing": true,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  },
+                  "final": {
+                    "isRefreshing": false,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "reading_list_sync_service",
+                    "name": "manualSyncWithForce",
+                    "fromRefresh": true,
+                    "attempt": 1
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles",
+                    "whileRefreshing": true
+                  },
+                  {
+                    "name": "consumeReadingListSyncEvent",
+                    "setsRefreshing": false
+                  }
+                ],
+                "reopenedPersistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "reading_list_sync_service",
+                  "name": "manualSyncWithForce",
+                  "fromRefresh": true,
+                  "attempt": 1
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles",
+                  "whileRefreshing": true
+                },
+                {
+                  "name": "consumeReadingListSyncEvent",
+                  "setsRefreshing": false
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "Room flow projects synchronized memberships while the retry spinner is still active",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder"
+                },
+                "persistence": {
+                  "readingListSyncEnabled": false
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder",
+                  "intermediate": {
+                    "isRefreshing": true,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  },
+                  "final": {
+                    "isRefreshing": false,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "reading_list_sync_service",
+                    "name": "manualSyncWithForce",
+                    "fromRefresh": true,
+                    "attempt": 1
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles",
+                    "whileRefreshing": true
+                  },
+                  {
+                    "name": "consumeReadingListSyncEvent",
+                    "setsRefreshing": false
+                  }
+                ],
+                "reopenedPersistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "reading_list_sync_service",
+                  "name": "manualSyncWithForce",
+                  "fromRefresh": true,
+                  "attempt": 1
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles",
+                  "whileRefreshing": true
+                },
+                {
+                  "name": "consumeReadingListSyncEvent",
+                  "setsRefreshing": false
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "one logical article appears once in ALL_ARTICLES even when sync adds it to two collections",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder"
+                },
+                "persistence": {
+                  "readingListSyncEnabled": false
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder",
+                  "intermediate": {
+                    "isRefreshing": true,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  },
+                  "final": {
+                    "isRefreshing": false,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "reading_list_sync_service",
+                    "name": "manualSyncWithForce",
+                    "fromRefresh": true,
+                    "attempt": 1
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles",
+                    "whileRefreshing": true
+                  },
+                  {
+                    "name": "consumeReadingListSyncEvent",
+                    "setsRefreshing": false
+                  }
+                ],
+                "reopenedPersistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "reading_list_sync_service",
+                  "name": "manualSyncWithForce",
+                  "fromRefresh": true,
+                  "attempt": 1
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles",
+                  "whileRefreshing": true
+                },
+                {
+                  "name": "consumeReadingListSyncEvent",
+                  "setsRefreshing": false
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the retry spinner remains active until a production ReadingListSyncEvent arrives",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder"
+                },
+                "persistence": {
+                  "readingListSyncEnabled": false
+                },
+                "effects": []
+              },
+              "after": {
+                "state": {
+                  "selectedTab": "ALL_ARTICLES",
+                  "isRefreshing": false,
+                  "onboarding": "SyncReminder",
+                  "intermediate": {
+                    "isRefreshing": true,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  },
+                  "final": {
+                    "isRefreshing": false,
+                    "onboarding": "None",
+                    "selectedTab": "ALL_ARTICLES",
+                    "articleRows": [
+                      {
+                        "article": "en:Synced_Article",
+                        "containingCollections": [
+                          "Saved",
+                          "Research"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                },
+                "effects": [
+                  {
+                    "leaf": "reading_list_sync_service",
+                    "name": "manualSyncWithForce",
+                    "fromRefresh": true,
+                    "attempt": 1
+                  },
+                  {
+                    "name": "roomFlowPropagation",
+                    "surface": "all_articles",
+                    "whileRefreshing": true
+                  },
+                  {
+                    "name": "consumeReadingListSyncEvent",
+                    "setsRefreshing": false
+                  }
+                ],
+                "reopenedPersistence": {
+                  "readingListSyncEnabled": true,
+                  "memberships": {
+                    "en:Synced_Article": [
+                      "Saved",
+                      "Research"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "reading_list_sync_service",
+                  "name": "manualSyncWithForce",
+                  "fromRefresh": true,
+                  "attempt": 1
+                },
+                {
+                  "name": "roomFlowPropagation",
+                  "surface": "all_articles",
+                  "whileRefreshing": true
+                },
+                {
+                  "name": "consumeReadingListSyncEvent",
+                  "setsRefreshing": false
+                }
+              ]
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "earlyExit": "",
+        "deviceEvidence": {
+          "serial": "emulator-5554",
+          "apiLevel": 37,
+          "runner": "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        }
+      }
+    ]
+  },
+  "diagnostics": {
+    "adapter": "ready",
+    "transport": "adb_instrumentation",
+    "deviceSerial": "emulator-5554",
+    "deviceApi": 37,
+    "sourceObserver": false,
+    "runtimeCompile": {
+      "passed": true
+    },
+    "rawEvidence": {
+      "path": "android-known-final-control.raw.json",
+      "sha256": "f8b6a6508ea50fef0704027fd77d50828f0b26c2f3945a99b26114d3a5971ab4",
+      "bytes": 39364
+    }
+  }
+}

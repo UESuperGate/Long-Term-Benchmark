@@ -1,0 +1,1604 @@
+diff --git a/entry/src/main/ets/entryability/EntryAbility.ets b/entry/src/main/ets/entryability/EntryAbility.ets
+index a74465b257adb6c26460b96dd25fa7096cb251d0..73ab326b65f522d50c293d90362ee1252c87e857 100644
+--- a/entry/src/main/ets/entryability/EntryAbility.ets
++++ b/entry/src/main/ets/entryability/EntryAbility.ets
+@@ -1,6 +1,28 @@
+ import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
++import { BusinessError } from '@kit.BasicServicesKit';
+ import { window } from '@kit.ArkUI';
++import { mediaEditorPageOwner } from '../feature/MediaEditorStore';
+ 
+ export default class EntryAbility extends UIAbility {
+-  onWindowStageCreate(windowStage: window.WindowStage): void { windowStage.loadContent('pages/Index'); }
+-}
++  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
++    // The editor owner is process-wide, so binding the ability context here lets
++    // a recreated editor page keep persisting the same media-send flow.
++    mediaEditorPageOwner().attachContext(this.context);
++  }
++
++  onWindowStageCreate(windowStage: window.WindowStage): void {
++    windowStage.loadContent('pages/Index', (error: BusinessError): void => {
++      if (error.code) {
++        console.error(`[media-editor] failed to load pages/Index: ${error.code} ${error.message}`);
++      }
++    });
++  }
++
++  onWindowStageDestroy(): void {
++    mediaEditorPageOwner().saveCurrentFlow();
++  }
++
++  onDestroy(): void {
++    mediaEditorPageOwner().detach();
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/MediaEditorModels.ts b/entry/src/main/ets/feature/MediaEditorModels.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..041852f9a0115aa2c5323bd30ddfbf48022301b9
+--- /dev/null
++++ b/entry/src/main/ets/feature/MediaEditorModels.ts
+@@ -0,0 +1,281 @@
++/**
++ * Domain model for the Signal media editor flow.
++ *
++ * Two rules shape everything in this file:
++ *
++ *  1. Editor state is keyed by media identity (the attachment id), never by the
++ *     pager position, so focusing, reordering or restoring can never move one
++ *     attachment's edits onto another one.
++ *  2. Every stored value is read defensively. Attachments persisted before
++ *     per-video audio removal existed have no `videoMuted` flag at all, and a
++ *     missing flag has to read back as "unmuted" rather than as an error.
++ */
++
++export enum MediaKind {
++  IMAGE = 'image',
++  VIDEO = 'video',
++  AUDIO = 'audio',
++  DOCUMENT = 'document',
++  TEXT = 'text'
++}
++
++/** Value stored in an editor-state record under `kind`. */
++export enum EditorStateKind {
++  VIDEO_TRIM = 'video_trim',
++  IMAGE_TRANSFORM = 'image_transform',
++  NONE = 'none'
++}
++
++/** Which screen the media-send flow is currently showing. */
++export enum EditorScreen {
++  MEDIA_EDITOR = 'media_editor',
++  CAMERA = 'camera',
++  CLOSED = 'closed'
++}
++
++/** Where the media-send flow was started from. */
++export enum FlowOrigin {
++  PICKER = 'picker',
++  CAMERA = 'camera'
++}
++
++export interface MediaItem {
++  id: string;
++  kind: string;
++  isVideoGif: boolean;
++  contentType?: string;
++  durationUs?: number;
++}
++
++/** One observable side effect the editor performed. */
++export interface MediaEffect {
++  name: string;
++  itemId?: string;
++  itemIds?: string[];
++  value?: boolean;
++  count?: number;
++  screen?: string;
++  reason?: string;
++}
++
++/** Persisted media-send flow draft. */
++export const FLOW_STORE_NAME: string = 'signal_media_editor_flow';
++export const FLOW_BLOB_KEY: string = 'flow';
++
++export const AUDIO_REMOVED_FEEDBACK: string = 'Audio removed from video';
++
++export function cloneRecord(source: Object): Record<string, Object> {
++  return JSON.parse(JSON.stringify(source)) as Record<string, Object>;
++}
++
++/**
++ * Coerces an arbitrary stored value into a record. Missing or malformed values
++ * degrade to an empty record rather than propagating `undefined` into state.
++ */
++export function toRecord(value: Object): Record<string, Object> {
++  if (value === undefined) {
++    return {};
++  }
++  try {
++    const cloned: Record<string, Object> = cloneRecord(value);
++    return cloned === undefined ? {} : cloned;
++  } catch (error) {
++    return {};
++  }
++}
++
++export function recordKeys(source: Record<string, Object>): string[] {
++  return Object.keys(source);
++}
++
++/** Returns a copy of `source` without `key`, preserving every other field. */
++export function omitKey(source: Record<string, Object>, key: string): Record<string, Object> {
++  const keys: string[] = recordKeys(source);
++  const result: Record<string, Object> = {};
++  for (let index = 0; index < keys.length; index++) {
++    const current: string = keys[index];
++    if (current !== key) {
++      result[current] = source[current];
++    }
++  }
++  return result;
++}
++
++export function readString(source: Record<string, Object>, key: string, fallback: string): string {
++  const raw: Object = source[key];
++  if (raw === undefined) {
++    return fallback;
++  }
++  const text: string = String(raw);
++  return text.length > 0 ? text : fallback;
++}
++
++export function readBoolean(source: Record<string, Object>, key: string, fallback: boolean): boolean {
++  const raw: Object = source[key];
++  if (raw === undefined) {
++    return fallback;
++  }
++  const text: string = String(raw);
++  if (text === 'true') {
++    return true;
++  }
++  if (text === 'false') {
++    return false;
++  }
++  return fallback;
++}
++
++export function readNumber(source: Record<string, Object>, key: string, fallback: number): number {
++  const raw: Object = source[key];
++  if (raw === undefined) {
++    return fallback;
++  }
++  const parsed: number = Number(raw);
++  if (Number.isNaN(parsed)) {
++    return fallback;
++  }
++  return parsed;
++}
++
++export function readStringArray(source: Record<string, Object>, key: string): string[] {
++  const result: string[] = [];
++  const raw: Object = source[key];
++  if (raw === undefined) {
++    return result;
++  }
++  if (raw instanceof Array) {
++    const values: Object[] = raw as Object[];
++    for (let index = 0; index < values.length; index++) {
++      result.push(String(values[index]));
++    }
++  }
++  return result;
++}
++
++export function isVideoKind(kind: string): boolean {
++  if (kind === undefined) {
++    return false;
++  }
++  const normalized: string = kind.toLowerCase();
++  return normalized === MediaKind.VIDEO || normalized.startsWith('video/');
++}
++
++export function isImageKind(kind: string): boolean {
++  if (kind === undefined) {
++    return false;
++  }
++  const normalized: string = kind.toLowerCase();
++  return normalized === MediaKind.IMAGE || normalized.startsWith('image/');
++}
++
++export function isDocumentKind(kind: string): boolean {
++  if (kind === undefined) {
++    return false;
++  }
++  const normalized: string = kind.toLowerCase();
++  return normalized === MediaKind.DOCUMENT || normalized === MediaKind.TEXT;
++}
++
++/**
++ * Audio removal is offered only for an ordinary, editable video. Video GIFs are
++ * already silent loops and everything else (images, documents, audio) has no
++ * audio track to remove in the first place.
++ */
++export function isOrdinaryEditableVideo(item: MediaItem): boolean {
++  if (item.isVideoGif === true) {
++    return false;
++  }
++  return isVideoKind(item.kind);
++}
++
++/** Why audio removal is (or is not) offered for `item`. Empty means "offered". */
++export function audioRemovalIneligibilityReason(item: MediaItem): string {
++  if (item.isVideoGif === true) {
++    return 'video_gif';
++  }
++  if (isVideoKind(item.kind)) {
++    return '';
++  }
++  if (isImageKind(item.kind)) {
++    return 'image';
++  }
++  if (isDocumentKind(item.kind)) {
++    return 'document';
++  }
++  return 'unsupported_kind';
++}
++
++export function editorStateKindFor(item: MediaItem): string {
++  if (isOrdinaryEditableVideo(item)) {
++    return EditorStateKind.VIDEO_TRIM;
++  }
++  return EditorStateKind.NONE;
++}
++
++export function editorIsMuted(editor: Record<string, Object>): boolean {
++  return readBoolean(editor, 'isMuted', false);
++}
++
++/**
++ * Writes the audio-removal flag onto an existing editor-state record. Every
++ * other field (trim window, prior edits) is carried over untouched, so toggling
++ * audio never disturbs the rest of the item's edit.
++ */
++export function withAudioRemoved(existing: Record<string, Object>, fallbackKind: string, isMuted: boolean): Record<string, Object> {
++  const state: Record<string, Object> = toRecord(existing);
++  if (state['kind'] === undefined) {
++    state['kind'] = fallbackKind;
++  }
++  state['isMuted'] = isMuted;
++  return state;
++}
++
++/**
++ * Normalizes an attachment's stored transform properties.
++ *
++ * Unknown/extra fields survive the round trip, and the audio-removal flag is
++ * defaulted to `false` so payloads written before per-video audio removal stay
++ * readable and never silently mute a video.
++ */
++export function normalizeTransformProperties(stored: Record<string, Object>): Record<string, Object> {
++  const properties: Record<string, Object> = toRecord(stored);
++  properties['skipTransform'] = readBoolean(properties, 'skipTransform', false);
++  properties['videoTrim'] = readBoolean(properties, 'videoTrim', false);
++  properties['videoTrimStartTimeUs'] = readNumber(properties, 'videoTrimStartTimeUs', 0);
++  properties['videoTrimEndTimeUs'] = readNumber(properties, 'videoTrimEndTimeUs', 0);
++  properties['sentMediaQuality'] = readNumber(properties, 'sentMediaQuality', 0);
++  properties['mp4Faststart'] = readBoolean(properties, 'mp4Faststart', false);
++  properties['videoEdited'] = readBoolean(properties, 'videoEdited', false);
++  properties['videoMuted'] = readBoolean(properties, 'videoMuted', false);
++  return properties;
++}
++
++/** True when a restored flow draft carries neither media nor a focused item. */
++export function isEmptyFlow(flow: Record<string, Object>): boolean {
++  return readStringArray(flow, 'selectedItemIds').length === 0
++    && readString(flow, 'focusedItemId', '').length === 0;
++}
++
++/** Normalizes a serialized media-send flow draft into a well-formed record. */
++export function parseFlowBlob(blob: string): Record<string, Object> {
++  const flow: Record<string, Object> = {};
++  if (blob === undefined || blob.length === 0) {
++    return flow;
++  }
++  let parsed: Record<string, Object> = {};
++  try {
++    parsed = JSON.parse(blob) as Record<string, Object>;
++  } catch (error) {
++    return flow;
++  }
++  if (parsed === undefined) {
++    return flow;
++  }
++  flow['selectedItemIds'] = readStringArray(parsed, 'selectedItemIds');
++  flow['focusedItemId'] = readString(parsed, 'focusedItemId', '');
++  flow['editorStateByItem'] = toRecord(parsed['editorStateByItem']);
++  flow['messageText'] = readString(parsed, 'messageText', '');
++  flow['origin'] = readString(parsed, 'origin', FlowOrigin.PICKER);
++  flow['capturedItemId'] = readString(parsed, 'capturedItemId', '');
++  return flow;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/MediaEditorRepository.ts b/entry/src/main/ets/feature/MediaEditorRepository.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..816f9a7d267c05c6e0334a4eb46372270a68be88
+--- /dev/null
++++ b/entry/src/main/ets/feature/MediaEditorRepository.ts
+@@ -0,0 +1,203 @@
++import { common } from '@kit.AbilityKit';
++import { preferences } from '@kit.ArkData';
++import {
++  AUDIO_REMOVED_FEEDBACK,
++  EditorScreen,
++  FLOW_BLOB_KEY,
++  FLOW_STORE_NAME,
++  FlowOrigin,
++  MediaEffect,
++  MediaItem,
++  omitKey,
++  readString,
++  readStringArray,
++  toRecord
++} from './MediaEditorModels';
++
++/**
++ * Everything the editor owns but does not own itself: the media catalogue, the
++ * registry of already-uploaded attachments, the draft-flow blob, the prepared
++ * transcode job and the effect log. The editor store drives all of it through
++ * {@link MediaEditorRepository}.
++ */
++export class MediaEditorEnvironment {
++  items: MediaItem[] = [];
++  selectedItemIds: string[] = [];
++  focusedItemId: string = '';
++  editorStateByItem: Record<string, Object> = {};
++  preUpload: Record<string, Object> = {};
++  savedFlowBlob: string = '{}';
++  effects: MediaEffect[] = [];
++  preparedVideo: Record<string, Object> = {};
++  transcoder: Record<string, Object> = { allowAudioRemux: true };
++  messageText: string = '';
++  flowOrigin: string = FlowOrigin.PICKER;
++  capturedItemId: string = '';
++  productionBlobWrites: number = 0;
++  productionBlobReads: number = 0;
++
++  seedFlow(items: MediaItem[], selected: string[], focused: string, editors: Record<string, Object>,
++    preUpload: Record<string, Object> = {}): void {
++    this.items = items;
++    this.selectedItemIds = selected.slice();
++    this.focusedItemId = focused;
++    this.editorStateByItem = toRecord(editors);
++    this.preUpload = toRecord(preUpload);
++    this.effects = [];
++  }
++
++  /** Loads a previously persisted media-send flow draft into the environment. */
++  seedFlowState(flow: Record<string, Object>): void {
++    const seeded: Record<string, Object> = toRecord(flow);
++    this.selectedItemIds = readStringArray(seeded, 'selectedItemIds');
++    this.focusedItemId = readString(seeded, 'focusedItemId', '');
++    this.editorStateByItem = toRecord(seeded['editorStateByItem']);
++    this.messageText = readString(seeded, 'messageText', '');
++    this.flowOrigin = readString(seeded, 'origin', FlowOrigin.PICKER);
++    this.capturedItemId = readString(seeded, 'capturedItemId', '');
++  }
++
++  resetEffects(): void { this.effects = []; }
++  effectCursor(): number { return this.effects.length; }
++  effectsAfter(cursor: number): MediaEffect[] { return this.effects.slice(cursor); }
++  record(effect: MediaEffect): void { this.effects.push(effect); }
++}
++
++/**
++ * The editor's gateway to everything that survives the editor itself: durable
++ * flow drafts, the upload registry, navigation and the transcode pipeline.
++ */
++export class MediaEditorRepository {
++  private readonly leaf: MediaEditorEnvironment;
++
++  constructor(leaf: MediaEditorEnvironment) { this.leaf = leaf; }
++
++  loadFlow(): Record<string, Object> {
++    const flow: Record<string, Object> = {};
++    flow['selectedItemIds'] = this.leaf.selectedItemIds.slice();
++    flow['focusedItemId'] = this.leaf.focusedItemId;
++    flow['editorStateByItem'] = toRecord(this.leaf.editorStateByItem);
++    flow['messageText'] = this.leaf.messageText;
++    flow['origin'] = this.leaf.flowOrigin;
++    flow['capturedItemId'] = this.leaf.capturedItemId;
++    return flow;
++  }
++
++  /** Commits the draft blob kept in memory so recreation can restore it. */
++  commitFlowDraft(flow: Record<string, Object>): void {
++    this.leaf.savedFlowBlob = JSON.stringify(toRecord(flow));
++  }
++
++  clearFlowDraft(): void {
++    this.leaf.savedFlowBlob = '{}';
++  }
++
++  /**
++   * Mirrors the draft into the durable preferences store. The in-memory draft is
++   * committed first, so an unavailable or failing durable store degrades to the
++   * in-memory snapshot instead of losing pending edits.
++   */
++  async persistFlow(context: common.UIAbilityContext, flow: Record<string, Object>): Promise<void> {
++    const blob: string = JSON.stringify(toRecord(flow));
++    this.leaf.savedFlowBlob = blob;
++    this.leaf.productionBlobWrites += 1;
++    try {
++      const store = await preferences.getPreferences(context, FLOW_STORE_NAME);
++      await store.clear();
++      await store.put(FLOW_BLOB_KEY, blob);
++      await store.flush();
++    } catch (error) {
++      this.report('durable flow draft unavailable, keeping in-memory draft');
++    }
++  }
++
++  /** Reopens the persisted draft; falls back to the in-memory draft. */
++  async reopenPersistedFlow(context: common.UIAbilityContext): Promise<Record<string, Object>> {
++    let blob: string = '';
++    try {
++      const reopened = await preferences.getPreferences(context, FLOW_STORE_NAME);
++      const stored = await reopened.get(FLOW_BLOB_KEY, '');
++      blob = stored === undefined ? '' : String(stored);
++    } catch (error) {
++      this.report('durable flow draft unreadable, falling back to in-memory draft');
++      blob = '';
++    }
++    this.leaf.productionBlobReads += 1;
++    if (blob.length === 0) {
++      blob = this.leaf.savedFlowBlob;
++    }
++    const parsed: Record<string, Object> = JSON.parse(blob) as Record<string, Object>;
++    const flow: Record<string, Object> = {};
++    flow['selectedItemIds'] = readStringArray(parsed, 'selectedItemIds');
++    flow['focusedItemId'] = readString(parsed, 'focusedItemId', '');
++    flow['editorStateByItem'] = toRecord(parsed['editorStateByItem']);
++    flow['messageText'] = readString(parsed, 'messageText', '');
++    flow['origin'] = readString(parsed, 'origin', FlowOrigin.PICKER);
++    flow['capturedItemId'] = readString(parsed, 'capturedItemId', '');
++    return flow;
++  }
++
++  closeScreen(): void { this.leaf.record({ name: 'closeScreen', count: 1 }); }
++
++  /**
++   * Drops a pre-uploaded version of an attachment. Once an item has been edited
++   * the earlier upload describes media the user no longer sees, so the eventual
++   * send must not be able to reach for it. Invalidating an item that has no
++   * pre-upload is a no-op, which keeps the invalidation happening exactly once.
++   */
++  invalidatePreUpload(itemId: string): boolean {
++    if (this.leaf.preUpload[itemId] === undefined) {
++      return false;
++    }
++    this.leaf.preUpload = omitKey(this.leaf.preUpload, itemId);
++    this.leaf.record({ name: 'invalidatePreUpload', itemId: itemId, count: 1 });
++    return true;
++  }
++
++  showAudioRemovedFeedback(itemId: string): void {
++    this.leaf.record({
++      name: 'showAudioRemovedFeedback',
++      itemId: itemId,
++      value: true,
++      reason: AUDIO_REMOVED_FEEDBACK,
++      count: 1
++    });
++  }
++
++  requestDiscardConfirmation(itemCount: number): void {
++    this.leaf.record({ name: 'requestDiscardConfirmation', count: 1, value: itemCount > 0 });
++  }
++
++  cancelDiscardConfirmation(): void {
++    this.leaf.record({ name: 'cancelDiscardConfirmation', count: 1 });
++  }
++
++  discardPendingEdits(itemIds: string[]): void {
++    this.clearFlowDraft();
++    this.leaf.record({ name: 'discardPendingEdits', itemIds: itemIds, count: 1 });
++  }
++
++  returnToCamera(): void {
++    this.leaf.record({ name: 'returnToCamera', count: 1, screen: EditorScreen.CAMERA });
++  }
++
++  applyVideoTransform(itemId: string): void {
++    this.leaf.record({ name: 'applyVideoTransform', itemId: itemId, count: 1 });
++  }
++
++  convertVideo(): void {
++    this.leaf.record({ name: 'convertVideo', count: 1 });
++  }
++
++  passThroughVideo(): void {
++    this.leaf.record({ name: 'passThroughVideo', count: 1 });
++  }
++
++  private report(message: string): void {
++    try {
++      console.warn(`[media-editor] ${message}`);
++    } catch (unused) {
++      // Logging must never take down the editor.
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/MediaEditorStore.ts b/entry/src/main/ets/feature/MediaEditorStore.ts
+index 857a5b2e4050870107a2af53b5f64b1212a08e06..0632fd1f39263ab4bf60b64cac02134d66c9594a 100644
+--- a/entry/src/main/ets/feature/MediaEditorStore.ts
++++ b/entry/src/main/ets/feature/MediaEditorStore.ts
+@@ -1,83 +1,681 @@
+ import { common } from '@kit.AbilityKit';
+-import { preferences } from '@kit.ArkData';
+-
+-export interface MediaItem { id: string; kind: string; isVideoGif: boolean; }
+-export interface MediaEffect { name: string; itemId?: string; itemIds?: string[]; value?: boolean; count?: number; }
+-function clone(value: Object): Record<string, Object> { return JSON.parse(JSON.stringify(value)) as Record<string, Object>; }
+-export class MediaEditorEnvironment {
+-  items: MediaItem[] = []; selectedItemIds: string[] = []; focusedItemId: string = '';
+-  editorStateByItem: Record<string, Object> = {}; preUpload: Record<string, Object> = {};
+-  savedFlowBlob: string = '{}'; effects: MediaEffect[] = []; preparedVideo: Record<string, Object> = {};
+-  productionBlobWrites: number = 0; productionBlobReads: number = 0;
+-  seedFlow(items: MediaItem[], selected: string[], focused: string, editors: Record<string, Object>, preUpload: Record<string, Object> = {}): void {
+-    this.items = items; this.selectedItemIds = [...selected]; this.focusedItemId = focused;
+-    this.editorStateByItem = clone(editors); this.preUpload = clone(preUpload); this.effects = [];
+-  }
+-  resetEffects(): void { this.effects = []; }
+-  effectCursor(): number { return this.effects.length; }
+-  effectsAfter(cursor: number): MediaEffect[] { return this.effects.slice(cursor); }
+-  record(effect: MediaEffect): void { this.effects.push(effect); }
+-}
+-export class MediaEditorRepository {
+-  private readonly leaf: MediaEditorEnvironment;
+-  constructor(leaf: MediaEditorEnvironment) { this.leaf = leaf; }
+-  loadFlow(): Record<string, Object> { return { selectedItemIds: [...this.leaf.selectedItemIds], focusedItemId: this.leaf.focusedItemId, editorStateByItem: clone(this.leaf.editorStateByItem) }; }
+-  async persistFlow(context: common.UIAbilityContext, flow: Record<string, Object>): Promise<void> {
+-    const store = await preferences.getPreferences(context, 'signal_media_editor_flow');
+-    await store.clear(); await store.put('flow', JSON.stringify(flow)); await store.flush(); this.leaf.productionBlobWrites += 1;
+-  }
+-  async reopenPersistedFlow(context: common.UIAbilityContext): Promise<Record<string, Object>> {
+-    const reopened = await preferences.getPreferences(context, 'signal_media_editor_flow');
+-    await reopened.get('flow', '{}'); this.leaf.productionBlobReads += 1;
+-    return { selectedItemIds: [], focusedItemId: '', editorStateByItem: {} };
+-  }
+-  closeScreen(): void { this.leaf.record({ name: 'closeScreen', count: 1 }); }
+-  applyVideoTransform(itemId: string): void { this.leaf.record({ name: 'applyVideoTransform', itemId, count: 1 }); }
+-  convertVideo(): void { this.leaf.record({ name: 'convertVideo', count: 1 }); }
+-}
++import {
++  AUDIO_REMOVED_FEEDBACK,
++  EditorScreen,
++  EditorStateKind,
++  FlowOrigin,
++  MediaEffect,
++  MediaItem,
++  audioRemovalIneligibilityReason,
++  editorIsMuted,
++  editorStateKindFor,
++  isOrdinaryEditableVideo,
++  isEmptyFlow,
++  normalizeTransformProperties,
++  parseFlowBlob,
++  readBoolean,
++  readNumber,
++  readString,
++  readStringArray,
++  toRecord,
++  withAudioRemoved
++} from './MediaEditorModels';
++import { MediaEditorEnvironment, MediaEditorRepository } from './MediaEditorRepository';
++
++export {
++  AUDIO_REMOVED_FEEDBACK,
++  EditorScreen,
++  EditorStateKind,
++  FlowOrigin,
++  MediaEffect,
++  MediaItem,
++  MediaKind,
++  audioRemovalIneligibilityReason,
++  isEmptyFlow,
++  isOrdinaryEditableVideo,
++  normalizeTransformProperties,
++  parseFlowBlob,
++  toRecord
++} from './MediaEditorModels';
++
++export { MediaEditorEnvironment, MediaEditorRepository } from './MediaEditorRepository';
++
++/**
++ * Editor state for the whole media-send flow.
++ *
++ * The store owns the selection, the focused attachment, the ordering, the
++ * message metadata and one editor-state record per media identity. It talks to
++ * the outside world exclusively through {@link MediaEditorRepository}, so the
++ * state rules stay in one place:
++ *
++ *  * editor state is a map keyed by attachment id, never a parallel array;
++ *  * every mutation immediately re-commits the flow draft, so a recreated
++ *    editor comes back with the same selection, focus and edits;
++ *  * closing a flow that still holds media raises a discard confirmation first;
++ *  * an edit retires that item's pre-uploaded copy.
++ */
+ export class MediaEditorStore {
+-  private selectedItemIds: string[] = []; private focusedItemId: string = '';
+-  private editorStateByItem: Record<string, Object> = {}; private screen: string = 'media_editor';
+-  private readonly repository: MediaEditorRepository; private readonly leaf: MediaEditorEnvironment;
+-  constructor(repository: MediaEditorRepository, leaf: MediaEditorEnvironment) { this.repository = repository; this.leaf = leaf; }
++  private selectedItemIds: string[] = [];
++  private focusedItemId: string = '';
++  private editorStateByItem: Record<string, Object> = {};
++  private screen: string = EditorScreen.MEDIA_EDITOR;
++  private flowOrigin: string = FlowOrigin.PICKER;
++  private capturedItemId: string = '';
++  private messageText: string = '';
++  private discardConfirmationVisible: boolean = false;
++  private discardRequests: number = 0;
++  private feedback: string = '';
++
++  private readonly repository: MediaEditorRepository;
++  private readonly leaf: MediaEditorEnvironment;
++
++  constructor(repository: MediaEditorRepository, leaf: MediaEditorEnvironment) {
++    this.repository = repository;
++    this.leaf = leaf;
++  }
++
++  /** Loads the flow the enclosing media-send screen handed to the editor. */
+   open(): void { this.applyFlow(this.repository.loadFlow()); }
++
+   private applyFlow(flow: Record<string, Object>): void {
+-    this.selectedItemIds = [...(flow['selectedItemIds'] as string[])]; this.focusedItemId = String(flow['focusedItemId']);
+-    this.editorStateByItem = clone(flow['editorStateByItem']); this.screen = 'media_editor';
+-  }
+-  eligibility(): Record<string, Object> { const result: Record<string, Object> = {}; this.leaf.items.forEach((item: MediaItem): void => { result[item.id] = false; }); return { muteControlByItem: result }; }
+-  toggleVideoMuted(): void {}
+-  setFocusedItem(itemId: string): void { this.focusedItemId = itemId; this.editorStateByItem = {}; }
+-  reorderSelectedMedia(fromIndex: number, toIndex: number): void { const next = [...this.selectedItemIds]; const moved = next.splice(fromIndex, 1)[0]; next.splice(toIndex, 0, moved); this.selectedItemIds = next; this.editorStateByItem = {}; }
+-  async recreateFromPersistence(context: common.UIAbilityContext): Promise<void> { this.applyFlow(await this.repository.reopenPersistedFlow(context)); }
+-  requestCloseThenCancelDiscard(): void { this.screen = 'closed'; this.repository.closeScreen(); }
+-  state(): Record<string, Object> { const focused = this.editorStateByItem[this.focusedItemId]; return { selectedItemIds: [...this.selectedItemIds], focusedItemId: this.focusedItemId, focusedEditorState: focused === undefined ? {} : clone(focused), editorStateByItem: clone(this.editorStateByItem), screen: this.screen }; }
+-  restoreStoredTransform(stored: Record<string, Object>): Record<string, Object> { return { videoMuted: true, videoEdited: stored['videoEdited'] === true, videoTrim: stored['videoTrim'] === true, sentMediaQuality: Number(stored['sentMediaQuality']) }; }
+-  prepareEditedVideoForSend(itemId: string, editor: Record<string, Object>): Record<string, Object> {
+-    const durationEdited = editor['isDurationEdited'] === true;
+-    const transform: Record<string, Object> = { videoTrim: durationEdited, videoTrimStartTimeUs: 0, videoTrimEndTimeUs: 0, videoMuted: false, videoEdited: durationEdited };
+-    this.repository.applyVideoTransform(itemId); this.leaf.preparedVideo = { id: itemId, videoTrack: true, audioTrack: true, transformProperties: clone(transform) }; return { transformProperties: transform };
+-  }
+-  transcodePreparedVideo(): Record<string, Object> { this.repository.convertVideo(); return { output: { videoTrack: true, audioTrack: true } }; }
++    const restored: Record<string, Object> = toRecord(flow);
++    this.selectedItemIds = readStringArray(restored, 'selectedItemIds');
++    this.focusedItemId = readString(restored, 'focusedItemId', '');
++    this.editorStateByItem = toRecord(restored['editorStateByItem']);
++    this.messageText = readString(restored, 'messageText', '');
++    this.flowOrigin = readString(restored, 'origin', FlowOrigin.PICKER);
++    this.capturedItemId = readString(restored, 'capturedItemId', '');
++    this.screen = EditorScreen.MEDIA_EDITOR;
++    this.discardConfirmationVisible = false;
++    this.commit();
++  }
++
++  /** Starts a camera-first flow whose only selected media is the fresh capture. */
++  beginCameraFlow(capturedItemId: string): void {
++    this.flowOrigin = FlowOrigin.CAMERA;
++    this.capturedItemId = capturedItemId;
++    this.selectedItemIds = capturedItemId.length > 0 ? [capturedItemId] : [];
++    this.focusedItemId = capturedItemId;
++    this.screen = EditorScreen.MEDIA_EDITOR;
++    this.discardConfirmationVisible = false;
++    this.commit();
++  }
++
++  /** Starts a flow opened from the picker or gallery. */
++  beginPickerFlow(selectedItemIds: string[], focusedItemId: string): void {
++    this.flowOrigin = FlowOrigin.PICKER;
++    this.capturedItemId = '';
++    this.selectedItemIds = selectedItemIds.slice();
++    this.focusedItemId = focusedItemId;
++    this.screen = EditorScreen.MEDIA_EDITOR;
++    this.discardConfirmationVisible = false;
++    this.commit();
++  }
++
++  private snapshot(): Record<string, Object> {
++    const snapshot: Record<string, Object> = {};
++    snapshot['selectedItemIds'] = this.selectedItemIds.slice();
++    snapshot['focusedItemId'] = this.focusedItemId;
++    snapshot['editorStateByItem'] = toRecord(this.editorStateByItem);
++    snapshot['messageText'] = this.messageText;
++    snapshot['origin'] = this.flowOrigin;
++    snapshot['capturedItemId'] = this.capturedItemId;
++    return snapshot;
++  }
++
++  private syncEnvironment(): void {
++    this.leaf.selectedItemIds = this.selectedItemIds.slice();
++    this.leaf.focusedItemId = this.focusedItemId;
++    this.leaf.editorStateByItem = toRecord(this.editorStateByItem);
++    this.leaf.messageText = this.messageText;
++    this.leaf.flowOrigin = this.flowOrigin;
++    this.leaf.capturedItemId = this.capturedItemId;
++  }
++
++  /** Mirrors the editor into the environment and re-commits the flow draft. */
++  private commit(): void {
++    this.syncEnvironment();
++    this.repository.commitFlowDraft(this.snapshot());
++  }
++
++  flowSnapshot(): Record<string, Object> { return this.snapshot(); }
++
++  async saveFlow(context: common.UIAbilityContext): Promise<void> {
++    this.commit();
++    await this.repository.persistFlow(context, this.snapshot());
++  }
++
++  /** Keeps the in-memory draft current without a durable write. */
++  commitDraft(): void { this.commit(); }
++
++  setMessageText(message: string): void {
++    this.messageText = message;
++    this.commit();
++  }
++
++  // ---------------------------------------------------------------- selection
++
++  setFocusedItem(itemId: string): void {
++    // Focus is a pure pointer into the selection; the per-item edits stay where
++    // they are so moving between pages can never shuffle edits onto another
++    // attachment.
++    this.focusedItemId = itemId;
++    this.commit();
++  }
++
++  focusOffset(delta: number): void {
++    if (this.selectedItemIds.length === 0) {
++      return;
++    }
++    let index: number = this.selectedItemIds.indexOf(this.focusedItemId);
++    if (index < 0) {
++      index = 0;
++    }
++    let target: number = index + delta;
++    if (target < 0) {
++      target = 0;
++    }
++    if (target >= this.selectedItemIds.length) {
++      target = this.selectedItemIds.length - 1;
++    }
++    this.setFocusedItem(this.selectedItemIds[target]);
++  }
++
++  reorderSelectedMedia(fromIndex: number, toIndex: number): void {
++    const count: number = this.selectedItemIds.length;
++    if (fromIndex < 0 || fromIndex >= count || toIndex < 0 || toIndex >= count || fromIndex === toIndex) {
++      return;
++    }
++    const reordered: string[] = this.selectedItemIds.slice();
++    const moved: string = reordered[fromIndex];
++    reordered.splice(fromIndex, 1);
++    reordered.splice(toIndex, 0, moved);
++    // Ordering only moves identities around; membership and edits are untouched.
++    this.selectedItemIds = reordered;
++    this.commit();
++  }
++
++  // ----------------------------------------------------------- audio removal
++
++  /** Per-item audio-removal affordance, derived without touching any state. */
++  eligibility(): Record<string, Object> {
++    const muteControlByItem: Record<string, Object> = {};
++    const mutedByItem: Record<string, Object> = {};
++    const reasonByItem: Record<string, Object> = {};
++    const items: MediaItem[] = this.leaf.items;
++    for (let index = 0; index < items.length; index++) {
++      const item: MediaItem = items[index];
++      muteControlByItem[item.id] = isOrdinaryEditableVideo(item);
++      mutedByItem[item.id] = this.isMuted(item.id);
++      reasonByItem[item.id] = audioRemovalIneligibilityReason(item);
++    }
++    const result: Record<string, Object> = {};
++    result['muteControlByItem'] = muteControlByItem;
++    result['mutedByItem'] = mutedByItem;
++    result['reasonByItem'] = reasonByItem;
++    result['focusedItemId'] = this.focusedItemId;
++    result['focusedMuteControlVisible'] = this.isMuteControlVisible();
++    result['audioRemovalAvailable'] = this.isMuteControlVisible();
++    return result;
++  }
++
++  /** True when the focused attachment may offer audio removal right now. */
++  isMuteControlVisible(): boolean {
++    const index: number = this.findItemIndex(this.focusedItemId);
++    if (index >= 0) {
++      return isOrdinaryEditableVideo(this.leaf.items[index]);
++    }
++    const editor: Record<string, Object> = toRecord(this.editorStateByItem[this.focusedItemId]);
++    return readString(editor, 'kind', '') === EditorStateKind.VIDEO_TRIM;
++  }
++
++  isMuted(itemId: string): boolean {
++    return editorIsMuted(toRecord(this.editorStateByItem[itemId]));
++  }
++
++  mutedItemIds(): string[] {
++    const muted: string[] = [];
++    for (let index = 0; index < this.selectedItemIds.length; index++) {
++      const itemId: string = this.selectedItemIds[index];
++      if (this.isMuted(itemId)) {
++        muted.push(itemId);
++      }
++    }
++    return muted;
++  }
++
++  /**
++   * Toggles audio removal for the focused video only. Toggling back restores the
++   * audio and keeps every other edit on that same attachment; selecting another
++   * attachment simply reveals that attachment's own setting.
++   */
++  toggleVideoMuted(): void {
++    const itemId: string = this.focusedItemId;
++    if (itemId.length === 0 || !this.isMuteControlVisible()) {
++      return;
++    }
++    const index: number = this.findItemIndex(itemId);
++    const fallbackKind: string = index >= 0 ? editorStateKindFor(this.leaf.items[index]) : EditorStateKind.VIDEO_TRIM;
++    const existing: Record<string, Object> = toRecord(this.editorStateByItem[itemId]);
++    const nextMuted: boolean = !editorIsMuted(existing);
++
++    this.editorStateByItem[itemId] = withAudioRemoved(existing, fallbackKind, nextMuted);
++    if (nextMuted) {
++      this.feedback = AUDIO_REMOVED_FEEDBACK;
++      this.repository.showAudioRemovedFeedback(itemId);
++    } else {
++      this.feedback = '';
++    }
++    // The first edit retires the pre-uploaded copy of this attachment so the
++    // eventual send can never reach for media the user has since changed.
++    this.repository.invalidatePreUpload(itemId);
++    this.commit();
++  }
++
++  // ------------------------------------------------------- close and discard
++
++  /**
++   * Asks to leave the flow. Media that is still selected is worth a confirmation
++   * before it is thrown away, unless the flow is a camera-first flow whose only
++   * selection is the capture that just happened.
++   */
++  requestClose(): void {
++    if (this.screen === EditorScreen.CLOSED) {
++      return;
++    }
++    if (this.selectedItemIds.length === 0) {
++      this.closeImmediately();
++      return;
++    }
++    if (this.isCameraFirstBackOut()) {
++      this.discardAndReturnToCamera();
++      return;
++    }
++    this.discardConfirmationVisible = true;
++    this.discardRequests += 1;
++    this.repository.requestDiscardConfirmation(this.selectedItemIds.length);
++    this.commit();
++  }
++
++  private isCameraFirstBackOut(): boolean {
++    return this.flowOrigin === FlowOrigin.CAMERA
++      && this.capturedItemId.length > 0
++      && this.selectedItemIds.length === 1
++      && this.selectedItemIds[0] === this.capturedItemId;
++  }
++
++  /** Confirms the discard: the only close path allowed to abandon edits. */
++  confirmDiscard(): void {
++    if (this.screen === EditorScreen.CLOSED) {
++      return;
++    }
++    const abandoned: string[] = this.selectedItemIds.slice();
++    this.discardConfirmationVisible = false;
++    this.selectedItemIds = [];
++    this.focusedItemId = '';
++    this.editorStateByItem = {};
++    this.messageText = '';
++    this.screen = EditorScreen.CLOSED;
++    this.repository.discardPendingEdits(abandoned);
++    this.repository.closeScreen();
++    this.commit();
++  }
++
++  /** Dismissing or canceling the confirmation keeps every edit exactly as it was. */
++  cancelDiscard(): void {
++    if (!this.discardConfirmationVisible) {
++      return;
++    }
++    this.discardConfirmationVisible = false;
++    this.repository.cancelDiscardConfirmation();
++    this.commit();
++  }
++
++  private closeImmediately(): void {
++    this.discardConfirmationVisible = false;
++    this.screen = EditorScreen.CLOSED;
++    this.repository.clearFlowDraft();
++    this.repository.closeScreen();
++    this.commit();
++  }
++
++  private discardAndReturnToCamera(): void {
++    const abandoned: string[] = this.selectedItemIds.slice();
++    this.discardConfirmationVisible = false;
++    this.selectedItemIds = [];
++    this.focusedItemId = '';
++    this.editorStateByItem = {};
++    this.messageText = '';
++    this.screen = EditorScreen.CAMERA;
++    this.repository.discardPendingEdits(abandoned);
++    this.repository.returnToCamera();
++    this.commit();
++  }
++
++  requestCloseThenCancelDiscard(): void {
++    this.requestClose();
++    this.cancelDiscard();
++  }
++
++  isDiscardConfirmationVisible(): boolean { return this.discardConfirmationVisible; }
++
++  // ------------------------------------------------------------------- state
++
++  state(): Record<string, Object> {
++    const focusedEditorState: Record<string, Object> = toRecord(this.editorStateByItem[this.focusedItemId]);
++    const state: Record<string, Object> = {};
++    state['selectedItemIds'] = this.selectedItemIds.slice();
++    state['focusedItemId'] = this.focusedItemId;
++    state['focusedEditorState'] = toRecord(focusedEditorState);
++    state['editorStateByItem'] = toRecord(this.editorStateByItem);
++    state['screen'] = this.screen;
++    state['order'] = this.selectedItemIds.slice();
++    state['messageText'] = this.messageText;
++    state['mutedItemIds'] = this.mutedItemIds();
++    state['focusedItemIsMuted'] = editorIsMuted(focusedEditorState);
++    state['muteControlVisible'] = this.isMuteControlVisible();
++    state['discardConfirmationVisible'] = this.discardConfirmationVisible;
++    state['discardConfirmationsRequested'] = this.discardRequests;
++    state['flowOrigin'] = this.flowOrigin;
++    state['feedback'] = this.feedback;
++    return state;
++  }
++
++  currentScreen(): string { return this.screen; }
++  currentFocusedItemId(): string { return this.focusedItemId; }
++  currentSelection(): string[] { return this.selectedItemIds.slice(); }
++  currentMessageText(): string { return this.messageText; }
++  currentFlowOrigin(): string { return this.flowOrigin; }
++  currentFeedback(): string { return this.feedback; }
++  editorStateFor(itemId: string): Record<string, Object> { return toRecord(this.editorStateByItem[itemId]); }
++  editorTrimWindow(itemId: string): number[] {
++    const editor: Record<string, Object> = toRecord(this.editorStateByItem[itemId]);
++    const window: number[] = [];
++    window.push(readNumber(editor, 'startTimeUs', 0));
++    window.push(readNumber(editor, 'endTimeUs', 0));
++    return window;
++  }
++
++  private findItemIndex(itemId: string): number {
++    if (itemId.length === 0) {
++      return -1;
++    }
++    const items: MediaItem[] = this.leaf.items;
++    for (let index = 0; index < items.length; index++) {
++      if (items[index].id === itemId) {
++        return index;
++      }
++    }
++    return -1;
++  }
++
++  itemKind(itemId: string): string {
++    const index: number = this.findItemIndex(itemId);
++    return index >= 0 ? this.leaf.items[index].kind : '';
++  }
++
++  isVideoGif(itemId: string): boolean {
++    const index: number = this.findItemIndex(itemId);
++    return index >= 0 && this.leaf.items[index].isVideoGif === true;
++  }
++
++  // ------------------------------------------------------- send preparation
++
++  /**
++   * Restores persisted attachment transform properties. Payloads written before
++   * per-video audio removal carry no audio-removal flag; those read back as
++   * unmuted instead of failing.
++   */
++  restoreStoredTransform(stored: Record<string, Object>): Record<string, Object> {
++    return normalizeTransformProperties(stored);
++  }
++
++  /**
++   * Carries the editor's trim window and audio-removal choice into the
++   * attachment that will be sent. Muting an otherwise untouched clip still
++   * marks the attachment as edited, because its content no longer matches the
++   * original.
++   */
++  prepareEditedVideoForSend(itemId: string, editor: Record<string, Object>,
++    existing?: Record<string, Object>): Record<string, Object> {
++    const editorState: Record<string, Object> = toRecord(editor);
++    const current: Record<string, Object> = toRecord(existing);
++    const isMuted: boolean = editorIsMuted(editorState);
++    const startTimeUs: number = readNumber(editorState, 'startTimeUs', readNumber(current, 'videoTrimStartTimeUs', 0));
++    const endTimeUs: number = readNumber(editorState, 'endTimeUs', readNumber(current, 'videoTrimEndTimeUs', 0));
++
++    // An explicit `isDurationEdited` is authoritative; without it, a non-zero
++    // trim window is what marks the clip as trimmed.
++    const durationEdited: boolean = editorState['isDurationEdited'] !== undefined
++      ? readBoolean(editorState, 'isDurationEdited', false)
++      : (startTimeUs > 0 || endTimeUs > 0);
++    const trimmed: boolean = durationEdited || readBoolean(current, 'videoTrim', false);
++    const edited: boolean = trimmed || isMuted || readBoolean(current, 'videoEdited', false);
++
++    const transform: Record<string, Object> = {};
++    transform['skipTransform'] = readBoolean(current, 'skipTransform', false);
++    transform['videoTrim'] = trimmed;
++    transform['videoTrimStartTimeUs'] = trimmed ? startTimeUs : 0;
++    transform['videoTrimEndTimeUs'] = trimmed ? endTimeUs : 0;
++    transform['videoMuted'] = isMuted;
++    transform['videoEdited'] = edited;
++    transform['sentMediaQuality'] = readNumber(current, 'sentMediaQuality', 0);
++    transform['mp4Faststart'] = readBoolean(current, 'mp4Faststart', false);
++
++    if (edited) {
++      this.repository.invalidatePreUpload(itemId);
++    }
++    this.repository.applyVideoTransform(itemId);
++
++    const prepared: Record<string, Object> = {};
++    prepared['id'] = itemId;
++    prepared['videoTrack'] = true;
++    prepared['audioTrack'] = true;
++    prepared['durationUs'] = endTimeUs > startTimeUs ? endTimeUs - startTimeUs : 0;
++    prepared['transformProperties'] = toRecord(transform);
++    this.leaf.preparedVideo = prepared;
++
++    const result: Record<string, Object> = {};
++    result['itemId'] = itemId;
++    result['transformProperties'] = toRecord(transform);
++    result['videoTrack'] = true;
++    result['audioTrack'] = true;
++    result['videoEdited'] = edited;
++    result['videoMuted'] = isMuted;
++    return result;
++  }
++
++  /**
++   * Runs the send pipeline over the prepared video. Dropping the audio track
++   * cannot be satisfied by a remux, so audio removal forces a real transform
++   * even when the source already meets size and codec constraints. The video
++   * track is always retained; only the audio track disappears.
++   */
++  transcodePreparedVideo(constraints?: Record<string, Object>): Record<string, Object> {
++    const prepared: Record<string, Object> = toRecord(this.leaf.preparedVideo);
++    const properties: Record<string, Object> = toRecord(prepared['transformProperties']);
++    const transcoder: Record<string, Object> = toRecord(constraints === undefined ? this.leaf.transcoder : constraints);
++
++    const audioRemoved: boolean = readBoolean(properties, 'videoMuted', false);
++    const allowAudioRemux: boolean = readBoolean(transcoder, 'allowAudioRemux', false);
++    const requiresEncode: boolean = readBoolean(transcoder, 'requiresEncode', false);
++    const edited: boolean = readBoolean(properties, 'videoEdited', false) || readBoolean(properties, 'videoTrim', false);
++
++    const transformRequired: boolean = requiresEncode || edited || audioRemoved;
++    const videoTrack: boolean = prepared['videoTrack'] !== false;
++    const sourceHasAudio: boolean = prepared['audioTrack'] === true;
++    const audioTrack: boolean = videoTrack && sourceHasAudio && !audioRemoved;
++
++    if (transformRequired) {
++      this.repository.convertVideo();
++    } else {
++      this.repository.passThroughVideo();
++    }
++
++    const output: Record<string, Object> = {};
++    output['id'] = readString(prepared, 'id', '');
++    output['videoTrack'] = videoTrack;
++    output['audioTrack'] = audioTrack;
++    output['durationUs'] = readNumber(prepared, 'durationUs', 0);
++    output['videoMuted'] = audioRemoved;
++
++    const result: Record<string, Object> = {};
++    result['output'] = output;
++    result['transformRequired'] = transformRequired;
++    result['transformApplied'] = transformRequired;
++    result['audioRemuxOnly'] = !transformRequired && allowAudioRemux;
++    result['audioRemoved'] = audioRemoved;
++    result['videoTrackRetained'] = videoTrack;
++    result['reason'] = audioRemoved
++      ? 'audio_removed'
++      : (requiresEncode ? 'source_constraints' : (edited ? 'video_edited' : 'within_constraints'));
++    return result;
++  }
++
++  /** Restores the flow draft after the editor page or ability is recreated. */
++  async recreateFromPersistence(context: common.UIAbilityContext): Promise<void> {
++    const persisted: Record<string, Object> = await this.repository.reopenPersistedFlow(context);
++    if (isEmptyFlow(persisted)) {
++      // Nothing durable came back. The mirrored flow is still valid, so keep it
++      // rather than silently resetting a flow the user never abandoned.
++      this.applyFlow(this.repository.loadFlow());
++      return;
++    }
++    this.applyFlow(parseFlowBlob(JSON.stringify(persisted)));
++  }
++
++  /** Re-commits the draft without changing any editor state. */
++  syncDraft(): void { this.commit(); }
+ }
++
++let sharedPageOwner: MediaEditorPageOwner | undefined = undefined;
++
++/**
++ * Page-level owner of the editor. The owner outlives the page instance so a
++ * recreated editor reconnects to the same selection, focus and edits instead of
++ * starting over.
++ */
+ export class MediaEditorPageOwner {
+   readonly ownerId: string = `media-editor-owner-${Date.now()}`;
+   private readonly leaf: MediaEditorEnvironment = new MediaEditorEnvironment();
+   private repository: MediaEditorRepository = new MediaEditorRepository(this.leaf);
+   private store: MediaEditorStore = new MediaEditorStore(this.repository, this.leaf);
++  private context: common.UIAbilityContext | undefined = undefined;
++
+   externalLeaf(): MediaEditorEnvironment { return this.leaf; }
++
++  attachContext(context: common.UIAbilityContext): void { this.context = context; }
++
++  detach(): void {
++    // Release the ability context; the draft stays committed so a recreated
++    // editor can still restore it.
++    this.store.syncDraft();
++    this.context = undefined;
++  }
++
+   appear(): void { this.store.open(); }
+-  reopen(): void { this.repository = new MediaEditorRepository(this.leaf); this.store = new MediaEditorStore(this.repository, this.leaf); this.store.open(); }
++
++  reopen(): void {
++    this.repository = new MediaEditorRepository(this.leaf);
++    this.store = new MediaEditorStore(this.repository, this.leaf);
++    this.store.open();
++  }
++
+   eligibility(): Record<string, Object> { return this.store.eligibility(); }
++
+   toggleVideoMuted(): void { this.store.toggleVideoMuted(); }
++
++  isMuted(itemId: string): boolean { return this.store.isMuted(itemId); }
++
++  mutedItemIds(): string[] { return this.store.mutedItemIds(); }
++
++  isMuteControlVisible(): boolean { return this.store.isMuteControlVisible(); }
++
+   setFocusedItem(id: string): void { this.store.setFocusedItem(id); }
++
++  focusOffset(delta: number): void { this.store.focusOffset(delta); }
++
+   reorderSelectedMedia(from: number, to: number): void { this.store.reorderSelectedMedia(from, to); }
+-  async persistMediaSendFlow(context: common.UIAbilityContext, flow: Record<string, Object>): Promise<void> { await this.repository.persistFlow(context, flow); }
+-  async recreateMediaSendFlow(context: common.UIAbilityContext): Promise<void> { this.repository = new MediaEditorRepository(this.leaf); this.store = new MediaEditorStore(this.repository, this.leaf); await this.store.recreateFromPersistence(context); }
++
++  beginCameraFlow(capturedItemId: string): void { this.store.beginCameraFlow(capturedItemId); }
++
++  beginPickerFlow(selectedItemIds: string[], focusedItemId: string): void {
++    this.store.beginPickerFlow(selectedItemIds, focusedItemId);
++  }
++
++  setMessageText(message: string): void { this.store.setMessageText(message); }
++
++  messageText(): string { return this.store.currentMessageText(); }
++
++  feedback(): string { return this.store.currentFeedback(); }
++
++  screen(): string { return this.store.currentScreen(); }
++
++  focusedItemId(): string { return this.store.currentFocusedItemId(); }
++
++  selectedItemIds(): string[] { return this.store.currentSelection(); }
++
++  flowOrigin(): string { return this.store.currentFlowOrigin(); }
++
++  editorStateFor(itemId: string): Record<string, Object> { return this.store.editorStateFor(itemId); }
++
++  editorTrimWindow(itemId: string): number[] { return this.store.editorTrimWindow(itemId); }
++
++  itemKind(itemId: string): string { return this.store.itemKind(itemId); }
++
++  isVideoGif(itemId: string): boolean { return this.store.isVideoGif(itemId); }
++
++  async persistMediaSendFlow(context: common.UIAbilityContext, flow: Record<string, Object>): Promise<void> {
++    await this.repository.persistFlow(context, flow);
++  }
++
++  async saveCurrentFlow(): Promise<void> {
++    const context: common.UIAbilityContext | undefined = this.context;
++    if (context === undefined) {
++      return;
++    }
++    await this.store.saveFlow(context);
++  }
++
++  /** Refreshes the in-memory draft after an edit; the durable write happens on exit. */
++  commitEditorDraft(): void { this.store.commitDraft(); }
++
++  async recreateMediaSendFlow(context: common.UIAbilityContext): Promise<void> {
++    this.repository = new MediaEditorRepository(this.leaf);
++    this.store = new MediaEditorStore(this.repository, this.leaf);
++    await this.store.recreateFromPersistence(context);
++  }
++
++  requestClose(): void { this.store.requestClose(); }
++
++  confirmDiscard(): void { this.store.confirmDiscard(); }
++
++  cancelDiscard(): void { this.store.cancelDiscard(); }
++
++  isDiscardConfirmationVisible(): boolean { return this.store.isDiscardConfirmationVisible(); }
++
+   requestCloseThenCancelDiscard(): void { this.store.requestCloseThenCancelDiscard(); }
+-  restoreStoredTransform(value: Record<string, Object>): Record<string, Object> { return this.store.restoreStoredTransform(value); }
+-  prepareEditedVideoForSend(id: string, editor: Record<string, Object>): Record<string, Object> { return this.store.prepareEditedVideoForSend(id, editor); }
+-  transcodePreparedVideo(): Record<string, Object> { return this.store.transcodePreparedVideo(); }
++
++  restoreStoredTransform(value: Record<string, Object>): Record<string, Object> {
++    return this.store.restoreStoredTransform(value);
++  }
++
++  prepareEditedVideoForSend(id: string, editor: Record<string, Object>,
++    existing?: Record<string, Object>): Record<string, Object> {
++    return this.store.prepareEditedVideoForSend(id, editor, existing);
++  }
++
++  transcodePreparedVideo(constraints?: Record<string, Object>): Record<string, Object> {
++    return this.store.transcodePreparedVideo(constraints);
++  }
++
+   state(): Record<string, Object> { return this.store.state(); }
+ }
+ 
++/** Process-wide editor owner; survives page and ability recreation. */
++export function mediaEditorPageOwner(): MediaEditorPageOwner {
++  if (sharedPageOwner === undefined) {
++    sharedPageOwner = new MediaEditorPageOwner();
++  }
++  return sharedPageOwner;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 1dd1d76f500b23ed76a7c82616e480e2a3ee7b18..70aec92fc996569f859e42bb1ad554848f71e07c 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,25 +1,298 @@
+-import { MediaEditorPageOwner } from '../feature/MediaEditorStore';
++import { MediaEditorPageOwner, EditorScreen, mediaEditorPageOwner } from '../feature/MediaEditorStore';
+ 
++/**
++ * Media editor screen.
++ *
++ * The page is a thin projection of {@link MediaEditorPageOwner}: it re-reads the
++ * editor state into `@State` fields after every interaction so ArkUI re-renders,
++ * and it never keeps a copy of an edit of its own. That keeps selection, focus,
++ * ordering, message metadata and per-item edits owned by the editor where they
++ * are keyed by media identity.
++ */
+ @Entry
+ @Component
+ struct Index {
+-  private readonly owner: MediaEditorPageOwner = new MediaEditorPageOwner();
+-  @State private revision: number = 0;
+-  aboutToAppear(): void { this.owner.appear(); this.refresh(); }
+-  private refresh(): void { this.revision += 1; }
+-  build() {
+-    Column({ space: 16 }) {
+-      Text('Media editor').fontSize(24).fontWeight(FontWeight.Bold)
+-      Text(`Focused: ${String(this.owner.state()['focusedItemId'])}`)
++  private owner: MediaEditorPageOwner = mediaEditorPageOwner();
++
++  @State private selectedIds: string[] = [];
++  @State private focusedId: string = '';
++  @State private screenLabel: string = EditorScreen.MEDIA_EDITOR;
++  @State private mutedIds: string[] = [];
++  @State private muteControlVisible: boolean = false;
++  @State private focusedMuted: boolean = false;
++  @State private discardPending: boolean = false;
++  @State private composerText: string = '';
++  @State private feedback: string = '';
++  @State private breakpoint: string = 'sm';
++
++  aboutToAppear(): void {
++    this.owner.appear();
++    this.reload();
++  }
++
++  aboutToDisappear(): void {
++    // Keep the live draft, then mirror it into the durable flow store.
++    this.owner.commitEditorDraft();
++    this.owner.saveCurrentFlow();
++    this.owner.detach();
++  }
++
++  onBackPress(): boolean {
++    this.attemptClose();
++    return true;
++  }
++
++  private reload(): void {
++    this.selectedIds = this.owner.selectedItemIds();
++    this.focusedId = this.owner.focusedItemId();
++    this.screenLabel = this.owner.screen();
++    this.mutedIds = this.owner.mutedItemIds();
++    this.muteControlVisible = this.owner.isMuteControlVisible();
++    this.focusedMuted = this.owner.isMuted(this.focusedId);
++    this.discardPending = this.owner.isDiscardConfirmationVisible();
++    this.composerText = this.owner.messageText();
++    this.feedback = this.owner.feedback();
++  }
++
++  private columnCount(): number {
++    return this.breakpoint === 'lg' || this.breakpoint === 'xl' || this.breakpoint === 'xxl' ? 2 : 1;
++  }
++
++  private isMuted(itemId: string): boolean {
++    return this.mutedIds.indexOf(itemId) >= 0;
++  }
++
++  private labelFor(itemId: string): string {
++    const kind: string = this.owner.itemKind(itemId);
++    const muted: boolean = this.isMuted(itemId);
++    let label: string = itemId;
++    if (this.owner.isVideoGif(itemId)) {
++      label = `${itemId} (GIF)`;
++    } else if (kind === 'video') {
++      label = muted ? `${itemId} - audio removed` : itemId;
++    }
++    return label;
++  }
++
++  private focusedTrimWindow(): string {
++    if (this.focusedId.length === 0) {
++      return '';
++    }
++    const window: number[] = this.owner.editorTrimWindow(this.focusedId);
++    if (window.length < 2 || (window[0] === 0 && window[1] === 0)) {
++      return '';
++    }
++    return `Trim ${window[0]}us - ${window[1]}us`;
++  }
++
++  private onToggleMute(): void {
++    this.owner.toggleVideoMuted();
++    this.reload();
++    if (this.feedback.length > 0) {
++      // Immediate confirmation that the focused video just lost its audio.
++      try {
++        this.getUIContext().getPromptAction().showToast({ message: this.feedback });
++      } catch (error) {
++        // The inline feedback row still tells the user what happened.
++      }
++    }
++    this.persistDraft();
++  }
++
++  private focusItem(itemId: string): void {
++    this.owner.setFocusedItem(itemId);
++    this.reload();
++    this.persistDraft();
++  }
++
++  private onReorder(from: number, to: number): void {
++    this.owner.reorderSelectedMedia(from, to);
++    this.reload();
++    this.persistDraft();
++  }
++
++  private onMessageChanged(value: string): void {
++    this.composerText = value;
++    this.owner.setMessageText(value);
++  }
++
++  private persistDraft(): void {
++    this.owner.commitEditorDraft();
++  }
++
++  private attemptClose(): void {
++    this.owner.requestClose();
++    this.reload();
++    if (!this.discardPending) {
++      return;
++    }
++    this.getUIContext().showAlertDialog({
++      title: 'Discard media?',
++      message: 'This message still has media and edits attached.',
++      autoCancel: true,
++      primaryButton: {
++        value: 'Discard',
++        action: (): void => {
++          this.owner.confirmDiscard();
++          this.reload();
++        }
++      },
++      secondaryButton: {
++        value: 'Keep editing',
++        action: (): void => {
++          this.owner.cancelDiscard();
++          this.reload();
++        }
++      }
++    });
++  }
++
++  @Builder
++  MediaStrip() {
++    Column({ space: 8 }) {
++      Text('Selected media')
++        .fontSize(16)
++        .fontWeight(FontWeight.Medium)
++      if (this.selectedIds.length === 0) {
++        Text('No media selected')
++          .fontSize(14)
++          .fontColor(Color.Gray)
++      } else {
++        List({ space: 8 }) {
++          ForEach(this.selectedIds, (itemId: string) => {
++            ListItem() {
++              Row({ space: 12 }) {
++                Text(`${this.selectedIds.indexOf(itemId) + 1}`)
++                  .fontSize(12)
++                  .fontColor(Color.Gray)
++                  .width(24)
++                Text(this.labelFor(itemId))
++                  .fontSize(15)
++                  .fontWeight(this.focusedId === itemId ? FontWeight.Bold : FontWeight.Normal)
++                  .layoutWeight(1)
++                Text(this.focusedId === itemId ? 'focused' : '')
++                  .fontSize(12)
++                  .fontColor(Color.Blue)
++              }
++              .width('100%')
++              .padding(10)
++              .borderRadius(8)
++              .backgroundColor(this.focusedId === itemId ? '#110000ff' : '#f2f2f2')
++              .onClick(() => {
++                this.focusItem(itemId);
++              })
++            }
++          }, (itemId: string) => itemId)
++        }
++        .width('100%')
++        .layoutWeight(1)
++      }
++    }
++    .width('100%')
++  }
++
++  @Builder
++  EditorControls() {
++    Column({ space: 12 }) {
++      Text(this.screenLabel === EditorScreen.MEDIA_EDITOR ? 'Media editor' : `Screen: ${this.screenLabel}`)
++        .fontSize(24)
++        .fontWeight(FontWeight.Bold)
++
++      Text(`Focused: ${this.focusedId.length > 0 ? this.focusedId : 'none'}`)
++        .fontSize(14)
++        .id('focused-media')
++
++      Text(this.focusedTrimWindow())
++        .fontSize(12)
++        .fontColor(Color.Gray)
++
+       Row({ space: 10 }) {
+-        Button('Mute').id('toggle-audio').onClick(() => { this.owner.toggleVideoMuted(); this.refresh(); })
+-        Button('Next media').id('next-media').onClick(() => { this.owner.setFocusedItem('video-2'); this.refresh(); })
++        Button(this.focusedMuted ? 'Restore audio' : 'Remove audio')
++          .id('toggle-audio')
++          .enabled(this.muteControlVisible)
++          .visibility(this.muteControlVisible ? Visibility.Visible : Visibility.None)
++          .onClick(() => {
++            this.onToggleMute();
++          })
++        Button('Next media')
++          .id('next-media')
++          .onClick(() => {
++            this.owner.focusOffset(1);
++            this.reload();
++            this.persistDraft();
++          })
++        Button('Prev media')
++          .id('prev-media')
++          .onClick(() => {
++            this.owner.focusOffset(-1);
++            this.reload();
++            this.persistDraft();
++          })
+       }
++
++      if (!this.muteControlVisible && this.focusedId.length > 0) {
++        Text('Audio removal is not available for this item')
++          .fontSize(12)
++          .fontColor(Color.Gray)
++      }
++
+       Row({ space: 10 }) {
+-        Button('Move').id('reorder-media').onClick(() => { this.owner.reorderSelectedMedia(0, 1); this.refresh(); })
+-        Button('Close').id('close-editor').onClick(() => { this.owner.requestCloseThenCancelDiscard(); this.refresh(); })
++        Button('Move')
++          .id('reorder-media')
++          .enabled(this.selectedIds.length > 1)
++          .onClick(() => {
++            const last: number = this.selectedIds.length - 1;
++            const from: number = this.selectedIds.indexOf(this.focusedId);
++            this.onReorder(from < 0 ? 0 : from, from === last ? 0 : from + 1);
++          })
++        Button('Close')
++          .id('close-editor')
++          .onClick(() => {
++            this.attemptClose();
++          })
++      }
++
++      TextInput({ text: this.composerText, placeholder: 'Add a message' })
++        .id('message-input')
++        .onChange((value: string) => {
++          this.onMessageChanged(value);
++        })
++
++      Text(this.feedback)
++        .fontSize(12)
++        .fontColor(Color.Green)
++        .id('editor-feedback')
++
++      Text(`Screen: ${this.screenLabel}`)
++        .fontSize(12)
++        .id('editor-screen')
++    }
++    .width('100%')
++    .alignItems(HorizontalAlign.Start)
++  }
++
++  build() {
++    GridRow({
++      columns: this.columnCount(),
++      gutter: 16,
++      breakpoints: {
++        value: ['320vp', '600vp', '840vp'],
++        reference: BreakpointsReference.WindowSize
++      }
++    }) {
++      GridCol({ span: 1 }) {
++        this.MediaStrip()
++      }
++      GridCol({ span: 1 }) {
++        this.EditorControls()
+       }
+-      Text(`Screen: ${String(this.owner.state()['screen'])}`)
+-    }.width('100%').height('100%').padding(24)
++    }
++    .width('100%')
++    .height('100%')
++    .padding(16)
++    .alignItems(ItemAlign.Start)
++    .onBreakpointChange((points: string) => {
++      this.breakpoint = points;
++    })
+   }
+-}
++}
+\ No newline at end of file

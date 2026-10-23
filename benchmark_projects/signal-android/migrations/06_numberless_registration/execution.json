@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "taskId": "06_numberless_registration",
+  "workingDirectory": ".",
+  "android": {
+    "baseProject": "android/base",
+    "finalProject": "android/final",
+    "materializeCommand": ["bash", "{migration}/materialize.sh"],
+    "verifyCommand": ["node", "{migration}/../tools/verify_immutable_sources.mjs", "--project", "{project}", "--repository", "{workspace}/_sources/signal-android"],
+    "buildCommand": ["python3", "{migration}/../tools/with_device_lock.py", "--lock", "/tmp/long-term-benchmark-android-full-build.lock", "--", "bash", "{migration}/../tools/build_android_focused_candidate.sh", "{project}", "{migration}"],
+    "semanticCommand": ["python3", "{migration}/../tools/with_device_lock.py", "--lock", "/tmp/long-term-benchmark-android-device.lock", "--", "node", "{migration}/../tools/run_android_focused_candidate.mjs", "--project", "{project}", "--migration", "{migration}", "--role", "{role}", "--output", "{output}"],
+    "reportRelativePath": "results/android-{role}.json",
+    "arbitraryCandidatePathSupported": true
+  },
+  "resultPolicy": "Only API37 ART observations count. Probe selection is compile-capability based; role is report metadata and never a semantic oracle. Missing modern APIs must reach and execute a compatible production prefix before a semantic fail is scored."
+}

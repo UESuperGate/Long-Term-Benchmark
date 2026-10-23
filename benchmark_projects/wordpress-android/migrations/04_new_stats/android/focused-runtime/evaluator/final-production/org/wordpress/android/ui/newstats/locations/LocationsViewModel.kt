@@ -1,0 +1,720 @@
+package org.wordpress.android.ui.newstats.locations
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.launch
+import org.wordpress.android.fluxc.model.SiteModel
+import org.wordpress.android.fluxc.store.AccountStore
+import org.wordpress.android.ui.mysite.SelectedSiteRepository
+import org.wordpress.android.ui.newstats.analytics.NewStatsTracker
+import org.wordpress.android.ui.newstats.StatsPeriod
+import org.wordpress.android.ui.newstats.repository.CityViewItemData
+import org.wordpress.android.ui.newstats.repository.CityViewsResult
+import org.wordpress.android.R
+import org.wordpress.android.ui.newstats.repository.CountryViewsResult
+import org.wordpress.android.ui.newstats.repository.RegionViewItemData
+import org.wordpress.android.ui.newstats.repository.RegionViewsResult
+import org.wordpress.android.ui.newstats.repository.StatsCacheBucket
+import org.wordpress.android.ui.newstats.repository.StatsRepository
+import org.wordpress.android.ui.newstats.util.statsUpgradeUrl
+import org.wordpress.android.ui.newstats.util.toDateRangeString
+import org.wordpress.android.ui.newstats.components.StatsViewChange
+import org.wordpress.android.util.AppLog
+import org.wordpress.android.viewmodel.ResourceProvider
+import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
+
+private const val CARD_MAX_ITEMS = 10
+private const val MAX_COUNTRY_CODE_LENGTH = 2
+
+@HiltViewModel
+class LocationsViewModel @Inject constructor(
+    private val selectedSiteRepository: SelectedSiteRepository,
+    private val accountStore: AccountStore,
+    private val statsRepository: StatsRepository,
+    private val resourceProvider: ResourceProvider,
+    private val newStatsTracker: NewStatsTracker
+) : ViewModel() {
+    private val _countriesUiState =
+        MutableStateFlow<LocationsCardUiState>(LocationsCardUiState.Loading)
+    private val _regionsUiState =
+        MutableStateFlow<LocationsCardUiState>(LocationsCardUiState.Loading)
+    private val _citiesUiState =
+        MutableStateFlow<LocationsCardUiState>(LocationsCardUiState.Loading)
+
+    private val _selectedLocationType =
+        MutableStateFlow(LocationType.COUNTRIES)
+    val selectedLocationType: StateFlow<LocationType> =
+        _selectedLocationType.asStateFlow()
+
+    val uiState: StateFlow<LocationsCardUiState> = combine(
+        _selectedLocationType,
+        _countriesUiState,
+        _regionsUiState,
+        _citiesUiState
+    ) { type, countries, regions, cities ->
+        when (type) {
+            LocationType.COUNTRIES -> countries
+            LocationType.REGIONS -> regions
+            LocationType.CITIES -> cities
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        LocationsCardUiState.Loading
+    )
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private var currentPeriod: StatsPeriod = StatsPeriod.Last7Days
+
+    // Per-type loaded period tracking for lazy fetching
+    private var countriesLoadedPeriod: StatsPeriod? = null
+    private var regionsLoadedPeriod: StatsPeriod? = null
+    private var citiesLoadedPeriod: StatsPeriod? = null
+
+    // Countries cache
+    private var allCountries: List<LocationItem> = emptyList()
+    private var cachedCountriesMapData: String = ""
+    private var cachedCountriesMinViews: Long = 0L
+    private var cachedCountriesMaxViews: Long = 0L
+    private var cachedCountriesTotalViews: Long = 0L
+    private var cachedCountriesTotalViewsChange: Long = 0L
+    private var cachedCountriesTotalViewsChangePercent: Double = 0.0
+
+    // Regions cache
+    private var allRegions: List<LocationItem> = emptyList()
+    private var cachedRegionsMapData: String = ""
+    private var cachedRegionsMinViews: Long = 0L
+    private var cachedRegionsMaxViews: Long = 0L
+    private var cachedRegionsTotalViews: Long = 0L
+    private var cachedRegionsTotalViewsChange: Long = 0L
+    private var cachedRegionsTotalViewsChangePercent: Double = 0.0
+
+    // Cities cache
+    private var allCities: List<LocationItem> = emptyList()
+    private var cachedCitiesMapData: String = ""
+    private var cachedCitiesMinViews: Long = 0L
+    private var cachedCitiesMaxViews: Long = 0L
+    private var cachedCitiesTotalViews: Long = 0L
+    private var cachedCitiesTotalViewsChange: Long = 0L
+    private var cachedCitiesTotalViewsChangePercent: Double = 0.0
+
+    private val fetchJobs = mutableMapOf<LocationType, Job>()
+
+    fun loadData() {
+        val site = selectedSiteRepository.getSelectedSite()
+        if (site == null) {
+            setAllStatesError(
+                R.string.stats_error_no_site
+            )
+            return
+        }
+
+        val accessToken = accountStore.accessToken
+        if (accessToken.isNullOrEmpty()) {
+            setAllStatesError(
+                R.string.stats_error_api
+            )
+            return
+        }
+
+        val period = currentPeriod
+        val type = _selectedLocationType.value
+        // A period already in memory repaints in the same frame, so the placeholder would only
+        // flash a skeleton over data the card is about to render anyway.
+        if (!isCached(type, site.siteId, period)) {
+            setCurrentTypeLoading()
+        }
+
+        launchFetch(type) {
+            fetchForCurrentType(site)
+            revalidateIfNeeded(type, site, period)
+        }
+    }
+
+    /**
+     * Replaces any in-flight fetch for [type]. A background revalidation outlives the load that
+     * started it, so without this the period the user just left could still write its result into
+     * the card after the new period has rendered.
+     */
+    private fun launchFetch(type: LocationType, block: suspend () -> Unit) {
+        fetchJobs[type]?.cancel()
+        fetchJobs[type] = viewModelScope.launch { block() }
+    }
+
+    private fun cancelAllFetchJobs() {
+        fetchJobs.values.forEach { it.cancel() }
+        fetchJobs.clear()
+    }
+
+    private fun isCached(type: LocationType, siteId: Long, period: StatsPeriod) =
+        statsRepository.isCached(bucketFor(type), siteId, period)
+
+    /**
+     * Refreshes a result served from a previous visit to the stats screen, once. The card already
+     * shows those numbers, so this runs without a loading state and keeps them if it fails.
+     */
+    private suspend fun revalidateIfNeeded(
+        type: LocationType,
+        site: SiteModel,
+        period: StatsPeriod
+    ) {
+        if (period != currentPeriod) return
+        if (!statsRepository.needsRevalidation(bucketFor(type), site.siteId, period)) return
+        fetchForType(type, site, forceRefresh = true, applyErrors = false)
+    }
+
+    private fun bucketFor(type: LocationType) = when (type) {
+        LocationType.COUNTRIES -> StatsCacheBucket.COUNTRIES
+        LocationType.REGIONS -> StatsCacheBucket.REGIONS
+        LocationType.CITIES -> StatsCacheBucket.CITIES
+    }
+
+    fun refresh() {
+        val site = selectedSiteRepository.getSelectedSite() ?: return
+        val accessToken = accountStore.accessToken
+        if (accessToken.isNullOrEmpty()) return
+
+        launchFetch(_selectedLocationType.value) {
+            try {
+                _isRefreshing.value = true
+                // Reset loaded period for current type to force re-fetch
+                resetLoadedPeriodForCurrentType()
+                fetchForCurrentType(site, forceRefresh = true)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun onRetry() {
+        loadData()
+    }
+
+    fun getAdminUrl(): String? =
+        selectedSiteRepository.getSelectedSite()?.adminUrl
+
+    fun getUpgradeUrl(): String? =
+        selectedSiteRepository.getSelectedSite()?.statsUpgradeUrl()
+
+    fun onPeriodChanged(period: StatsPeriod) {
+        if (period == currentPeriod &&
+            isTypeLoadedForCurrentPeriod(_selectedLocationType.value)
+        ) return
+        // Every type's data is now for the wrong period, including any type the user is not
+        // currently looking at.
+        cancelAllFetchJobs()
+        currentPeriod = period
+        // Reset all per-type loaded periods on period change
+        countriesLoadedPeriod = null
+        regionsLoadedPeriod = null
+        citiesLoadedPeriod = null
+        loadData()
+    }
+
+    @Suppress("ReturnCount")
+    fun onLocationTypeChanged(type: LocationType) {
+        if (_selectedLocationType.value == type) return
+        newStatsTracker.trackLocationLevelChanged(
+            from = _selectedLocationType.value,
+            to = type
+        )
+        _selectedLocationType.value = type
+
+        // Lazy-fetch: if this type hasn't been loaded for the current period
+        if (!isTypeLoadedForCurrentPeriod(type)) {
+            val site = selectedSiteRepository.getSelectedSite() ?: return
+            val accessToken = accountStore.accessToken
+            if (accessToken.isNullOrEmpty()) return
+
+            val period = currentPeriod
+            if (!isCached(type, site.siteId, period)) {
+                setTypeLoading(type)
+            }
+            launchFetch(type) {
+                fetchForType(type, site)
+                revalidateIfNeeded(type, site, period)
+            }
+        }
+    }
+
+    fun getDetailData(): LocationsDetailData {
+        return when (_selectedLocationType.value) {
+            LocationType.COUNTRIES -> LocationsDetailData(
+                items = allCountries,
+                mapData = cachedCountriesMapData,
+                minViews = cachedCountriesMinViews,
+                maxViews = cachedCountriesMaxViews,
+                totalViews = cachedCountriesTotalViews,
+                totalViewsChange = cachedCountriesTotalViewsChange,
+                totalViewsChangePercent =
+                    cachedCountriesTotalViewsChangePercent,
+                dateRange = currentPeriod.toDateRangeString(
+                    resourceProvider
+                ),
+                locationType = LocationType.COUNTRIES
+            )
+            LocationType.REGIONS -> LocationsDetailData(
+                items = allRegions,
+                mapData = cachedRegionsMapData,
+                minViews = cachedRegionsMinViews,
+                maxViews = cachedRegionsMaxViews,
+                totalViews = cachedRegionsTotalViews,
+                totalViewsChange = cachedRegionsTotalViewsChange,
+                totalViewsChangePercent =
+                    cachedRegionsTotalViewsChangePercent,
+                dateRange = currentPeriod.toDateRangeString(
+                    resourceProvider
+                ),
+                locationType = LocationType.REGIONS
+            )
+            LocationType.CITIES -> LocationsDetailData(
+                items = allCities,
+                mapData = cachedCitiesMapData,
+                minViews = cachedCitiesMinViews,
+                maxViews = cachedCitiesMaxViews,
+                totalViews = cachedCitiesTotalViews,
+                totalViewsChange = cachedCitiesTotalViewsChange,
+                totalViewsChangePercent =
+                    cachedCitiesTotalViewsChangePercent,
+                dateRange = currentPeriod.toDateRangeString(
+                    resourceProvider
+                ),
+                locationType = LocationType.CITIES
+            )
+        }
+    }
+
+    private fun setAllStatesError(
+        @androidx.annotation.StringRes messageResId: Int,
+        isAuthError: Boolean = false
+    ) {
+        val error = LocationsCardUiState.Error(
+            messageResId, isAuthError
+        )
+        _countriesUiState.value = error
+        _regionsUiState.value = error
+        _citiesUiState.value = error
+    }
+
+    private fun setCurrentTypeLoading() {
+        setTypeLoading(_selectedLocationType.value)
+    }
+
+    private fun setTypeLoading(type: LocationType) {
+        when (type) {
+            LocationType.COUNTRIES ->
+                _countriesUiState.value = LocationsCardUiState.Loading
+            LocationType.REGIONS ->
+                _regionsUiState.value = LocationsCardUiState.Loading
+            LocationType.CITIES ->
+                _citiesUiState.value = LocationsCardUiState.Loading
+        }
+    }
+
+    private fun resetLoadedPeriodForCurrentType() {
+        when (_selectedLocationType.value) {
+            LocationType.COUNTRIES -> countriesLoadedPeriod = null
+            LocationType.REGIONS -> regionsLoadedPeriod = null
+            LocationType.CITIES -> citiesLoadedPeriod = null
+        }
+    }
+
+    private fun isTypeLoadedForCurrentPeriod(
+        type: LocationType
+    ): Boolean {
+        return when (type) {
+            LocationType.COUNTRIES ->
+                countriesLoadedPeriod == currentPeriod
+            LocationType.REGIONS ->
+                regionsLoadedPeriod == currentPeriod
+            LocationType.CITIES ->
+                citiesLoadedPeriod == currentPeriod
+        }
+    }
+
+    private suspend fun fetchForCurrentType(site: SiteModel, forceRefresh: Boolean = false) {
+        fetchForType(_selectedLocationType.value, site, forceRefresh)
+    }
+
+    private suspend fun fetchForType(
+        type: LocationType,
+        site: SiteModel,
+        forceRefresh: Boolean = false,
+        applyErrors: Boolean = true
+    ) {
+        when (type) {
+            LocationType.COUNTRIES -> fetchCountryViews(site, forceRefresh, applyErrors)
+            LocationType.REGIONS -> fetchRegionViews(site, forceRefresh, applyErrors)
+            LocationType.CITIES -> fetchCityViews(site, forceRefresh, applyErrors)
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun fetchCountryViews(
+        site: SiteModel,
+        forceRefresh: Boolean = false,
+        applyErrors: Boolean = true
+    ) {
+        val siteId = site.siteId
+
+        try {
+            when (val result = statsRepository.fetchCountryViews(
+                siteId, currentPeriod, forceRefresh
+            )) {
+                is CountryViewsResult.Success -> {
+                    handleCountryViewsSuccess(result)
+                }
+                is CountryViewsResult.Error -> {
+                    if (!applyErrors) return
+                    _countriesUiState.value =
+                        LocationsCardUiState.Error(
+                            result.messageResId,
+                            result.isAuthError,
+                            result.isPlanGated
+                        )
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.e(AppLog.T.STATS, "Error fetching country views", e)
+            if (!applyErrors) return
+            _countriesUiState.value = LocationsCardUiState.Error(
+                R.string.stats_error_unknown
+            )
+        }
+    }
+
+    private fun handleCountryViewsSuccess(
+        result: CountryViewsResult.Success
+    ) {
+        countriesLoadedPeriod = currentPeriod
+        cachedCountriesTotalViews = result.totalViews
+        cachedCountriesTotalViewsChange = result.totalViewsChange
+        cachedCountriesTotalViewsChangePercent =
+            result.totalViewsChangePercent
+
+        if (result.countries.isEmpty()) {
+            allCountries = emptyList()
+            cachedCountriesMapData = ""
+            cachedCountriesMinViews = 0L
+            cachedCountriesMaxViews = 0L
+            _countriesUiState.value = emptyLoadedState()
+        } else {
+            val countries = result.countries.map { country ->
+                LocationItem(
+                    id = country.countryCode,
+                    name = country.countryName,
+                    views = country.views,
+                    flagIconUrl = country.flagIconUrl,
+                    change = toViewChange(
+                        country.viewsChange,
+                        country.viewsChangePercent
+                    )
+                )
+            }
+
+            val mapData = buildCountriesMapData(countries)
+            val minViews = countries.minOfOrNull { it.views } ?: 0L
+            val maxViews = countries.maxOfOrNull { it.views } ?: 0L
+
+            allCountries = countries
+            cachedCountriesMapData = mapData
+            cachedCountriesMinViews =
+                if (minViews == maxViews) 0L else minViews
+            cachedCountriesMaxViews = maxViews
+
+            val cardItems = countries.take(CARD_MAX_ITEMS)
+            val maxViewsForBar =
+                cardItems.firstOrNull()?.views ?: 0L
+
+            _countriesUiState.value = LocationsCardUiState.Loaded(
+                items = cardItems,
+                mapData = mapData,
+                minViews = cachedCountriesMinViews,
+                maxViews = cachedCountriesMaxViews,
+                maxViewsForBar = maxViewsForBar,
+                hasMoreItems = countries.size > CARD_MAX_ITEMS
+            )
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun fetchRegionViews(
+        site: SiteModel,
+        forceRefresh: Boolean = false,
+        applyErrors: Boolean = true
+    ) {
+        val siteId = site.siteId
+
+        try {
+            when (val result = statsRepository.fetchRegionViews(
+                siteId, currentPeriod, forceRefresh
+            )) {
+                is RegionViewsResult.Success -> {
+                    handleRegionViewsSuccess(result)
+                }
+                is RegionViewsResult.Error -> {
+                    if (!applyErrors) return
+                    _regionsUiState.value =
+                        LocationsCardUiState.Error(
+                            result.messageResId,
+                            result.isAuthError,
+                            result.isPlanGated
+                        )
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.e(AppLog.T.STATS, "Error fetching region views", e)
+            if (!applyErrors) return
+            _regionsUiState.value = LocationsCardUiState.Error(
+                R.string.stats_error_unknown
+            )
+        }
+    }
+
+    @Suppress("CyclomaticComplexity")
+    private fun handleRegionViewsSuccess(
+        result: RegionViewsResult.Success
+    ) {
+        regionsLoadedPeriod = currentPeriod
+        cachedRegionsTotalViews = result.totalViews
+        cachedRegionsTotalViewsChange = result.totalViewsChange
+        cachedRegionsTotalViewsChangePercent =
+            result.totalViewsChangePercent
+
+        val regions = result.regions.map { it.toLocationItem() }
+
+        if (regions.isEmpty()) {
+            allRegions = emptyList()
+            cachedRegionsMapData = ""
+            cachedRegionsMinViews = 0L
+            cachedRegionsMaxViews = 0L
+            _regionsUiState.value = emptyLoadedState()
+        } else {
+            val mapData = buildRegionsMapData(result.regions)
+            val aggregatedViews = result.regions
+                .groupBy { it.countryCode }
+                .mapValues { (_, items) ->
+                    items.sumOf { it.views }
+                }.values
+            val minViews = aggregatedViews.minOrNull() ?: 0L
+            val maxViews = aggregatedViews.maxOrNull() ?: 0L
+
+            allRegions = regions
+            cachedRegionsMapData = mapData
+            cachedRegionsMinViews =
+                if (minViews == maxViews) 0L else minViews
+            cachedRegionsMaxViews = maxViews
+
+            val cardRegions = regions.take(CARD_MAX_ITEMS)
+            val maxViewsForBar =
+                cardRegions.firstOrNull()?.views ?: 0L
+
+            _regionsUiState.value = LocationsCardUiState.Loaded(
+                items = cardRegions,
+                mapData = mapData,
+                minViews = cachedRegionsMinViews,
+                maxViews = cachedRegionsMaxViews,
+                maxViewsForBar = maxViewsForBar,
+                hasMoreItems = regions.size > CARD_MAX_ITEMS
+            )
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun fetchCityViews(
+        site: SiteModel,
+        forceRefresh: Boolean = false,
+        applyErrors: Boolean = true
+    ) {
+        val siteId = site.siteId
+
+        try {
+            when (val result = statsRepository.fetchCityViews(
+                siteId, currentPeriod, forceRefresh
+            )) {
+                is CityViewsResult.Success -> {
+                    handleCityViewsSuccess(result)
+                }
+                is CityViewsResult.Error -> {
+                    if (!applyErrors) return
+                    _citiesUiState.value =
+                        LocationsCardUiState.Error(
+                            result.messageResId,
+                            result.isAuthError,
+                            result.isPlanGated
+                        )
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.e(AppLog.T.STATS, "Error fetching city views", e)
+            if (!applyErrors) return
+            _citiesUiState.value = LocationsCardUiState.Error(
+                R.string.stats_error_unknown
+            )
+        }
+    }
+
+    @Suppress("CyclomaticComplexity")
+    private fun handleCityViewsSuccess(
+        result: CityViewsResult.Success
+    ) {
+        citiesLoadedPeriod = currentPeriod
+        cachedCitiesTotalViews = result.totalViews
+        cachedCitiesTotalViewsChange = result.totalViewsChange
+        cachedCitiesTotalViewsChangePercent =
+            result.totalViewsChangePercent
+
+        val cities = result.cities.map { it.toLocationItem() }
+
+        if (cities.isEmpty()) {
+            allCities = emptyList()
+            cachedCitiesMapData = ""
+            cachedCitiesMinViews = 0L
+            cachedCitiesMaxViews = 0L
+            _citiesUiState.value = emptyLoadedState()
+        } else {
+            val mapData = buildCitiesMapData(cities)
+            val minViews = cities.minOfOrNull { it.views } ?: 0L
+            val maxViews = cities.maxOfOrNull { it.views } ?: 0L
+
+            allCities = cities
+            cachedCitiesMapData = mapData
+            cachedCitiesMinViews =
+                if (minViews == maxViews) 0L else minViews
+            cachedCitiesMaxViews = maxViews
+
+            val cardCities = cities.take(CARD_MAX_ITEMS)
+            val maxViewsForBar =
+                cardCities.firstOrNull()?.views ?: 0L
+
+            _citiesUiState.value = LocationsCardUiState.Loaded(
+                items = cardCities,
+                mapData = mapData,
+                minViews = cachedCitiesMinViews,
+                maxViews = cachedCitiesMaxViews,
+                maxViewsForBar = maxViewsForBar,
+                hasMoreItems = cities.size > CARD_MAX_ITEMS
+            )
+        }
+    }
+
+    private fun toViewChange(
+        change: Long,
+        percent: Double
+    ): StatsViewChange {
+        return when {
+            change > 0 -> StatsViewChange.Positive(
+                change, abs(percent)
+            )
+            change < 0 -> StatsViewChange.Negative(
+                abs(change), abs(percent)
+            )
+            else -> StatsViewChange.NoChange
+        }
+    }
+
+    private fun RegionViewItemData.toLocationItem(): LocationItem {
+        return LocationItem(
+            id = location,
+            name = location,
+            views = views,
+            flagIconUrl = flagIconUrl,
+            change = toViewChange(viewsChange, viewsChangePercent)
+        )
+    }
+
+    private fun CityViewItemData.toLocationItem(): LocationItem {
+        return LocationItem(
+            id = location,
+            name = location,
+            views = views,
+            flagIconUrl = flagIconUrl,
+            change = toViewChange(viewsChange, viewsChangePercent),
+            latitude = latitude,
+            longitude = longitude
+        )
+    }
+
+    private fun buildCountriesMapData(
+        countries: List<LocationItem>
+    ): String {
+        return countries.joinToString(",") { country ->
+            val safeCode = country.id
+                .filter { it.isLetter() }
+                .take(MAX_COUNTRY_CODE_LENGTH)
+            "['$safeCode',${country.views}]"
+        }
+    }
+
+    private fun buildRegionsMapData(
+        regions: List<RegionViewItemData>
+    ): String {
+        return regions.groupBy { it.countryCode }
+            .mapValues { (_, items) -> items.sumOf { it.views } }
+            .entries.joinToString(",") { (code, views) ->
+                val safeCode = code
+                    .filter { it.isLetter() }
+                    .take(MAX_COUNTRY_CODE_LENGTH)
+                "['$safeCode',$views]"
+            }
+    }
+
+    private fun buildCitiesMapData(
+        cities: List<LocationItem>
+    ): String {
+        return cities.filter {
+            it.latitude?.toDoubleOrNull() != null &&
+                it.longitude?.toDoubleOrNull() != null
+        }.joinToString(",") { city ->
+            "[${city.latitude},${city.longitude}," +
+                "'${escapeJs(city.name)}',${city.views}]"
+        }
+    }
+
+    private fun escapeJs(value: String): String {
+        return value
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+    }
+
+    private fun emptyLoadedState() = LocationsCardUiState.Loaded(
+        items = emptyList(),
+        mapData = "",
+        minViews = 0,
+        maxViews = 0,
+        maxViewsForBar = 0,
+        hasMoreItems = false
+    )
+}
+
+data class LocationsDetailData(
+    val items: List<LocationItem>,
+    val mapData: String,
+    val minViews: Long,
+    val maxViews: Long,
+    val totalViews: Long,
+    val totalViewsChange: Long,
+    val totalViewsChangePercent: Double,
+    val dateRange: String,
+    val locationType: LocationType = LocationType.COUNTRIES
+)

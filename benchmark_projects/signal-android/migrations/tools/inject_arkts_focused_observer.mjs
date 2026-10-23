@@ -1,0 +1,23 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import process from 'node:process';
+
+const [projectArg, observerArg] = process.argv.slice(2);
+if (!projectArg || !observerArg) throw new Error('usage: inject_arkts_focused_observer.mjs <project> <observer>');
+const project = path.resolve(projectArg);
+const observer = path.resolve(observerArg);
+const source = fs.readFileSync(observer, 'utf8');
+if (!source.includes('runFocusedSemanticObserver')) throw new Error('observer entrypoint unavailable');
+const hidden = path.join(project, 'entry', 'src', 'main', 'ets', '.benchmark-evaluator');
+fs.rmSync(hidden, { recursive: true, force: true });
+fs.mkdirSync(hidden, { recursive: true });
+fs.copyFileSync(observer, path.join(hidden, 'RuntimeObserver.ets'));
+const indexPath = path.join(project, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets');
+let index = fs.readFileSync(indexPath, 'utf8');
+if (index.includes('.benchmark-evaluator/RuntimeObserver')) throw new Error('observer already injected');
+if (!index.includes('this.owner.appear();')) throw new Error('page_owner_binding_unavailable');
+const hasCommonImport = /import\s*\{[^}]*\bcommon\b[^}]*\}\s*from\s*['"]@kit\.AbilityKit['"]\s*;/.test(index);
+const commonImport = hasCommonImport ? '' : `import { common } from '@kit.AbilityKit';\n`;
+index = `${commonImport}import { runFocusedSemanticObserver } from '../.benchmark-evaluator/RuntimeObserver';\n${index}`;
+index = index.replace('this.owner.appear();', 'this.owner.appear();\n    runFocusedSemanticObserver(this.owner, getContext(this) as common.UIAbilityContext);');
+fs.writeFileSync(indexPath, index);

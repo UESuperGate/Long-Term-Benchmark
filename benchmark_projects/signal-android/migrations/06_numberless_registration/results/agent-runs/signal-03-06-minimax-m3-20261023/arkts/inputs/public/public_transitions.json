@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "taskId": "06_numberless_registration",
+  "description": "Public scenarios only; expected observations and evaluator bindings remain hidden.",
+  "cases": [
+    {
+      "caseId": "nr_001_purchase_eligibility_service_price",
+      "functionalArea": "eligibility_and_anti_abuse_purchase",
+      "given": {
+        "entryRoute": "RegistrationRoute.SignalLoginPayment",
+        "phoneNumberlessRegistrationAvailable": true,
+        "googlePlayServices": "PaymentAvailability.Available",
+        "googlePlayBillingAvailable": true,
+        "serviceLoginConfiguration": {
+          "playProductId": "service-signal-login-product"
+        },
+        "billingProduct": {
+          "productId": "service-signal-login-product",
+          "purchaseOptionId": "nonumber",
+          "formattedPrice": "$1.99"
+        },
+        "ownedUnconsumedPurchase": false
+      },
+      "event": {
+        "name": "initializeSignalLoginPayment"
+      },
+      "invariants": [
+        "purchase eligibility is derived from PaymentAvailability and the billing product returned for the service-provided LoginConfiguration.playProductId",
+        "the client does not replace the service-provided product ID or the billing-formatted price with caller input",
+        "initialization may discover eligibility and price but never starts or completes a purchase"
+      ]
+    },
+    {
+      "caseId": "nr_002_purchase_launch_holds_completion",
+      "functionalArea": "held_purchase_completion",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+        "paymentAvailability": "PaymentAvailability.Available",
+        "price": {
+          "type": "SignalLoginPaymentState.Price.Available",
+          "formattedPrice": "$1.99"
+        },
+        "showSpinner": false,
+        "purchasePreparation": "OneTimePurchasePreparation.Ready"
+      },
+      "event": {
+        "name": "continuePurchase"
+      },
+      "invariants": [
+        "the purchase launcher crosses to the UI layer because only that layer owns an activity",
+        "the spinner remains visible while the external purchase sheet is unresolved",
+        "no success, failure, redemption, or navigation is inferred before PurchaseFlowCompleted supplies the held result"
+      ]
+    },
+    {
+      "caseId": "nr_003_purchase_cancel_cleanup",
+      "functionalArea": "purchase_cancellation",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+        "paymentAvailability": "PaymentAvailability.Available",
+        "price": {
+          "type": "SignalLoginPaymentState.Price.Available",
+          "formattedPrice": "$1.99"
+        },
+        "showSpinner": true,
+        "purchaseSheet": "open",
+        "hasUnredeemedPurchase": false,
+        "dialogs": "SignalLoginPaymentState.Dialogs()"
+      },
+      "event": {
+        "name": "completePurchaseFlow",
+        "result": "OneTimePurchaseResult.UserCancelled"
+      },
+      "invariants": [
+        "cancellation is a settled outcome rather than an error dialog",
+        "the payment screen remains retryable after the held spinner is cleared",
+        "a cancelled sheet produces no receipt request and no account mutation"
+      ]
+    },
+    {
+      "caseId": "nr_004_billing_unavailable_foreground_retry",
+      "functionalArea": "billing_failure_and_recovery",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+        "paymentAvailability": "PaymentAvailability.ServiceUpdating",
+        "price": "SignalLoginPaymentState.Price.TransientError",
+        "dialogs.paymentUnavailable": true,
+        "showSpinner": false,
+        "nextAvailability": "PaymentAvailability.Available",
+        "nextPrice": "$1.99"
+      },
+      "event": {
+        "name": "foregroundPaymentScreen"
+      },
+      "invariants": [
+        "ServiceUpdating is non-terminal and therefore leaves the Purchase option recoverable",
+        "returning from the operating-system remediation rechecks availability rather than trusting stale state",
+        "price loading is observable before the recovered available price"
+      ]
+    },
+    {
+      "caseId": "nr_005_private_receipt_registration_propagates",
+      "functionalArea": "receipt_redemption_privacy_and_registration_propagation",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "payment.showSpinner": true,
+        "payment.hasUnredeemedPurchase": true,
+        "purchase": {
+          "purchaseToken": "play-token-1",
+          "state": "BillingPurchaseState.PURCHASED"
+        },
+        "receiptCredentialRequestContext": "fresh-valid-context",
+        "serviceReceiptResult": "CreateLoginReceiptCredentialResult.Issued",
+        "receiptVerification": "ReceiptCredentialResult.Success",
+        "registrationResponse": {
+          "aci": "new numberless ACI",
+          "accountEntropyPool": "new account entropy pool",
+          "e164": null,
+          "pni": null,
+          "storageCapable": false,
+          "authCredentialSalt": "present"
+        },
+        "consumePurchaseSucceeds": true,
+        "flowState": {
+          "aci": null,
+          "accountEntropyPool": null,
+          "isPhoneNumberlessAccount": false
+        }
+      },
+      "event": {
+        "name": "completeSuccessfulPurchaseInPaymentSurface",
+        "sourceEvent": "SignalLoginPaymentScreenEvents.PurchaseFlowCompleted",
+        "result": "OneTimePurchaseResult.Success"
+      },
+      "invariants": [
+        "the Play purchase identifier is exchanged for a verified receipt credential and is not sent as the registration credential",
+        "fresh receipt-based registration supplies neither phone identity nor PNI key material",
+        "the purchase is consumed and its persisted context cleared only after account registration succeeds",
+        "the Registered event precedes navigation so SignalLoginInfo observes the issued ACI and account entropy pool",
+        "phoneNumberless is derived from the successful registration response having e164 null",
+        "SignalLoginInfo clears the pre-registration back stack and no phone-verification or PIN route is inserted"
+      ]
+    },
+    {
+      "caseId": "nr_006_manual_save_mismatch_verification",
+      "functionalArea": "manual_credential_save_and_verification",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginManualSaveConfirmation",
+        "mode": "SignalLoginCredentialEntryState.Mode.ConfirmSaved",
+        "parentLogin": {
+          "aci": "expected account ID",
+          "accountEntropyPool": "expected recovery key"
+        },
+        "enteredLogin": {
+          "accountId": "expected account ID",
+          "recoveryKey": "different valid recovery key"
+        },
+        "isNextEnabled": true,
+        "areCredentialsIncorrect": false
+      },
+      "event": {
+        "name": "submitManualSaveConfirmation",
+        "sourceEvent": "SignalLoginCredentialEntryScreenEvents.NextClicked"
+      },
+      "invariants": [
+        "confirmation compares both locally entered credential halves with the ACI and account entropy pool already held by RegistrationFlowState",
+        "a mismatch flags both fields because either half may have been copied incorrectly",
+        "editing either field clears areCredentialsIncorrect and makes a corrected retry reachable without recreating the account"
+      ]
+    },
+    {
+      "caseId": "nr_007_username_skip_requires_confirmation",
+      "functionalArea": "username_skip_confirmation",
+      "given": {
+        "route": "RegistrationRoute.AddUsername",
+        "dialogs.confirmSkip": false,
+        "registrationComplete": false,
+        "finalRegistrationCommitted": false
+      },
+      "event": {
+        "name": "requestUsernameSkip",
+        "sourceEvent": "AddUsernameScreenEvents.SkipClicked"
+      },
+      "invariants": [
+        "SkipClicked is only a request and never completes registration by itself",
+        "dismissing the confirmation leaves the user on AddUsername with registration still incomplete",
+        "only AddUsernameScreenEvents.SkipConfirmed may convert this pending choice into RegistrationComplete"
+      ]
+    },
+    {
+      "caseId": "nr_008_username_discriminator_race_recovery",
+      "functionalArea": "username_reservation_conflict_and_race",
+      "given": {
+        "route": "RegistrationRoute.AddUsername",
+        "username": "maya",
+        "discriminator": "88",
+        "isDiscriminatorUserSet": true,
+        "reservation": "maya.88",
+        "validationError": null,
+        "isReserving": false,
+        "isSubmittable": true,
+        "discriminatorFieldFocused": true
+      },
+      "event": {
+        "name": "clearUserChosenDiscriminatorAndSettle",
+        "sourceEvent": "AddUsernameScreenEvents.DiscriminatorChanged",
+        "value": "",
+        "settleForMilliseconds": 500
+      },
+      "invariants": [
+        "the conflicted custom-discriminator path can recover to a valid custom reservation before this event",
+        "clearing a user-chosen discriminator invalidates its exact reservation immediately and cannot confirm the erased pairing",
+        "a fresh service-assigned reservation becomes reachable only after AddUsernameScreenEvents.DiscriminatorFocusLost, preventing the focused-field race"
+      ]
+    },
+    {
+      "caseId": "nr_009_purchase_context_process_restore",
+      "functionalArea": "purchase_persistence_and_restoration",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "runtimeGeneration": 2,
+        "hasUnredeemedPurchase": true,
+        "paymentAvailability": "PaymentAvailability.Available",
+        "persistedSignalLoginPurchase": {
+          "purchaseToken": "play-token-restore",
+          "receiptCredentialRequestContext": "context-A"
+        },
+        "ownedPurchase": {
+          "purchaseToken": "play-token-restore",
+          "state": "BillingPurchaseState.PURCHASED"
+        },
+        "nextReceiptRequestResult": "CreateLoginReceiptCredentialResult.Issued"
+      },
+      "event": {
+        "name": "retryOwnedPurchaseAfterProcessReopen",
+        "sourceEvent": "SignalLoginPaymentScreenEvents.ContinueClicked"
+      },
+      "invariants": [
+        "restoration is proven through the application production blob store and a newly created repository, not a retained object or in-memory fake",
+        "the retry reuses the byte-identical receipt credential request context because the service rejects a different request for the same purchase",
+        "an already-owned unconsumed purchase is redeemed without launching or charging a second purchase"
+      ]
+    },
+    {
+      "caseId": "nr_010_password_manager_save_readback",
+      "functionalArea": "password_manager_credential_save_and_verification",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginInfo",
+        "aci": "new numberless ACI",
+        "accountEntropyPool": "new account entropy pool",
+        "isPasswordManagerAvailable": true,
+        "showSpinner": true,
+        "showConfirmSavedSheet": false,
+        "passwordManagerStoredCredential": {
+          "type": "UsernamePasswordCredential",
+          "username": "uppercase new numberless ACI",
+          "password": "display form of new account entropy pool"
+        },
+        "readbackRequest": "held"
+      },
+      "event": {
+        "name": "completePasswordManagerReadback",
+        "sourceEvent": "SignalLoginInfoScreenEvents.SavedCredentialRetrieved",
+        "credential": "matching UsernamePasswordCredential"
+      },
+      "invariants": [
+        "the production navigation collector invokes SignalCredentialManager.saveCredential with the uppercase ACI and displayed account entropy pool, then routes its result back to the owning SignalLoginInfoViewModel",
+        "a successful save is not trusted until the user confirms and SignalCredentialManager.getCredential returns a credential filtered by that same account ID",
+        "the read-back username is normalized to an ACI and the password is parsed as an AccountEntropyPool before comparison",
+        "only an exact two-part match advances to AddUsername; null or mismatched read-back remains on SignalLoginInfo with dialogs.saveNotConfirmed and can recover through another save or manual recording"
+      ]
+    }
+  ]
+}

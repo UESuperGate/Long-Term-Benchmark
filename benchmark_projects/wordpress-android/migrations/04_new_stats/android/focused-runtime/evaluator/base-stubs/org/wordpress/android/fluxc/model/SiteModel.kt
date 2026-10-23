@@ -1,0 +1,3 @@
+package org.wordpress.android.fluxc.model
+
+data class SiteModel(var siteId: Long = 123)

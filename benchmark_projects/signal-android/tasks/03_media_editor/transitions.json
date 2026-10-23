@@ -1,0 +1,659 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_media_editor",
+  "description": "Platform-neutral transitions for per-video audio removal in the responsive media-send editor",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_001_mute_control_eligibility",
+      "key": "mute_control_eligibility",
+      "functionalArea": "per_video_audio_removal",
+      "given": {
+        "audioRemovalAvailable": true,
+        "items": [
+          {
+            "id": "video-1",
+            "kind": "video",
+            "isVideoGif": false
+          },
+          {
+            "id": "gif-video",
+            "kind": "video",
+            "isVideoGif": true
+          },
+          {
+            "id": "image-1",
+            "kind": "image",
+            "isVideoGif": false
+          }
+        ],
+        "focusedItemId": "video-1"
+      },
+      "event": {
+        "name": "renderEditorThenFocusEachItem"
+      },
+      "expected": {
+        "state": {
+          "muteControlByItem": {
+            "video-1": true,
+            "gif-video": false,
+            "image-1": false
+          }
+        },
+        "effects": []
+      },
+      "invariants": [
+        "audio removal is exposed only for an ordinary editable video",
+        "rendering eligibility does not mutate any item"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base editor has no audio-removal control or per-video mute eligibility state."
+      },
+      "evidence": {
+        "androidProduction": [
+          "MediaEditorToolbar.isMuteVisible",
+          "EditorState.VideoTrim",
+          "EditorState.VideoGif"
+        ],
+        "androidTests": [
+          "MediaEditorToolbarSharedButtonsTest: mute control visibility by media type and feature availability"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "43476a5db3f876bacb5e7ffec1d41ed881d3c6b6264f1c1a38571461ef1b8825"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_002_mute_focused_video",
+      "key": "mute_focused_video",
+      "functionalArea": "per_video_audio_removal",
+      "given": {
+        "selectedItemIds": [
+          "video-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": false
+          }
+        },
+        "preUpload": {
+          "video-1": "uploaded"
+        }
+      },
+      "event": {
+        "name": "toggleVideoMuted"
+      },
+      "expected": {
+        "state": {
+          "focusedItemId": "video-1",
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": true
+            }
+          }
+        },
+        "effects": [
+          {
+            "name": "cancelPreUpload",
+            "itemId": "video-1",
+            "count": 1
+          },
+          {
+            "name": "showMutedFeedback",
+            "count": 1
+          }
+        ]
+      },
+      "invariants": [
+        "the selected media membership is unchanged",
+        "the stale pre-upload for the edited item is invalidated exactly once"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base cannot represent a muted video edit, emit mute feedback, or invalidate pre-upload for that event."
+      },
+      "evidence": {
+        "androidProduction": [
+          "MediaSendFlowViewModel.toggleVideoMuted"
+        ],
+        "androidTests": [
+          "MediaEditViewModelTest: ToggleVideoMuted is handed to the parent flow"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "624d08a377de9ef968925788e6f8a4c024d3ff755a7c13042440bd03da96a5cf"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_003_unmute_focused_video",
+      "key": "unmute_focused_video",
+      "functionalArea": "per_video_audio_removal",
+      "given": {
+        "selectedItemIds": [
+          "video-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          }
+        },
+        "preUpload": {
+          "video-1": "uploaded"
+        }
+      },
+      "event": {
+        "name": "toggleVideoMuted"
+      },
+      "expected": {
+        "state": {
+          "focusedItemId": "video-1",
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": false
+            }
+          }
+        },
+        "effects": [
+          {
+            "name": "cancelPreUpload",
+            "itemId": "video-1",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "showMutedFeedback"
+        ]
+      },
+      "invariants": [
+        "toggling again restores audio for the same item",
+        "no other editor state is removed"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no reversible per-video audio-removal transition."
+      },
+      "evidence": {
+        "androidProduction": [
+          "MediaSendFlowViewModel.toggleVideoMuted"
+        ],
+        "androidTests": []
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "4d72f32a1238e890c6e856168646b035745cb415b1d8d02e6edd005ccf06f75e"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_004_focus_preserves_per_item_edits",
+      "key": "focus_preserves_per_item_edits",
+      "functionalArea": "selection_and_focus_state",
+      "given": {
+        "selectedItemIds": [
+          "video-1",
+          "video-2"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          },
+          "video-2": {
+            "kind": "video_trim",
+            "isMuted": false
+          }
+        }
+      },
+      "event": {
+        "name": "setFocusedItem",
+        "itemId": "video-2"
+      },
+      "expected": {
+        "state": {
+          "selectedItemIds": [
+            "video-1",
+            "video-2"
+          ],
+          "focusedItemId": "video-2",
+          "focusedEditorState": {
+            "kind": "video_trim",
+            "isMuted": false
+          },
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": true
+            },
+            "video-2": {
+              "kind": "video_trim",
+              "isMuted": false
+            }
+          }
+        },
+        "effects": []
+      },
+      "invariants": [
+        "editor state is keyed by media identity rather than pager position",
+        "changing focus does not transfer mute state"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base cannot preserve or reveal distinct audio-removal state when focus changes between videos."
+      },
+      "evidence": {
+        "androidProduction": [
+          "MediaSendFlowViewModel.setFocusedMedia",
+          "MediaEditState.focusedEditorState"
+        ],
+        "androidTests": [
+          "MediaEditStateTest: focused editor is selected by URI",
+          "MediaEditViewModelTest: selection and focus mirror the parent flow"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "cce10c7bbf0466591b4487476a8f86f120e156c839484b0318afc894c3472208"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_005_reorder_preserves_per_item_edits",
+      "key": "reorder_preserves_per_item_edits",
+      "functionalArea": "selection_and_focus_state",
+      "given": {
+        "selectedItemIds": [
+          "video-1",
+          "video-2",
+          "image-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          },
+          "video-2": {
+            "kind": "video_trim",
+            "isMuted": false
+          }
+        }
+      },
+      "event": {
+        "name": "reorderSelectedMedia",
+        "fromIndex": 0,
+        "toIndex": 2
+      },
+      "expected": {
+        "state": {
+          "selectedItemIds": [
+            "video-2",
+            "image-1",
+            "video-1"
+          ],
+          "focusedItemId": "video-1",
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": true
+            },
+            "video-2": {
+              "kind": "video_trim",
+              "isMuted": false
+            }
+          }
+        },
+        "effects": [
+          {
+            "name": "updatePreUploadDisplayOrder",
+            "itemIds": [
+              "video-2",
+              "image-1",
+              "video-1"
+            ],
+            "count": 1
+          }
+        ]
+      },
+      "invariants": [
+        "reordering changes no media membership",
+        "mute state remains attached to media identity"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base reorder flow has no per-item audio-removal state to preserve through display-order changes."
+      },
+      "evidence": {
+        "androidProduction": [
+          "MediaSendFlowViewModel.reorderMedia",
+          "MediaSendFlowState.editorStateMap"
+        ],
+        "androidTests": [
+          "MediaEditViewModelTest: reorder event is handed to the parent flow unchanged"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "7216e47bfd19537a8c7211a662ed3705bb7e9a01507d335f52564db46df2e321"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_006_restore_editor_state",
+      "key": "restore_editor_state",
+      "functionalArea": "attachment_transform_persistence",
+      "given": {
+        "savedFlowState": {
+          "selectedItemIds": [
+            "video-1",
+            "video-2"
+          ],
+          "focusedItemId": "video-2",
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": true,
+              "startTimeUs": 100,
+              "endTimeUs": 900
+            },
+            "video-2": {
+              "kind": "video_trim",
+              "isMuted": false,
+              "startTimeUs": 0,
+              "endTimeUs": 1000
+            }
+          }
+        }
+      },
+      "event": {
+        "name": "recreateMediaSendFlow"
+      },
+      "expected": {
+        "state": {
+          "selectedItemIds": [
+            "video-1",
+            "video-2"
+          ],
+          "focusedItemId": "video-2",
+          "focusedEditorState": {
+            "kind": "video_trim",
+            "isMuted": false,
+            "startTimeUs": 0,
+            "endTimeUs": 1000
+          },
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": true,
+              "startTimeUs": 100,
+              "endTimeUs": 900
+            },
+            "video-2": {
+              "kind": "video_trim",
+              "isMuted": false,
+              "startTimeUs": 0,
+              "endTimeUs": 1000
+            }
+          }
+        },
+        "effects": []
+      },
+      "invariants": [
+        "recreation restores selection, focus, trim, and mute state together",
+        "restoration does not synthesize an edit or upload cancellation"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base saved editor state has no video-muted field and cannot restore that state per media identity."
+      },
+      "evidence": {
+        "androidProduction": [
+          "MediaSendFlowState Parcelable",
+          "MediaSendFlowViewModel SavedStateHandle-backed state",
+          "EditorState.VideoTrim Parcelable"
+        ],
+        "androidTests": [
+          "MediaEditViewModelTest: all editor-visible parent state is mirrored"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "e035a438f89e27e78712bf490e2d1ded0682f35e90ef3b8c632977dff681a252"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_007_cancel_discard_preserves_edits",
+      "key": "cancel_discard_preserves_edits",
+      "functionalArea": "discard_cancellation",
+      "given": {
+        "selectedItemIds": [
+          "video-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          }
+        },
+        "screen": "media_editor"
+      },
+      "event": {
+        "name": "requestCloseThenCancelDiscard"
+      },
+      "expected": {
+        "state": {
+          "selectedItemIds": [
+            "video-1"
+          ],
+          "focusedItemId": "video-1",
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": true
+            }
+          },
+          "screen": "media_editor"
+        },
+        "effects": [
+          {
+            "name": "showDiscardConfirmation",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "closeScreen"
+        ]
+      },
+      "invariants": [
+        "canceling discard abandons neither media nor edits",
+        "no send or upload effect is produced"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The release boundary adds the responsive flow's discard-confirmation path that retains its new per-item editor state on cancellation."
+      },
+      "evidence": {
+        "androidProduction": [
+          "MediaSendFlowViewModel.onCloseRequested",
+          "DialogController discardMediaDialog"
+        ],
+        "androidTests": []
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "f0cb3b1807fd768cefc53e45e610a4b0c76221a13dbbe95aebd6df337cd6914f"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_008_legacy_transform_defaults_unmuted",
+      "key": "legacy_transform_defaults_unmuted",
+      "functionalArea": "attachment_transform_persistence",
+      "given": {
+        "storedTransformJson": {
+          "skipTransform": false,
+          "videoTrim": false,
+          "videoTrimStartTimeUs": 0,
+          "videoTrimEndTimeUs": 0,
+          "sentMediaQuality": 0,
+          "mp4Faststart": false,
+          "videoEdited": false
+        }
+      },
+      "event": {
+        "name": "restoreStoredTransform"
+      },
+      "expected": {
+        "state": {
+          "videoMuted": false,
+          "videoEdited": false,
+          "videoTrim": false,
+          "sentMediaQuality": 0
+        },
+        "effects": []
+      },
+      "invariants": [
+        "payloads stored before audio removal remain readable",
+        "missing audio-removal data never mutes a video"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base transform schema has no audio-removal field or derived videoEdited behavior for it."
+      },
+      "evidence": {
+        "androidProduction": [
+          "TransformProperties.videoMuted default",
+          "TransformProperties.videoEdited"
+        ],
+        "androidTests": [
+          "TransformPropertiesTest: parsing JSON without videoMuted defaults to false",
+          "AttachmentDatabaseTransformPropertiesTest: missing properties preserve defaults"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "34ecf984ee38f5c268b52d99f8da8482a5bd5e074f787df21dad5ac4d0018ad7"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_009_prepare_muted_transform",
+      "key": "prepare_muted_transform",
+      "functionalArea": "attachment_transform_persistence",
+      "given": {
+        "media": {
+          "id": "video-1",
+          "kind": "video",
+          "transformProperties": null
+        },
+        "editorState": {
+          "kind": "video_trim",
+          "isDurationEdited": false,
+          "startTimeUs": 0,
+          "endTimeUs": 1000000,
+          "isMuted": true
+        }
+      },
+      "event": {
+        "name": "prepareEditedVideoForSend"
+      },
+      "expected": {
+        "state": {
+          "transformProperties": {
+            "videoTrim": false,
+            "videoTrimStartTimeUs": 0,
+            "videoTrimEndTimeUs": 0,
+            "videoMuted": true,
+            "videoEdited": true
+          }
+        },
+        "effects": [
+          {
+            "name": "applyVideoTransform",
+            "itemId": "video-1",
+            "count": 1
+          }
+        ]
+      },
+      "invariants": [
+        "muting alone marks the attachment as edited",
+        "the video identity and video track remain present"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base VideoTrimTransform cannot map mute state into attachment transform properties."
+      },
+      "evidence": {
+        "androidProduction": [
+          "VideoTrimTransform.transform",
+          "TransformProperties.videoEdited"
+        ],
+        "androidTests": [
+          "TransformPropertiesTest: videoMuted implies videoEdited"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "f17ad862eda35ffabe780ca165986b0a002cd27296749b6645fc8fd3b81230ca"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "me_state_010_transcode_omits_audio",
+      "key": "transcode_omits_audio",
+      "functionalArea": "video_transcoding",
+      "given": {
+        "preparedVideo": {
+          "id": "video-1",
+          "videoTrack": true,
+          "audioTrack": true,
+          "transformProperties": {
+            "videoMuted": true,
+            "videoEdited": true
+          }
+        },
+        "transcoder": {
+          "allowAudioRemux": true
+        }
+      },
+      "event": {
+        "name": "transcodePreparedVideo"
+      },
+      "expected": {
+        "state": {
+          "output": {
+            "videoTrack": true,
+            "audioTrack": false
+          }
+        },
+        "effects": [
+          {
+            "name": "setSkipAudio",
+            "value": true,
+            "count": 1
+          },
+          {
+            "name": "convertVideo",
+            "count": 1
+          }
+        ]
+      },
+      "invariants": [
+        "audio removal forces a transform even when the source otherwise meets size and codec constraints",
+        "the video track is retained"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base transcoder has no muteAudio input and never dispatches setSkipAudio(true)."
+      },
+      "evidence": {
+        "androidProduction": [
+          "StreamingTranscoder muteAudio",
+          "StreamingTranscoder.transcode setSkipAudio",
+          "VideoTrimTransform videoMuted mapping"
+        ],
+        "androidTests": [
+          "VideoTranscodeInstrumentationTest audio-removal coverage"
+        ]
+      },
+      "taskId": "03_media_editor",
+      "traceDigest": "99e9d28dcb7ca0f4d146560ca9441c997723397f04a3eb3283dc3dfd4eb2f214"
+    }
+  ],
+  "owner": "evaluator"
+}

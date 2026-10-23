@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "projectId": "signal-android",
+  "taskId": "04_group_termination",
+  "title": "Initial group termination lifecycle",
+  "status": "needs_review",
+  "android": {
+    "repository": "https://github.com/signalapp/Signal-Android.git",
+    "baseRef": "v8.4.1",
+    "baseCommit": "c7ec3ab837b3c149d5579840317b1dc6cd4629f3",
+    "finalRef": "v8.5.0",
+    "finalCommit": "068eaff8010365353410914fbcf1bed79e69d6bb"
+  },
+  "releaseNotes": [
+    {
+      "text": "Add group terminate support.",
+      "source": "https://github.com/signalapp/Signal-Android/commit/a0c0acb8fcd53b2c5e67ef709fd0187bb9a34094"
+    },
+    {
+      "text": "Add additional group terminate checks.",
+      "source": "https://github.com/signalapp/Signal-Android/commit/c81f40eb74fc51a37f74e119aeb05a8376022235"
+    },
+    {
+      "text": "Update group terminated banner.",
+      "source": "https://github.com/signalapp/Signal-Android/commit/2b9126d74b15dbc697936c1e24b908e0ef3e8a74"
+    }
+  ],
+  "functionalAreas": [
+    "admin_eligibility",
+    "destructive_confirmation",
+    "group_protocol_mutation",
+    "termination_persistence",
+    "remote_state_processing",
+    "conversation_lockout",
+    "backup_round_trip",
+    "failure_retry"
+  ],
+  "stateSurfaces": [
+    "DecryptedGroup.terminated",
+    "DecryptedGroupChange.terminateGroup",
+    "GroupRecord.isTerminated",
+    "ConversationSettingsState.GroupSettingsState",
+    "GroupsV2StateProcessor"
+  ],
+  "eventEntrypoints": [
+    "showEndGroup",
+    "confirmEndGroup",
+    "retryEndGroup",
+    "terminateGroup",
+    "updateLocalGroupToRevision",
+    "forceSanityUpdateFromServer",
+    "joinGroup"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "lib/libsignal-service/src/main/protowire/Groups.proto",
+      "lib/libsignal-service/src/main/protowire/DecryptedGroups.proto",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations.java",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/GroupManagerV2.java",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/GroupManager.java",
+      "app/src/main/java/org/thoughtcrime/securesms/database/GroupTable.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/v2/processing/GroupsV2StateProcessor.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/ui/EndGroupDialog.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/TerminatedGroupBottomSheetDialog.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/DisabledInputView.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/exporters/GroupArchiveExporter.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/importer/GroupArchiveImporter.kt"
+    ],
+    "testPaths": [
+      "app/src/test/java/org/thoughtcrime/securesms/components/settings/conversation/GroupSettingsStateTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/GroupManagerV2Test_edit.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/v2/processing/GroupsV2StateProcessorTest.kt",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/DecryptedGroupUtil_apply_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupChangeUtil_changeIsEmpty_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations_decrypt_change_Test.java",
+      "app/src/androidTest/java/org/thoughtcrime/securesms/backup/v2/ArchiveImportExportTests.kt"
+    ],
+    "commits": [
+      "a0c0acb8fcd53b2c5e67ef709fd0187bb9a34094",
+      "c81f40eb74fc51a37f74e119aeb05a8376022235",
+      "2b9126d74b15dbc697936c1e24b908e0ef3e8a74"
+    ]
+  },
+  "nonGoals": [
+    "Legacy V1-group termination",
+    "Reopening a terminated group",
+    "Post-v8.5.0 hardening for every secondary message or interaction path",
+    "Post-v8.5.0 insertion of a synthetic termination event during storage-service restoration",
+    "Benchmarking the Android-to-ArkTS migration itself"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json"
+  }
+}

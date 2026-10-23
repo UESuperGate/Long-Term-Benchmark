@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "taskId": "05_member_labels",
+  "rawEvidence": "raw_release_evidence.json",
+  "decision": "rejected",
+  "releaseEvidence": [
+    "The official v8.4.0, v8.5.0, and v8.5.1 GitHub releases repeat the same member-label announcement.",
+    "The announcement covers member-authored labels, display beside the member's profile name, and administrator control through the Edit group info permission.",
+    "The repeated wording is consistent with the final implementation but does not identify a new v8.4.1-to-v8.5.0 delta."
+  ],
+  "implementationEvidence": {
+    "symbols": [
+      "MemberLabel",
+      "MemberLabelUiState",
+      "MemberLabelUiState.SaveState",
+      "MemberLabelViewModel",
+      "MemberLabelRepository",
+      "PermissionsSettingsViewModel",
+      "GroupRecord.memberLabelAccessControl",
+      "GroupsV2Operations"
+    ],
+    "productionPaths": [
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelRepository.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelViewModel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/SenderNameWithLabel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/ConversationSettingsFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/permissions/PermissionsSettingsFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/permissions/PermissionsSettingsRepository.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/permissions/PermissionsSettingsViewModel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/GroupManagerV2.java",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/exporters/GroupArchiveExporter.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/importer/GroupArchiveImporter.kt",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations.java",
+      "lib/libsignal-service/src/main/protowire/Groups.proto",
+      "lib/libsignal-service/src/main/protowire/DecryptedGroups.proto"
+    ],
+    "testPaths": [
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelViewModelTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelEmojiValidationTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelSanitizationTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/components/settings/conversation/permissions/PermissionsSettingsViewModelTest.kt",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/DecryptedGroupUtil_apply_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupChangeUtil_changeIsEmpty_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations_decrypt_change_Test.java",
+      "app/src/androidTest/java/org/thoughtcrime/securesms/backup/v2/ArchiveImportExportTests.kt"
+    ],
+    "testEvidenceNote": "The base already tests dirty-state and validation rules, save and clear success, network and insufficient-rights failures, about-text override confirmation, administrator permission warnings, protocol application, and backup fixtures."
+  },
+  "observedStateTransitions": [
+    "Existing value -> valid changed draft -> InProgress -> Success.",
+    "Existing label -> cleared draft -> InProgress -> Success with no label.",
+    "All-members access -> warning because non-admin labels exist -> confirm and restrict, or cancel and preserve state.",
+    "InProgress -> NetworkError or InsufficientRights -> consumed error -> editable draft for correction or retry.",
+    "Successful first label with existing profile about text -> override warning -> dismissal -> Success."
+  ],
+  "basePresenceEvidence": {
+    "baseContainsCompleteFeature": true,
+    "facts": [
+      "v8.4.1 contains all 12 member-label production files found under the dedicated package in v8.5.0.",
+      "v8.4.1 contains MemberLabelViewModelTest, MemberLabelEmojiValidationTest, MemberLabelSanitizationTest, PermissionsSettingsViewModelTest, protocol tests, and backup import/export coverage.",
+      "MemberLabelViewModel.kt and all three dedicated member-label test files have identical blobs in v8.4.1 and v8.5.0.",
+      "The candidate interval changes only MemberLabelRepository.kt within the dedicated package, adding a terminated-group eligibility guard from the separate group-termination feature."
+    ],
+    "identicalBlobs": {
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelViewModel.kt": "83b31158ffd869aa79048c3a8b2d1c8b948f7804",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelViewModelTest.kt": "c503464a5bc3704d60b6296f41962c14c0faf4c4",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelEmojiValidationTest.kt": "b04abc0058f03fda10f18b2fe5250d88066d5954",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelSanitizationTest.kt": "67b78579c818555222eb6ccf57aad643aa802850"
+    }
+  },
+  "boundaryAudit": {
+    "baseRef": "v8.4.1",
+    "baseTagObject": "97cae388ae1dc7d339762b1588c21fd827965aa4",
+    "baseCommit": "c7ec3ab837b3c149d5579840317b1dc6cd4629f3",
+    "finalRef": "v8.5.0",
+    "finalTagObject": "3658b01c40f4c6534c2588f3a3b0b06d19e27f31",
+    "finalCommit": "068eaff8010365353410914fbcf1bed79e69d6bb",
+    "baseIsAncestor": true,
+    "commitsBetween": 65,
+    "baseBehaviorAbsent": false,
+    "finalAddsTargetBehavior": false,
+    "releaseWordingMatchesFinalImplementation": true,
+    "releaseWordingRepresentsNewBoundaryDelta": false,
+    "v851": {
+      "tagObject": "b644abe2b11f67960e8417bf179c0ccbcb10a579",
+      "commit": "4442f26f53f50c5b31fa3730be3959d3e8d3798c",
+      "v850IsAncestor": true,
+      "commitsAfterV850": 30,
+      "memberLabelCommitsAfterV850": 0,
+      "memberLabelPathChangesAfterV850": 0
+    }
+  },
+  "nearestReleaseActivationAudit": {
+    "baseRef": "v8.3.4",
+    "baseCommit": "874bc1a1c9c3e20d65fdeacbc649e4099d7a6e41",
+    "finalRef": "v8.4.0",
+    "finalCommit": "d533cdc6194cca1e30aa88871e006474011936e9",
+    "baseIsAncestor": true,
+    "commitsBetween": 34,
+    "memberLabelDelta": "a5e00c4319d25ec55239052faad9203ec9a5052d removes the send-member-label remote feature gate and exposes already-present behavior.",
+    "allCoreImplementationCommitsAlreadyInBase": true,
+    "longHorizonGate": false,
+    "reason": "The observable release activation is a feature-gate removal; the protocol, editor, permission, backup, tests, and failure handling are already present in v8.3.4."
+  },
+  "rejectionReasons": [
+    "The required base-absence gate fails unambiguously.",
+    "No member-label feature commit is contained in v8.5.0 but absent from v8.4.1.",
+    "Moving to the nearest release activation yields a feature-flag-only delta, which the long-horizon filter explicitly rejects.",
+    "The rich state graph belongs to implementation commits already contained by the base and cannot be attributed to this candidate interval."
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "taskId": "06_numberless_registration",
+  "rawEvidence": "raw_release_evidence.json",
+  "decision": "accepted",
+  "releaseEvidence": [
+    "The official v8.28.0 release announces optional registration without a phone number.",
+    "The same release describes a small one-time anti-spam fee and states that the in-app purchase is not directly associated with the new account.",
+    "The implementation uses a purchase-specific receipt credential presentation to register without an E164 or registration session, matching the release claim.",
+    "The public announcement lags the first complete implementation tag: the core purchase and end-to-end commits are already contained by v8.27.0, so the base is moved back to v8.26.4, the newest tag without the released purchase journey."
+  ],
+  "implementationEvidence": {
+    "symbols": [
+      "RegistrationFlowState",
+      "SignalLoginPaymentState",
+      "SignalLoginPurchaseStep",
+      "SignalLoginPurchaseResult",
+      "PaymentAvailability",
+      "SignalLoginInfoState",
+      "SignalLoginCredentialEntryState",
+      "AddUsernameState",
+      "OneTimePurchaseApi",
+      "RegistrationApiV2"
+    ],
+    "productionPaths": [
+      "feature/registration/src/main/java/org/signal/registration/RegistrationNavigation.kt",
+      "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt",
+      "feature/registration/src/main/java/org/signal/registration/RegistrationViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseStep.kt",
+      "feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseResult.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/PaymentAvailability.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentState.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoState.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt",
+      "core/util/src/main/java/org/signal/core/util/billing/OneTimePurchaseApi.kt",
+      "lib/billing/src/main/java/org/signal/billing/OneTimePurchaseApiImpl.kt",
+      "lib/network/src/main/java/org/signal/network/api/RegistrationApiV2.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/registration/v2/AppRegistrationNetworkController.kt"
+    ],
+    "testPaths": [
+      "feature/registration/src/test/java/org/signal/registration/RegistrationEndToEndTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt"
+    ]
+  },
+  "observedStateTransitions": [
+    "Phone-number entry -> RegisterWithoutNumber -> price loading -> available purchase.",
+    "Available purchase -> LaunchRequired -> purchase completed -> receipt redeemed -> Registered -> login information.",
+    "Previously paid but unredeemed purchase -> resume with persisted request context -> successful redemption -> consume once.",
+    "Login information -> password-manager save -> read-back confirmation -> AddUsername.",
+    "Login information -> manual save details -> re-enter matching account ID and recovery key -> AddUsername.",
+    "Username draft -> debounced reservation -> confirmed username -> registration complete.",
+    "Username step -> skip warning -> dismiss and continue editing, or confirm and complete without a username."
+  ],
+  "failureRecoveryEvidence": [
+    "Transient price lookup failures expose PriceRetryClicked and recover to an available price.",
+    "Purchase cancellation leaves the payment state usable and does not navigate or report success.",
+    "Pending, redemption-failed, and registration-failed purchases remain unconsumed and are reused on retry.",
+    "Missing or repairable Google Play services expose a recovery action, foreground recheck, and price reload.",
+    "Password-manager interruption is retried once; cancellation, mismatch, or missing credentials keep the user in the preservation flow and allow manual fallback.",
+    "Mistyped manual credentials remain editable, and username reservation errors retry after dismissal without losing the draft."
+  ],
+  "baseAbsenceEvidence": {
+    "latestTagWithoutReleasedBehavior": "v8.26.4",
+    "baseContainsScaffolding": true,
+    "releasedJourneyCompleteInBase": false,
+    "facts": [
+      "v8.26.4 contains preliminary numberless screens and basic account-registration scaffolding but predates the commit that adds a usable one-time purchase and receipt-redemption pipeline.",
+      "SignalLoginPurchaseStep.kt, SignalLoginPurchaseTest.kt, the manual-save view model, and the manual credential-confirmation view model are absent from v8.26.4 and present in v8.28.0.",
+      "The purchase implementation commit is absent from v8.26.4 and first appears in the next release-line tag, v8.27.0.",
+      "The focused v8.26.4-to-v8.28.0 diff adds more than three thousand lines across the selected production and test paths, rather than only changing a feature gate."
+    ],
+    "absentBasePaths": {
+      "feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseStep.kt": "1a63c77a4d6234e0a54e8a9330cdca438de43335",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModel.kt": "fda483684ace907c765f2f370930f1e5c928e029",
+      "feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModel.kt": "15b8d85556e8993d9cfc01a063b0f72e349db560",
+      "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt": "80bbeae0d403c847c4656c169ccdac3f0f298c6e"
+    }
+  },
+  "boundaryAudit": {
+    "baseRef": "v8.26.4",
+    "baseTagObject": "7c96287463279ba3000b084a056f1e7e4b9e27ce",
+    "baseCommit": "15e5d644924352fa03900969ad6de0e648e5e2d0",
+    "finalRef": "v8.28.0",
+    "finalTagObject": "baaeb8b2893348b3b000ef78aa24eaa8ece26d2a",
+    "finalCommit": "c6e21632f6abb16f1e8ccc303201b68d5d700353",
+    "baseIsAncestor": true,
+    "commitsBetween": 139,
+    "baseBehaviorAbsent": true,
+    "finalAddsTargetBehavior": true,
+    "featureFlagOnly": false,
+    "releaseWordingMatchesFinalImplementation": true,
+    "latestAbsentTagJustification": "v8.26.4 is the final tag before the one-time purchase, receipt-redemption, credential-confirmation, and end-to-end implementation commits. v8.27.0 already contains those commits."
+  },
+  "longHorizonAudit": {
+    "accepted": true,
+    "connectedStateGraph": true,
+    "transitionCount": 7,
+    "nonHappyPaths": [
+      "price retry",
+      "purchase cancellation",
+      "pending purchase resume",
+      "network or redemption retry without double charge",
+      "payment-service repair",
+      "password-manager fallback",
+      "manual credential correction",
+      "username reservation retry",
+      "skip cancellation"
+    ],
+    "concerns": [
+      "registration navigation",
+      "billing integration",
+      "privacy-preserving receipt redemption",
+      "credential preservation and confirmation",
+      "username reservation",
+      "unit and end-to-end tests"
+    ]
+  }
+}

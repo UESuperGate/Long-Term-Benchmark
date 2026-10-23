@@ -1,0 +1,1266 @@
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTranscodeOptions.kt b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTranscodeOptions.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b24dbd0bc8b02014e00014815c9c733305a08d5
+--- /dev/null
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTranscodeOptions.kt
+@@ -0,0 +1,38 @@
++package org.thoughtcrime.securesms.mediasend
++
++import androidx.annotation.WorkerThread
++import org.signal.core.models.media.Media
++import org.thoughtcrime.securesms.video.TranscoderOptions
++
++/**
++ * Turns the decisions recorded on [Media.transformProperties] into the inputs the video transcoder takes.
++ *
++ * Trimming and audio removal are both "this video has to be written out again" instructions, and they arrive
++ * together, so they are read together here: a muted video is transcoded with no audio track but with its video track
++ * kept, and a video with no edit at all is left completely alone.
++ */
++object VideoTranscodeOptions {
++
++  /** Whether this media has to be transcoded before it can be sent. */
++  fun isTranscodeRequired(media: Media): Boolean {
++    return forMedia(media) != null
++  }
++
++  /**
++   * The options to transcode this media with, or null when it doesn't need transcoding — either because nothing was
++   * edited, or because the user asked for the media to be sent exactly as it is.
++   */
++  @WorkerThread
++  fun forMedia(media: Media): TranscoderOptions? {
++    val properties = media.transformProperties?.takeIf { !it.shouldSkipTransform() } ?: return null
++    if (!properties.videoEdited) {
++      return null
++    }
++
++    return TranscoderOptions(
++      properties.videoTrimStartTimeUs,
++      properties.videoTrimEndTimeUs,
++      properties.videoMuted
++    )
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTrimTransform.kt b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTrimTransform.kt
+index a1f96604a681c345a02c349c0e073c516578139e..f54269974629d15b763caa2ebf4b48ffdd2642f6 100644
+--- a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTrimTransform.kt
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTrimTransform.kt
+@@ -7,6 +7,14 @@ import org.signal.core.models.media.TransformProperties
+ import org.signal.mediasend.SentMediaQuality
+ import org.signal.mediasend.screens.edit.video.VideoTrimData
+ 
++/**
++ * Records everything the user decided about a video in [Media.transformProperties], so the send path can write the
++ * clip out exactly once. Both of the user's decisions travel together: the trim bounds, and whether the audio track
++ * is being dropped.
++ *
++ * The media itself is only described, never rewritten — it keeps its own [Media.uri] and content type, so a muted
++ * video is still sent as that same video, just without its audio.
++ */
+ class VideoTrimTransform(private val data: VideoTrimData) : MediaTransform {
+   @WorkerThread
+   override fun transform(context: Context, media: Media): Media {
+@@ -22,8 +30,16 @@ class VideoTrimTransform(private val data: VideoTrimData) : MediaTransform {
+       isVideoGif = media.isVideoGif,
+       bucketId = media.bucketId,
+       caption = media.caption,
+-      transformProperties = TransformProperties(false, data.isDurationEdited, data.startTimeUs, data.endTimeUs, SentMediaQuality.STANDARD.code, false),
++      transformProperties = TransformProperties(
++        skipTransform = false,
++        videoTrim = data.isDurationEdited,
++        videoTrimStartTimeUs = data.startTimeUs,
++        videoTrimEndTimeUs = data.endTimeUs,
++        videoMuted = data.isMuted,
++        sentMediaQuality = SentMediaQuality.STANDARD.code,
++        mp4FastStart = false
++      ),
+       fileName = media.fileName
+     )
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/immutable-src/core/models/src/main/java/org/signal/core/models/media/TransformProperties.kt b/immutable-src/core/models/src/main/java/org/signal/core/models/media/TransformProperties.kt
+index 51e3569e4574e7c47a0459cc0f005569d069b025..48787e8930994e552931f1a0995cf53da0ca78a3 100644
+--- a/immutable-src/core/models/src/main/java/org/signal/core/models/media/TransformProperties.kt
++++ b/immutable-src/core/models/src/main/java/org/signal/core/models/media/TransformProperties.kt
+@@ -51,6 +51,16 @@ data class TransformProperties(
+   @JvmField
+   val sentMediaQuality: Int = DEFAULT_MEDIA_QUALITY,
+ 
++  /**
++   * Whether the user asked for this video's audio track to be dropped. Defaults to off, and is always off for
++   * payloads that were stored before audio removal existed.
++   */
++  @EncodeDefault(EncodeDefault.Mode.ALWAYS)
++  @JsonProperty("videoMuted")
++  @SerialName("videoMuted")
++  @JvmField
++  val videoMuted: Boolean = false,
++
+   @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+   @JsonProperty("mp4Faststart")
+   @SerialName("mp4Faststart")
+@@ -61,11 +71,15 @@ data class TransformProperties(
+     return skipTransform
+   }
+ 
++  /**
++   * Whether this attachment has to be written out again before sending. Muting is an edit like any other: the
++   * pre-uploaded copy still has an audio track, so it cannot be reused.
++   */
+   @IgnoredOnParcel
+   @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+   @JsonProperty("videoEdited")
+   @SerialName("videoEdited")
+-  val videoEdited: Boolean = videoTrim
++  val videoEdited: Boolean = videoTrim || videoMuted
+ 
+   fun withSkipTransform(): TransformProperties {
+     return this.copy(
+@@ -88,6 +102,7 @@ data class TransformProperties(
+         videoTrim = false,
+         videoTrimStartTimeUs = 0,
+         videoTrimEndTimeUs = 0,
++        videoMuted = false,
+         sentMediaQuality = DEFAULT_MEDIA_QUALITY,
+         mp4FastStart = false
+       )
+@@ -99,17 +114,39 @@ data class TransformProperties(
+         videoTrim = false,
+         videoTrimStartTimeUs = 0,
+         videoTrimEndTimeUs = 0,
++        videoMuted = false,
+         sentMediaQuality = DEFAULT_MEDIA_QUALITY,
+         mp4FastStart = false
+       )
+     }
+ 
+-    fun forVideoTrim(videoTrimStartTimeUs: Long, videoTrimEndTimeUs: Long): TransformProperties {
++    fun forVideoTrim(
++      videoTrimStartTimeUs: Long,
++      videoTrimEndTimeUs: Long,
++      videoMuted: Boolean = false
++    ): TransformProperties {
+       return TransformProperties(
+         skipTransform = false,
+         videoTrim = true,
+         videoTrimStartTimeUs = videoTrimStartTimeUs,
+         videoTrimEndTimeUs = videoTrimEndTimeUs,
++        videoMuted = videoMuted,
++        sentMediaQuality = DEFAULT_MEDIA_QUALITY,
++        mp4FastStart = false
++      )
++    }
++
++    /**
++     * The properties to attach to a video that the user only muted, without touching its duration. Muting alone is
++     * still an edit, so [videoEdited] reads back as true even though [videoTrim] does not.
++     */
++    fun forVideoMuted(): TransformProperties {
++      return TransformProperties(
++        skipTransform = false,
++        videoTrim = false,
++        videoTrimStartTimeUs = 0,
++        videoTrimEndTimeUs = 0,
++        videoMuted = true,
+         sentMediaQuality = DEFAULT_MEDIA_QUALITY,
+         mp4FastStart = false
+       )
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/EditorState.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/EditorState.kt
+index 29c99ad59eeff1e47dec281519eeacc196e575a4..19069b7f22eece77da588ccfed84266440eae140 100644
+--- a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/EditorState.kt
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/EditorState.kt
+@@ -21,6 +21,9 @@ sealed interface EditorState : Parcelable {
+ 
+   /**
+    * Video trim/duration editing state.
++   *
++   * Also where an ordinary video's audio-removal choice lives: [VideoTrimData.isMuted] is stored alongside the trim
++   * bounds so that a single parcel round-trip restores everything the transcoder will need for this item.
+    */
+   @Parcelize
+   data class VideoTrim(
+@@ -30,6 +33,21 @@ sealed interface EditorState : Parcelable {
+ 
+     val clipDurationUs: Long get() = videoTrimData.endTimeUs - videoTrimData.startTimeUs
+ 
++    /** Whether this specific video is being sent without its audio track. */
++    val isMuted: Boolean get() = videoTrimData.isMuted
++
++    /**
++     * Returns a copy of this trim with the audio-removal choice replaced. No-op when nothing changed, so callers
++     * never have to distinguish a repeated toggle from a real edit.
++     */
++    fun withMuted(isMuted: Boolean): VideoTrim {
++      if (videoTrimData.isMuted == isMuted) {
++        return this
++      }
++
++      return copy(videoTrimData = videoTrimData.copy(isMuted = isMuted))
++    }
++
+     /**
+      * Clamps this trim data to the maximum allowed clip duration.
+      *
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowEvent.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowEvent.kt
+index 791dde91e0de254357a20f99fc2a50c6c3fd675d..65736a26dcbf4e82b4a381b94a1de6ed031c39e7 100644
+--- a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowEvent.kt
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowEvent.kt
+@@ -22,6 +22,17 @@ internal sealed interface MediaSendFlowEvent {
+   /** Whoever was mid-gesture has stopped, so [MediaSendFlowState.isSelectionRejected] has served its purpose. */
+   data object SelectionRejectionShown : MediaSendFlowEvent
+ 
++  /**
++   * The user asked to leave the flow. The flow still owns the decision, because closing while media is selected has
++   * to ask before throwing that work away.
++   */
++  data object RequestClose : MediaSendFlowEvent
++
++  /**
++   * The user confirmed the discard. This is the only close action allowed to abandon the selection and its edits.
++   */
++  data object DiscardAndClose : MediaSendFlowEvent
++
+   data class NavigateToFiles(val mediaFolder: MediaFolder) : MediaSendFlowEvent
+   data object NavigateToEdit : MediaSendFlowEvent
+   data object NavigateToCamera : MediaSendFlowEvent
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowState.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowState.kt
+index 022756956224d0ec1766cd4b057fc4b5616a6e40..093d22602131a2056f560cf8d25f904a55abc497 100644
+--- a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowState.kt
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowState.kt
+@@ -46,6 +46,9 @@ data class MediaSendFlowState(
+   val sentMediaQuality: @WriteWith<TransientSentMediaQualityParceler> SentMediaQuality = MediaSendDependencies.mediaSendRepository.sentMediaQuality,
+   /**
+    * Per-media editor state keyed by URI (video trim data, image editor data, etc.).
++   *
++   * The key is the media's own URI, never its position in [selectedMedia]: reordering the selection or moving the
++   * pager therefore cannot move one item's edits onto another.
+    */
+   val editorStateMap: Map<Uri, EditorState> = emptyMap(),
+   /**
+@@ -157,6 +160,64 @@ data class MediaSendFlowState(
+     return (editorStateMap[uri] as? EditorState.VideoTrim)?.videoTrimData ?: VideoTrimData()
+   }
+ 
++  /**
++   * Whether the selection holds nothing but the capture that started a camera-first flow.
++   *
++   * Backing out in that state has nothing to keep, so the capture is discarded and the camera comes back rather than
++   * the user being left in an editor with an empty selection.
++   */
++  val isOnlyTheJustCapturedItem: Boolean
++    get() = isCameraFirst && cameraFirstCapture != null &&
++        selectedMedia.size == 1 && selectedMedia.first().uri == cameraFirstCapture.uri
++
++  /**
++   * Whether this particular item is one the user is allowed to remove the audio from.
++   *
++   * Only an ordinary video qualifies: images and documents have no audio track to remove, and a video GIF is
++   * looped back as-is by the player rather than being sent as a video, so it isn't an editable video at all. The
++   * feature flag is honored here too, so a build without audio removal never offers the control at all.
++   */
++  fun isAudioRemovalAvailable(media: Media?, editorState: EditorState?): Boolean {
++    if (!MediaConstraints.isMuteVideoAudioAvailable()) {
++      return false
++    }
++
++    if (media == null || !ContentTypeUtil.isVideoType(media.contentType)) {
++      // Images and documents have no audio track to remove in the first place.
++      return false
++    }
++
++    if (ContentTypeUtil.isDocumentType(media.contentType) || media.isVideoGif) {
++      // A video GIF is looped back by the player rather than sent as a video, so it isn't an editable video.
++      return false
++    }
++
++    // Anything already routed through a different editor — a gif, a document — is not an editable video either.
++    return editorState == null || editorState is EditorState.VideoTrim
++  }
++
++  /** Whether audio removal should be offered for whatever the pager is currently focused on. */
++  val isFocusedMediaAudioRemovalAvailable: Boolean
++    get() = isAudioRemovalAvailable(focusedMedia, focusedMedia?.let { editorStateMap[it.uri] })
++
++  /**
++   * The focused video's own audio-removal choice. Reading this after changing focus yields the newly focused item's
++   * setting rather than the previous item's.
++   */
++  val isFocusedMediaMuted: Boolean
++    get() = (editorStateMap[focusedMedia?.uri] as? EditorState.VideoTrim)?.isMuted == true
++
++  /**
++   * Replaces the editor state stored for a single item, leaving every other item's state — and the selection's
++   * membership and order — exactly as it was.
++   */
++  fun withEditorState(uri: Uri, editorState: EditorState): MediaSendFlowState {
++    return copy(editorStateMap = editorStateMap + (uri to editorState))
++  }
++
++  /** The editor state map with the given media's edits dropped, for items that have left the selection. */
++  fun editorStateMapWithout(uris: Collection<Uri>): Map<Uri, EditorState> = editorStateMap - uris.toSet()
++
+   /**
+    * No-op parceler for flags tracking work that cannot outlive the process that started it.
+    */
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowViewModel.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..18fbc6ec19d8244babe033da541647bb42ac7a0b
+--- /dev/null
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowViewModel.kt
+@@ -0,0 +1,542 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediasend
++
++import androidx.lifecycle.SavedStateHandle
++import androidx.lifecycle.createSavedStateHandle
++import androidx.lifecycle.viewModelScope
++import androidx.lifecycle.viewmodel.CreationExtras
++import kotlinx.coroutines.channels.Channel
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.receiveAsFlow
++import kotlinx.coroutines.launch
++import org.signal.core.models.media.Media
++import org.signal.core.models.media.MediaFolder
++import org.signal.core.ui.compose.DialogController
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.core.util.logging.Log
++import org.signal.mediasend.preupload.PreUploadController
++import org.signal.mediasend.preupload.PreUploadResult
++import org.signal.mediasend.screens.edit.DiscardChangesController
++import org.signal.mediasend.screens.edit.DiscardChangesDialogData
++import org.signal.mediasend.screens.edit.MediaEditScreenEvents
++import org.signal.mediasend.screens.edit.ScheduleSendOption
++import org.signal.mediasend.screens.edit.image.BrushTool
++import org.signal.mediasend.screens.edit.video.VideoTrimData
++import kotlin.coroutines.resume
++import kotlin.coroutines.suspendCoroutine
++import kotlin.time.Duration.Companion.milliseconds
++
++/**
++ * Owns the media send flow: the selection, which item is focused, the per-item edits, the message metadata, and the
++ * effects the screens can't own themselves (snackbars, dialogs, navigation, sends).
++ *
++ * The whole of [MediaSendFlowState] is persisted on every change, so a recreated flow comes back with the same
++ * selection, the same focus, and the same per-item edits. What can't outlive the process that started it — an upload
++ * in flight, a save in progress — is deliberately not carried over, and restoration never invents an edit.
++ */
++internal class MediaSendFlowViewModel(
++  private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
++  private val args: MediaSendFlowActivityContract.Args = MediaSendFlowActivityContract.Args(),
++  private val mediaSendRepository: MediaSendRepository = MediaSendDependencies.mediaSendRepository,
++  private val preUploadController: PreUploadController = PreUploadController(),
++  private val discardChangesController: DiscardChangesController = DiscardChangesController(DialogController())
++) : EventDrivenViewModel<MediaSendFlowEvent>(TAG) {
++
++  private val mutableState = MutableStateFlow(restoreOrCreateState())
++  private val screenEventChannel = Channel<MediaEditScreenEvents>(Channel.UNLIMITED)
++
++  private val hudCommandChannel = Channel<MediaSendFlowHudCommand>(Channel.BUFFERED)
++  private val navigationChannel = Channel<MediaSendFlowEvent>(Channel.BUFFERED)
++  private val snackbarChannel = Channel<SnackbarEvent>(Channel.BUFFERED)
++  private val toastChannel = Channel<ToastEvent>(Channel.BUFFERED)
++
++  /** The selection, the focus, and every item's edits. Recreated from [savedStateHandle] on process death. */
++  val state: StateFlow<MediaSendFlowState> = mutableState.asStateFlow()
++
++  /** What the enclosing flow has to do, as opposed to what the editor screen renders. */
++  val hudCommands: Flow<MediaSendFlowHudCommand> = hudCommandChannel.receiveAsFlow()
++  val navigationEvents: Flow<MediaSendFlowEvent> = navigationChannel.receiveAsFlow()
++  val snackbarEvents: Flow<SnackbarEvent> = snackbarChannel.receiveAsFlow()
++  val toastEvents: Flow<ToastEvent> = toastChannel.receiveAsFlow()
++
++  private val current: MediaSendFlowState
++    get() = mutableState.value
++
++  init {
++    viewModelScope.launch {
++      for (event in screenEventChannel) {
++        processScreenEvent(event)
++      }
++    }
++  }
++
++  /** Raises something the editor screen owns, such as an edit to the focused item. */
++  fun onScreenEvent(event: MediaEditScreenEvents) {
++    screenEventChannel.trySend(event)
++  }
++
++  override suspend fun processEvent(event: MediaSendFlowEvent) {
++    when (event) {
++      is MediaSendFlowEvent.AddMedia -> addMedia(event.media)
++      is MediaSendFlowEvent.RemoveMedia -> removeMedia(event.media)
++      is MediaSendFlowEvent.SetFocusedMedia -> setFocusedMedia(event.media)
++      is MediaSendFlowEvent.ReorderSelectedMedia -> reorderSelectedMedia(event.fromIndex, event.toIndex)
++      is MediaSendFlowEvent.ShowSnackbar -> snackbarChannel.trySend(event.snackbar)
++      MediaSendFlowEvent.SelectionRejectionShown -> update(current.copy(isSelectionRejected = false))
++      MediaSendFlowEvent.RequestClose -> requestClose()
++      MediaSendFlowEvent.DiscardAndClose -> discardPendingWork()
++      is MediaSendFlowEvent.NavigateToFiles -> navigationChannel.trySend(event)
++      MediaSendFlowEvent.NavigateToEdit -> navigationChannel.trySend(event)
++      MediaSendFlowEvent.NavigateToCamera -> navigationChannel.trySend(event)
++    }
++  }
++
++  private suspend fun processScreenEvent(event: MediaEditScreenEvents) {
++    when (event) {
++      is MediaEditScreenEvents.RemoveMedia -> onEvent(MediaSendFlowEvent.RemoveMedia(setOf(event.media)))
++      is MediaEditScreenEvents.FocusedMediaChanged -> onEvent(MediaSendFlowEvent.SetFocusedMedia(event.media))
++      is MediaEditScreenEvents.ReorderSelectedMedia -> {
++        onEvent(MediaSendFlowEvent.ReorderSelectedMedia(event.fromIndex, event.toIndex))
++      }
++      MediaEditScreenEvents.ToggleVideoMuted -> setFocusedMediaMuted(!current.isFocusedMediaMuted)
++      is MediaEditScreenEvents.SetVideoMuted -> setFocusedMediaMuted(event.muted)
++      is MediaEditScreenEvents.VideoTrimChanged -> setVideoTrimData(event.videoTrimData)
++      // A seek only moves the preview; it changes nothing the send path reads.
++      is MediaEditScreenEvents.VideoSeek -> Unit
++      MediaEditScreenEvents.ToggleViewOnce -> toggleViewOnce()
++      is MediaEditScreenEvents.SetMediaQuality -> setMediaQuality(event.quality)
++      is MediaEditScreenEvents.BrushWidthChanged -> setBrushWidth(event.tool, event.fraction)
++      // Face blurs live in the image editor's own model, which is persisted with the rest of that item's edits.
++      is MediaEditScreenEvents.ToggleBlurFaces -> Unit
++      is MediaEditScreenEvents.AddMessageClick -> Unit
++      MediaEditScreenEvents.StickerClick -> hudCommandChannel.trySend(MediaSendFlowHudCommand.SelectSticker)
++      MediaEditScreenEvents.SaveMedia -> saveFocusedMedia()
++      MediaEditScreenEvents.NextClick -> send()
++      is MediaEditScreenEvents.ScheduleSendClick -> scheduleSend(event.option)
++      MediaEditScreenEvents.NavigateBack -> requestClose()
++      MediaEditScreenEvents.NavigateToGallery -> navigateToGallery()
++    }
++  }
++
++  private fun addMedia(media: Set<Media>) {
++    val flowState = current
++    val additions = media.filterNot { candidate -> flowState.selectedMedia.any { it.isSameMediaAs(candidate) } }
++    if (additions.isEmpty()) {
++      return
++    }
++
++    val combined = flowState.selectedMedia + additions
++    update(flowState.copy(selectedMedia = combined, focusedMedia = flowState.focusedMedia ?: combined.first()))
++
++    preUploadController.startUpload(combined, flowState.recipientId)
++  }
++
++  private fun removeMedia(media: Set<Media>) {
++    if (media.isEmpty()) {
++      return
++    }
++
++    val uris = media.map { it.uri }.toSet()
++    val remaining = current.selectedMedia.filterNot { candidate -> candidate.uri in uris }
++    if (remaining.size == current.selectedMedia.size) {
++      return
++    }
++
++    preUploadController.cancelUpload(media)
++
++    // Whatever was focused is gone, so focus lands on whatever now sits where it used to be, or on nothing.
++    val removedFocus = current.focusedMedia?.takeIf { focused -> focused.uri in uris }
++    val newFocus = if (removedFocus == null) {
++      current.focusedMedia
++    } else {
++      val index = current.selectedMedia.indexOfFirst { it.uri == removedFocus.uri }
++        .coerceIn(0, (remaining.size - 1).coerceAtLeast(0))
++      remaining.getOrNull(index)
++    }
++
++    update(
++      current.copy(
++        selectedMedia = remaining,
++        focusedMedia = newFocus,
++        // An item that left the selection takes its edits with it; the rest are untouched.
++        editorStateMap = current.editorStateMapWithout(uris),
++        cameraFirstCapture = current.cameraFirstCapture?.takeIf { capture -> capture.uri !in uris }
++      )
++    )
++  }
++
++  /**
++   * Moves the pager. Focus is a pointer into the selection and nothing else: no editor state is read, written or
++   * moved here, so the newly focused item still shows its own edits.
++   */
++  private fun setFocusedMedia(media: Media) {
++    val flowState = current
++    if (flowState.focusedMedia.isSameMediaAs(media)) {
++      return
++    }
++
++    if (flowState.selectedMedia.none { it.isSameMediaAs(media) }) {
++      return
++    }
++
++    update(flowState.copy(focusedMedia = flowState.selectedMedia.first { it.isSameMediaAs(media) }))
++  }
++
++  /**
++   * Moves an item within the selection. Membership is unchanged, and because edits are keyed by media identity rather
++   * than by position, no item's edits follow another one to a new index.
++   */
++  private fun reorderSelectedMedia(fromIndex: Int, toIndex: Int) {
++    val selection = current.selectedMedia
++    if (fromIndex !in selection.indices || toIndex !in selection.indices || fromIndex == toIndex) {
++      return
++    }
++
++    val reordered = selection.toMutableList()
++    reordered.add(toIndex, reordered.removeAt(fromIndex))
++
++    update(current.copy(selectedMedia = reordered))
++    preUploadController.updateDisplayOrder(reordered)
++  }
++
++  /**
++   * Records the focused video's audio-removal choice, for that video alone.
++   *
++   * Toggling back restores the audio, and because the choice is stored per item, selecting a different item reveals
++   * that item's own setting rather than this one's.
++   */
++  private fun setFocusedMediaMuted(isMuted: Boolean) {
++    val media = current.focusedMedia ?: return
++    if (!current.isFocusedMediaAudioRemovalAvailable) {
++      // Audio removal isn't offered for this media, so it can never be turned on behind the UI's back either.
++      return
++    }
++
++    val trim = current.editorStateMap[media.uri] as? EditorState.VideoTrim
++    if (trim == null && !isMuted) {
++      // Nothing was edited and nothing is being asked for, so there is no edit to make.
++      return
++    }
++
++    if (trim != null && trim.isMuted == isMuted) {
++      // Nothing actually changed, so there's nothing to record and nothing to invalidate.
++      return
++    }
++
++    // A video that was never edited has no state yet, so muting is what creates it. Its trim bounds still describe
++    // the whole clip.
++    val updated = (trim ?: createVideoTrimState(media)).withMuted(isMuted)
++
++    update(current.withEditorState(media.uri, updated))
++    onMediaEdited(media)
++
++    if (isMuted) {
++      // The preview keeps playing with sound until the video is written out, so confirm the change immediately.
++      showSnackbar(SnackbarEvent(R.string.MediaSendViewModel__video_will_be_sent_without_audio))
++    }
++  }
++
++  /**
++   * Records new trim bounds for the focused video. The audio-removal choice is carried over deliberately, so dragging
++   * the trim handles can never quietly undo a mute.
++   */
++  private fun setVideoTrimData(videoTrimData: VideoTrimData) {
++    val media = current.focusedMedia ?: return
++
++    val trim = current.editorStateMap[media.uri] as? EditorState.VideoTrim ?: createVideoTrimState(media)
++    val merged = videoTrimData.copy(isMuted = trim.isMuted)
++    if (trim.videoTrimData == merged) {
++      return
++    }
++
++    val retimed = trim.copy(videoTrimData = merged)
++    val clamped = if (trim.maxDurationUs > 0) {
++      retimed.clampToMaxDuration(trim.maxDurationUs, preserveStartTime = true)
++    } else {
++      retimed
++    }
++
++    update(current.withEditorState(media.uri, clamped))
++    onMediaEdited(media)
++  }
++
++  private fun toggleViewOnce() {
++    if (!current.isViewOnceAvailable) {
++      return
++    }
++
++    update(current.copy(viewOnceToggleState = current.viewOnceToggleState.next()))
++  }
++
++  private fun setMediaQuality(quality: SentMediaQuality) {
++    if (current.sentMediaQuality == quality) {
++      return
++    }
++
++    // The repository is the source of truth for quality, and the transcoding tiers are derived from it.
++    mediaSendRepository.sentMediaQuality = quality
++    update(current.copy(sentMediaQuality = quality, videoTranscodingTiers = mediaSendRepository.getVideoTranscodingTiers(quality)))
++  }
++
++  private fun setBrushWidth(tool: BrushTool, fraction: Float) {
++    val widths = mediaSendRepository.brushWidths.with(tool, fraction)
++    mediaSendRepository.brushWidths = widths
++    update(current.copy(brushWidths = widths))
++  }
++
++  private suspend fun saveFocusedMedia() {
++    val media = current.focusedMedia ?: return
++    val image = current.editorStateMap[media.uri] as? EditorState.Image ?: return
++
++    val message = when (mediaSendRepository.saveImageToStorage(image.model)) {
++      SaveToStorageResult.SUCCESS -> R.string.MediaSendViewModel__media_saved
++      SaveToStorageResult.FAILURE, SaveToStorageResult.NO_WRITE_ACCESS -> R.string.MediaSendViewModel__error_saving_media
++    }
++
++    toastChannel.trySend(ToastEvent(null, ToastMessage.Text(message)))
++  }
++
++  private fun navigateToGallery() {
++    val bucketId = current.focusedMedia?.bucketId ?: Media.ALL_MEDIA_BUCKET_ID
++    navigationChannel.trySend(MediaSendFlowEvent.NavigateToFiles(MediaFolder(bucketId)))
++  }
++
++  /**
++   * Leaving the flow.
++   *
++   * Closing is only free when there's nothing selected. Otherwise the user has to say so, and only that confirmation
++   * is allowed to abandon the pending work: canceling or dismissing the prompt leaves the selection, the focus, the
++   * order and every item's edits exactly as they were, with no attachment, upload or navigation side effect.
++   */
++  private suspend fun requestClose() {
++    if (current.isSending || current.isSent) {
++      return
++    }
++
++    val selected = current.selectedMedia
++    if (selected.isEmpty()) {
++      hudCommandChannel.trySend(MediaSendFlowHudCommand.CloseScreen)
++      return
++    }
++
++    // Backing out right after a capture isn't closing the flow and isn't losing work: the selection holds nothing
++    // but the item that just started it, so that capture goes and the camera comes back rather than leaving the
++    // user in an editor with nothing in it.
++    if (current.isOnlyTheJustCapturedItem) {
++      discardCameraFirstCapture()
++      return
++    }
++
++    if (!discardChangesController.isDiscardConfirmed(DiscardChangesDialogData(selected.size))) {
++      return
++    }
++
++    discardPendingWork()
++  }
++
++  private suspend fun discardCameraFirstCapture() {
++    val flowState = current
++    val capture = flowState.cameraFirstCapture ?: return
++
++    // The capture is ours, not something the user picked out of their library, so its blob goes with it.
++    mediaSendRepository.deleteBlobs(listOf(capture))
++
++    update(flowState.clearSelection())
++    navigationChannel.trySend(MediaSendFlowEvent.NavigateToCamera)
++  }
++
++  private suspend fun discardPendingWork() {
++    val flowState = current
++    val selected = flowState.selectedMedia
++
++    if (selected.isEmpty()) {
++      hudCommandChannel.trySend(MediaSendFlowHudCommand.CloseScreen)
++      return
++    }
++
++    preUploadController.cancelUpload(selected.toSet())
++    preUploadController.deleteAbandonedAttachments()
++
++    update(flowState.clearSelection())
++    hudCommandChannel.trySend(MediaSendFlowHudCommand.CloseScreen)
++  }
++
++  /** Drops everything the user has staged, leaving a flow that has nothing left to send. */
++  private fun MediaSendFlowState.clearSelection(): MediaSendFlowState {
++    return copy(
++      selectedMedia = emptyList(),
++      focusedMedia = null,
++      editorStateMap = emptyMap(),
++      message = null,
++      cameraFirstCapture = null,
++      isSavingMedia = false
++    )
++  }
++
++  /**
++   * Whether two references point at the same media item.
++   *
++   * Identity here is the URI, matching how the editor state is keyed. [Media] carries fields an edit can change, such
++   * as its file name and recorded transforms, so comparing whole instances would make two different items look alike
++   * — or the same item look different, depending on which copy of it happened to be handed over.
++   */
++  private fun Media?.isSameMediaAs(other: Media?): Boolean = this != null && other != null && uri == other.uri
++
++  /**
++   * Sends what the user currently sees: the latest accepted per-item edits, and only the pre-uploads still standing
++   * for them.
++   */
++  private suspend fun send() {
++    val flowState = current
++    if (flowState.isSending || flowState.isSent || flowState.selectedMedia.isEmpty()) {
++      return
++    }
++
++    update(flowState.copy(isSending = true))
++
++    val result = try {
++      mediaSendRepository.send(
++        SendRequest(
++          selectedMedia = flowState.selectedMedia,
++          editorStateMap = flowState.editorStateMap,
++          quality = flowState.sentMediaQuality,
++          message = flowState.message,
++          isViewOnce = flowState.isViewOnceEnabled,
++          singleRecipientId = flowState.recipientId,
++          recipients = flowState.additionalRecipients,
++          scheduledTime = flowState.scheduledTime,
++          sendType = flowState.sendType,
++          isStory = flowState.isStory,
++          preUploadResults = standingPreUploadResults()
++        )
++      )
++    } catch (e: Exception) {
++      // Whatever went wrong, the flow must not be left mid-send: the user still has to be able to fix it up or leave.
++      Log.w(TAG, "Failed to send media", e)
++      null
++    } finally {
++      if (current.isSending) {
++        update(current.copy(isSending = false))
++      }
++    }
++
++    if (result == null) {
++      return
++    }
++
++    when (result) {
++      SendResult.Success -> {
++        update(current.copy(isSent = true))
++        hudCommandChannel.trySend(MediaSendFlowHudCommand.SendComplete())
++      }
++      // The repository owns what the user is told about a failed send, and the flow is left exactly as it was so
++      // the send can be tried again.
++      is SendResult.Error -> Log.w(TAG, "Failed to send media: ${result.message}")
++      is SendResult.UntrustedIdentity -> {
++        hudCommandChannel.trySend(MediaSendFlowHudCommand.ResolveUntrustedIdentities(result.recipientIds))
++      }
++      is SendResult.ReadyToSend -> hudCommandChannel.trySend(MediaSendFlowHudCommand.FinishWithResult(result.payload))
++    }
++  }
++
++  private suspend fun scheduleSend(option: ScheduleSendOption) {
++    when (option) {
++      is ScheduleSendOption.PresetTime -> {
++        update(current.copy(scheduledTime = option.timeMs))
++        send()
++      }
++      ScheduleSendOption.PickTime -> hudCommandChannel.trySend(MediaSendFlowHudCommand.PickScheduledSendTime)
++    }
++  }
++
++  /**
++   * A first edit invalidates whatever was already uploaded for that media, so the eventual send can never reuse a
++   * pre-edit copy of it. Canceling a media with nothing in flight is a no-op, so an edit costs nothing extra.
++   */
++  private fun onMediaEdited(media: Media) {
++    preUploadController.cancelUpload(media)
++  }
++
++  private suspend fun standingPreUploadResults(): List<PreUploadResult> {
++    return suspendCoroutine { continuation ->
++      preUploadController.getPreUploadResults { results -> continuation.resume(results.toList()) }
++    }
++  }
++
++  private fun createVideoTrimState(media: Media): EditorState.VideoTrim {
++    val durationUs = media.duration * MILLIS_TO_MICROS
++    val maxDurationUs = mediaSendRepository.getMaxVideoDurationUs(current.sentMediaQuality, media.duration.milliseconds)
++    return EditorState.VideoTrim.forVideo(durationUs = durationUs, maxDurationUs = maxDurationUs)
++  }
++
++  private fun showSnackbar(snackbar: SnackbarEvent) {
++    snackbarChannel.trySend(snackbar)
++  }
++
++  private fun update(newState: MediaSendFlowState) {
++    mutableState.value = newState
++    savedStateHandle[KEY_STATE] = newState
++  }
++
++  private fun restoreOrCreateState(): MediaSendFlowState {
++    val restored = savedStateHandle.get<MediaSendFlowState>(KEY_STATE) ?: return createInitialState()
++
++    // The selection, the focus and every item's edits come back untouched. Values the repository owns are re-read
++    // because they are written through to it rather than saved, and nothing that was in flight can have survived.
++    return restored.copy(
++      sentMediaQuality = mediaSendRepository.sentMediaQuality,
++      mediaConstraints = mediaSendRepository.getMediaConstraints(),
++      videoTranscodingTiers = mediaSendRepository.getVideoTranscodingTiers(mediaSendRepository.sentMediaQuality),
++      isSending = false,
++      isSent = false,
++      isSavingMedia = false,
++      isSelectionRejected = false,
++      isTouchEnabled = true
++    )
++  }
++
++  private fun createInitialState(): MediaSendFlowState {
++    val initialMedia = args.initialMedia
++
++    return MediaSendFlowState(
++      isCameraFirst = args.isCameraFirst,
++      recipientId = args.recipientId,
++      mode = args.mode,
++      selectedMedia = initialMedia,
++      focusedMedia = initialMedia.firstOrNull(),
++      message = args.initialMessage,
++      isStory = args.isStory,
++      isReply = args.isReply,
++      isAddToGroupStoryFlow = args.isAddToGroupStoryFlow,
++      maxSelection = args.maxSelection,
++      additionalRecipients = args.additionalRecipients,
++      sendType = args.sendType,
++      cameraFirstCapture = if (args.isCameraFirst) initialMedia.firstOrNull() else null
++    )
++  }
++
++  override fun onCleared() {
++    super.onCleared()
++
++    // Nothing outlives the flow: neither an upload that was still running nor an abandoned attachment.
++    preUploadController.cancelAllUploads()
++    preUploadController.deleteAbandonedAttachments()
++  }
++
++  companion object {
++    private const val TAG = "MediaSendFlowViewModel"
++    private const val KEY_STATE = "media_send_flow_state"
++    private const val MILLIS_TO_MICROS = 1000L
++
++    fun from(extras: CreationExtras): MediaSendFlowViewModel {
++      return MediaSendFlowViewModel(savedStateHandle = extras.createSavedStateHandle())
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/DiscardChangesController.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/DiscardChangesController.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..b1b46037e72db951c08bd748f22c404c8096c7a1
+--- /dev/null
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/DiscardChangesController.kt
+@@ -0,0 +1,35 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediasend.screens.edit
++
++import org.signal.core.ui.compose.DialogController
++import org.signal.core.ui.compose.DialogResult
++
++/**
++ * What the discard prompt has to say. The flow decides whether to ask; this is only what gets rendered.
++ */
++data class DiscardChangesDialogData(val mediaCount: Int)
++
++/**
++ * The "you have unsent media" prompt shown when the flow would otherwise be closed with media still selected.
++ *
++ * Destructive dialogs are three-way — confirmed, canceled, dismissed — and only the confirmation is allowed to
++ * take anything with it. Canceling and dismissing are both treated as "stay exactly where you were", so no
++ * attachment, upload or navigation happens on either.
++ */
++class DiscardChangesController(
++  private val dialogController: DialogController<DiscardChangesDialogData>
++) {
++
++  suspend fun show(data: DiscardChangesDialogData): DialogResult {
++    return dialogController.show(data)
++  }
++
++  /** Whether the user actually chose to throw the pending work away. */
++  suspend fun isDiscardConfirmed(data: DiscardChangesDialogData): Boolean {
++    return show(data) == DialogResult.POSITIVE
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreen.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreen.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..17b3c4b430b3532e808ef7f29cfff1bf93b8d590
+--- /dev/null
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreen.kt
+@@ -0,0 +1,125 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediasend.screens.edit
++
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.StateFlow
++import org.signal.core.models.media.Media
++import org.signal.mediasend.EditorState
++import org.signal.mediasend.MediaSendFlowEvent
++import org.signal.mediasend.MediaSendFlowHudCommand
++import org.signal.mediasend.MediaSendFlowState
++import org.signal.mediasend.MediaSendFlowViewModel
++import org.signal.mediasend.SnackbarEvent
++import org.signal.mediasend.ToastEvent
++import org.signal.mediasend.screens.edit.video.VideoTrimData
++
++/**
++ * What the editor page shows for the focused item, resolved from the flow state.
++ *
++ * This is a read model: building it changes nothing, so scrolling the pager or laying out a wider variant of the
++ * editor can never count as an edit.
++ */
++data class MediaEditScreenState(
++  val selectedMedia: List<Media> = emptyList(),
++  val focusedMedia: Media? = null,
++  val focusedIndex: Int = -1,
++  val isCameraFirst: Boolean = false,
++  val cameraFirstCapture: Media? = null,
++  val editorState: EditorState? = null,
++  val message: CharSequence? = null,
++  /** Whether leaving now would throw work away, and therefore whether closing has to ask first. */
++  val isDiscardConfirmationRequired: Boolean = false,
++  /** Whether backing out drops the just-captured item and returns to the camera instead of asking. */
++  val isOnlyTheJustCapturedItem: Boolean = false,
++  val isSavingMedia: Boolean = false,
++  val isTouchEnabled: Boolean = true
++) {
++  /** Whether there is anything to edit at all. */
++  val hasSelection: Boolean
++    get() = selectedMedia.isNotEmpty()
++
++  /** The trim bounds and audio-removal choice of the focused video, or null when it isn't an editable video. */
++  val focusedVideoTrimData: VideoTrimData?
++    get() = (editorState as? EditorState.VideoTrim)?.videoTrimData
++}
++
++/**
++ * Wires the editor page to the flow that owns the state.
++ *
++ * The page holds no state of its own. Everything it renders is derived from [MediaSendFlowState], and everything the
++ * user does leaves as an event, which is what lets the page come back after recreation without resetting anything.
++ */
++internal class MediaEditScreen(private val viewModel: MediaSendFlowViewModel) {
++
++  val flowState: StateFlow<MediaSendFlowState> = viewModel.state
++
++  val toolbar: MediaEditorToolbar = MediaEditorToolbar(viewModel.state)
++
++  /** Effects the page renders but doesn't own. */
++  val hudCommands: Flow<MediaSendFlowHudCommand> = viewModel.hudCommands
++  val navigationEvents: Flow<MediaSendFlowEvent> = viewModel.navigationEvents
++  val snackbars: Flow<SnackbarEvent> = viewModel.snackbarEvents
++  val toasts: Flow<ToastEvent> = viewModel.toastEvents
++
++  val screenState: MediaEditScreenState
++    get() = flowState.value.toScreenState()
++
++  fun onScreenEvent(event: MediaEditScreenEvents) {
++    viewModel.onScreenEvent(event)
++  }
++
++  fun onFlowEvent(event: MediaSendFlowEvent) {
++    viewModel.onEvent(event)
++  }
++
++  /** Tapping the mute button, or flipping it either way, acts on the focused video and nothing else. */
++  fun onMuteClicked() {
++    onScreenEvent(MediaEditScreenEvents.ToggleVideoMuted)
++  }
++
++  fun onMuteClicked(muted: Boolean) {
++    onScreenEvent(MediaEditScreenEvents.SetVideoMuted(muted))
++  }
++
++  fun onBackClicked() {
++    onScreenEvent(MediaEditScreenEvents.NavigateBack)
++  }
++
++  fun onPageChanged(media: Media) {
++    onScreenEvent(MediaEditScreenEvents.FocusedMediaChanged(media))
++  }
++
++  fun onMediaRemoved(media: Media) {
++    onScreenEvent(MediaEditScreenEvents.RemoveMedia(media))
++  }
++
++  fun onMediaReordered(fromIndex: Int, toIndex: Int) {
++    onScreenEvent(MediaEditScreenEvents.ReorderSelectedMedia(fromIndex, toIndex))
++  }
++}
++
++/**
++ * Projects the flow state onto the editor page.
++ *
++ * [MediaEditScreenState.focusedMedia] and [MediaEditScreenState.editorState] are both read from the same snapshot, so
++ * a reordering or a focus change can never pair one item with another's edits.
++ */
++fun MediaSendFlowState.toScreenState(): MediaEditScreenState {
++  return MediaEditScreenState(
++    selectedMedia = selectedMedia,
++    focusedMedia = focusedMedia,
++    focusedIndex = focusedMedia?.let { focused -> selectedMedia.indexOfFirst { it.uri == focused.uri } } ?: -1,
++    isCameraFirst = isCameraFirst,
++    cameraFirstCapture = cameraFirstCapture,
++    editorState = focusedMedia?.let { editorStateMap[it.uri] },
++    message = message,
++    isDiscardConfirmationRequired = selectedMedia.isNotEmpty(),
++    isOnlyTheJustCapturedItem = isOnlyTheJustCapturedItem,
++    isSavingMedia = isSavingMedia,
++    isTouchEnabled = isTouchEnabled
++  )
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreenEvents.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreenEvents.kt
+index 6b31124481793a19619f43c1c57e5eaa97916bb7..751319dfe535669ae25143b36df6769df4ce8d6b 100644
+--- a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreenEvents.kt
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreenEvents.kt
+@@ -27,4 +27,10 @@ sealed interface MediaEditScreenEvents {
+   data object SaveMedia : MediaEditScreenEvents
+   data class VideoTrimChanged(val videoTrimData: VideoTrimData, val editingComplete: Boolean) : MediaEditScreenEvents
+   data class VideoSeek(val positionUs: Long, val editingComplete: Boolean) : MediaEditScreenEvents
++
++  /** Flips the focused video's audio-removal choice, restoring the audio when asked a second time. */
++  data object ToggleVideoMuted : MediaEditScreenEvents
++
++  /** Sets the focused video's audio-removal choice outright, as a toggle button's on/off state does. */
++  data class SetVideoMuted(val muted: Boolean) : MediaEditScreenEvents
+ }
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditorToolbar.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditorToolbar.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..5c314ee966d0dcb1e5b36da16b0675ef89d56251
+--- /dev/null
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditorToolbar.kt
+@@ -0,0 +1,66 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediasend.screens.edit
++
++import kotlinx.coroutines.flow.StateFlow
++import org.signal.mediasend.MediaSendFlowState
++import org.signal.mediasend.SentMediaQuality
++
++/**
++ * The editor's row of buttons that act on whatever the pager is focused on.
++ *
++ * Every button describes the focused item only. Deriving this from the flow state — rather than caching it on the
++ * screen — is what keeps a button's checked state bound to one item: focusing a different item re-derives from that
++ * item's own editor state instead of carrying anything over.
++ */
++data class MediaEditorSharedButtonsState(
++  val isTextButtonVisible: Boolean = true,
++  val isStickerButtonVisible: Boolean = true,
++  /**
++   * Audio removal is only ever offered for an editable video, so this is off for images, documents and video GIFs.
++   */
++  val isMuteButtonVisible: Boolean = false,
++  /** The focused item's own choice, so a muted video stays muted until that same video is unmuted. */
++  val isMuteButtonChecked: Boolean = false,
++  val isQualityButtonVisible: Boolean = false,
++  val isQualityHigh: Boolean = false,
++  val isViewOnceButtonVisible: Boolean = false,
++  val isViewOnceButtonChecked: Boolean = false
++)
++
++/**
++ * Derives the editor's button row from the flow state.
++ *
++ * Reading this must never edit anything: the toolbar is asked for its buttons on every recomposition, so mutating
++ * an item's editor state here would turn a render into an edit.
++ */
++fun MediaSendFlowState.toSharedButtonsState(): MediaEditorSharedButtonsState {
++  val focused = focusedMedia
++
++  return MediaEditorSharedButtonsState(
++    isTextButtonVisible = true,
++    isStickerButtonVisible = focused != null && !focused.isVideoGif,
++    isMuteButtonVisible = isFocusedMediaAudioRemovalAvailable,
++    isMuteButtonChecked = isFocusedMediaMuted,
++    isQualityButtonVisible = focused != null,
++    isQualityHigh = sentMediaQuality == SentMediaQuality.HIGH,
++    isViewOnceButtonVisible = isViewOnceAvailable,
++    isViewOnceButtonChecked = isViewOnceEnabled
++  )
++}
++
++/**
++ * The editor's toolbar, observed against the flow state so it comes back after recreation along with everything
++ * else it describes.
++ */
++class MediaEditorToolbar(flowState: StateFlow<MediaSendFlowState>) {
++
++  val flowState: StateFlow<MediaSendFlowState> = flowState
++
++  /** The button row for whatever the pager is focused on right now. */
++  val sharedButtons: MediaEditorSharedButtonsState
++    get() = flowState.value.toSharedButtonsState()
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/video/VideoTrimData.kt b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/video/VideoTrimData.kt
+index 106733a5419c49cd69f8bdf8ee0525f042ba859c..cdd35aa5a69f656225ad4a1a337dfd5cb0a5e768 100644
+--- a/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/video/VideoTrimData.kt
++++ b/immutable-src/feature/media-send/src/main/java/org/signal/mediasend/screens/edit/video/VideoTrimData.kt
+@@ -13,13 +13,22 @@ import kotlin.time.Duration.Companion.microseconds
+ 
+ /**
+  * This represents the editor state for the video trimmer.
++ *
++ * [isMuted] lives alongside the trim bounds because it is the same kind of decision: both describe what the
++ * transcoder will have to write out for this one video, and both travel together into
++ * [org.signal.mediasend.EditorState.VideoTrim].
+  */
+ @Parcelize
+ data class VideoTrimData(
+   val isDurationEdited: Boolean = false,
+   val totalInputDurationUs: Long = 0,
+   val startTimeUs: Long = 0,
+-  val endTimeUs: Long = 0
++  val endTimeUs: Long = 0,
++  /**
++   * Whether the user asked for this video's audio track to be dropped. Off by default, and never on for media that
++   * isn't an editable video.
++   */
++  val isMuted: Boolean = false
+ ) : Parcelable {
+ 
+   fun getDuration(): Duration = (endTimeUs - startTimeUs).microseconds
+@@ -30,6 +39,7 @@ data class VideoTrimData(
+       putLong(KEY_TOTAL, totalInputDurationUs)
+       putLong(KEY_START, startTimeUs)
+       putLong(KEY_END, endTimeUs)
++      putByte(KEY_MUTED, (if (isMuted) 1 else 0).toByte())
+     }
+   }
+ 
+@@ -38,13 +48,15 @@ data class VideoTrimData(
+     private const val KEY_TOTAL = "TOTAL"
+     private const val KEY_START = "START"
+     private const val KEY_END = "END"
++    private const val KEY_MUTED = "MUTED"
+ 
+     fun fromBundle(bundle: Bundle): VideoTrimData {
+       return VideoTrimData(
+         isDurationEdited = bundle.getByte(KEY_EDITED) == 1.toByte(),
+         totalInputDurationUs = bundle.getLong(KEY_TOTAL),
+         startTimeUs = bundle.getLong(KEY_START),
+-        endTimeUs = bundle.getLong(KEY_END)
++        endTimeUs = bundle.getLong(KEY_END),
++        isMuted = bundle.getByte(KEY_MUTED) == 1.toByte()
+       )
+     }
+   }
+diff --git a/immutable-src/lib/video/src/main/java/org/thoughtcrime/securesms/video/StreamingTranscoder.java b/immutable-src/lib/video/src/main/java/org/thoughtcrime/securesms/video/StreamingTranscoder.java
+index c69174267fa96e8fc55f2e29717a74c597a09bb8..6f4d3c7ec04e941e7cf4747d9c418f6d8df7a102 100644
+--- a/immutable-src/lib/video/src/main/java/org/thoughtcrime/securesms/video/StreamingTranscoder.java
++++ b/immutable-src/lib/video/src/main/java/org/thoughtcrime/securesms/video/StreamingTranscoder.java
+@@ -43,6 +43,7 @@ public final class StreamingTranscoder {
+   private final           long               fileSizeEstimate;
+   private final @Nullable TranscoderOptions  options;
+   private final           boolean            allowAudioRemux;
++  private final           boolean            skipAudio;
+ 
+   /**
+    * @param upperSizeLimit A upper size to transcode to. The actual output size can be up to 10% smaller.
+@@ -57,6 +58,7 @@ public final class StreamingTranscoder {
+     this.dataSource = dataSource;
+     this.options    = options;
+     this.allowAudioRemux = allowAudioRemux;
++    this.skipAudio  = options != null && options.skipAudio;
+ 
+     final MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
+     try {
+@@ -77,8 +79,10 @@ public final class StreamingTranscoder {
+     this.targetQuality  = TranscodingQuality.createFromQualityTiers(configs, duration);
+     this.upperSizeLimit = upperSizeLimit;
+ 
+-    this.transcodeRequired = inputBitRate >= targetQuality.getTargetTotalBitRate() * 1.2 || inSize > upperSizeLimit || containsLocation(mediaMetadataRetriever) || options != null || !isH264(dataSource);
+-    if (!transcodeRequired) {
++    this.transcodeRequired = inputBitRate >= targetQuality.getTargetTotalBitRate() * 1.2 || inSize > upperSizeLimit || containsLocation(mediaMetadataRetriever) || options != null || skipAudio || !isH264(dataSource);
++    if (skipAudio) {
++      Log.i(TAG, "Audio was removed by the user, so the video track has to be written out again without it.");
++    } else if (!transcodeRequired) {
+       Log.i(TAG, "Video is within 20% of target bitrate, below the size limit, contained no location metadata or custom options, and is already H.264.");
+     }
+ 
+@@ -97,6 +101,7 @@ public final class StreamingTranscoder {
+     this.dataSource      = dataSource;
+     this.options         = options;
+     this.allowAudioRemux = allowAudioRemux;
++    this.skipAudio       = options != null && options.skipAudio;
+ 
+     final MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
+     try {
+@@ -182,7 +187,9 @@ public final class StreamingTranscoder {
+     converter.setVideoCodec(targetQuality.getCodec());
+     converter.setVideoResolution(targetQuality.getOutputResolution());
+     converter.setVideoBitrate(targetQuality.getTargetVideoBitRate());
+-    converter.setAudioBitrate(targetQuality.getTargetAudioBitRate());
++    if (!skipAudio) {
++      converter.setAudioBitrate(targetQuality.getTargetAudioBitRate());
++    }
+     converter.setAllowAudioRemux(allowAudioRemux);
+ 
+     if (options != null) {
+@@ -194,6 +201,10 @@ public final class StreamingTranscoder {
+       }
+     }
+ 
++    // Always stated explicitly, so a video that keeps its audio can never inherit a previous run's skip flag. Only
++    // the audio track is dropped: the video track is what the user asked to send, and it is always retained.
++    converter.setSkipAudio(skipAudio);
++
+     converter.setListener(percent -> {
+       progress.onProgress(percent);
+       return cancelationSignal != null && cancelationSignal.isCanceled();
+@@ -231,6 +242,11 @@ public final class StreamingTranscoder {
+     return transcodeRequired;
+   }
+ 
++  /** Whether this transcode drops the audio track while keeping the video track. */
++  public boolean isSkipAudio() {
++    return skipAudio;
++  }
++
+   private static long getDuration(MediaMetadataRetriever mediaMetadataRetriever) throws VideoSourceException {
+     String durationString = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+     if (durationString == null) {
+diff --git a/stubs/org/thoughtcrime/securesms/video/TranscoderOptions.java b/stubs/org/thoughtcrime/securesms/video/TranscoderOptions.java
+index 2efea56a0478672116101b906d43613c232c6891..69ae03d7438d2823c2a8661139e13cee9716e7c0 100644
+--- a/stubs/org/thoughtcrime/securesms/video/TranscoderOptions.java
++++ b/stubs/org/thoughtcrime/securesms/video/TranscoderOptions.java
+@@ -2,5 +2,11 @@ package org.thoughtcrime.securesms.video;
+ public final class TranscoderOptions {
+   public final long startTimeUs;
+   public final long endTimeUs;
+-  public TranscoderOptions(long startTimeUs, long endTimeUs) { this.startTimeUs = startTimeUs; this.endTimeUs = endTimeUs; }
+-}
++  public final boolean skipAudio;
++  public TranscoderOptions(long startTimeUs, long endTimeUs) { this(startTimeUs, endTimeUs, false); }
++  public TranscoderOptions(long startTimeUs, long endTimeUs, boolean skipAudio) {
++    this.startTimeUs = startTimeUs;
++    this.endTimeUs = endTimeUs;
++    this.skipAudio = skipAudio;
++  }
++}
+\ No newline at end of file

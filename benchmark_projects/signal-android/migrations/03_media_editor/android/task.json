@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "projectId": "signal-android",
+  "taskId": "03_media_editor",
+  "title": "Responsive media editor with per-video audio removal",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/signalapp/Signal-Android.git",
+    "baseRef": "v8.22.2",
+    "baseCommit": "e3a7a9c8764bf5961bbbb54f5d72d1056dd3974e",
+    "finalRef": "v8.23.0",
+    "finalCommit": "64fa9f50a38fecb088135fd0200c331fe0686bd3"
+  },
+  "releaseNotes": [
+    {
+      "text": "The media editor has been completely redesigned to better support tablets and foldable devices, and now it looks great on screens of all sizes.",
+      "source": "https://github.com/signalapp/Signal-Android/releases/tag/v8.23.0"
+    },
+    {
+      "text": "The new media editor also supports removing the audio track from a video before you send it.",
+      "source": "https://github.com/signalapp/Signal-Android/releases/tag/v8.23.0"
+    }
+  ],
+  "functionalAreas": [
+    "responsive_media_editing",
+    "selection_and_focus_state",
+    "per_video_audio_removal",
+    "attachment_transform_persistence",
+    "video_transcoding",
+    "discard_cancellation"
+  ],
+  "stateSurfaces": [
+    "MediaSendFlowState",
+    "MediaEditState",
+    "EditorState.VideoTrim",
+    "TransformProperties"
+  ],
+  "eventEntrypoints": [
+    "FocusedMediaChanged",
+    "ReorderSelectedMedia",
+    "VideoTrimChanged",
+    "ToggleVideoMuted",
+    "NavigateBackFromEdit",
+    "CloseRequested",
+    "NextRequested"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowState.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowViewModel.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/MediaSendRepository.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditState.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditViewModel.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreen.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditorToolbar.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/video/VideoTrimData.kt",
+      "core/models/src/main/java/org/signal/core/models/media/TransformProperties.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTrimTransform.kt",
+      "lib/video/src/main/java/org/thoughtcrime/securesms/video/StreamingTranscoder.java"
+    ],
+    "testPaths": [
+      "feature/media-send/src/test/java/org/signal/mediasend/screens/edit/MediaEditStateTest.kt",
+      "feature/media-send/src/test/java/org/signal/mediasend/screens/edit/MediaEditViewModelTest.kt",
+      "feature/media-send/src/test/java/org/signal/mediasend/screens/edit/MediaEditorToolbarSharedButtonsTest.kt",
+      "core/models/src/test/java/org/signal/core/models/media/TransformPropertiesTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/database/AttachmentDatabaseTransformPropertiesTest.java",
+      "demo/video/src/androidTest/java/org/thoughtcrime/video/app/transcode/VideoTranscodeInstrumentationTest.kt"
+    ],
+    "commits": [
+      "ee59bb40803ce927a2b35f8f225571ec60c8e7ae",
+      "a4793ebba53803aa7c483c429cfa94dfe02b8114",
+      "1fd343df93e58555fc45caa9354568072ef918e9",
+      "24fffdf25ed77427def8f450e7fcad5b63cf4afa",
+      "d6b0826f4e26ddfb63886d6019be35ec1863a0e2"
+    ]
+  },
+  "nonGoals": [
+    "Changing media capture or gallery discovery",
+    "Changing image drawing, blur, crop, or sticker algorithms",
+    "Changing video codec selection or quality policy beyond honoring audio removal",
+    "Changing story publishing semantics",
+    "Benchmarking the Android-to-ArkTS migration itself"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json"
+  }
+}

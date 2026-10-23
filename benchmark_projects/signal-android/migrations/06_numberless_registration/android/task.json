@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "projectId": "signal-android",
+  "taskId": "06_numberless_registration",
+  "title": "Phone-numberless registration with private purchase and credential confirmation",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/signalapp/Signal-Android.git",
+    "baseRef": "v8.26.4",
+    "baseCommit": "15e5d644924352fa03900969ad6de0e648e5e2d0",
+    "finalRef": "v8.28.0",
+    "finalCommit": "c6e21632f6abb16f1e8ccc303201b68d5d700353"
+  },
+  "releaseNotes": [
+    {
+      "text": "Signal v8.28.0 announces optional registration without a phone number.",
+      "source": "https://github.com/signalapp/Signal-Android/releases/tag/v8.28.0"
+    },
+    {
+      "text": "The release says this mode requires a small one-time anti-spam fee and that the in-app purchase is not directly associated with the resulting account.",
+      "source": "https://github.com/signalapp/Signal-Android/releases/tag/v8.28.0"
+    }
+  ],
+  "functionalAreas": [
+    "numberless_registration_entry",
+    "one_time_purchase",
+    "private_receipt_redemption",
+    "purchase_resume_and_retry",
+    "login_credential_preservation",
+    "optional_username_claim",
+    "failure_and_cancellation_recovery"
+  ],
+  "stateSurfaces": [
+    "RegistrationFlowState",
+    "SignalLoginPaymentState",
+    "SignalLoginPurchaseStep",
+    "SignalLoginInfoState",
+    "SignalLoginCredentialEntryState",
+    "AddUsernameState",
+    "PaymentAvailability"
+  ],
+  "eventEntrypoints": [
+    "RegisterWithoutNumber",
+    "Initialize",
+    "PriceRetryClicked",
+    "ContinueClicked",
+    "PurchaseFlowCompleted",
+    "SaveToPasswordManagerClicked",
+    "ConfirmSavedContinueClicked",
+    "SaveManuallyClicked",
+    "NextClicked",
+    "SkipClicked",
+    "SkipConfirmed"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "feature/registration/src/main/java/org/signal/registration/RegistrationNavigation.kt",
+      "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt",
+      "feature/registration/src/main/java/org/signal/registration/RegistrationViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseStep.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/PaymentAvailability.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentState.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModel.kt",
+      "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt",
+      "core/util/src/main/java/org/signal/core/util/billing/OneTimePurchaseApi.kt",
+      "lib/billing/src/main/java/org/signal/billing/OneTimePurchaseApiImpl.kt",
+      "lib/network/src/main/java/org/signal/network/api/RegistrationApiV2.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/registration/v2/AppRegistrationNetworkController.kt"
+    ],
+    "testPaths": [
+      "feature/registration/src/test/java/org/signal/registration/RegistrationEndToEndTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModelTest.kt",
+      "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt"
+    ],
+    "commits": [
+      "7da3357b564b1d8b522710b30afbce184137f65d",
+      "823c540a6ef4d7a5b870b2f90dd900bf7b1647ec",
+      "1f29540bbfe96b16fd413a4b5c99c3cd6914df7d",
+      "7b01d881ad68879d705cd9b104c98421e565852e",
+      "2f98a160942a48c40f0dddbd677c8d88d0301659",
+      "c985ab285a79ad91b5b067c708598c6a97b250b2",
+      "bc9e80a3516fac6644171e0d505bd5b25545c73f",
+      "28c69c8a0a68dc16e7959855c8e72284e4f77aa2",
+      "5a537d3ac0e53fe9e914d967ccc1edd26f411ac4"
+    ]
+  },
+  "nonGoals": [
+    "Changing phone-number-based registration",
+    "Donation, subscription, or recurring-payment flows",
+    "Post-registration recovery-key reset and account-settings management",
+    "General username editing after onboarding",
+    "Changing server-side pricing or anti-spam policy",
+    "Benchmarking the Android-to-ArkTS migration itself"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json"
+  }
+}

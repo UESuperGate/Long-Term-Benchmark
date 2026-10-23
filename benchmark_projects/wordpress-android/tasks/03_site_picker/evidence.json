@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_site_picker",
+  "boundaryAudit": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "sourceCheckout": "_sources/wordpress-android",
+    "sourceCheckoutModified": false,
+    "base": {
+      "ref": "24.6",
+      "resolvedCommit": "38d40e2acee2f487dd2e43da908233e847ee4cc4",
+      "versionFile": "version.properties",
+      "versionName": "24.6"
+    },
+    "final": {
+      "ref": "24.7",
+      "resolvedCommit": "d70ced8dc334e6d930af5570b9d1498407835262",
+      "versionFile": "version.properties",
+      "versionName": "24.7"
+    },
+    "ancestry": {
+      "command": "git merge-base --is-ancestor 38d40e2acee2f487dd2e43da908233e847ee4cc4 d70ced8dc334e6d930af5570b9d1498407835262",
+      "exitCode": 0,
+      "mergeBase": "38d40e2acee2f487dd2e43da908233e847ee4cc4",
+      "aheadCommitCount": 291,
+      "releaseBranchException": null
+    }
+  },
+  "coreCommitContainment": [
+    {
+      "commit": "03842275a271daaa09cb642485ddbd0bcfa11c78",
+      "pullRequest": 20521,
+      "afterBase": true,
+      "containedByFinal": true,
+      "summary": "Redesigns the site picker, adds pin editing and recent grouping, and retires the old show/hide interaction."
+    }
+  ],
+  "baseAbsence": {
+    "productionPathsPresent": [
+      "WordPress/src/main/java/org/wordpress/android/ui/main/SitePickerActivity.java",
+      "WordPress/src/main/java/org/wordpress/android/ui/main/SitePickerAdapter.java",
+      "WordPress/src/main/java/org/wordpress/android/ui/main/SitePickerContract.kt"
+    ],
+    "testPathsPresent": [
+      "WordPress/src/test/java/org/wordpress/android/viewmodel/main/SitePickerViewModelTest.kt"
+    ],
+    "observations": [
+      "The base uses the legacy picker path.",
+      "The final picker production types and pin/recent grouping behavior are absent from the base tree."
+    ]
+  },
+  "finalProductionTrace": [
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt",
+      "blob": "db0a2e524e1670a7705589a9e6802bc20e81db04",
+      "supports": [
+        "picker launch and selection",
+        "search lifecycle",
+        "pin-editing mode",
+        "refresh completion and failure preservation",
+        "restricted picker variants"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/viewmodel/main/SiteViewModel.kt",
+      "blob": "935ca04c60a7613833d282951f259c395278cf5f",
+      "supports": [
+        "group construction",
+        "search filtering",
+        "pin and recent ordering",
+        "site removal failure recovery"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt",
+      "blob": "3d72d0476dee6c92ad657ad5736c39a88c9103b8",
+      "supports": [
+        "selected-site presentation",
+        "pin-control interaction",
+        "normal versus editing behavior"
+      ]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/util/AppPrefs.java",
+      "blob": "0396fb813f35669afa443ae1080b7c91b4b22c50",
+      "supports": [
+        "pinned and recent state persistence"
+      ]
+    }
+  ],
+  "finalTestTrace": [
+    {
+      "path": "WordPress/src/test/java/org/wordpress/android/viewmodel/main/SiteViewModelTest.kt",
+      "blob": "1035f206c57dcde42836475300192ecd3e03825f",
+      "supports": [
+        "grouping and ordering",
+        "search filtering and clearing",
+        "pin/unpin regrouping",
+        "recent-site handling",
+        "failure-preserving state"
+      ]
+    },
+    {
+      "path": "WordPress/src/androidTest/java/org/wordpress/android/e2e/pages/MySitesPage.kt",
+      "supports": [
+        "entry into the redesigned picker from the user workflow"
+      ]
+    }
+  ],
+  "stateTransitionEvidence": [
+    {
+      "from": "grouped site list",
+      "event": "enter and then clear search",
+      "to": "filtered results and then restored grouped list"
+    },
+    {
+      "from": "normal selection",
+      "event": "edit pins and toggle a site",
+      "to": "updated groups without selecting the site"
+    },
+    {
+      "from": "active site",
+      "event": "select another site",
+      "to": "selection completion with updated recent state"
+    },
+    {
+      "from": "loaded list",
+      "event": "refresh fails and is retried",
+      "to": "preserved list followed by refreshed data on success"
+    }
+  ],
+  "failureRecoveryEvidence": [
+    "Refresh completion stops the visible refresh state even when the fetch reports an error; existing rows remain available.",
+    "A later successful refresh rebuilds the displayed site data.",
+    "A failed site-removal operation reports failure without removing the row, allowing another attempt."
+  ],
+  "officialEvidence": {
+    "release": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/24.7",
+    "releaseCandidate": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/24.7-rc-1",
+    "pullRequest": "https://github.com/wordpress-mobile/WordPress-Android/pull/20521",
+    "pullRequestStats": {
+      "filesChanged": 48,
+      "additions": 1450,
+      "deletions": 1447
+    }
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_reading_lists",
+  "workingDirectory": ".",
+  "android": {
+    "baseProject": "android/native/base",
+    "finalProject": "android/native/final",
+    "buildCommand": [
+      "bash",
+      "{project}/build.sh"
+    ],
+    "semanticCommand": [
+      "python3",
+      "evaluator/run_android_semantics.py",
+      "--project",
+      "{project}",
+      "--role",
+      "{role}",
+      "--output",
+      "{output}"
+    ],
+    "agentScaffoldCommand": [
+      "python3",
+      "{migration}/../tools/prepare_visible_scaffold.py",
+      "--task-id",
+      "04_reading_lists",
+      "--project",
+      "{project}",
+      "--migration",
+      "{migration}"
+    ],
+    "agentVisibleBuildCommand": [
+      "bash",
+      "{migration}/../tools/build_android_agent_visible.sh",
+      "{project}"
+    ],
+    "agentPrepareCommand": [
+      "python3",
+      "{migration}/../tools/prepare_agent_harness.py",
+      "--platform",
+      "android",
+      "--task-id",
+      "04_reading_lists",
+      "--project",
+      "{project}",
+      "--migration",
+      "{migration}"
+    ],
+    "agentBuildCommand": [
+      "bash",
+      "{migration}/../tools/build_android_agent_harness.sh",
+      "{project}"
+    ],
+    "agentSemanticCommand": [
+      "python3",
+      "evaluator/run_android_semantics.py",
+      "--project",
+      "{project}/.benchmark-evaluator/android-harness",
+      "--role",
+      "agent",
+      "--output",
+      "{output}"
+    ],
+    "deviceLock": "/tmp/long-term-benchmark-android-device.lock",
+    "fullBuildLock": "/tmp/long-term-benchmark-android-full-build.lock"
+  },
+  "arkts": {
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": [
+      "python3",
+      "{migration}/../tools/build_arkts_calibration.py",
+      "--project",
+      "{project}",
+      "--migration",
+      "{migration}",
+      "--task-id",
+      "04_reading_lists"
+    ],
+    "semanticCommand": [
+      "python3",
+      "evaluator/run_arkts_semantics.py",
+      "--project",
+      "{project}",
+      "--role",
+      "{role}",
+      "--output",
+      "{output}"
+    ],
+    "agentPrepareCommand": [
+      "python3",
+      "{migration}/../tools/prepare_agent_harness.py",
+      "--platform",
+      "arkts",
+      "--task-id",
+      "04_reading_lists",
+      "--project",
+      "{project}",
+      "--migration",
+      "{migration}"
+    ],
+    "agentVisibleBuildCommand": [
+      "bash",
+      "{migration}/../tools/build_arkts_api23.sh",
+      "{project}"
+    ],
+    "agentBuildCommand": [
+      "bash",
+      "{migration}/../tools/build_arkts_agent_harness.sh",
+      "{project}"
+    ],
+    "agentSemanticCommand": [
+      "python3",
+      "evaluator/run_arkts_semantics.py",
+      "--project",
+      "{project}",
+      "--role",
+      "agent",
+      "--output",
+      "{output}"
+    ],
+    "runtime": "API23 EntryAbility/ArkUI page owner",
+    "deviceTarget": "127.0.0.1:10178",
+    "deviceLock": "/tmp/ltb-arkts-device-73ccdb837c3b8a06",
+    "diskSafetyLineBytes": 8589934592,
+    "reportRelativePath": "results/arkts-{role}.json"
+  },
+  "placeholderPolicy": "Missing candidate binding, HAP, API23 target, page episode, or reopened persistence is not_scored. Role and source text never determine semantic verdicts."
+}

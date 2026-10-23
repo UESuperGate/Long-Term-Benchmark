@@ -10,7 +10,7 @@ from pathlib import Path
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task-id", choices=("01_reading_challenge", "02_hybrid_search"), required=True)
+    parser.add_argument("--task-id", choices=("01_reading_challenge", "02_hybrid_search", "03_explore_feed", "04_reading_lists"), required=True)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--migration", type=Path, required=True)
     args = parser.parse_args()

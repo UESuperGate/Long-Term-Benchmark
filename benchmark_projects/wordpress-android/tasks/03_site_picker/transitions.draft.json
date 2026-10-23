@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_site_picker",
+  "description": "Platform-neutral transitions for the redesigned WordPress site picker introduced in Android 24.7",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_001_grouped_open",
+      "key": "grouped_open",
+      "functionalArea": "grouped_site_list",
+      "given": {"mode": "default", "storeSites": [{"localId": 1, "siteId": 101, "name": "Alpha", "host": "alpha.test", "wpComAccessible": true}, {"localId": 2, "siteId": 102, "name": "Pinned", "host": "pinned.test", "wpComAccessible": true}, {"localId": 3, "siteId": 103, "name": "Recent One", "host": "recent-one.test", "wpComAccessible": true}, {"localId": 4, "siteId": 104, "name": "Recent Current", "host": "recent-current.test", "wpComAccessible": true}], "persistedPinnedLocalIds": [2], "persistedRecentLocalIds": [3, 2, 4], "selectedLocalId": 4},
+      "event": {"name": "openSitePicker"},
+      "expected": {"state": {"mode": "selection", "orderedRows": [2, 3, 4, 1], "sections": [{"name": "pinned", "localIds": [2]}, {"name": "recent", "localIds": [3, 4]}, {"name": "all", "localIds": [1]}], "selectedLocalId": 4}, "effects": [{"name": "readSites", "source": "all_sites"}, {"name": "readPinnedAndRecentPreferences"}], "absentEffects": ["selectSite", "writePinnedPreferences", "writeRecentPreferences"]},
+      "invariants": ["each available site appears exactly once", "a pinned site is excluded from the recent section even when its id is in recent preferences", "opening the picker does not change the active site"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#sortSites", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#handleHeader", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#handleHighlight"], "androidTests": ["WordPress/src/test/java/org/wordpress/android/viewmodel/main/SiteViewModelTest.kt#given the mode DEFAULT, when load sites, then return all sites"], "testEvidenceGap": "The final upstream suite exercises the source list and pinned-first order but has no direct assertion for recent-section de-duplication or section headers.", "baseSemanticGap": "Android 24.6 has no pinned-site preference or pinned section and only promotes recent sites when at least 11 sites exist."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_002_search_clear",
+      "key": "search_clear",
+      "functionalArea": "search_and_mode_filtering",
+      "given": {"mode": "default", "storeSites": [{"localId": 10, "name": "Alpha Pinned", "host": "alpha-pinned.test"}, {"localId": 11, "name": "Alpha Recent", "host": "alpha-recent.test"}, {"localId": 12, "name": "Beta", "host": "beta.test"}], "persistedPinnedLocalIds": [10], "persistedRecentLocalIds": [10, 11], "activeSearchQuery": "ALPHA", "visibleLocalIds": [10, 11], "givenEstablishedBy": [{"name": "enterSearchQuery", "query": "ALPHA"}]},
+      "event": {"name": "clearSearch"},
+      "expected": {"state": {"searchQuery": null, "orderedRows": [10, 11, 12], "sections": [{"name": "pinned", "localIds": [10]}, {"name": "recent", "localIds": [11]}, {"name": "all", "localIds": [12]}], "addSiteVisible": true}, "effects": [{"name": "readSites", "source": "all_sites"}], "absentEffects": ["selectSite", "writePinnedPreferences", "writeRecentPreferences"]},
+      "invariants": ["the search precondition is established through the real query input", "clearing search restores the complete pinned, recent, and remaining grouping", "a site present in both preferences appears only in the pinned section"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#loadSites", "WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#sortSites", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#setupSearchView", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#handleHeader"], "androidTests": ["WordPress/src/test/java/org/wordpress/android/viewmodel/main/SiteViewModelTest.kt#given an keyword and mode DEFAULT, when search the keyword, then return matched sites", "WordPress/src/test/java/org/wordpress/android/viewmodel/main/SiteViewModelTest.kt#given an empty keyword and mode DEFAULT, when search the keyword, then return all sites"], "testEvidenceGap": "The final upstream tests cover query filtering and empty-query reload but do not directly assert grouped restoration after leaving search.", "baseSemanticGap": "Android 24.6 can clear a search, but with three sites it neither renders a pinned section nor promotes recent sites (legacy promotion starts at 11), so it cannot restore this visible grouping or pinned/recent de-duplication."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_003_pin_mode_row_noop",
+      "key": "pin_mode_row_noop",
+      "functionalArea": "pin_editing",
+      "given": {"mode": "default", "actionMode": "pin", "activeLocalId": 20, "rows": [20, 21], "persistedPinnedLocalIds": [], "givenEstablishedBy": [{"name": "enterPinMode"}]},
+      "event": {"name": "tapSiteRow", "localId": 21},
+      "expected": {"state": {"actionMode": "pin", "pinControlsVisible": true, "activeLocalId": 20, "pickerOpen": true, "result": null, "persistedPinnedLocalIds": []}, "effects": [{"name": "renderPinControls", "localIds": [20, 21]}], "absentEffects": ["selectSite", "finishPicker", "writeRecentPreferences", "writePinnedPreferences", "openLegacyVisibilityEditor"]},
+      "invariants": ["the pin-mode precondition is established through the real edit-pins action", "row-body clicks and long presses are ineligible while pin mode is active", "only an explicit pin control may change the pinned set"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#enablePinSitesMode", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#bind", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt#ActionMode"], "androidTests": [], "testEvidenceGap": "No final upstream test directly exercises pin-mode row eligibility.", "baseSemanticGap": "Android 24.6 opens the legacy multi-select show/hide editor and has no per-row pin controls or pin action mode."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_004_pin_persist_reopen",
+      "key": "pin_persist_reopen",
+      "functionalArea": "pin_persistence",
+      "given": {"mode": "default", "storeSites": [21, 22], "persistedPinnedLocalIds": [22], "persistedRecentLocalIds": [21], "pickerOpen": false, "givenEstablishedBy": [{"name": "enterPinMode"}, {"name": "togglePin", "localId": 22}, {"name": "closePicker"}]},
+      "event": {"name": "openSitePicker"},
+      "expected": {"state": {"persistedPinnedLocalIds": [22], "orderedRows": [22, 21], "sections": [{"name": "pinned", "localIds": [22]}, {"name": "recent", "localIds": [21]}], "pickerOpen": true}, "effects": [{"name": "readPinnedAndRecentPreferences"}, {"name": "readSites", "source": "all_sites"}], "absentEffects": ["selectSite", "writePinnedPreferences", "writeRecentPreferences"]},
+      "invariants": ["the persisted pin was created through the real pin control before reopening", "reopening observes the pin from durable application state", "the pinned site appears exactly once and remains outside the recent section"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#handlePinButton", "WordPress/src/main/java/org/wordpress/android/ui/prefs/AppPrefsWrapper.kt#pinnedSiteLocalIds", "WordPress/src/main/java/org/wordpress/android/ui/prefs/AppPrefs.java#getPinnedSiteLocalIds", "WordPress/src/main/java/org/wordpress/android/ui/prefs/AppPrefs.java#setPinnedSiteLocalIds", "WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#sortSites"], "androidTests": [], "testEvidenceGap": "The final upstream suite has no persistence/reopen test for pinned sites; the evaluator must establish the pin through the production control and reopen against the real preference backing.", "baseSemanticGap": "Android 24.6's persisted edit state controls site visibility, not pinned membership; reopening cannot place localId 22 in a pinned section."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_005_unpin_regroup",
+      "key": "unpin_regroup",
+      "functionalArea": "pin_editing",
+      "given": {"mode": "default", "rows": [31, 32, 33], "persistedPinnedLocalIds": [31], "persistedRecentLocalIds": [31, 32], "actionMode": "pin"},
+      "event": {"name": "unpinSite", "localId": 31},
+      "expected": {"state": {"persistedPinnedLocalIds": [], "orderedRows": [31, 32, 33], "sections": [{"name": "recent", "localIds": [31, 32]}, {"name": "all", "localIds": [33]}], "actionMode": "pin"}, "effects": [{"name": "writePinnedPreferences", "localIds": []}, {"name": "reloadRows"}], "absentEffects": ["selectSite", "finishPicker", "writeRecentPreferences"]},
+      "invariants": ["unpinning does not erase the site's existing recent membership", "the site appears exactly once after regrouping", "editing remains active until the user explicitly finishes it"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#handlePinButton", "WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#sortSites", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt#setActionMode"], "androidTests": [], "testEvidenceGap": "No final upstream test directly covers unpin regrouping.", "baseSemanticGap": "Android 24.6 has no pin state to remove and its edit workflow changes site visibility instead."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_006_select_recent_propagation",
+      "key": "select_recent_propagation",
+      "functionalArea": "selection_and_recent_sites",
+      "given": {"mode": "default", "storeSites": [41, 42, 43], "persistedPinnedLocalIds": [41], "persistedRecentLocalIds": [43, 42], "pickerOpen": false, "givenEstablishedBy": [{"name": "openSitePicker"}, {"name": "selectSite", "localId": 43}]},
+      "event": {"name": "openSitePicker"},
+      "expected": {"state": {"pickerOpen": true, "orderedRows": [41, 43, 42], "sections": [{"name": "pinned", "localIds": [41]}, {"name": "recent", "localIds": [43, 42]}]}, "effects": [{"name": "readPinnedAndRecentPreferences"}, {"name": "readSites", "source": "all_sites"}], "absentEffects": ["selectSite", "writePinnedPreferences", "writeRecentPreferences", "changeSiteVisibility"]},
+      "invariants": ["the recent-state precondition is established through the real selection flow", "the selected site is the first recent site on the next open even with fewer than 11 sites", "pinned sites remain excluded from recent grouping"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#selectSite", "WordPress/src/main/java/org/wordpress/android/ui/prefs/AppPrefs.java#addRecentlyPickedSiteId", "WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#sortSites", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#handleHeader"], "androidTests": ["WordPress/src/androidTest/java/org/wordpress/android/e2e/pages/SitePickerPage.kt#chooseSiteWithURL", "WordPress/src/androidTest/java/org/wordpress/android/e2e/pages/MySitesPage.kt#switchToSite"], "testEvidenceGap": "The E2E helpers cover selection, but the final upstream suite does not assert the next-open recent section.", "baseSemanticGap": "Android 24.6 also records recent selection, but with only three sites its legacy picker does not promote recent sites because RECENTLY_PICKED_THRESHOLD is 11, and it has no pinned/recent sections."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_007_refresh_failure_retry",
+      "key": "refresh_failure_retry",
+      "functionalArea": "refresh_recovery",
+      "given": {"mode": "default", "orderedRows": [51, 52, 53], "sections": [{"name": "pinned", "localIds": [51]}, {"name": "recent", "localIds": [52]}, {"name": "all", "localIds": [53]}], "persistedPinnedLocalIds": [51], "persistedRecentLocalIds": [52], "refreshing": false, "nextFetchOutcome": {"type": "success", "storeSites": [51, 52, 53, 54]}, "givenEstablishedBy": [{"name": "manualRefresh", "outcome": "error", "observableResult": "last_usable_grouped_rows_preserved"}]},
+      "event": {"name": "retryManualRefresh"},
+      "expected": {"state": {"refreshing": false, "orderedRows": [51, 52, 53, 54], "sections": [{"name": "pinned", "localIds": [51]}, {"name": "recent", "localIds": [52]}, {"name": "all", "localIds": [53, 54]}]}, "effects": [{"name": "fetchSites", "count": 1}, {"name": "replaceDisplayedSitesAfterSuccess", "count": 1}], "absentEffects": ["clearUsableRowsBeforeRetry", "selectSite", "writePinnedPreferences", "writeRecentPreferences"]},
+      "invariants": ["the failure precondition is established through the real refresh input and leaves refreshing false", "retry rebuilds groups from the successful store contents", "neither failure nor retry changes the active site"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#refreshHelper", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#onSiteChanged", "WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#loadSites", "WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#sortSites"], "androidTests": ["WordPress/src/test/java/org/wordpress/android/viewmodel/main/SiteViewModelTest.kt#given the mode DEFAULT, when load sites, then return all sites"], "testEvidenceGap": "The final upstream tests do not drive refresh error and retry through ChooseSiteActivity.", "baseSemanticGap": "Android 24.6 unconditionally rebuilds its legacy adapter on an error completion, whereas final suppresses the failed reload; after retry base also cannot produce the pinned/recent/all grouped result."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_008_wpcom_long_press_noop",
+      "key": "wpcom_long_press_noop",
+      "functionalArea": "legacy_workflow_removal",
+      "given": {"mode": "default", "actionMode": "none", "site": {"localId": 61, "wpComAccessible": true}, "activeLocalId": 60, "persistedPinnedLocalIds": []},
+      "event": {"name": "longPressSite", "localId": 61},
+      "expected": {"state": {"actionMode": "none", "activeLocalId": 60, "visibleLocalIds": [60, 61], "pickerOpen": true}, "effects": [], "absentEffects": ["openLegacyVisibilityEditor", "showRemoveSelfHostedDialog", "selectSite", "removeSite", "changeSiteVisibility"]},
+      "invariants": ["a long press on a WordPress.com-accessible site is a no-op in the redesigned picker", "the row remains visible and selectable", "the active site is unchanged"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#onSiteLongClick", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt#bind"], "androidTests": [], "testEvidenceGap": "No final upstream test directly asserts the removed long-press visibility workflow.", "baseSemanticGap": "Android 24.6 long-pressing a WordPress.com site enters the deprecated show/hide visibility editor."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_009_restore_search_pin_mode",
+      "key": "restore_search_pin_mode",
+      "functionalArea": "state_restoration",
+      "given": {"mode": "default", "rows": [{"localId": 71, "name": "Needle Site", "host": "needle.test"}, {"localId": 72, "name": "Other", "host": "other.test"}], "persistedPinnedLocalIds": [72], "searchQuery": "needle", "actionMode": "pin"},
+      "event": {"name": "recreatePicker"},
+      "expected": {"state": {"searchExpanded": true, "searchQuery": "needle", "visibleLocalIds": [71], "actionMode": "pin", "pinControlsVisible": true, "rowSelectionEnabled": false}, "effects": [{"name": "restorePickerState", "state": ["search_query", "pin_mode"]}, {"name": "reloadFilteredRows"}], "absentEffects": ["selectSite", "writePinnedPreferences", "writeRecentPreferences", "openLegacyVisibilityEditor"]},
+      "invariants": ["recreation restores both the active query and pin-editing semantics", "restoration does not mutate persistent pin or recent state", "the restored row remains ineligible for site selection until pin mode ends"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#onSaveInstanceState", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#onRestoreInstanceState", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#setupSearchView", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt#fun from"], "androidTests": ["WordPress/src/test/java/org/wordpress/android/viewmodel/main/SiteViewModelTest.kt#given an keyword and mode DEFAULT, when search the keyword, then return matched sites"], "testEvidenceGap": "The search filter has unit coverage, but the final upstream suite has no Activity recreation test for the query plus pin mode.", "baseSemanticGap": "Android 24.6 restores a legacy visibility-edit state, not the final pin action mode or its disabled row-selection semantics."}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sp_state_010_restricted_mode_selection",
+      "key": "restricted_mode_selection",
+      "functionalArea": "restricted_picker_variants",
+      "given": {"mode": "simple", "storeSites": [{"localId": 81, "name": "WordPress.com", "wpComAccessible": true}, {"localId": 82, "name": "Self Hosted", "wpComAccessible": false}], "activeLocalId": 81, "pickerOpen": true, "visibleLocalIds": [81, 82], "pinEditingVisible": false, "addSiteVisible": false, "givenEstablishedBy": [{"name": "openSitePicker", "mode": "simple"}]},
+      "event": {"name": "selectSite", "localId": 82},
+      "expected": {"state": {"visibleLocalIdsBeforeSelection": [81, 82], "pinEditingVisible": false, "addSiteVisible": false, "selectionOutcome": {"status": "selected", "localId": 82}, "pickerOpen": false}, "effects": [{"name": "writeRecentPreferences", "localId": 82}, {"name": "publishSiteSelection", "localId": 82}, {"name": "closePicker"}], "absentEffects": ["showPinEditing", "showAddSite", "changeSiteVisibility"]},
+      "invariants": ["management restrictions do not prevent selection of an otherwise valid self-hosted site", "restricted mode hides both pin editing and site creation", "selection uses the same result contract as default mode"],
+      "polarity": {"final": "positive", "base": "semantic_fail"},
+      "evidence": {"androidProduction": ["WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#private val mode", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#setupMenuVisibility", "WordPress/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt#getSites", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#selectSite", "WordPress/src/main/java/org/wordpress/android/ui/main/ChooseSiteActivity.kt#enum class SitePickerMode"], "androidTests": ["WordPress/src/test/java/org/wordpress/android/viewmodel/main/SiteViewModelTest.kt#given the mode SIMPLE, when load sites, then return all sites", "WordPress/src/androidTest/java/org/wordpress/android/e2e/pages/SitePickerPage.kt#chooseSiteWithURL"], "baseSemanticGap": "Android 24.6 SIMPLE_MODE explicitly hides self-hosted sites, so localId 82 cannot be selected through that variant."}
+    }
+  ]
+}

@@ -31,7 +31,12 @@ public final class HarnessActivity extends Activity {
           Method installApplication = probe.getDeclaredMethod("installHarnessApplication", android.app.Application.class);
           installApplication.invoke(null, getApplication());
         } catch (NoSuchMethodException ignored) {
-          // Most probes have no Android context dependency.
+          try {
+            Method installContext = probe.getDeclaredMethod("installHarnessContext", android.content.Context.class);
+            installContext.invoke(null, getApplicationContext());
+          } catch (NoSuchMethodException contextIgnored) {
+            // Most probes have no Android context dependency.
+          }
         }
         Method main = probe.getDeclaredMethod("main");
         main.invoke(null);

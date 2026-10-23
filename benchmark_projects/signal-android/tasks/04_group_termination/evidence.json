@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_group_termination",
+  "rawEvidence": "raw_release_evidence.json",
+  "releaseEvidence": [
+    "Official in-bound commit a0c0acb8 adds group termination across protocol, persistence, settings, conversation UI, backup, and tests.",
+    "Official in-bound commits c81f40eb and 2b9126d7 add termination checks and update the terminated-group presentation.",
+    "The official v8.5.0 release body discusses member labels and does not announce group termination.",
+    "Official follow-up commits 43f19d14, 9702728c, 17faf563, and 562185f4 address termination behavior but are not ancestors of v8.5.0."
+  ],
+  "implementationEvidence": {
+    "symbols": [
+      "DecryptedGroup.terminated",
+      "DecryptedGroupChange.terminateGroup",
+      "GroupsV2Operations.createTerminateGroup",
+      "GroupManager.terminateGroup",
+      "GroupRecord.isTerminated",
+      "GroupsV2StateProcessor",
+      "EndGroupDialog",
+      "TerminatedGroupBottomSheetDialog",
+      "DisabledInputView"
+    ],
+    "productionPaths": [
+      "lib/libsignal-service/src/main/protowire/Groups.proto",
+      "lib/libsignal-service/src/main/protowire/DecryptedGroups.proto",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/groupsv2/DecryptedGroupUtil.java",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations.java",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/internal/push/exceptions/GroupTerminatedException.java",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/GroupManagerV2.java",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/GroupManager.java",
+      "app/src/main/java/org/thoughtcrime/securesms/database/GroupTable.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/database/model/GroupRecord.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/v2/processing/GroupsV2StateProcessor.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/ui/EndGroupDialog.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/ConversationSettingsState.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/ConversationSettingsFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ConversationFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/TerminatedGroupBottomSheetDialog.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/DisabledInputView.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/exporters/GroupArchiveExporter.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/importer/GroupArchiveImporter.kt"
+    ],
+    "testPaths": [
+      "app/src/test/java/org/thoughtcrime/securesms/components/settings/conversation/GroupSettingsStateTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/GroupManagerV2Test_edit.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/v2/processing/GroupsV2StateProcessorTest.kt",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/DecryptedGroupUtil_apply_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupChangeUtil_changeIsEmpty_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations_decrypt_change_Test.java",
+      "app/src/androidTest/java/org/thoughtcrime/securesms/backup/v2/ArchiveImportExportTests.kt"
+    ],
+    "testEvidenceNote": "Tests prove admin eligibility, protocol application, local state updates, known and unknown terminator handling, idempotent refresh, rejection of post-termination peer changes, and backup fixtures containing termination state."
+  },
+  "baseFailureEvidence": [
+    "Neither v8.4.0 nor the newer eligible base v8.4.1 contains the termination protocol fields, termination exception, database column migration, administrator dialog, terminated conversation UI, or focused tests.",
+    "The v8.5.0 tree contains the initial end-to-end protocol, persistence, UI, backup, and error-handling implementation.",
+    "The later v8.4.2 tag also lacks the feature but is not an ancestor of v8.5.0, so it cannot serve as this task's base."
+  ],
+  "boundaryAudit": {
+    "requestedBaseRef": "v8.4.0",
+    "requestedBaseCommit": "d533cdc6194cca1e30aa88871e006474011936e9",
+    "effectiveBaseRef": "v8.4.1",
+    "effectiveBaseCommit": "c7ec3ab837b3c149d5579840317b1dc6cd4629f3",
+    "normalizationReason": "v8.4.1 is newer than v8.4.0, is an ancestor of v8.5.0, and does not contain the target behavior.",
+    "excludedTag": {
+      "ref": "v8.4.2",
+      "commit": "abdad4cde8a7d2535a25829a25613a65d51badf0",
+      "reason": "It postdates v8.5.0 and is not an ancestor of the final commit."
+    },
+    "finalRef": "v8.5.0",
+    "finalCommit": "068eaff8010365353410914fbcf1bed79e69d6bb",
+    "baseIsAncestor": true,
+    "candidateCompareStatus": "ahead",
+    "candidateCompareAheadBy": 70,
+    "effectiveCommitsBetween": 65,
+    "featureContainment": {
+      "a0c0acb8fcd53b2c5e67ef709fd0187bb9a34094": {"inBase": false, "inFinal": true},
+      "c81f40eb74fc51a37f74e119aeb05a8376022235": {"inBase": false, "inFinal": true},
+      "2b9126d74b15dbc697936c1e24b908e0ef3e8a74": {"inBase": false, "inFinal": true}
+    },
+    "verification": "Local read-only git object queries and the official GitHub compare endpoint prove ancestry for the requested boundary; local containment checks prove the effective base and each in-bound feature commit."
+  },
+  "postFinalEvidence": [
+    {
+      "commit": "43f19d14d8cd5047b68d4ad6ae1b4660d9694384",
+      "subject": "Add additional checks for terminated groups during send flows.",
+      "inFinal": false,
+      "impact": "Adds guards for several secondary send jobs and story actions."
+    },
+    {
+      "commit": "9702728c1918f2f0f3d4652832bbf54e63c6a2f1",
+      "subject": "Gate poll, pin, and reaction UX in terminated groups.",
+      "inFinal": false,
+      "impact": "Closes user-interface entrypoints that remain outside the v8.5.0 boundary."
+    },
+    {
+      "commit": "17faf563881bcaa848286fc426bb6868610f1c99",
+      "subject": "Drop all messages sent to a terminated group.",
+      "inFinal": false,
+      "impact": "Strengthens inbound message suppression after termination."
+    },
+    {
+      "commit": "562185f46df18eb37d0b7cc8e51000a52471b224",
+      "subject": "Insert terminate event when restoring ended group from storage service.",
+      "inFinal": false,
+      "impact": "Adds a missing restoration-history event."
+    }
+  ],
+  "reviewReason": "The requested 'complete lifecycle' is broader than behavior contained by v8.5.0. Keep this candidate needs_review unless the final boundary is advanced to a tag containing the four post-final commits or the task is explicitly accepted as the initial lifecycle only.",
+  "longHorizonSignals": [
+    "The in-bound task crosses protocol mutation, conflict resolution, local persistence, backup round trips, conversation state, settings eligibility, join errors, and retry UI.",
+    "The state graph includes eligibility, two confirmation transitions, in-progress success or failure, retry or cancel, remote convergence, and idempotent terminal handling.",
+    "Post-final evidence shows why the word 'complete' cannot be asserted at v8.5.0 without review."
+  ]
+}

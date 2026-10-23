@@ -1,0 +1,3036 @@
+diff --git a/immutable-src/core/util/src/main/java/org/signal/core/util/billing/OneTimePurchaseApi.kt b/immutable-src/core/util/src/main/java/org/signal/core/util/billing/OneTimePurchaseApi.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d3230a1b8ca6bcc51b01560dd74435b40ea9289d
+--- /dev/null
++++ b/immutable-src/core/util/src/main/java/org/signal/core/util/billing/OneTimePurchaseApi.kt
+@@ -0,0 +1,58 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.core.util.billing
++
++/**
++ * Activity-agnostic wrapper around the one-time (non-subscription) half of the billing library.
++ *
++ * Everything here is deliberately free of any `Activity`-shaped parameter: the purchase sheet can only be presented
++ * by the UI layer, which owns the activity, so [preparePurchase] hands back a [PurchaseLauncher] that the UI layer
++ * hands back to [launchPurchase]. That split is what allows the purchase result to be *held* rather than inferred —
++ * nothing about the outcome of a purchase is known until the UI layer reports one back.
++ */
++interface OneTimePurchaseApi {
++
++  /**
++   * Look up the localized, currency-formatted price of [productId], along with the price of the currently active
++   * offer for that product.
++   *
++   * The returned price is owned by the billing library and is the only price that may ever be shown to the user;
++   * callers must not format or round it themselves.
++   */
++  suspend fun getProduct(productId: OneTimeProductId): OneTimeProductResult
++
++  /**
++   * Get ready to buy [productId], without buying it.
++   *
++   * If the account already owns an unconsumed purchase for this product — because an earlier attempt was paid for but
++   * never redeemed, or because the process was killed mid-purchase — that purchase is returned as
++   * [OneTimePurchasePreparation.AlreadyPurchased] so the caller can redeem it instead of charging again.
++   *
++   * Otherwise a [OneTimePurchasePreparation.Ready] is returned, carrying a launcher that the UI layer can turn into
++   * the actual purchase sheet.
++   */
++  suspend fun preparePurchase(productId: OneTimeProductId): OneTimePurchasePreparation
++
++  /**
++   * Present the purchase sheet for a launcher handed out by [preparePurchase] and wait for it to settle.
++   *
++   * **Must** be called from the UI layer, which owns the activity needed to show the sheet. The returned result is the
++   * only authoritative statement about what happened; in particular a [OneTimePurchaseResult.UserCancelled] is a
++   * settled outcome and not an error.
++   */
++  suspend fun launchPurchase(launcher: PurchaseLauncher): OneTimePurchaseResult
++
++  /** Look up an owned, unconsumed purchase by token. Null if there is no such purchase. */
++  suspend fun getUnredeemedPurchase(purchaseToken: String): OneTimePurchase?
++
++  /**
++   * Acknowledge and remove a purchase so that it can never be redeemed a second time.
++   *
++   * Returns true when the purchase is fully consumed. This is only safe to call once the purchase has been spent —
++   * see `SignalLoginPurchaseStep`, which consumes strictly after registration succeeds.
++   */
++  suspend fun consumePurchase(purchase: OneTimePurchase): Boolean
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationFlowState.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationFlowState.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d8e203805fff3889f1733c5beca28ec4bf5e12a
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationFlowState.kt
+@@ -0,0 +1,36 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration
++
++import org.signal.core.models.AccountEntropyPool
++import org.signal.core.models.ServiceId.ACI
++
++/**
++ * The account identity issued by a successful registration, shared by every screen in the flow.
++ *
++ * A numberless registration fills these in from a receipt-based registration response, which carries neither a phone
++ * number nor any PNI key material — so [isPhoneNumberlessAccount] being true is exactly the statement that no
++ * phone-number identity exists for this account.
++ */
++interface RegistrationFlowState {
++  /** The ACI the service issued for this account, once registration has succeeded. */
++  val aci: ACI?
++
++  /** The recovery key (account entropy pool) issued alongside the ACI. */
++  val accountEntropyPool: AccountEntropyPool?
++
++  /** True when the account was created without a phone number, so it has no PIN and no phone identity keys. */
++  val isPhoneNumberlessAccount: Boolean
++
++  /** True once the flow has emitted [RegistrationFlowEvent.RegistrationComplete]. */
++  val registrationComplete: Boolean
++
++  /**
++   * True once registration has actually been committed with the service. Distinguishes "the user asked to skip the
++   * username" from "the service has accepted the account", so that a failure can't be mistaken for success.
++   */
++  val finalRegistrationCommitted: Boolean
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationNavigation.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationNavigation.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..571a614844a48d4046fad59cd6ac56fd25f89ecd
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationNavigation.kt
+@@ -0,0 +1,98 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration
++
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.collect
++import org.signal.core.util.billing.OneTimePurchaseApi
++import org.signal.core.util.logging.Log
++import org.signal.registration.screens.signallogininfo.SignalLoginInfoScreenActions
++import org.signal.registration.screens.signallogininfo.SignalLoginInfoScreenEvents
++import org.signal.registration.screens.signallogininfo.SignalLoginInfoViewModel
++import org.signal.registration.screens.signalloginpayment.SignalLoginPaymentScreenActions
++import org.signal.registration.screens.signalloginpayment.SignalLoginPaymentScreenEvents
++import org.signal.registration.screens.signalloginpayment.SignalLoginPaymentViewModel
++import org.signal.registration.util.SignalCredentialManager
++
++/**
++ * The effects that have to happen on the UI layer, because they need things the UI layer owns.
++ *
++ * Two of them matter for correctness:
++ *
++ *  - The purchase sheet. A view model can prepare a purchase and hand out a launcher, but only something holding an
++ *    activity can actually show the sheet. So the launcher crosses out here, the sheet is presented here, and whatever
++ *    it settles as comes straight back to the owning view model as a single event. Nothing in between is allowed to
++ *    assume an outcome.
++ *
++ *  - The password manager. A save is only believed once the same credential can be read back out of it, and both halves
++ *    of that round trip happen here, with each result routed back to the view model that asked for it.
++ */
++object RegistrationNavigation {
++
++  private val TAG = Log.tag(RegistrationNavigation::class)
++
++  /**
++   * Drive the Signal Login payment screen's outward-facing effects.
++   *
++   * Stays alive for as long as the screen does, because the purchase sheet's result arrives asynchronously long after
++   * the tap that started it.
++   */
++  suspend fun collectPaymentActions(
++    actions: Flow<SignalLoginPaymentScreenActions>,
++    viewModel: SignalLoginPaymentViewModel,
++    oneTimePurchaseApi: OneTimePurchaseApi,
++    onOpenUrl: (String) -> Unit = {}
++  ) {
++    actions.collect { action ->
++      when (action) {
++        is SignalLoginPaymentScreenActions.OpenLearnMoreArticle -> {
++          onOpenUrl(SIGNAL_LOGIN_LEARN_MORE_URL)
++        }
++        is SignalLoginPaymentScreenActions.LaunchPurchaseSheet -> {
++          val result = oneTimePurchaseApi.launchPurchase(action.launcher)
++          // The one and only thing that can complete a purchase.
++          viewModel.onEvent(SignalLoginPaymentScreenEvents.PurchaseFlowCompleted(result))
++        }
++        is SignalLoginPaymentScreenActions.ResolvePaymentServices -> {
++          onOpenUrl(GOOGLE_PLAY_SERVICES_URL)
++        }
++      }
++    }
++  }
++
++  /**
++   * Drive the Signal Login info screen's password manager effects.
++   *
++   * The credential handed over is exactly what the user was shown: the uppercase account ID and the display-form
++   * recovery key.
++   */
++  suspend fun collectCredentialActions(
++    actions: Flow<SignalLoginInfoScreenActions>,
++    viewModel: SignalLoginInfoViewModel,
++    credentialManager: SignalCredentialManager
++  ) {
++    actions.collect { action ->
++      when (action) {
++        is SignalLoginInfoScreenActions.SaveCredentialWithPasswordManager -> {
++          val state = viewModel.state.value
++          val result = credentialManager.saveCredential(
++            username = state.accountId,
++            password = state.recoveryKey
++          )
++          viewModel.onEvent(SignalLoginInfoScreenEvents.CredentialSaveCompleted(result))
++        }
++        is SignalLoginInfoScreenActions.ReadBackSavedCredential -> {
++          // Filtered to the account we issued, so a stale entry for some other login can't be mistaken for ours.
++          val credential = viewModel.aci?.let { credentialManager.getCredential(it) }
++          viewModel.onEvent(SignalLoginInfoScreenEvents.SavedCredentialRetrieved(credential))
++        }
++      }
++    }
++  }
++
++  private const val SIGNAL_LOGIN_LEARN_MORE_URL = "https://signal.org/support/numberless-registration/"
++  private const val GOOGLE_PLAY_SERVICES_URL = "market://details?id=com.google.android.gms"
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationViewModel.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..178eacda617926cf81c3f16b578edcdb3d5dc45d
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/RegistrationViewModel.kt
+@@ -0,0 +1,167 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import androidx.navigation3.runtime.NavBackStack
++import kotlinx.coroutines.channels.Channel
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import kotlinx.coroutines.flow.receiveAsFlow
++import org.signal.core.models.AccountEntropyPool
++import org.signal.core.models.ServiceId.ACI
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.core.util.logging.Log
++
++/**
++ * Owns the registration flow itself: the back stack, and the account identity that a successful registration issues.
++ *
++ * The order of two events matters a great deal here. [RegistrationFlowEvent.Registered] is always processed *before*
++ * the navigation that follows it, so a screen that is about to show the user their account ID and recovery key can
++ * rely on [aci] and [accountEntropyPool] already being populated.
++ */
++class RegistrationViewModel(
++  private val repository: RegistrationRepository,
++  initialRoute: RegistrationRoute = RegistrationRoute.Welcome,
++  private val navBackStack: NavBackStack<RegistrationRoute> = NavBackStack(initialRoute)
++) : EventDrivenViewModel<RegistrationFlowEvent>(TAG), RegistrationFlowState {
++
++  companion object {
++    private val TAG = Log.tag(RegistrationViewModel::class)
++  }
++
++  /**
++   * Everything every child screen publishes. A single serialized channel, so that the order in which a child emits
++   * [RegistrationFlowEvent.Registered] and then asks to navigate is the order in which the flow sees them.
++   */
++  private val _childEvents = Channel<RegistrationFlowEvent>(Channel.UNLIMITED)
++  val childEvents = _childEvents.receiveAsFlow()
++
++  /** The emitter handed to every child screen. */
++  val parentEventEmitter: (RegistrationFlowEvent) -> Unit = { event -> _childEvents.trySend(event) }
++
++  private val _backStack = MutableStateFlow(navBackStack.toList())
++  val backStack: StateFlow<List<RegistrationRoute>> = _backStack.asStateFlow()
++
++  private var _aci: ACI? = null
++
++  private var _accountEntropyPool: AccountEntropyPool? = null
++
++  private var _isPhoneNumberlessAccount: Boolean = false
++
++  private var _registrationComplete: Boolean = false
++
++  private var _finalRegistrationCommitted: Boolean = false
++
++  override val aci: ACI? get() = _aci
++
++  override val accountEntropyPool: AccountEntropyPool? get() = _accountEntropyPool
++
++  override val isPhoneNumberlessAccount: Boolean get() = _isPhoneNumberlessAccount
++
++  override val registrationComplete: Boolean get() = _registrationComplete
++
++  override val finalRegistrationCommitted: Boolean get() = _finalRegistrationCommitted
++
++  init {
++    childEvents
++      .onEach { onEvent(it) }
++      .launchIn(viewModelScope)
++  }
++
++  override suspend fun processEvent(event: RegistrationFlowEvent) {
++    onRegistrationFlowEvent(event)
++  }
++
++  @androidx.annotation.VisibleForTesting
++  internal fun onRegistrationFlowEvent(event: RegistrationFlowEvent) {
++    when (event) {
++      is RegistrationFlowEvent.Registered -> {
++        Log.i(TAG, "Registered. Phone numberless: ${event.phoneNumberless}")
++        _aci = event.aci
++        _accountEntropyPool = event.accountEntropyPool
++        _isPhoneNumberlessAccount = event.phoneNumberless
++      }
++      is RegistrationFlowEvent.NavigateToScreen -> {
++        if (event.popCurrent) {
++          navBackStack.pop()
++        }
++        navBackStack.add(event.route)
++        publishBackStack()
++      }
++      is RegistrationFlowEvent.NavigateBack -> {
++        navBackStack.pop()
++        publishBackStack()
++      }
++      is RegistrationFlowEvent.NavigateBackToScreen -> {
++        // Everything above the target goes away; if it isn't there at all, the target becomes the whole stack.
++        while (navBackStack.isNotEmpty() && navBackStack.last() != event.route) {
++          navBackStack.pop()
++        }
++        if (navBackStack.isEmpty()) {
++          navBackStack.add(event.route)
++        }
++        publishBackStack()
++      }
++      is RegistrationFlowEvent.ResetState -> {
++        navBackStack.resetTo(RegistrationRoute.Welcome)
++        _aci = null
++        _accountEntropyPool = null
++        _isPhoneNumberlessAccount = false
++        _registrationComplete = false
++        _finalRegistrationCommitted = false
++        publishBackStack()
++      }
++      is RegistrationFlowEvent.RegistrationComplete -> {
++        // The flow was asked to finish. That is not the same as the service having accepted the account, so
++        // [_finalRegistrationCommitted] stays false until [onRegistrationCommitted] says so.
++        _registrationComplete = true
++      }
++      else -> Log.d(TAG, "[FlowEvent] $event")
++    }
++  }
++
++  /**
++   * Record that the service has accepted this registration.
++   *
++   * A numberless account has no phone number and therefore no PIN and no phone identity keys, so the phone-verification
++   * and PIN routes a normal registration would insert are simply never added to the back stack.
++   */
++  fun onRegistrationCommitted() {
++    _finalRegistrationCommitted = true
++  }
++
++  /** True when the account identity the credential-preservation screens need is available. */
++  val hasIssuedAccountIdentity: Boolean
++    get() = _aci != null && _accountEntropyPool != null
++
++  /**
++   * The route to take when the user chooses to register without a phone number, or null when that option isn't being
++   * offered.
++   *
++   * This is purely additive: the ordinary phone-number path is a separate route and is untouched by whether this
++   * returns null.
++   */
++  fun signalLoginPaymentRoute(): RegistrationRoute? =
++    if (repository.isPhoneNumberlessRegistrationAvailable()) RegistrationRoute.SignalLoginPayment else null
++
++  private fun publishBackStack() {
++    _backStack.value = navBackStack.toList()
++  }
++
++  class Factory(
++    private val repository: RegistrationRepository,
++    private val initialRoute: RegistrationRoute = RegistrationRoute.Welcome
++  ) : ViewModelProvider.Factory {
++    @Suppress("UNCHECKED_CAST")
++    override fun <T : ViewModel> create(modelClass: Class<T>): T = RegistrationViewModel(repository, initialRoute) as T
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseStep.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseStep.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..cd459a34415f82966556429bce21fb875b02a996
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseStep.kt
+@@ -0,0 +1,276 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration
++
++import java.security.SecureRandom
++import org.signal.core.util.billing.OneTimeProductId
++import org.signal.core.util.billing.OneTimeProductResult
++import org.signal.core.util.billing.OneTimePurchase
++import org.signal.core.util.billing.OneTimePurchaseApi
++import org.signal.core.util.billing.OneTimePurchasePreparation
++import org.signal.core.util.censor
++import org.signal.core.util.logging.Log
++import org.signal.libsignal.net.RequestResult
++import org.signal.libsignal.zkgroup.receipts.ReceiptCredentialResult
++import org.signal.network.api.RegistrationApiV2.RegisterAccountError
++import org.signal.registration.screens.signalloginpayment.PaymentAvailability
++import org.signal.registration.util.SignalLoginPurchaseStore
++
++/**
++ * Owns everything between "the user decided to pay" and "an account exists": deciding whether the purchase is even
++ * possible, preparing it, remembering it across process death, turning the paid purchase into a privacy-preserving
++ * proof of payment, and handing that proof to the registration service.
++ *
++ * Three rules hold no matter what:
++ *
++ *  1. The product ID always comes from the service, and the price always comes from the billing library. Nothing the
++ *     caller passes in can substitute for either.
++ *  2. A purchase is consumed, and its persisted context dropped, *only* after its proof has actually registered an
++ *     account. Every failure before that point leaves the purchase on disk so the next attempt redeems rather than
++ *     re-charges.
++ *  3. Nothing here can report success without the service having registered an account. A cancelled sheet, a pending
++ *     purchase, a rate limit, or a dead network are all outcomes that preserve the purchase and report no success.
++ */
++class SignalLoginPurchaseStep(
++  private val repository: RegistrationRepository,
++  private val oneTimePurchaseApi: OneTimePurchaseApi,
++  private val purchaseStore: SignalLoginPurchaseStore,
++  private val randomBytes: (Int) -> ByteArray = ::secureRandomBytes
++) {
++
++  companion object {
++    private val TAG = Log.tag(SignalLoginPurchaseStep::class)
++
++    /**
++     * The purchase option within the service-provided product that pays for registering *without* a number. The
++     * product ID itself is never ours to choose — see [productId].
++     */
++    const val NO_NUMBER_PURCHASE_OPTION_ID = "nonumber"
++
++    /** How much randomness goes into a receipt credential request. */
++    private const val RECEIPT_CREDENTIAL_REQUEST_CONTEXT_LENGTH = 32
++
++    private fun secureRandomBytes(length: Int): ByteArray = ByteArray(length).also { SecureRandom().nextBytes(it) }
++  }
++
++  /**
++   * Whether the purchase can proceed, and for how much.
++   *
++   * [Available] is the only outcome that lets the user act; everything else is either retryable ([NeedsServiceUpdate],
++   * [TransientError]) or terminal ([Unavailable], [NoProductConfigured]).
++   */
++  sealed interface Price {
++    /** The purchase is possible, at this localized, currency-formatted price. */
++    data class Available(val productId: OneTimeProductId, val formattedPrice: String) : Price
++
++    /** Play services needs the user to do something first. Retryable; the purchase option stays enabled. */
++    data object NeedsServiceUpdate : Price
++
++    /** A lookup failed in a way that may well succeed next time. */
++    data object TransientError : Price
++
++    /** Payment can't proceed on this device at all. */
++    data object Unavailable : Price
++
++    /** The service hasn't told us which product to buy. */
++    data object NoProductConfigured : Price
++  }
++
++  /** The outcome of turning a paid purchase into a registered account. */
++  sealed interface Redemption {
++    /** The proof registered an account. [phoneNumberless] is true when the response carried no phone number. */
++    data class Registered(val data: RegisteredAccountData, val phoneNumberless: Boolean) : Redemption
++
++    /** The service hasn't finished processing the purchase. The purchase stays recoverable. */
++    data object ReceiptPending : Redemption
++
++    /** The proof wasn't accepted. The purchase stays recoverable, but retrying won't fix a bad credential. */
++    data object ReceiptRejected : Redemption
++
++    /** The network failed. The purchase stays recoverable and will not be charged again. */
++    data class NetworkError(val error: Throwable) : Redemption
++
++    /** Anything else. The purchase stays recoverable. */
++    data class Failed(val error: Throwable) : Redemption
++
++    /** There is nothing paid-but-unredeemed to work with. */
++    data object NothingToRedeem : Redemption
++  }
++
++  /**
++   * Work out whether a purchase is possible and what it costs. This never starts a purchase; it only discovers
++   * eligibility and a price.
++   */
++  suspend fun loadPrice(): Price {
++    val availability = repository.getPaymentAvailability()
++    if (availability != PaymentAvailability.Available) {
++      Log.i(TAG, "Payment is not available right now: $availability")
++      return if (availability.isRecoverable) Price.NeedsServiceUpdate else Price.Unavailable
++    }
++
++    val productId = try {
++      productId()
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to load the service-provided login configuration", e)
++      return Price.TransientError
++    } ?: return Price.NoProductConfigured
++
++    return when (val result = oneTimePurchaseApi.getProduct(productId)) {
++      is OneTimeProductResult.Success -> {
++        // The formatted price is the billing library's, verbatim. We never format it ourselves.
++        Price.Available(productId, result.product.formattedPrice)
++      }
++      OneTimeProductResult.TransientError -> Price.TransientError
++      OneTimeProductResult.Unavailable -> Price.Unavailable
++    }
++  }
++
++  /**
++   * The anti-spam product to buy, taken verbatim from the service's login configuration. Returns null when the
++   * service hasn't configured one.
++   */
++  private suspend fun productId(): OneTimeProductId? {
++    val playProductId = repository.getLoginConfiguration().playProductId?.takeIf { it.isNotBlank() } ?: return null
++    return OneTimeProductId(productId = playProductId, purchaseOptionId = NO_NUMBER_PURCHASE_OPTION_ID)
++  }
++
++  /**
++   * A purchase the user has already paid for, if billing still owns one. Used to keep the payment screen in a state
++   * where "continue" redeems instead of charging.
++   */
++  suspend fun restoreUnredeemedPurchase(): OneTimePurchase? {
++    val stored = purchaseStore.read()
++    if (stored == null) {
++      return null
++    }
++
++    val owned = oneTimePurchaseApi.getUnredeemedPurchase(stored.purchaseToken)
++    if (owned == null) {
++      // Billing has nothing (or no longer has anything) for this token, so there is nothing left to redeem.
++      Log.i(TAG, "Dropping a persisted purchase that billing no longer owns.")
++      purchaseStore.clear()
++      return null
++    }
++
++    Log.i(TAG, "Restored a paid-but-unredeemed purchase from disk.")
++    return owned
++  }
++
++  /**
++   * Get ready to buy, without buying. A purchase the account already owns comes back as
++   * [OneTimePurchasePreparation.AlreadyPurchased] instead of a launcher, so the user cannot be charged twice.
++   */
++  suspend fun preparePurchase(): OneTimePurchasePreparation {
++    val productId = try {
++      productId()
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to load the service-provided login configuration", e)
++      return OneTimePurchasePreparation.NetworkError
++    } ?: return OneTimePurchasePreparation.Unavailable
++
++    return oneTimePurchaseApi.preparePurchase(productId)
++  }
++
++  /**
++   * Remember a purchase that has just been paid for, so it survives process death and can be redeemed later.
++   *
++   * If we already have a record of this purchase we keep the original receipt credential request context: the service
++   * rejects a different request for the same purchase, so regenerating one would make the retry impossible.
++   */
++  fun recordPurchase(purchase: OneTimePurchase) {
++    val existing = purchaseStore.read()
++    if (existing != null && existing.purchaseToken == purchase.purchaseToken) {
++      Log.i(TAG, "Already have a record of this purchase; keeping the original request context.")
++      return
++    }
++
++    purchaseStore.write(purchase.purchaseToken, randomBytes(RECEIPT_CREDENTIAL_REQUEST_CONTEXT_LENGTH))
++  }
++
++  /**
++   * Exchange a paid purchase for a verified proof of payment and register an account with it.
++   *
++   * [purchase] may be null, in which case the persisted purchase is used — that is the path taken when the process was
++   * killed between paying and redeeming.
++   */
++  suspend fun redeem(purchase: OneTimePurchase?): Redemption {
++    if (purchase != null) {
++      recordPurchase(purchase)
++    }
++
++    val stored = purchaseStore.read()
++    if (stored == null) {
++      Log.i(TAG, "Nothing paid-but-unredeemed to redeem.")
++      return Redemption.NothingToRedeem
++    }
++
++    val credential = when (val result = repository.createLoginReceiptCredential(stored.purchaseToken, stored.receiptCredentialRequestContext)) {
++      is CreateLoginReceiptCredentialResult.Issued -> result.credential
++      CreateLoginReceiptCredentialResult.Pending -> {
++        Log.i(TAG, "The service hasn't finished processing the purchase yet.")
++        return Redemption.ReceiptPending
++      }
++      is CreateLoginReceiptCredentialResult.InvalidPurchase -> {
++        // The purchase stays on disk on purpose. The user paid for it, and forgetting that would let the screen look
++        // like a fresh "buy" while billing still owns a purchase they can never get rid of.
++        Log.w(TAG, "The service rejected purchase ${stored.purchaseToken.censor()}.")
++        return Redemption.ReceiptRejected
++      }
++      CreateLoginReceiptCredentialResult.RateLimited -> {
++        Log.w(TAG, "Rate limited while requesting a receipt credential.")
++        return Redemption.Failed(RateLimitException())
++      }
++    }
++
++    val presentation = when (val verification = repository.verifyReceiptCredential(credential)) {
++      is ReceiptCredentialResult.Success -> verification.presentation
++      is ReceiptCredentialResult.Failure -> {
++        // Also preserved: the purchase is still paid for, and a retry re-requests with the same context.
++        Log.w(TAG, "The issued receipt credential did not verify. Message: ${verification.error?.message}")
++        return Redemption.ReceiptRejected
++      }
++    }
++
++    return when (val result = repository.registerAccountWithoutPhoneNumber(presentation)) {
++      is RequestResult.Success -> {
++        // The account exists, so the purchase has been spent. Only now is it safe to consume it.
++        consume(OneTimePurchase(stored.purchaseToken))
++        Redemption.Registered(result.result, phoneNumberless = result.result.response.e164 == null)
++      }
++      is RequestResult.NonSuccess -> {
++        // Registration didn't happen, so the purchase is still owed an account. Keep it on disk.
++        Log.w(TAG, "Registration with the receipt credential failed: ${result.error}")
++        Redemption.Failed(RegistrationFailedException(result.error))
++      }
++      is RequestResult.RetryableNetworkError -> {
++        Log.w(TAG, "Network error while registering.", result.networkError)
++        Redemption.NetworkError(result.networkError)
++      }
++      is RequestResult.ApplicationError -> {
++        Log.w(TAG, "Application error while registering.", result.cause)
++        Redemption.Failed(result.cause)
++      }
++    }
++  }
++
++  /** Throwaway carrier for a service-side rate limit, which callers treat like any other retryable failure. */
++  class RateLimitException : Exception("Rate limited")
++
++  /** Throwaway carrier for a registration failure, which callers treat like any other retryable failure. */
++  class RegistrationFailedException(val error: RegisterAccountError) : Exception("Registration failed: $error")
++
++  private suspend fun consume(purchase: OneTimePurchase) {
++    if (oneTimePurchaseApi.consumePurchase(purchase)) {
++      purchaseStore.clear()
++      Log.i(TAG, "Consumed the purchase and cleared its persisted context.")
++    } else {
++      // The account is already registered, so we can't ask the user to pay again. Holding onto our local record would
++      // only strand them on a purchase that can never be redeemed, so we let it go and make noise instead.
++      Log.w(TAG, "Registered an account but failed to consume purchase ${purchase.purchaseToken.censor()}.")
++      purchaseStore.clear()
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameScreenEvents.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameScreenEvents.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..750bcfc669f2332ecc584ebe9167e90d3a43bd56
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameScreenEvents.kt
+@@ -0,0 +1,38 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.addusername
++
++sealed class AddUsernameScreenEvents {
++  /** The user edited the nickname field. */
++  data class NicknameChanged(val value: String) : AddUsernameScreenEvents()
++
++  /** The user edited the discriminator field. */
++  data class DiscriminatorChanged(val value: String) : AddUsernameScreenEvents()
++
++  /** The discriminator field gained or lost focus. */
++  data class DiscriminatorFocusChanged(val focused: Boolean) : AddUsernameScreenEvents()
++
++  /** The discriminator field lost focus. This is the only moment a service-assigned discriminator may be fetched. */
++  data object DiscriminatorFocusLost : AddUsernameScreenEvents()
++
++  /** The user is happy with the reserved username and wants to take it. */
++  data object NextClicked : AddUsernameScreenEvents()
++
++  /** The user asked to skip claiming a username. A request only — see [SkipConfirmed]. */
++  data object SkipClicked : AddUsernameScreenEvents()
++
++  /** The user confirmed, in the skip dialog, that they really want to finish without a username. */
++  data object SkipConfirmed : AddUsernameScreenEvents()
++
++  /** The user dismissed the skip dialog. */
++  data object SkipDialogDismissed : AddUsernameScreenEvents()
++
++  /** The user dismissed the network error dialog. */
++  data object NetworkErrorDialogDismissed : AddUsernameScreenEvents()
++
++  /** The user dismissed the unknown error dialog. */
++  data object UnknownErrorDialogDismissed : AddUsernameScreenEvents()
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameState.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameState.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d855f69921360b1b24fdfaecdfb6c04fe7d49373
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameState.kt
+@@ -0,0 +1,46 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.addusername
++
++import org.signal.libsignal.usernames.Username
++
++/**
++ * State for the optional "claim a username" step that closes out a numberless registration.
++ */
++data class AddUsernameState(
++  val username: String = "",
++  /** The discriminator. Either the user picked one, or the service assigned one. */
++  val discriminator: String = "",
++  /** True when the discriminator in the field is one the user chose, rather than one the service handed us. */
++  val isDiscriminatorUserSet: Boolean = false,
++  /** The exact `nickname.discriminator` pairing the service is currently holding for us, if any. */
++  val reservation: Username? = null,
++  val validationError: ValidationError? = null,
++  val isReserving: Boolean = false,
++  /** True only when a reservation exists and matches what's currently typed. */
++  val isSubmittable: Boolean = false,
++  /** True while the discriminator field has focus, which is when we must not swap the value out from under the user. */
++  val discriminatorFieldFocused: Boolean = false,
++  val showSpinner: Boolean = false,
++  val dialogs: Dialogs = Dialogs()
++) {
++  /** What's wrong with the current draft. */
++  sealed interface ValidationError {
++    data object NicknameInvalid : ValidationError
++    data object DiscriminatorInvalid : ValidationError
++    data object AlreadyTaken : ValidationError
++  }
++
++  data class Dialogs(
++    /**
++     * The explicit "are you sure you want to skip this?" confirmation. Skipping a username is allowed, but it is never
++     * a single tap.
++     */
++    val confirmSkip: Boolean = false,
++    val networkError: Boolean = false,
++    val unknownError: Boolean = false
++  )
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..dec281cf0fa3302a2174fe08fe9be253e327cdbe
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt
+@@ -0,0 +1,340 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.addusername
++
++import androidx.annotation.VisibleForTesting
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import kotlinx.coroutines.launch
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.core.util.UsernameUtil
++import org.signal.core.util.logging.Log
++import org.signal.libsignal.net.RequestResult
++import org.signal.libsignal.usernames.Username
++import org.signal.network.service.UsernameService.ConfirmUsernameError
++import org.signal.network.service.UsernameService.ReserveUsernameError
++import org.signal.registration.RegistrationFlowEvent
++import org.signal.registration.RegistrationFlowState
++import org.signal.registration.RegistrationRepository
++
++/**
++ * The optional last step of a numberless registration: claim a username, or don't.
++ *
++ * Two rules shape everything here. A username is only ever confirmed after the exact `nickname.discriminator` pairing on
++ * screen has been reserved, so editing either half immediately invalidates the reservation it was based on. And skipping
++ * is always two steps — a request, then an explicit confirmation — so no single tap can finish registration without a
++ * username.
++ */
++class AddUsernameViewModel(
++  private val repository: RegistrationRepository,
++  private val flowState: RegistrationFlowState,
++  private val parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++  private val settleTimeMs: Long = SETTLE_TIME_MS
++) : EventDrivenViewModel<AddUsernameScreenEvents>(TAG) {
++
++  companion object {
++    private val TAG = Log.tag(AddUsernameViewModel::class)
++
++    /** How long we let typing settle before asking the service to reserve anything. */
++    const val SETTLE_TIME_MS = 500L
++  }
++
++  private val _state = MutableStateFlow(AddUsernameState())
++  val state: StateFlow<AddUsernameState> = _state.asStateFlow()
++
++  /** The in-flight settle-and-reserve, cancelled whenever the draft changes again. */
++  private var settleJob: Job? = null
++
++  init {
++    _state
++      .onEach { Log.d(TAG, "[State] $it") }
++      .launchIn(viewModelScope)
++  }
++
++  override suspend fun processEvent(event: AddUsernameScreenEvents) {
++    applyEvent(_state.value, event, parentEventEmitter) { _state.value = it }
++
++    when (event) {
++      is AddUsernameScreenEvents.NicknameChanged,
++      is AddUsernameScreenEvents.DiscriminatorChanged -> scheduleReservation()
++      is AddUsernameScreenEvents.DiscriminatorFocusLost -> requestServiceAssignedDiscriminatorIfBlank()
++      else -> Unit
++    }
++  }
++
++  @VisibleForTesting
++  suspend fun applyEvent(
++    state: AddUsernameState,
++    event: AddUsernameScreenEvents,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (AddUsernameState) -> Unit
++  ) {
++    when (event) {
++      is AddUsernameScreenEvents.NicknameChanged -> {
++        // The reservation was for the previous nickname, so it no longer describes anything on screen.
++        stateEmitter(
++          state.copy(
++            username = event.value,
++            reservation = null,
++            isSubmittable = false,
++            validationError = null
++          )
++        )
++      }
++
++      is AddUsernameScreenEvents.DiscriminatorChanged -> {
++        // The service is holding a specific `nickname.discriminator` pairing, and clearing or changing this field means
++        // that pairing is no longer what the user is looking at. Drop it at once; there is nothing to confirm.
++        stateEmitter(
++          state.copy(
++            discriminator = event.value,
++            isDiscriminatorUserSet = event.value.isNotBlank(),
++            reservation = null,
++            isSubmittable = false,
++            validationError = if (event.value.isNotBlank() && UsernameUtil.checkDiscriminator(event.value.trim()) != null) {
++              AddUsernameState.ValidationError.DiscriminatorInvalid
++            } else {
++              null
++            }
++          )
++        )
++      }
++
++      is AddUsernameScreenEvents.DiscriminatorFocusChanged -> {
++        stateEmitter(state.copy(discriminatorFieldFocused = event.focused))
++      }
++
++      is AddUsernameScreenEvents.DiscriminatorFocusLost -> {
++        stateEmitter(state.copy(discriminatorFieldFocused = false))
++      }
++
++      is AddUsernameScreenEvents.NextClicked -> {
++        confirm(state, parentEventEmitter, stateEmitter)
++      }
++
++      is AddUsernameScreenEvents.SkipClicked -> {
++        // A request. Registration is not finished, and the user stays right here.
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(confirmSkip = true)))
++      }
++
++      is AddUsernameScreenEvents.SkipConfirmed -> {
++        // Only this event may turn the pending skip into a completed registration.
++        finalize(state, username = null, parentEventEmitter, stateEmitter)
++      }
++
++      is AddUsernameScreenEvents.SkipDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(confirmSkip = false)))
++      }
++
++      is AddUsernameScreenEvents.NetworkErrorDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(networkError = false)))
++      }
++
++      is AddUsernameScreenEvents.UnknownErrorDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(unknownError = false)))
++      }
++    }
++  }
++
++  /**
++   * Wait for typing to settle, then reserve whatever the draft says.
++   *
++   * Cancelled and replaced on every keystroke, so only the last thing the user typed can ever reach the service.
++   */
++  private fun scheduleReservation() {
++    settleJob?.cancel()
++    settleJob = viewModelScope.launch {
++      delay(settleTimeMs)
++      reserveCurrentDraft(::applyState)
++    }
++  }
++
++  /**
++   * Fetch a free discriminator from the service, but only when the user has cleared the field and is no longer typing
++   * in it.
++   *
++   * This is deliberately *not* done from [AddUsernameScreenEvents.DiscriminatorChanged]. Writing into a field that still
++   * has focus is how a service-assigned discriminator gets overwritten — or, worse, appears to have been accepted when
++   * the user actually cleared it. Waiting for focus to go away removes the race entirely.
++   */
++  private fun requestServiceAssignedDiscriminatorIfBlank() {
++    settleJob?.cancel()
++    settleJob = viewModelScope.launch {
++      val state = _state.value
++      if (state.discriminatorFieldFocused || state.isDiscriminatorUserSet || state.discriminator.isNotBlank()) {
++        return@launch
++      }
++
++      when (val result = repository.getRandomUsernameDiscriminator()) {
++        is RequestResult.Success -> {
++          val assigned = _state.value.copy(discriminator = result.result, isDiscriminatorUserSet = false)
++          _state.value = assigned
++          reserve(assigned.username.trim(), assigned.discriminator.trim(), ::applyState)
++        }
++        is RequestResult.NonSuccess -> _state.value = _state.value.copy(dialogs = _state.value.dialogs.copy(networkError = true))
++        is RequestResult.RetryableNetworkError -> _state.value = _state.value.copy(dialogs = _state.value.dialogs.copy(networkError = true))
++        is RequestResult.ApplicationError -> _state.value = _state.value.copy(dialogs = _state.value.dialogs.copy(unknownError = true))
++      }
++    }
++  }
++
++  private suspend fun reserveCurrentDraft(stateEmitter: (apply: (AddUsernameState) -> AddUsernameState) -> Unit) {
++    val draft = _state.value
++    reserve(draft.username.trim(), draft.discriminator.trim(), stateEmitter)
++  }
++
++  /**
++   * Apply a result to whatever the state is *now*, rather than to a snapshot taken before the network call.
++   *
++   * Reservations settle after the user has usually carried on typing, so results are always folded into the live state.
++   */
++  private fun applyState(transform: (AddUsernameState) -> AddUsernameState) {
++    _state.value = transform(_state.value)
++  }
++
++  /**
++   * Reserve a specific `nickname.discriminator`, if it is well formed.
++   *
++   * [stateEmitter] is handed the *live* state, and results are applied through it rather than through the snapshot this
++   * call started with. A slow response therefore can't overwrite something the user has typed since, and if the draft no
++   * longer matches what we asked the service about, the response is dropped instead of being written into an unrelated
++   * draft.
++   */
++  private suspend fun reserve(
++    nickname: String,
++    discriminator: String,
++    stateEmitter: (apply: (AddUsernameState) -> AddUsernameState) -> Unit
++  ) {
++    if (nickname.isBlank() || discriminator.isBlank()) {
++      return
++    }
++
++    if (UsernameUtil.checkNickname(nickname) != null) {
++      stateEmitter { it.copy(validationError = AddUsernameState.ValidationError.NicknameInvalid, isReserving = false, reservation = null, isSubmittable = false) }
++      return
++    }
++
++    if (UsernameUtil.checkDiscriminator(discriminator) != null) {
++      stateEmitter { it.copy(validationError = AddUsernameState.ValidationError.DiscriminatorInvalid, isReserving = false, reservation = null, isSubmittable = false) }
++      return
++    }
++
++    stateEmitter { it.copy(isReserving = true, validationError = null) }
++
++    val candidate = Username("$nickname.$discriminator")
++    val accountEntropyPool = flowState.accountEntropyPool
++    if (accountEntropyPool == null) {
++      stateEmitter { it.copy(isReserving = false) }
++      return
++    }
++
++    when (val result = repository.reserveUsername(candidate.username, accountEntropyPool)) {
++      is RequestResult.Success -> {
++        // The service hands back the pairing it is actually holding, which is the only one we may confirm — and only
++        // while the user is still looking at the pairing we asked about.
++        val reserved = result.result
++        val matchesCandidate = reserved.discriminator == discriminator && reserved.username.substringBeforeLast('.') == nickname
++        stateEmitter { live ->
++          if (live.username.trim() != nickname || live.discriminator.trim() != discriminator) {
++            Log.i(TAG, "The reservation arrived after the draft moved on; dropping it.")
++            live.copy(isReserving = false)
++          } else {
++            live.copy(reservation = reserved, isReserving = false, isSubmittable = matchesCandidate, validationError = null)
++          }
++        }
++      }
++      is RequestResult.NonSuccess -> {
++        when (val error = result.error) {
++          ReserveUsernameError.NotAvailable -> stateEmitter { it.copy(isReserving = false, isSubmittable = false, reservation = null, validationError = AddUsernameState.ValidationError.AlreadyTaken) }
++          ReserveUsernameError.NicknameInvalid -> stateEmitter { it.copy(isReserving = false, isSubmittable = false, reservation = null, validationError = AddUsernameState.ValidationError.NicknameInvalid) }
++          ReserveUsernameError.RateLimited -> stateEmitter { it.copy(isReserving = false, isSubmittable = false, reservation = null, dialogs = it.dialogs.copy(networkError = true)) }
++        }
++      }
++      is RequestResult.RetryableNetworkError -> stateEmitter { it.copy(isReserving = false, isSubmittable = false, dialogs = it.dialogs.copy(networkError = true)) }
++      is RequestResult.ApplicationError -> stateEmitter { it.copy(isReserving = false, isSubmittable = false, dialogs = it.dialogs.copy(unknownError = true)) }
++    }
++  }
++
++  /** Take ownership of the reserved username, then close out registration. */
++  private suspend fun confirm(
++    state: AddUsernameState,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (AddUsernameState) -> Unit
++  ) {
++    val reservation = state.reservation
++    val accountEntropyPool = flowState.accountEntropyPool
++    if (!state.isSubmittable || reservation == null || accountEntropyPool == null) {
++      Log.i(TAG, "Refusing to confirm a username that isn't reserved.")
++      return
++    }
++
++    settleJob?.cancel()
++    stateEmitter(state.copy(isReserving = true, showSpinner = true, dialogs = state.dialogs.copy(confirmSkip = false)))
++
++    when (val result = repository.confirmUsername(reservation, accountEntropyPool)) {
++      is RequestResult.Success -> finalize(state, result.result, parentEventEmitter, stateEmitter)
++      is RequestResult.NonSuccess -> {
++        stateEmitter(state.copy(isReserving = false, showSpinner = false))
++        when (val error = result.error) {
++          ConfirmUsernameError.NotAvailable, ConfirmUsernameError.ReservationInvalid -> {
++            // The reservation went stale. Keep the draft so the user can pick a different discriminator.
++            Log.i(TAG, "The username reservation is no longer valid; the draft is kept.")
++            stateEmitter(_state.value.copy(reservation = null, isSubmittable = false, validationError = AddUsernameState.ValidationError.AlreadyTaken))
++          }
++          ConfirmUsernameError.RateLimited -> stateEmitter(_state.value.copy(dialogs = _state.value.dialogs.copy(networkError = true)))
++          ConfirmUsernameError.BadRequest, ConfirmUsernameError.GenerationFailed -> stateEmitter(_state.value.copy(dialogs = _state.value.dialogs.copy(unknownError = true)))
++        }
++      }
++      is RequestResult.RetryableNetworkError -> stateEmitter(state.copy(isReserving = false, showSpinner = false, dialogs = state.dialogs.copy(networkError = true)))
++      is RequestResult.ApplicationError -> stateEmitter(state.copy(isReserving = false, showSpinner = false, dialogs = state.dialogs.copy(unknownError = true)))
++    }
++  }
++
++  /**
++   * Tell the service we're done, then — and only then — announce that registration is complete.
++   *
++   * A failed finalization leaves the user on this screen with their draft intact. Registration never reports success on
++   * the strength of a local decision alone.
++   */
++  private suspend fun finalize(
++    state: AddUsernameState,
++    username: Username?,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (AddUsernameState) -> Unit
++  ) {
++    stateEmitter(state.copy(showSpinner = true, dialogs = state.dialogs.copy(confirmSkip = false)))
++
++    when (repository.finalizeRegistration(username)) {
++      is RequestResult.Success -> {
++        Log.i(TAG, "Registration finalized. Username: ${username?.username ?: "<none>"}")
++        stateEmitter(state.copy(showSpinner = false, isReserving = false))
++        parentEventEmitter(RegistrationFlowEvent.RegistrationComplete)
++      }
++      is RequestResult.NonSuccess -> stateEmitter(state.copy(showSpinner = false, isReserving = false, dialogs = state.dialogs.copy(unknownError = true)))
++      is RequestResult.RetryableNetworkError -> stateEmitter(state.copy(showSpinner = false, isReserving = false, dialogs = state.dialogs.copy(networkError = true)))
++      is RequestResult.ApplicationError -> stateEmitter(state.copy(showSpinner = false, isReserving = false, dialogs = state.dialogs.copy(unknownError = true)))
++    }
++  }
++
++  class Factory(
++    private val repository: RegistrationRepository,
++    private val flowState: RegistrationFlowState,
++    private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
++  ) : ViewModelProvider.Factory {
++    @Suppress("UNCHECKED_CAST")
++    override fun <T : ViewModel> create(modelClass: Class<T>): T {
++      return AddUsernameViewModel(repository, flowState, parentEventEmitter) as T
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginCredentialEntryScreenEvents.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginCredentialEntryScreenEvents.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a684b30f89774f876ed3307e394da7a7c98726b
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginCredentialEntryScreenEvents.kt
+@@ -0,0 +1,26 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signallogincredentials
++
++sealed class SignalLoginCredentialEntryScreenEvents {
++  /** The user edited the account ID field. */
++  data class AccountIdChanged(val value: String) : SignalLoginCredentialEntryScreenEvents()
++
++  /** The user edited the recovery key field. */
++  data class RecoveryKeyChanged(val value: String) : SignalLoginCredentialEntryScreenEvents()
++
++  /** The user tapped the primary action. */
++  data object NextClicked : SignalLoginCredentialEntryScreenEvents()
++
++  /** The user tapped back. */
++  data object BackClicked : SignalLoginCredentialEntryScreenEvents()
++
++  /** The user dismissed the network error dialog. */
++  data object NetworkErrorDialogDismissed : SignalLoginCredentialEntryScreenEvents()
++
++  /** The user dismissed the unknown error dialog. */
++  data object UnknownErrorDialogDismissed : SignalLoginCredentialEntryScreenEvents()
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginCredentialEntryState.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginCredentialEntryState.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8f73cc5796351a5ffdd20dd44f2ac5fef184711
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginCredentialEntryState.kt
+@@ -0,0 +1,67 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signallogincredentials
++
++import org.signal.core.models.ServiceId
++import org.signal.core.models.ServiceId.ACI
++import org.signal.registration.screens.aepentry.AepInput
++import org.signal.registration.screens.shared.AccountIdError
++
++/** A user-entered account ID, along with whatever is wrong with it. */
++data class AccountIdInput(val enteredText: String = "", val error: AccountIdError? = null) {
++  val normalized: String
++    get() = enteredText.trim().lowercase()
++
++  val parsed: ACI?
++    get() = ServiceId.ACI.parseOrNull(normalized)
++
++  val isValid: Boolean
++    get() = parsed != null
++
++  companion object {
++    fun from(value: String, error: AccountIdError? = null) = AccountIdInput(value, error)
++  }
++}
++
++/**
++ * State shared by the screens that deal in a Signal Login's two halves: the account ID and the recovery key.
++ *
++ * In [Mode.EnterLogin] the user is typing in a Signal Login they already have. In [Mode.ConfirmSaved] they are typing
++ * back in what they just saved or wrote down, so that we can check the two really do match.
++ */
++data class SignalLoginCredentialEntryState(
++  val mode: Mode = Mode.EnterLogin,
++  val accountId: AccountIdInput = AccountIdInput(),
++  val recoveryKey: AepInput = AepInput(),
++  /**
++   * Set when a confirmation attempt didn't match. Both fields are flagged at once, because either half could have been
++   * copied wrong and there's no way to tell which. Editing either field clears it, so a mistyped value stays editable
++   * and a corrected retry is one tap away.
++   */
++  val areCredentialsIncorrect: Boolean = false,
++  val showSpinner: Boolean = false,
++  val dialogs: Dialogs = Dialogs()
++) {
++  /**
++   * Whether the continue button should be live. This is purely about whether both halves are *well formed* — matching the
++   * issued values is a separate question that only [areCredentialsIncorrect] reports.
++   */
++  val isNextEnabled: Boolean
++    get() = !showSpinner && accountId.isValid && recoveryKey.isValid
++
++  enum class Mode {
++    /** The user is entering a Signal Login they already own. */
++    EnterLogin,
++
++    /** The user is confirming a Signal Login that was just issued, saved, or written down. */
++    ConfirmSaved
++  }
++
++  data class Dialogs(
++    val networkError: Boolean = false,
++    val unknownError: Boolean = false
++  )
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModel.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..693d1a14665a131e254d492c1cf9b7f8eb11f604
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModel.kt
+@@ -0,0 +1,167 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signallogincredentials
++
++import androidx.annotation.VisibleForTesting
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import org.signal.core.models.AccountEntropyPool
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.core.util.logging.Log
++import org.signal.libsignal.net.RequestResult
++import org.signal.registration.RegistrationFlowEvent
++import org.signal.registration.RegistrationFlowState
++import org.signal.registration.RegistrationRepository
++import org.signal.registration.RegistrationRoute
++import org.signal.registration.screens.aepentry.AepInput
++import org.signal.registration.screens.util.navigateBack
++import org.signal.registration.screens.util.navigateTo
++
++/**
++ * The manual preservation path's verification step: the user types back in the account ID and recovery key they just
++ * saved or wrote down, and we check both halves against the ones the service issued.
++ *
++ * Registration does not advance unless both halves match. A mismatch flags both fields, because either one could have
++ * been copied wrong and there's nothing to indicate which; editing either field clears the flag so the user can just fix
++ * the typo. Nothing here can recreate the account, so a correction is always cheaper than starting over.
++ */
++class SignalLoginManualSaveConfirmationViewModel(
++  private val flowState: RegistrationFlowState,
++  private val repository: RegistrationRepository,
++  private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
++) : EventDrivenViewModel<SignalLoginCredentialEntryScreenEvents>(TAG) {
++
++  companion object {
++    private val TAG = Log.tag(SignalLoginManualSaveConfirmationViewModel::class)
++  }
++
++  private val _state = MutableStateFlow(SignalLoginCredentialEntryState(mode = SignalLoginCredentialEntryState.Mode.ConfirmSaved))
++  val state: StateFlow<SignalLoginCredentialEntryState> = _state.asStateFlow()
++
++  init {
++    _state
++      .onEach { Log.d(TAG, "[State] $it") }
++      .launchIn(viewModelScope)
++  }
++
++  override suspend fun processEvent(event: SignalLoginCredentialEntryScreenEvents) {
++    applyEvent(_state.value, event, parentEventEmitter) { _state.value = it }
++  }
++
++  @VisibleForTesting
++  suspend fun applyEvent(
++    state: SignalLoginCredentialEntryState,
++    event: SignalLoginCredentialEntryScreenEvents,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginCredentialEntryState) -> Unit
++  ) {
++    when (event) {
++      is SignalLoginCredentialEntryScreenEvents.AccountIdChanged -> {
++        // Editing either half clears the flag: the whole point is that a correction is reachable immediately.
++        stateEmitter(state.copy(accountId = AccountIdInput.from(event.value), areCredentialsIncorrect = false))
++      }
++
++      is SignalLoginCredentialEntryScreenEvents.RecoveryKeyChanged -> {
++        stateEmitter(state.copy(recoveryKey = AepInput.from(event.value), areCredentialsIncorrect = false))
++      }
++
++      is SignalLoginCredentialEntryScreenEvents.NextClicked -> {
++        when (state.mode) {
++          SignalLoginCredentialEntryState.Mode.ConfirmSaved -> applyConfirmation(state, parentEventEmitter, stateEmitter)
++          SignalLoginCredentialEntryState.Mode.EnterLogin -> applyExistingLogin(state, parentEventEmitter, stateEmitter)
++        }
++      }
++
++      is SignalLoginCredentialEntryScreenEvents.BackClicked -> {
++        parentEventEmitter.navigateBack()
++      }
++
++      is SignalLoginCredentialEntryScreenEvents.NetworkErrorDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(networkError = false)))
++      }
++
++      is SignalLoginCredentialEntryScreenEvents.UnknownErrorDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(unknownError = false)))
++      }
++    }
++  }
++
++  /**
++   * Compare both halves of what was typed against the account identity the flow is holding.
++   *
++   * A single flag covers both fields on purpose: a partial match tells us nothing about which half was copied wrong, so
++   * flagging both is the only honest thing to do.
++   */
++  private fun applyConfirmation(
++    state: SignalLoginCredentialEntryState,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginCredentialEntryState) -> Unit
++  ) {
++    val issuedAci = flowState.aci
++    val issuedRecoveryKey = flowState.accountEntropyPool
++    val enteredAci = state.accountId.parsed
++    val enteredRecoveryKey = AccountEntropyPool.parseOrNull(state.recoveryKey.normalized)
++
++    val matches = issuedAci != null &&
++      issuedRecoveryKey != null &&
++      enteredAci != null &&
++      enteredRecoveryKey != null &&
++      enteredAci.toString() == issuedAci.toString() &&
++      enteredRecoveryKey.value == issuedRecoveryKey.value
++
++    if (!matches) {
++      Log.w(TAG, "The re-entered credentials don't match the issued account; both fields flagged.")
++      stateEmitter(state.copy(areCredentialsIncorrect = true))
++      return
++    }
++
++    Log.i(TAG, "The re-entered credentials match the issued account.")
++    parentEventEmitter.navigateTo(RegistrationRoute.AddUsername)
++    stateEmitter(state.copy(areCredentialsIncorrect = false))
++  }
++
++  /** The user is entering a Signal Login they already own, rather than confirming one we just issued. */
++  private suspend fun applyExistingLogin(
++    state: SignalLoginCredentialEntryState,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginCredentialEntryState) -> Unit
++  ) {
++    val aci = state.accountId.parsed ?: return stateEmitter(state.copy(areCredentialsIncorrect = true))
++    val recoveryKey = AccountEntropyPool.parseOrNull(state.recoveryKey.normalized) ?: return stateEmitter(state.copy(areCredentialsIncorrect = true))
++
++    stateEmitter(state.copy(showSpinner = true))
++    val result = repository.registerAccountWithExistingSignalLogin(aci, recoveryKey)
++    stateEmitter(state.copy(showSpinner = false))
++
++    when (result) {
++      is RequestResult.Success -> {
++        val data = result.result
++        parentEventEmitter(RegistrationFlowEvent.Registered(data.aci, data.keyMaterial.accountEntropyPool, data.response.storageCapable, phoneNumberless = data.response.e164 == null))
++        parentEventEmitter.navigateTo(RegistrationRoute.SignalLoginInfo, popCurrent = true)
++      }
++      is RequestResult.NonSuccess -> stateEmitter(state.copy(dialogs = state.dialogs.copy(unknownError = true)))
++      is RequestResult.RetryableNetworkError -> stateEmitter(state.copy(dialogs = state.dialogs.copy(networkError = true)))
++      is RequestResult.ApplicationError -> stateEmitter(state.copy(dialogs = state.dialogs.copy(unknownError = true)))
++    }
++  }
++
++  class Factory(
++    private val flowState: RegistrationFlowState,
++    private val repository: RegistrationRepository,
++    private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
++  ) : ViewModelProvider.Factory {
++    @Suppress("UNCHECKED_CAST")
++    override fun <T : ViewModel> create(modelClass: Class<T>): T {
++      return SignalLoginManualSaveConfirmationViewModel(flowState, repository, parentEventEmitter) as T
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenActions.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenActions.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2a15bd9eedc2e7a9e6f8b8d38ef1c1c7bb08b98
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenActions.kt
+@@ -0,0 +1,24 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signallogininfo
++
++sealed interface SignalLoginInfoScreenActions {
++  /**
++   * Save the issued credential to the device's password manager and report what happened.
++   *
++   * This is an effect only the UI layer can run, because it needs the credentials plumbing the UI layer owns. The
++   * result comes back as [SignalLoginInfoScreenEvents.CredentialSaveCompleted].
++   */
++  data object SaveCredentialWithPasswordManager : SignalLoginInfoScreenActions
++
++  /**
++   * Read the credential back out of the password manager, filtered to the account we issued.
++   *
++   * The result comes back as [SignalLoginInfoScreenEvents.SavedCredentialRetrieved]. A save is not trusted until this
++   * comes back with something that matches.
++   */
++  data object ReadBackSavedCredential : SignalLoginInfoScreenActions
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenEvents.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenEvents.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d930ee72be2ddfa4ae4cb3eeca441479e6030894
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenEvents.kt
+@@ -0,0 +1,34 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signallogininfo
++
++import org.signal.registration.util.SignalCredentialManager
++
++sealed class SignalLoginInfoScreenEvents {
++  /** The user asked to save the credential with the device's password manager. */
++  data object SaveWithPasswordManagerClicked : SignalLoginInfoScreenEvents()
++
++  /** The user confirmed where the saved credential went, so we can check that it's really there. */
++  data object ConfirmSavedSheetConfirmed : SignalLoginInfoScreenEvents()
++
++  /** The user dismissed the "where did it save?" sheet without confirming. */
++  data object ConfirmSavedSheetDismissed : SignalLoginInfoScreenEvents()
++
++  /** The password manager reported what happened to the write. Nothing here counts as confirmation. */
++  data class CredentialSaveCompleted(val result: SignalCredentialManager.SaveResult) : SignalLoginInfoScreenEvents()
++
++  /** The password manager gave back whatever it had stored. */
++  data class SavedCredentialRetrieved(val credential: SignalCredentialManager.SignalCredential?) : SignalLoginInfoScreenEvents()
++
++  /** The user gave up on the password manager and wants to record the credential by hand instead. */
++  data object RecordManuallyClicked : SignalLoginInfoScreenEvents()
++
++  /** The user dismissed the "we couldn't confirm your credential" dialog. */
++  data object SaveNotConfirmedDialogDismissed : SignalLoginInfoScreenEvents()
++
++  /** The user tapped back. */
++  data object BackClicked : SignalLoginInfoScreenEvents()
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoState.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoState.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d710efd3977d2acae85c29a0337a6004d870898f
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoState.kt
+@@ -0,0 +1,33 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signallogininfo
++
++/**
++ * State for the screen that shows a brand new Signal Login's account ID and recovery key, and gets the user to
++ * preserve them before registration can finish.
++ */
++data class SignalLoginInfoState(
++  /** The ACI, in the uppercase form it is displayed (and stored) in. */
++  val accountId: String = "",
++  /** The recovery key, in its display form. */
++  val recoveryKey: String = "",
++  /** Whether the device offers a password manager we can save to. */
++  val isPasswordManagerAvailable: Boolean = false,
++  val showSpinner: Boolean = false,
++  /** Raised after a save, so the user has to confirm they know where it went. */
++  val showConfirmSavedSheet: Boolean = false,
++  val dialogs: Dialogs = Dialogs()
++) {
++  data class Dialogs(
++    /**
++     * The credential could not be confirmed — it wasn't saved, couldn't be read back, or came back different. The user
++     * can try again or record it by hand; neither is treated as success.
++     */
++    val saveNotConfirmed: Boolean = false,
++    val networkError: Boolean = false,
++    val unknownError: Boolean = false
++  )
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c269562b1cd49b1df25442230813c185972286a
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt
+@@ -0,0 +1,185 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signallogininfo
++
++import androidx.annotation.VisibleForTesting
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.channels.Channel
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import kotlinx.coroutines.flow.receiveAsFlow
++import org.signal.core.models.AccountEntropyPool
++import org.signal.core.models.ServiceId.ACI
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.core.util.logging.Log
++import org.signal.registration.RegistrationFlowEvent
++import org.signal.registration.RegistrationFlowState
++import org.signal.registration.RegistrationRoute
++import org.signal.registration.screens.util.navigateBack
++import org.signal.registration.screens.util.navigateTo
++import org.signal.registration.util.SignalCredentialManager
++
++/**
++ * Shows the account ID and recovery key the service just issued, and refuses to let registration finish until the user
++ * has demonstrably preserved them.
++ *
++ * "Demonstrably" is the important word. Writing to the password manager and getting a cheerful result back is not
++ * enough: the user has to confirm where it went, and then we read the credential back out of the password manager and
++ * compare both halves. Only an exact two-part match counts. A cancel, an interruption, a missing entry, or a mismatch
++ * all leave the user here with the option of trying again or writing it down by hand.
++ */
++class SignalLoginInfoViewModel(
++  private val flowState: RegistrationFlowState,
++  private val credentialManager: SignalCredentialManager,
++  private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
++) : EventDrivenViewModel<SignalLoginInfoScreenEvents>(TAG) {
++
++  companion object {
++    private val TAG = Log.tag(SignalLoginInfoViewModel::class)
++  }
++
++  private val _state = MutableStateFlow(SignalLoginInfoState())
++  val state: StateFlow<SignalLoginInfoState> = _state.asStateFlow()
++
++  private val _actions = Channel<SignalLoginInfoScreenActions>(Channel.BUFFERED)
++  val actions: Flow<SignalLoginInfoScreenActions> = _actions.receiveAsFlow()
++
++  /** The account this screen is preserving, in its canonical form. */
++  val aci: ACI?
++    get() = flowState.aci
++
++  init {
++    _state
++      .onEach { Log.d(TAG, "[State] $it") }
++      .launchIn(viewModelScope)
++
++    val aci = flowState.aci
++    val accountEntropyPool = flowState.accountEntropyPool
++    checkNotNull(aci) { "SignalLoginInfo requires an issued ACI" }
++    checkNotNull(accountEntropyPool) { "SignalLoginInfo requires an issued recovery key" }
++
++    _state.value = SignalLoginInfoState(
++      // The uppercase ACI and the display-form recovery key are exactly what gets handed to the password manager.
++      accountId = aci.toString().uppercase(),
++      recoveryKey = accountEntropyPool.displayValue,
++      isPasswordManagerAvailable = credentialManager.isAvailable()
++    )
++  }
++
++  override suspend fun processEvent(event: SignalLoginInfoScreenEvents) {
++    applyEvent(_state.value, event, parentEventEmitter) { _state.value = it }
++  }
++
++  @VisibleForTesting
++  suspend fun applyEvent(
++    state: SignalLoginInfoState,
++    event: SignalLoginInfoScreenEvents,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginInfoState) -> Unit
++  ) {
++    when (event) {
++      is SignalLoginInfoScreenEvents.SaveWithPasswordManagerClicked -> {
++        if (!state.isPasswordManagerAvailable) {
++          Log.i(TAG, "No password manager available; going straight to the not-confirmed path.")
++          stateEmitter(state.copy(dialogs = state.dialogs.copy(saveNotConfirmed = true)))
++          return
++        }
++        stateEmitter(state.copy(showSpinner = true))
++        _actions.trySend(SignalLoginInfoScreenActions.SaveCredentialWithPasswordManager)
++      }
++
++      is SignalLoginInfoScreenEvents.CredentialSaveCompleted -> {
++        when (event.result) {
++          SignalCredentialManager.SaveResult.Saved -> {
++            // A successful write still isn't proof, so we stop here and ask the user to confirm it.
++            stateEmitter(state.copy(showSpinner = false, showConfirmSavedSheet = true))
++          }
++          SignalCredentialManager.SaveResult.Cancelled,
++          is SignalCredentialManager.SaveResult.Failed -> {
++            stateEmitter(state.copy(showSpinner = false, dialogs = state.dialogs.copy(saveNotConfirmed = true)))
++          }
++        }
++      }
++
++      is SignalLoginInfoScreenEvents.ConfirmSavedSheetConfirmed -> {
++        stateEmitter(state.copy(showConfirmSavedSheet = false, showSpinner = true))
++        _actions.trySend(SignalLoginInfoScreenActions.ReadBackSavedCredential)
++      }
++
++      is SignalLoginInfoScreenEvents.ConfirmSavedSheetDismissed -> {
++        stateEmitter(state.copy(showConfirmSavedSheet = false))
++      }
++
++      is SignalLoginInfoScreenEvents.SavedCredentialRetrieved -> {
++        stateEmitter(applyReadBack(state, event.credential, parentEventEmitter))
++      }
++
++      is SignalLoginInfoScreenEvents.RecordManuallyClicked -> {
++        stateEmitter(state.copy(showSpinner = false))
++        parentEventEmitter.navigateTo(RegistrationRoute.SignalLoginManualSave)
++      }
++
++      is SignalLoginInfoScreenEvents.SaveNotConfirmedDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(saveNotConfirmed = false)))
++      }
++
++      is SignalLoginInfoScreenEvents.BackClicked -> {
++        parentEventEmitter.navigateBack()
++      }
++    }
++  }
++
++  /**
++   * Decide whether the credential is genuinely safely stored.
++   *
++   * The read-back username is normalized into an ACI and the read-back password is parsed as an account entropy pool
++   * before either is compared, so a differently-formatted but equivalent string still matches, while anything that
++   * isn't the account we issued fails. Both halves have to match; a partial match is not a match.
++   */
++  private fun applyReadBack(
++    state: SignalLoginInfoState,
++    credential: SignalCredentialManager.SignalCredential?,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit
++  ): SignalLoginInfoState {
++    val issuedAci = flowState.aci
++    val issuedRecoveryKey = flowState.accountEntropyPool
++    val readBackAci = credential?.let { ACI.parseOrNull(it.username) }
++    val readBackRecoveryKey = credential?.let { AccountEntropyPool.parseOrNull(it.password) }
++
++    val matches = issuedAci != null &&
++      issuedRecoveryKey != null &&
++      readBackAci != null &&
++      readBackRecoveryKey != null &&
++      readBackAci.toString() == issuedAci.toString() &&
++      readBackRecoveryKey.value == issuedRecoveryKey.value
++
++    if (!matches) {
++      Log.w(TAG, "The saved credential didn't read back as the account we issued; not treating it as saved.")
++      return state.copy(showSpinner = false, dialogs = state.dialogs.copy(saveNotConfirmed = true))
++    }
++
++    Log.i(TAG, "The credential read back exactly; it is safely stored.")
++    parentEventEmitter.navigateTo(RegistrationRoute.AddUsername)
++    return state.copy(showSpinner = false, dialogs = state.dialogs.copy(saveNotConfirmed = false))
++  }
++
++  class Factory(
++    private val flowState: RegistrationFlowState,
++    private val credentialManager: SignalCredentialManager,
++    private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
++  ) : ViewModelProvider.Factory {
++    @Suppress("UNCHECKED_CAST")
++    override fun <T : ViewModel> create(modelClass: Class<T>): T {
++      return SignalLoginInfoViewModel(flowState, credentialManager, parentEventEmitter) as T
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginManualSaveState.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginManualSaveState.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..fc426b85bfbb943025208bc71809f018444022a3
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginManualSaveState.kt
+@@ -0,0 +1,22 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signalloginmanualsave
++
++/**
++ * State for the manual preservation path: the account ID and recovery key are on screen, formatted to be written down,
++ * and nothing has been confirmed yet.
++ */
++data class SignalLoginManualSaveState(
++  val accountId: String = "",
++  val recoveryKey: String = "",
++  val showSpinner: Boolean = false,
++  val dialogs: Dialogs = Dialogs()
++) {
++  data class Dialogs(
++    val networkError: Boolean = false,
++    val unknownError: Boolean = false
++  )
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveScreenEvents.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveScreenEvents.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..0e74efb9b94cf0a1516c09b707e6dd5d0e2e09b5
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveScreenEvents.kt
+@@ -0,0 +1,14 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signalloginmanualsave
++
++sealed class SignalLoginViewDetailsForManualSaveScreenEvents {
++  /** The user says they've written the credential down. */
++  data object RecordedClicked : SignalLoginViewDetailsForManualSaveScreenEvents()
++
++  /** The user tapped back. */
++  data object BackClicked : SignalLoginViewDetailsForManualSaveScreenEvents()
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModel.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..23028cba550f334bd051799654bdb37280f379d0
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModel.kt
+@@ -0,0 +1,88 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signalloginmanualsave
++
++import androidx.annotation.VisibleForTesting
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.launchIn
++import kotlinx.coroutines.flow.onEach
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.core.util.logging.Log
++import org.signal.registration.RegistrationFlowEvent
++import org.signal.registration.RegistrationFlowState
++import org.signal.registration.RegistrationRoute
++import org.signal.registration.screens.util.navigateBack
++import org.signal.registration.screens.util.navigateTo
++
++/**
++ * Shows the issued account ID and recovery key in the form the user is meant to write down, for the case where the
++ * password manager is unavailable, was cancelled, or wouldn't confirm the credential.
++ *
++ * Saying "I've written it down" isn't the end of it — it leads to a re-entry check that compares what was typed back
++ * against what was issued. Registration can't move past that check on the strength of a button press alone.
++ */
++class SignalLoginViewDetailsForManualSaveViewModel(
++  private val flowState: RegistrationFlowState,
++  private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
++) : EventDrivenViewModel<SignalLoginViewDetailsForManualSaveScreenEvents>(TAG) {
++
++  companion object {
++    private val TAG = Log.tag(SignalLoginViewDetailsForManualSaveViewModel::class)
++  }
++
++  private val _state = MutableStateFlow(SignalLoginManualSaveState())
++  val state: StateFlow<SignalLoginManualSaveState> = _state.asStateFlow()
++
++  init {
++    _state
++      .onEach { Log.d(TAG, "[State] $it") }
++      .launchIn(viewModelScope)
++
++    val aci = checkNotNull(flowState.aci) { "Manual save requires an issued ACI" }
++    val accountEntropyPool = checkNotNull(flowState.accountEntropyPool) { "Manual save requires an issued recovery key" }
++
++    _state.value = SignalLoginManualSaveState(
++      accountId = aci.toString().uppercase(),
++      recoveryKey = accountEntropyPool.displayValue
++    )
++  }
++
++  override suspend fun processEvent(event: SignalLoginViewDetailsForManualSaveScreenEvents) {
++    applyEvent(_state.value, event, parentEventEmitter) { _state.value = it }
++  }
++
++  @VisibleForTesting
++  suspend fun applyEvent(
++    state: SignalLoginManualSaveState,
++    event: SignalLoginViewDetailsForManualSaveScreenEvents,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginManualSaveState) -> Unit
++  ) {
++    when (event) {
++      is SignalLoginViewDetailsForManualSaveScreenEvents.RecordedClicked -> {
++        parentEventEmitter.navigateTo(RegistrationRoute.SignalLoginManualSaveConfirmation)
++      }
++      is SignalLoginViewDetailsForManualSaveScreenEvents.BackClicked -> {
++        parentEventEmitter.navigateBack()
++      }
++    }
++  }
++
++  class Factory(
++    private val flowState: RegistrationFlowState,
++    private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
++  ) : ViewModelProvider.Factory {
++    @Suppress("UNCHECKED_CAST")
++    override fun <T : ViewModel> create(modelClass: Class<T>): T {
++      return SignalLoginViewDetailsForManualSaveViewModel(flowState, parentEventEmitter) as T
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/PaymentAvailability.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/PaymentAvailability.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..cfa822b61f7ad580753219b050ba9eb221ef3207
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/PaymentAvailability.kt
+@@ -0,0 +1,56 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.screens.signalloginpayment
++
++import com.google.android.gms.common.ConnectionResult
++import org.signal.core.util.PlayServicesUtil
++
++/**
++ * Whether the Play Billing machinery can be used for the Signal Login purchase *right now*.
++ *
++ * The distinction that matters is [isRecoverable]: a non-terminal value means the user can fix the condition (usually
++ * by letting Play services finish updating) and retry, so the purchase option must stay enabled; a terminal value means
++ * no amount of retrying on this device will help, so the screen explains that payment can't proceed while leaving the
++ * rest of registration available.
++ */
++enum class PaymentAvailability {
++  /** Play services and the billing library are both usable. */
++  Available,
++
++  /** Play services is present but is mid-update, disabled, or otherwise needs the user to do something first. */
++  ServiceUpdating,
++
++  /** Play services is not installed in a form we can use. Payment cannot proceed on this device. */
++  Unavailable;
++
++  /**
++   * True when the condition can be repaired by the user. Recoverable availability never locks the user out of the
++   * purchase option; it only asks them to resolve the condition and try again.
++   */
++  val isRecoverable: Boolean
++    get() = this != Unavailable
++
++  companion object {
++    /**
++     * Maps a Play services connection result onto our own availability. Anything that isn't explicitly "you need to
++     * go update/enable Play services" is treated as terminal.
++     */
++    fun fromConnectionResult(connectionResultCode: Int): PaymentAvailability = when (connectionResultCode) {
++      ConnectionResult.SUCCESS -> Available
++      ConnectionResult.SERVICE_UPDATING,
++      ConnectionResult.SERVICE_VERSION_UPDATE_REQUIRED,
++      ConnectionResult.SERVICE_DISABLED,
++      ConnectionResult.SERVICE_INVALID -> ServiceUpdating
++      else -> Unavailable
++    }
++
++    /** Cheap probe used when a full connection result isn't available. */
++    fun fromPlayServicesStatus(status: PlayServicesUtil.PlayServicesStatus): PaymentAvailability = when (status) {
++      PlayServicesUtil.PlayServicesStatus.SUCCESS -> Available
++      PlayServicesUtil.PlayServicesStatus.MISSING -> Unavailable
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenActions.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenActions.kt
+index 0835443c8f387969411fac8e389adc0373cf0b23..ddbce272ff1cd26443a93c1a6c0e76fa95dcd8f9 100644
+--- a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenActions.kt
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenActions.kt
+@@ -5,7 +5,24 @@
+ 
+ package org.signal.registration.screens.signalloginpayment
+ 
++import org.signal.core.util.billing.PurchaseLauncher
++
+ sealed interface SignalLoginPaymentScreenActions {
+   /** Open the article explaining Signal Login. */
+   data object OpenLearnMoreArticle : SignalLoginPaymentScreenActions
+-}
++
++  /**
++   * Show the platform purchase sheet for [launcher].
++   *
++   * This crosses to the UI layer because only that layer owns an activity. Nothing about the outcome is assumed: the
++   * UI layer reports whatever the sheet settled as back as
++   * [SignalLoginPaymentScreenEvents.PurchaseFlowCompleted].
++   */
++  data class LaunchPurchaseSheet(val launcher: PurchaseLauncher) : SignalLoginPaymentScreenActions
++
++  /**
++   * Send the user to whatever screen lets them repair the payment services (typically a Play services update). They
++   * come back to this screen, which re-derives availability rather than assuming the repair worked.
++   */
++  data object ResolvePaymentServices : SignalLoginPaymentScreenActions
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenEvents.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenEvents.kt
+index b4c3eab5d7d07ee511162f49d92569c2f2eec286..21195bb3e80dc7d8c28f63c53c76d972053d72c1 100644
+--- a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenEvents.kt
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentScreenEvents.kt
+@@ -5,10 +5,18 @@
+ 
+ package org.signal.registration.screens.signalloginpayment
+ 
++import org.signal.core.util.billing.OneTimePurchaseResult
++
+ sealed class SignalLoginPaymentScreenEvents {
+   /** Emitted once when the screen is created to load initial data (namely the purchase price) into the state. */
+   data object Initialize : SignalLoginPaymentScreenEvents()
+ 
++  /**
++   * Emitted every time the screen comes back to the foreground. Payment availability can change while we're away —
++   * typically because the user left to let Play services finish updating — so it is re-derived rather than trusted.
++   */
++  data object Foreground : SignalLoginPaymentScreenEvents()
++
+   /** The user tapped the back arrow. */
+   data object BackClicked : SignalLoginPaymentScreenEvents()
+ 
+@@ -24,6 +32,18 @@ sealed class SignalLoginPaymentScreenEvents {
+   /** The user tapped the primary action button, committing to the currently selected option. */
+   data object ContinueClicked : SignalLoginPaymentScreenEvents()
+ 
++  /**
++   * The external purchase sheet settled. This is the *only* thing that can complete a purchase: while it is missing,
++   * the view model knows nothing about whether money was spent.
++   */
++  data class PurchaseFlowCompleted(val result: OneTimePurchaseResult) : SignalLoginPaymentScreenEvents()
++
++  /** The user asked to try the price lookup again after a transient failure. */
++  data object RetryPriceClicked : SignalLoginPaymentScreenEvents()
++
++  /** The user tapped the button on the "payment unavailable" dialog that sends them to fix the underlying condition. */
++  data object ResolvePaymentServicesClicked : SignalLoginPaymentScreenEvents()
++
+   /** The user dismissed the network error dialog. */
+   data object NetworkErrorDialogDismissed : SignalLoginPaymentScreenEvents()
+ 
+@@ -35,4 +55,10 @@ sealed class SignalLoginPaymentScreenEvents {
+ 
+   /** The user dismissed the invalid-receipt-credential dialog. */
+   data object InvalidReceiptCredentialDialogDismissed : SignalLoginPaymentScreenEvents()
+-}
++
++  /** The user dismissed the "purchase still processing" dialog. */
++  data object PurchasePendingDialogDismissed : SignalLoginPaymentScreenEvents()
++
++  /** The user dismissed the "payment unavailable" dialog. */
++  data object PaymentUnavailableDialogDismissed : SignalLoginPaymentScreenEvents()
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentState.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentState.kt
+index 82c7b1cd8a826e0d5dc6adcceab34e4a1f788cd0..82615774a87a4c5f48d9f5d28a89cd2647c6e0d9 100644
+--- a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentState.kt
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentState.kt
+@@ -5,30 +5,71 @@
+ 
+ package org.signal.registration.screens.signalloginpayment
+ 
++import org.signal.core.util.billing.OneTimePurchasePreparation
++
+ /**
+  * State for the Signal Login purchase screen, where the user either buys a Signal Login or indicates they already have
+  * one.
+  */
+ data class SignalLoginPaymentState(
+   val selectedOption: Option = Option.Purchase,
++  /** Whether Play Billing can be used right now. Checked again every time the screen comes to the foreground. */
++  val paymentAvailability: PaymentAvailability = PaymentAvailability.Available,
++  /** The purchase price, or why there isn't one yet. */
++  val price: Price = Price.Loading,
++  /** Set while a purchase is being prepared, so the UI knows whether "continue" can launch a sheet. */
++  val purchasePreparation: OneTimePurchasePreparation? = null,
+   /**
+-   * Localized, currency-formatted price of the one-time purchase, as reported by the billing library. Null until the
+-   * price has been loaded.
++   * True when the account already owns a paid purchase that hasn't been redeemed. Registration can proceed without
++   * paying again, so this stands in for a price as a reason to let the user continue.
+    */
+-  val formattedPrice: String? = null,
++  val hasUnredeemedPurchase: Boolean = false,
+   /**
+-   * A manually-pasted, base64-encoded receipt credential. While the purchase flow is unfinished, this lets us skip
+-   * payment entirely and register with a credential issued out-of-band. When non-blank, the continue button redeems
+-   * it directly.
++   * A manually-pasted, base64-encoded receipt credential. A debug affordance that lets us skip payment entirely and
++   * register with a credential issued out-of-band. When non-blank, the continue button redeems it directly.
+    */
+   val manualReceiptCredential: ManualReceiptCredential = ManualReceiptCredential.EMPTY,
+   val showManualReceiptCredentialEntry: Boolean = false,
+   val showSpinner: Boolean = false,
+   val dialogs: Dialogs = Dialogs()
+ ) {
++  /**
++   * Localized, currency-formatted price of the one-time purchase, exactly as the billing library reported it. Null
++   * until the price has been loaded, or if it can't be loaded at all.
++   */
++  val formattedPrice: String?
++    get() = (price as? Price.Available)?.formattedPrice
++
+   /** Whether we know enough to let the user act on the selected option. */
+   val isActionEnabled: Boolean
+-    get() = !showSpinner && (manualReceiptCredential.isNotBlank || selectedOption == Option.ExistingLogin || formattedPrice != null)
++    get() = !showSpinner && (
++      manualReceiptCredential.isNotBlank ||
++        selectedOption == Option.ExistingLogin ||
++        price is Price.Available ||
++        hasUnredeemedPurchase
++      )
++
++  /** The purchase can be offered when we know a price, or when there's already something paid to redeem. */
++  val isPurchaseAvailable: Boolean
++    get() = price is Price.Available || hasUnredeemedPurchase
++
++  /**
++   * What we know about the one-time purchase price. Only [Available] and an already-owned purchase may lead to a
++   * charge; everything else blocks submission.
++   */
++  sealed interface Price {
++    /** We haven't asked yet, or we asked and the answer is in flight. */
++    data object Loading : Price
++
++    /** The purchase is possible, at this localized, currency-formatted price. */
++    data class Available(val formattedPrice: String) : Price
++
++    /** The lookup failed in a way that may succeed next time; the user is offered a retry. */
++    data object TransientError : Price
++
++    /** Payment cannot proceed, and retrying on this device won't change that. */
++    data object Unavailable : Price
++  }
+ 
+   enum class Option {
+     /** Buy a new Signal Login. */
+@@ -42,6 +83,16 @@ data class SignalLoginPaymentState(
+     val networkError: Boolean = false,
+     val unknownError: Boolean = false,
+     val purchaseFailed: Boolean = false,
+-    val invalidReceiptCredential: Boolean = false
++    val invalidReceiptCredential: Boolean = false,
++    /**
++     * The service hasn't finished processing a purchase that has already been paid for. Distinct from an error: the
++     * purchase is safe and recoverable, and trying again will not charge anything.
++     */
++    val purchasePending: Boolean = false,
++    /**
++     * Payment can't be used right now. Shown for both the recoverable (Play services updating) and terminal cases; the
++     * copy differs, and only the terminal case takes the purchase option away.
++     */
++    val paymentUnavailable: Boolean = false
+   )
+-}
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt
+index d91cb7315cf8d5e2c95eb5b59bced3fed20ffade..b4322b990e8f54939db1c3cb0911f1cb4428ef1d 100644
+--- a/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt
+@@ -18,17 +18,24 @@ import kotlinx.coroutines.flow.launchIn
+ import kotlinx.coroutines.flow.onEach
+ import kotlinx.coroutines.flow.receiveAsFlow
+ import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.core.util.billing.OneTimePurchase
++import org.signal.core.util.billing.OneTimePurchaseApi
++import org.signal.core.util.billing.OneTimePurchasePreparation
++import org.signal.core.util.billing.OneTimePurchaseResult
+ import org.signal.core.util.logging.Log
+ import org.signal.libsignal.net.RequestResult
+ import org.signal.network.api.RegistrationApiV2.RegisterAccountError
+ import org.signal.registration.RegistrationFlowEvent
+ import org.signal.registration.RegistrationRepository
+ import org.signal.registration.RegistrationRoute
++import org.signal.registration.SignalLoginPurchaseStep
+ import org.signal.registration.screens.util.navigateBack
+ import org.signal.registration.screens.util.navigateTo
++import org.signal.registration.util.SignalLoginPurchaseStore
+ 
+ class SignalLoginPaymentViewModel(
+   private val repository: RegistrationRepository,
++  private val purchaseStep: SignalLoginPurchaseStep,
+   private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
+ ) : EventDrivenViewModel<SignalLoginPaymentScreenEvents>(TAG) {
+ 
+@@ -62,8 +69,10 @@ class SignalLoginPaymentViewModel(
+     stateEmitter: (SignalLoginPaymentState) -> Unit
+   ) {
+     when (event) {
+-      is SignalLoginPaymentScreenEvents.Initialize -> {
+-        // TODO [phonenumberless] Load the price from the billing library and populate SignalLoginPaymentState.formattedPrice.
++      is SignalLoginPaymentScreenEvents.Initialize,
++      is SignalLoginPaymentScreenEvents.Foreground,
++      is SignalLoginPaymentScreenEvents.RetryPriceClicked -> {
++        refreshPaymentAvailability(state, stateEmitter)
+       }
+ 
+       is SignalLoginPaymentScreenEvents.BackClicked -> {
+@@ -91,11 +100,19 @@ class SignalLoginPaymentViewModel(
+         } else if (state.selectedOption == SignalLoginPaymentState.Option.ExistingLogin) {
+           parentEventEmitter.navigateTo(RegistrationRoute.SignalLoginCredentialEntry())
+         } else {
+-          // TODO [phonenumberless] Launch the purchase flow.
+-          Log.i(TAG, "Continue clicked for ${state.selectedOption}, but the purchase flow isn't implemented yet.")
++          continuePurchase(state, parentEventEmitter, stateEmitter)
+         }
+       }
+ 
++      is SignalLoginPaymentScreenEvents.PurchaseFlowCompleted -> {
++        // The only thing that can complete a purchase. The held spinner is cleared here, and no earlier than here.
++        applyPurchaseFlowCompleted(state, event.result, parentEventEmitter, stateEmitter)
++      }
++
++      is SignalLoginPaymentScreenEvents.ResolvePaymentServicesClicked -> {
++        _actions.trySend(SignalLoginPaymentScreenActions.ResolvePaymentServices)
++      }
++
+       is SignalLoginPaymentScreenEvents.NetworkErrorDialogDismissed -> {
+         stateEmitter(state.copy(dialogs = state.dialogs.copy(networkError = false)))
+       }
+@@ -111,12 +128,184 @@ class SignalLoginPaymentViewModel(
+       is SignalLoginPaymentScreenEvents.InvalidReceiptCredentialDialogDismissed -> {
+         stateEmitter(state.copy(dialogs = state.dialogs.copy(invalidReceiptCredential = false)))
+       }
++
++      is SignalLoginPaymentScreenEvents.PaymentUnavailableDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(paymentUnavailable = false)))
++      }
++
++      is SignalLoginPaymentScreenEvents.PurchasePendingDialogDismissed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(purchasePending = false)))
++      }
++    }
++  }
++
++  /**
++   * Re-derive whether payment is possible and how much it costs.
++   *
++   * Availability is asked for fresh every time rather than remembered, because the user may have just gone off to fix
++   * Play services. The restore step also runs here, which is what lets a purchase paid for in a previous process show
++   * up as "continue" instead of "buy again".
++   */
++  private suspend fun refreshPaymentAvailability(
++    state: SignalLoginPaymentState,
++    stateEmitter: (SignalLoginPaymentState) -> Unit
++  ) {
++    val restored = purchaseStep.restoreUnredeemedPurchase()
++    val availability = repository.getPaymentAvailability()
++
++    val loading = state.copy(
++      paymentAvailability = availability,
++      hasUnredeemedPurchase = restored != null,
++      price = SignalLoginPaymentState.Price.Loading,
++      purchasePreparation = null
++    )
++    stateEmitter(loading)
++    stateEmitter(applyPrice(loading, purchaseStep.loadPrice()))
++  }
++
++  private fun applyPrice(state: SignalLoginPaymentState, price: SignalLoginPurchaseStep.Price): SignalLoginPaymentState =
++    when (price) {
++      is SignalLoginPurchaseStep.Price.Available ->
++        state.copy(price = SignalLoginPaymentState.Price.Available(price.formattedPrice), dialogs = state.dialogs.copy(paymentUnavailable = false))
++      // Recoverable: Play services needs attention, so the purchase option stays enabled and the user can come back.
++      SignalLoginPurchaseStep.Price.NeedsServiceUpdate ->
++        state.copy(price = SignalLoginPaymentState.Price.TransientError, dialogs = state.dialogs.copy(paymentUnavailable = true))
++      SignalLoginPurchaseStep.Price.TransientError ->
++        state.copy(price = SignalLoginPaymentState.Price.TransientError, dialogs = state.dialogs.copy(paymentUnavailable = false))
++      // Terminal: payment can't proceed here, so we say so and leave the other registration choices alone.
++      SignalLoginPurchaseStep.Price.Unavailable ->
++        state.copy(price = SignalLoginPaymentState.Price.Unavailable, dialogs = state.dialogs.copy(paymentUnavailable = true))
++      SignalLoginPurchaseStep.Price.NoProductConfigured ->
++        state.copy(price = SignalLoginPaymentState.Price.Unavailable, dialogs = state.dialogs.copy(paymentUnavailable = true))
++    }
++
++  /**
++   * The user committed to buying a Signal Login.
++   *
++   * If billing already owns an unconsumed purchase we go straight to redeeming it — no sheet, no second charge.
++   * Otherwise we prepare the purchase and, if it comes back ready, hand a launcher to the UI layer and *hold* the
++   * spinner until that sheet tells us how it settled.
++   */
++  private suspend fun continuePurchase(
++    state: SignalLoginPaymentState,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginPaymentState) -> Unit
++  ) {
++    if (state.hasUnredeemedPurchase) {
++      Log.i(TAG, "Redeeming a purchase that was already paid for.")
++      stateEmitter(state.copy(showSpinner = true))
++      stateEmitter(redeem(state.copy(showSpinner = true), purchase = null, parentEventEmitter, stateEmitter).copy(showSpinner = false))
++      return
++    }
++
++    if (state.price !is SignalLoginPaymentState.Price.Available) {
++      Log.i(TAG, "Refusing to start a purchase without a usable price.")
++      return
++    }
++
++    when (val preparation = purchaseStep.preparePurchase()) {
++      is OneTimePurchasePreparation.Ready -> {
++        stateEmitter(state.copy(purchasePreparation = preparation, showSpinner = true))
++        _actions.trySend(SignalLoginPaymentScreenActions.LaunchPurchaseSheet(preparation.launcher))
++      }
++      is OneTimePurchasePreparation.AlreadyPurchased -> {
++        Log.i(TAG, "Billing reports this account already owns the purchase; redeeming instead of charging.")
++        stateEmitter(state.copy(purchasePreparation = preparation, showSpinner = true))
++        stateEmitter(redeem(state.copy(purchasePreparation = preparation, showSpinner = true), preparation.purchase, parentEventEmitter, stateEmitter).copy(showSpinner = false))
++      }
++      OneTimePurchasePreparation.Unavailable -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(paymentUnavailable = true)))
++      }
++      OneTimePurchasePreparation.NetworkError -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(networkError = true)))
++      }
++      OneTimePurchasePreparation.Failed -> {
++        stateEmitter(state.copy(dialogs = state.dialogs.copy(purchaseFailed = true)))
++      }
++    }
++  }
++
++  /**
++   * Settle the external purchase sheet.
++   *
++   * A cancellation is a settled outcome, not an error: the held spinner comes down, no dialog appears, and nothing asks
++   * the service for a receipt. The screen is simply usable again.
++   */
++  private suspend fun applyPurchaseFlowCompleted(
++    state: SignalLoginPaymentState,
++    result: OneTimePurchaseResult,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginPaymentState) -> Unit
++  ) {
++    when (result) {
++      is OneTimePurchaseResult.Success -> {
++        stateEmitter(state.copy(purchasePreparation = null, showSpinner = true))
++        stateEmitter(redeem(state.copy(purchasePreparation = null, showSpinner = true), result.purchase, parentEventEmitter, stateEmitter).copy(showSpinner = false))
++      }
++      OneTimePurchaseResult.UserCancelled -> {
++        Log.i(TAG, "The purchase sheet was cancelled; nothing was charged and nothing was registered.")
++        stateEmitter(state.copy(purchasePreparation = null, showSpinner = false))
++      }
++      OneTimePurchaseResult.Unavailable -> {
++        stateEmitter(state.copy(purchasePreparation = null, showSpinner = false, dialogs = state.dialogs.copy(paymentUnavailable = true)))
++      }
++      OneTimePurchaseResult.NetworkError -> {
++        stateEmitter(state.copy(purchasePreparation = null, showSpinner = false, dialogs = state.dialogs.copy(networkError = true)))
++      }
++      OneTimePurchaseResult.Failed -> {
++        stateEmitter(state.copy(purchasePreparation = null, showSpinner = false, dialogs = state.dialogs.copy(purchaseFailed = true)))
++      }
++    }
++  }
++
++  /**
++   * Turn a paid purchase into a registered account.
++   *
++   * Every outcome other than [SignalLoginPurchaseStep.Redemption.Registered] leaves the purchase on disk, so the next
++   * attempt redeems rather than charges. Registration that did happen is announced to the parent *before* navigating,
++   * so the next screen sees the issued account ID and recovery key.
++   */
++  private suspend fun redeem(
++    state: SignalLoginPaymentState,
++    purchase: OneTimePurchase?,
++    parentEventEmitter: (RegistrationFlowEvent) -> Unit,
++    stateEmitter: (SignalLoginPaymentState) -> Unit
++  ): SignalLoginPaymentState = when (val redemption = purchaseStep.redeem(purchase)) {
++    is SignalLoginPurchaseStep.Redemption.Registered -> {
++      val data = redemption.data
++      parentEventEmitter(
++        RegistrationFlowEvent.Registered(
++          aci = data.aci,
++          accountEntropyPool = data.keyMaterial.accountEntropyPool,
++          storageCapable = data.response.storageCapable,
++          phoneNumberless = redemption.phoneNumberless
++        )
++      )
++      parentEventEmitter.navigateTo(RegistrationRoute.SignalLoginInfo, popCurrent = true)
++      state.copy(hasUnredeemedPurchase = false)
++    }
++    SignalLoginPurchaseStep.Redemption.ReceiptPending -> {
++      Log.i(TAG, "The purchase is still being processed; it stays recoverable.")
++      state.copy(dialogs = state.dialogs.copy(purchasePending = true))
++    }
++    SignalLoginPurchaseStep.Redemption.ReceiptRejected -> {
++      Log.w(TAG, "The purchase's proof of payment was rejected; the purchase is preserved for recovery.")
++      state.copy(dialogs = state.dialogs.copy(invalidReceiptCredential = true))
++    }
++    is SignalLoginPurchaseStep.Redemption.NetworkError -> {
++      state.copy(dialogs = state.dialogs.copy(networkError = true))
++    }
++    is SignalLoginPurchaseStep.Redemption.Failed -> {
++      state.copy(dialogs = state.dialogs.copy(unknownError = true))
++    }
++    SignalLoginPurchaseStep.Redemption.NothingToRedeem -> {
++      state.copy(dialogs = state.dialogs.copy(unknownError = true))
+     }
+   }
+ 
+   /**
+    * Redeems the manually-pasted receipt credential by building its presentation and registering a numberless account
+-   * with it, bypassing the (unfinished) purchase flow entirely.
++   * with it, bypassing the purchase flow entirely.
+    */
+   private suspend fun applyManualReceiptCredentialSubmitted(
+     state: SignalLoginPaymentState,
+@@ -135,7 +324,7 @@ class SignalLoginPaymentViewModel(
+         val (response, keyMaterial, aci) = result.result
+ 
+         parentEventEmitter(RegistrationFlowEvent.Registered(aci, keyMaterial.accountEntropyPool, response.storageCapable, phoneNumberless = response.e164 == null))
+-        parentEventEmitter.navigateTo(RegistrationRoute.SignalLoginInfo)
++        parentEventEmitter.navigateTo(RegistrationRoute.SignalLoginInfo, popCurrent = true)
+         state
+       }
+       is RequestResult.NonSuccess -> {
+@@ -175,11 +364,17 @@ class SignalLoginPaymentViewModel(
+ 
+   class Factory(
+     private val repository: RegistrationRepository,
++    private val oneTimePurchaseApi: OneTimePurchaseApi,
++    private val purchaseStore: SignalLoginPurchaseStore,
+     private val parentEventEmitter: (RegistrationFlowEvent) -> Unit
+   ) : ViewModelProvider.Factory {
+     @Suppress("UNCHECKED_CAST")
+     override fun <T : ViewModel> create(modelClass: Class<T>): T {
+-      return SignalLoginPaymentViewModel(repository, parentEventEmitter) as T
++      return SignalLoginPaymentViewModel(
++        repository = repository,
++        purchaseStep = SignalLoginPurchaseStep(repository, oneTimePurchaseApi, purchaseStore),
++        parentEventEmitter = parentEventEmitter
++      ) as T
+     }
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/util/BlobStore.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/util/BlobStore.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b25119c824fcfb4da3d336fd8d6b8564d6ae77c
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/util/BlobStore.kt
+@@ -0,0 +1,57 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.util
++
++import java.io.ByteArrayOutputStream
++import java.io.DataInputStream
++import java.io.DataOutputStream
++
++/**
++ * Minimal length-prefixed blob encoding used for the little bit of durable state registration owns between process
++ * lifetimes. Values are written with an explicit magic number and version so that a file written by an older (or
++ * newer) build is rejected rather than misinterpreted.
++ */
++class BlobWriter {
++  private val buffer = ByteArrayOutputStream()
++  private val stream = DataOutputStream(buffer)
++
++  fun writeInt(value: Int) = apply { stream.writeInt(value) }
++
++  fun writeString(value: String) = writeBlob(value.toByteArray(Charsets.UTF_8))
++
++  fun writeBlob(value: ByteArray) = apply {
++    stream.writeInt(value.size)
++    stream.write(value)
++  }
++
++  fun build(): ByteArray {
++    stream.flush()
++    return buffer.toByteArray()
++  }
++}
++
++class BlobReader(private val source: ByteArray) {
++  private val stream = DataInputStream(source.inputStream())
++
++  fun readInt(): Int = stream.readInt()
++
++  fun readString(): String = String(readBlob(), Charsets.UTF_8)
++
++  fun readBlob(): ByteArray = ByteArray(readInt()).also { stream.readFully(it) }
++
++  fun assertMagic(magic: Int) {
++    val actual = readInt()
++    check(actual == magic) { "Bad blob magic: expected $magic but got $actual" }
++  }
++
++  fun assertVersion(version: Int) {
++    val actual = readInt()
++    check(actual == version) { "Bad blob version: expected $version but got $actual" }
++  }
++
++  /** True when there is another field to read. */
++  fun hasNext(): Boolean = stream.available() > 0
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/util/SignalCredentialManager.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/util/SignalCredentialManager.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..1517fed378679e273443371a6699a8b6b6856f00
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/util/SignalCredentialManager.kt
+@@ -0,0 +1,126 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.util
++
++import android.content.Context
++import androidx.credentials.CreatePasswordRequest
++import androidx.credentials.CredentialManager
++import androidx.credentials.GetCredentialRequest
++import androidx.credentials.GetPasswordOption
++import androidx.credentials.PasswordCredential
++import androidx.credentials.exceptions.CreateCredentialCancellationException
++import androidx.credentials.exceptions.CreateCredentialInterruptedException
++import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException
++import androidx.credentials.exceptions.GetCredentialException
++import org.signal.core.models.ServiceId
++import org.signal.core.models.ServiceId.ACI
++import org.signal.core.util.logging.Log
++
++/**
++ * Saves and reads back the Signal Login credential through whatever password manager the device offers.
++ *
++ * The read-back half is the point. [saveCredential] reporting success only means the provider accepted the write, so
++ * callers must follow up with [getCredential] and compare what actually comes back before treating the credential as
++ * safely stored. Anything that isn't an exact match — a cancel, an interruption, a provider that silently declined, or
++ * a stale entry for a different account — counts as "not saved".
++ */
++class SignalCredentialManager(
++  private val context: Context,
++  private val credentialManager: CredentialManager = CredentialManager.create(context)
++) {
++
++  companion object {
++    private val TAG = Log.tag(SignalCredentialManager::class)
++
++    /** Where the Signal Login credential lives in the password manager. */
++    const val CREDENTIAL_ID = "org.thoughtcrime.securesms:signal_login"
++  }
++
++  /** Whether the device offers a password manager at all. */
++  fun isAvailable(): Boolean = try {
++    credentialManager.isAvailable(context)
++  } catch (e: Exception) {
++    Log.w(TAG, "Couldn't determine whether a password manager is available.", e)
++    false
++  }
++
++  /** A credential as it came back out of the password manager. */
++  data class SignalCredential(val username: String, val password: String)
++
++  /** The outcome of trying to save. Nothing here is ever "confirmed" — see [getCredential]. */
++  sealed interface SaveResult {
++    /** The provider accepted the write. Still needs a read-back to be trusted. */
++    data object Saved : SaveResult
++
++    /** The user dismissed the provider's sheet. Not an error, but definitely not saved either. */
++    data object Cancelled : SaveResult
++
++    /** The provider can't save credentials at all, or the write failed. */
++    data class Failed(val error: Throwable? = null) : SaveResult
++  }
++
++  /**
++   * Write [username]/[password] to the password manager.
++   *
++   * [username] is the ACI in the same uppercase form the user is looking at, and [password] is the recovery key in its
++   * display form, so what lands in the password manager is exactly what the user was shown.
++   */
++  suspend fun saveCredential(username: String, password: String): SaveResult = try {
++    credentialManager.createCredential(
++      context = context,
++      request = CreatePasswordRequest(
++        id = CREDENTIAL_ID,
++        password = password,
++        preferImmediatelyAvailableCredentials = true,
++        isAutoSelectAllowed = true
++      )
++    )
++    Log.i(TAG, "The password manager accepted the Signal Login credential.")
++    SaveResult.Saved
++  } catch (_: CreateCredentialCancellationException) {
++    Log.i(TAG, "The user cancelled the password manager save.")
++    SaveResult.Cancelled
++  } catch (_: CreateCredentialInterruptedException) {
++    Log.i(TAG, "The password manager save was interrupted.")
++    SaveResult.Failed()
++  } catch (_: CreateCredentialProviderConfigurationException) {
++    Log.i(TAG, "The password manager can't save credentials.")
++    SaveResult.Failed()
++  } catch (e: Exception) {
++    Log.w(TAG, "The password manager save failed.", e)
++    SaveResult.Failed(e)
++  }
++
++  /**
++   * Read the stored credential back, filtered to [accountId].
++   *
++   * Returns null whenever anything at all is off: no provider, no stored entry, an exception, or an entry whose
++   * username isn't the account we asked about. Callers treat null exactly like a mismatch.
++   */
++  suspend fun getCredential(accountId: ACI): SignalCredential? = try {
++    val response = credentialManager.getCredential(
++      context = context,
++      request = GetCredentialRequest(options = listOf(GetPasswordOption()))
++    )
++    val credential = response.credential as? PasswordCredential
++    if (credential == null) {
++      Log.w(TAG, "The password manager returned something that isn't a username/password credential.")
++      null
++    } else if (ServiceId.ACI.parseOrNull(credential.id) != accountId) {
++      Log.w(TAG, "The password manager returned a credential for a different account.")
++      null
++    } else {
++      SignalCredential(username = credential.id, password = credential.password)
++    }
++  } catch (_: GetCredentialException) {
++    // Includes the provider being unavailable and the user dismissing the sheet.
++    Log.i(TAG, "Couldn't read a credential back from the password manager.")
++    null
++  } catch (e: Exception) {
++    Log.w(TAG, "Reading the credential back failed.", e)
++    null
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/feature/registration/src/main/java/org/signal/registration/util/SignalLoginPurchaseStore.kt b/immutable-src/feature/registration/src/main/java/org/signal/registration/util/SignalLoginPurchaseStore.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..302aaccfd2c46d1260b62fc0d1b3e2defab95c77
+--- /dev/null
++++ b/immutable-src/feature/registration/src/main/java/org/signal/registration/util/SignalLoginPurchaseStore.kt
+@@ -0,0 +1,89 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.registration.util
++
++import android.content.Context
++import java.io.File
++
++/**
++ * Durable record of a one-time purchase that has been paid for but not yet redeemed.
++ *
++ * The purchase is only removed once it has actually been spent registering an account. Everything in between — the
++ * process being killed, a network failure while redeeming, the user backing out and coming back tomorrow — has to
++ * survive, because re-charging for a purchase the user already paid for is not acceptable.
++ *
++ * [receiptCredentialRequestContext] is stored *byte for byte* alongside the purchase token. The service rejects a
++ * second, different receipt-credential request for the same purchase, so restoring the original bytes is what makes a
++ * retry able to succeed at all.
++ */
++class SignalLoginPurchaseStore(private val file: File) {
++
++  /** A purchase awaiting redemption, along with the exact request context it must be redeemed with. */
++  data class StoredPurchase(
++    val purchaseToken: String,
++    val receiptCredentialRequestContext: ByteArray
++  ) {
++    override fun equals(other: Any?): Boolean =
++      other is StoredPurchase &&
++        other.purchaseToken == purchaseToken &&
++        other.receiptCredentialRequestContext.contentEquals(receiptCredentialRequestContext)
++
++    override fun hashCode(): Int =
++      31 * purchaseToken.hashCode() + receiptCredentialRequestContext.contentHashCode()
++  }
++
++  /** The stored purchase, or null when nothing is waiting to be redeemed. */
++  fun read(): StoredPurchase? {
++    if (!file.exists()) {
++      return null
++    }
++
++    return try {
++      val reader = BlobReader(file.readBytes())
++      reader.assertMagic(MAGIC)
++      reader.assertVersion(VERSION)
++      StoredPurchase(purchaseToken = reader.readString(), receiptCredentialRequestContext = reader.readBlob())
++    } catch (e: Exception) {
++      // A corrupt or stale file is indistinguishable from "nothing purchased" for our purposes: the user has not been
++      // overcharged either way, and the billing library is still the source of truth for what they own.
++      file.delete()
++      null
++    }
++  }
++
++  fun write(purchaseToken: String, receiptCredentialRequestContext: ByteArray) {
++    try {
++      val bytes = BlobWriter()
++        .writeInt(MAGIC)
++        .writeInt(VERSION)
++        .writeString(purchaseToken)
++        .writeBlob(receiptCredentialRequestContext)
++        .build()
++
++      file.parentFile?.mkdirs()
++      file.writeBytes(bytes)
++    } catch (_: Exception) {
++      // Persisting is an optimization for recovery, not a precondition for registering. If the write fails we simply
++      // lose the ability to resume across process death; the billing library still prevents a second charge.
++      file.delete()
++    }
++  }
++
++  /** Forget the purchase. Only call this once the purchase has been consumed. */
++  fun clear() {
++    file.delete()
++  }
++
++  companion object {
++    private const val MAGIC = 0x534C5055 // "SLPU"
++    private const val VERSION = 1
++    private const val DIRECTORY = "signal_login"
++    private const val FILE_NAME = "purchase.blob"
++
++    fun fromContext(context: Context): SignalLoginPurchaseStore =
++      SignalLoginPurchaseStore(File(context.getDir(DIRECTORY, Context.MODE_PRIVATE), FILE_NAME))
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/lib/billing/src/main/java/org/signal/billing/OneTimePurchaseApiImpl.kt b/immutable-src/lib/billing/src/main/java/org/signal/billing/OneTimePurchaseApiImpl.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..5344ca0ab2b25ec3b6f5a5db82ccad2dc55bbfb6
+--- /dev/null
++++ b/immutable-src/lib/billing/src/main/java/org/signal/billing/OneTimePurchaseApiImpl.kt
+@@ -0,0 +1,158 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.billing
++
++import org.signal.core.util.billing.BillingPurchaseState
++import org.signal.core.util.billing.BillingResponseCode
++import org.signal.core.util.billing.OneTimeProduct
++import org.signal.core.util.billing.OneTimeProductId
++import org.signal.core.util.billing.OneTimeProductResult
++import org.signal.core.util.billing.OneTimePurchase
++import org.signal.core.util.billing.OneTimePurchaseApi
++import org.signal.core.util.billing.OneTimePurchasePreparation
++import org.signal.core.util.billing.OneTimePurchaseResult
++import org.signal.core.util.billing.PurchaseLauncher
++import org.signal.core.util.censor
++import org.signal.core.util.logging.Log
++
++/**
++ * [OneTimePurchaseApi] backed by the platform billing library.
++ *
++ * The impl owns no activity. [BillingService] is the thin seam over the platform client: it is created and driven by
++ * whatever layer owns the activity, which is exactly why [launchPurchase] takes the opaque [PurchaseLauncher] rather
++ * than an activity.
++ */
++class OneTimePurchaseApiImpl(
++  private val billingService: BillingService
++) : OneTimePurchaseApi {
++
++  companion object {
++    private val TAG = Log.tag(OneTimePurchaseApiImpl::class)
++  }
++
++  override suspend fun getProduct(productId: OneTimeProductId): OneTimeProductResult {
++    if (!ensureConnected()) {
++      return OneTimeProductResult.Unavailable
++    }
++
++    val product = try {
++      billingService.queryProduct(productId)
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to query product $productId", e)
++      return OneTimeProductResult.TransientError
++    }
++
++    return if (product == null) OneTimeProductResult.Unavailable else OneTimeProductResult.Success(product)
++  }
++
++  override suspend fun preparePurchase(productId: OneTimeProductId): OneTimePurchasePreparation {
++    if (!ensureConnected()) {
++      return OneTimePurchasePreparation.Unavailable
++    }
++
++    val owned = try {
++      billingService.queryOwnedPurchase(productId)
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to query owned purchases for $productId", e)
++      return OneTimePurchasePreparation.NetworkError
++    }
++
++    if (owned != null) {
++      Log.i(TAG, "Already owns an unconsumed purchase of $productId; will not charge again.")
++      return OneTimePurchasePreparation.AlreadyPurchased(owned)
++    }
++
++    val launcher = try {
++      billingService.createLauncher(productId)
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to create a purchase launcher for $productId", e)
++      return OneTimePurchasePreparation.Failed
++    }
++
++    return OneTimePurchasePreparation.Ready(launcher)
++  }
++
++  override suspend fun launchPurchase(launcher: PurchaseLauncher): OneTimePurchaseResult {
++    if (!ensureConnected()) {
++      return OneTimePurchaseResult.Unavailable
++    }
++
++    val purchase = try {
++      billingService.launchPurchaseSheet(launcher)
++    } catch (e: Exception) {
++      Log.w(TAG, "The purchase sheet failed to launch", e)
++      return OneTimePurchaseResult.Failed
++    } ?: return OneTimePurchaseResult.UserCancelled
++
++    return when (purchase.state) {
++      BillingPurchaseState.PURCHASED -> OneTimePurchaseResult.Success(purchase)
++      BillingPurchaseState.PENDING -> OneTimePurchaseResult.NetworkError
++      BillingPurchaseState.UNSPECIFIED -> OneTimePurchaseResult.Failed
++    }
++  }
++
++  override suspend fun getUnredeemedPurchase(purchaseToken: String): OneTimePurchase? {
++    if (!ensureConnected()) {
++      return null
++    }
++
++    return try {
++      billingService.queryOwnedPurchaseByToken(purchaseToken)?.takeIf { it.state == BillingPurchaseState.PURCHASED }
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to look up owned purchase $purchaseToken", e)
++      null
++    }
++  }
++
++  override suspend fun consumePurchase(purchase: OneTimePurchase): Boolean {
++    if (!ensureConnected()) {
++      return false
++    }
++
++    return try {
++      billingService.acknowledgeAndConsume(purchase)
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to consume purchase ${purchase.purchaseToken.censor()}", e)
++      false
++    }
++  }
++
++  private suspend fun ensureConnected(): Boolean {
++    return try {
++      billingService.connect() == BillingResponseCode.OK
++    } catch (e: Exception) {
++      Log.w(TAG, "Failed to connect to the billing service", e)
++      false
++    }
++  }
++
++  /**
++   * The platform-specific operations this API needs. Implemented by the module that actually talks to the billing
++   * library, and driven from the layer that owns the activity.
++   */
++  interface BillingService {
++    /** Establish (or re-establish) the connection. Returns [BillingResponseCode.OK] when the library is usable. */
++    suspend fun connect(): BillingResponseCode
++
++    /** The product with its localized, currency-formatted price, or null when the store has nothing for [productId]. */
++    suspend fun queryProduct(productId: OneTimeProductId): OneTimeProduct?
++
++    /** An owned purchase of [productId] that has not been consumed, if there is one. */
++    suspend fun queryOwnedPurchase(productId: OneTimeProductId): OneTimePurchase?
++
++    /** An owned, unconsumed purchase identified by [purchaseToken], if there is one. */
++    suspend fun queryOwnedPurchaseByToken(purchaseToken: String): OneTimePurchase?
++
++    /** A launcher the UI layer can turn into a purchase sheet for [productId]. */
++    suspend fun createLauncher(productId: OneTimeProductId): PurchaseLauncher
++
++    /** Present the purchase sheet and wait for it to settle. Null means the user dismissed it. */
++    suspend fun launchPurchaseSheet(launcher: PurchaseLauncher): OneTimePurchase?
++
++    /** Acknowledge and remove [purchase]. */
++    suspend fun acknowledgeAndConsume(purchase: OneTimePurchase): Boolean
++  }
++}
+\ No newline at end of file
+diff --git a/stubs/android/content/Context.kt b/stubs/android/content/Context.kt
+index 0a3aa3f75fd4675b5f39920934aa84ed823af66a..454d47dc43912a24fb23b04b202ea3755f42c1a2 100644
+--- a/stubs/android/content/Context.kt
++++ b/stubs/android/content/Context.kt
+@@ -4,8 +4,15 @@ open class Context {
+   val applicationContext: Context get() = this
+   val packageName: String get() = "org.signal.benchmark"
+   val packageManager: android.content.pm.PackageManager get() = android.content.pm.PackageManager()
++
++  /** Private, app-scoped directory for durable state owned by this app. */
++  fun getDir(name: String, mode: Int): java.io.File = java.io.File(name)
++
++  companion object {
++    const val MODE_PRIVATE = 0
++  }
+ }
+ 
+ class Intent(val action: String, val uri: android.net.Uri? = null) {
+   fun resolveActivity(manager: android.content.pm.PackageManager): Any? = Any()
+-}
++}
+\ No newline at end of file
+diff --git a/stubs/androidx/credentials/Credentials.kt b/stubs/androidx/credentials/Credentials.kt
+index 8165a10809b33f986f3e1235c4f0ef5548a6c1f9..4e1cced82cb11a89b90a5d083f1c85c249c78af7 100644
+--- a/stubs/androidx/credentials/Credentials.kt
++++ b/stubs/androidx/credentials/Credentials.kt
+@@ -11,8 +11,10 @@ data class GetCredentialResponse(val credential: Any)
+ class CredentialManager private constructor() {
+   suspend fun createCredential(context: Context, request: CreatePasswordRequest) { stored = PasswordCredential(request.id, request.password) }
+   suspend fun getCredential(context: Context, request: GetCredentialRequest): GetCredentialResponse = GetCredentialResponse(stored ?: throw androidx.credentials.exceptions.GetCredentialException())
++  fun isAvailable(context: Context): Boolean = available
+   companion object {
+     var stored: PasswordCredential? = null
++    var available: Boolean = true
+     fun create(context: Context) = CredentialManager()
+   }
+ }
+diff --git a/stubs/org/signal/libsignal/zkgroup/receipts/ReceiptCredential.kt b/stubs/org/signal/libsignal/zkgroup/receipts/ReceiptCredential.kt
+index fa35795434c6a256221d2df743dc395786df4c07..d912d295aa8831f144f227328ce51e46a3282f69 100644
+--- a/stubs/org/signal/libsignal/zkgroup/receipts/ReceiptCredential.kt
++++ b/stubs/org/signal/libsignal/zkgroup/receipts/ReceiptCredential.kt
+@@ -1,3 +1,16 @@
+ package org.signal.libsignal.zkgroup.receipts
++
+ class ReceiptCredential(val bytes: ByteArray = byteArrayOf(1))
+ class ReceiptCredentialPresentation(val bytes: ByteArray = byteArrayOf(2))
++
++/**
++ * The outcome of verifying a receipt credential against the receipt credential request we generated for the purchase
++ * that paid for it.
++ */
++sealed interface ReceiptCredentialResult {
++  /** The credential verifies against our request and can be presented to the service. */
++  data class Success(val presentation: ReceiptCredentialPresentation) : ReceiptCredentialResult
++
++  /** The credential did not verify; it cannot be presented. */
++  data class Failure(val error: Throwable? = null) : ReceiptCredentialResult
++}
+\ No newline at end of file
+diff --git a/stubs/org/signal/network/api/RegistrationApiV2.kt b/stubs/org/signal/network/api/RegistrationApiV2.kt
+index c65c1a86bd53d963af6d5495efc52cdde9b047a8..92dc71f6c43486f3a3e0c3a5b32ec283235b9911 100644
+--- a/stubs/org/signal/network/api/RegistrationApiV2.kt
++++ b/stubs/org/signal/network/api/RegistrationApiV2.kt
+@@ -3,6 +3,17 @@ package org.signal.network.api
+ object RegistrationApiV2 {
+   data class SessionMetadata(val nextSms: Long? = null, val nextCall: Long? = null)
+   enum class VerificationCodeTransport { SMS, VOICE }
++
++  /**
++   * Service-provided configuration for the Signal Login purchase. The product ID is chosen by the service and must
++   * never be substituted by client- or caller-supplied values.
++   */
++  data class LoginConfiguration(
++    val playProductId: String? = null,
++    val minimumVersion: Int = 0,
++    val version: Int = 0
++  )
++
+   sealed interface CreateLoginReceiptCredentialError { data object InvalidPurchase : CreateLoginReceiptCredentialError; data object Pending : CreateLoginReceiptCredentialError }
+   sealed interface RegisterAccountError {
+     data class InvalidReceiptCredentialPresentation(val message: String = "invalid") : RegisterAccountError
+@@ -11,4 +22,4 @@ object RegistrationApiV2 {
+     data class RateLimited(val retryAfter: Long = 0) : RegisterAccountError
+   }
+   data class RegisterAccountResponse(val e164: String? = null, val storageCapable: Boolean = false)
+-}
++}
+\ No newline at end of file
+diff --git a/stubs/org/signal/registration/RegistrationLeaves.kt b/stubs/org/signal/registration/RegistrationLeaves.kt
+index b3bc2feeb6df38a9a90893a37ce9ac164f963d61..54d0ec8b6ed4500085560b3d38826d6c92f54bb0 100644
+--- a/stubs/org/signal/registration/RegistrationLeaves.kt
++++ b/stubs/org/signal/registration/RegistrationLeaves.kt
+@@ -1,17 +1,29 @@
+ package org.signal.registration
+ 
++import androidx.navigation3.runtime.NavKey
+ import org.signal.core.models.AccountEntropyPool
+ import org.signal.core.models.ServiceId.ACI
+ import org.signal.libsignal.net.RequestResult
++import org.signal.libsignal.usernames.Username
+ import org.signal.libsignal.zkgroup.receipts.ReceiptCredential
+ import org.signal.libsignal.zkgroup.receipts.ReceiptCredentialPresentation
++import org.signal.libsignal.zkgroup.receipts.ReceiptCredentialResult
++import org.signal.network.api.RegistrationApiV2.CreateLoginReceiptCredentialError
++import org.signal.network.api.RegistrationApiV2.LoginConfiguration
+ import org.signal.network.api.RegistrationApiV2.RegisterAccountError
+ import org.signal.network.api.RegistrationApiV2.RegisterAccountResponse
++import org.signal.network.service.UsernameService.ConfirmUsernameError
++import org.signal.network.service.UsernameService.ReserveUsernameError
++import org.signal.registration.screens.signalloginpayment.PaymentAvailability
+ 
+-sealed interface RegistrationRoute {
++sealed interface RegistrationRoute : NavKey {
+   data object Welcome : RegistrationRoute
++  data object SignalLoginPayment : RegistrationRoute
+   data class SignalLoginCredentialEntry(val accountId: String = "") : RegistrationRoute
+   data object SignalLoginInfo : RegistrationRoute
++  data object SignalLoginManualSave : RegistrationRoute
++  data object SignalLoginManualSaveConfirmation : RegistrationRoute
++  data object AddUsername : RegistrationRoute
+ }
+ class PreExistingRegistrationData
+ class PendingRestoreOption
+@@ -19,8 +31,62 @@ class NetworkController { class ProvisioningMessage }
+ data class KeyMaterial(val accountEntropyPool: AccountEntropyPool)
+ data class RegisteredAccountData(val response: RegisterAccountResponse, val keyMaterial: KeyMaterial, val aci: ACI)
+ 
++/**
++ * The outcome of exchanging a one-time purchase identifier for a privacy-preserving proof of payment. The purchase
++ * token itself is never sent to (or usable as) a registration credential.
++ */
++sealed interface CreateLoginReceiptCredentialResult {
++  /** The service issued a receipt credential for the purchase. */
++  data class Issued(val credential: ReceiptCredential) : CreateLoginReceiptCredentialResult
++
++  /** The service has not finished processing the purchase yet. The purchase remains recoverable. */
++  data object Pending : CreateLoginReceiptCredentialResult
++
++  /** The service rejected the purchase identifier outright. Retrying will not help. */
++  data class InvalidPurchase(val error: CreateLoginReceiptCredentialError = CreateLoginReceiptCredentialError.InvalidPurchase) : CreateLoginReceiptCredentialResult
++
++  /** The service is throttling us. */
++  data object RateLimited : CreateLoginReceiptCredentialResult
++}
++
+ open class RegistrationRepository {
+   var isDebugBuild: Boolean = false
++
++  /** Whether Play Billing can be used right now, e.g. because Play services is missing or mid-update. */
++  open fun getPaymentAvailability(): PaymentAvailability = PaymentAvailability.Unavailable
++
++  /**
++   * Whether registering without a phone number is offered at all. This gates the *entry point* only — it never removes
++   * the ordinary phone-number path, which is always available.
++   */
++  open fun isPhoneNumberlessRegistrationAvailable(): Boolean = true
++
++  /** The service-provided configuration that names the anti-spam product to purchase. */
++  open suspend fun getLoginConfiguration(): LoginConfiguration = LoginConfiguration()
++
++  /** Trade a paid purchase identifier for a receipt credential that can be presented to register. */
++  open suspend fun createLoginReceiptCredential(purchaseToken: String, receiptCredentialRequestContext: ByteArray): CreateLoginReceiptCredentialResult = CreateLoginReceiptCredentialResult.Pending
++
++  /** Verify an issued receipt credential, producing a presentation the service will accept. */
++  open fun verifyReceiptCredential(credential: ReceiptCredential): ReceiptCredentialResult = ReceiptCredentialResult.Failure()
++
+   open fun createReceiptCredentialPresentation(credential: ReceiptCredential): ReceiptCredentialPresentation = ReceiptCredentialPresentation()
++
++  /** Register an account that has no phone number, using a verified proof of payment. */
+   open suspend fun registerAccountWithoutPhoneNumber(presentation: ReceiptCredentialPresentation): RequestResult<RegisteredAccountData, RegisterAccountError> = RequestResult.ApplicationError()
+-}
++
++  /** Register with a Signal Login the user already owns. */
++  open suspend fun registerAccountWithExistingSignalLogin(accountId: ACI, recoveryKey: AccountEntropyPool): RequestResult<RegisteredAccountData, RegisterAccountError> = RequestResult.ApplicationError()
++
++  /** Hold [username] for this account. */
++  open suspend fun reserveUsername(username: String, accountEntropyPool: AccountEntropyPool): RequestResult<Username, ReserveUsernameError> = RequestResult.ApplicationError()
++
++  /** Ask the service for any free discriminator to offer alongside our nickname. */
++  open suspend fun getRandomUsernameDiscriminator(): RequestResult<String, RegisterAccountError> = RequestResult.ApplicationError()
++
++  /** Take ownership of a previously reserved [username]. */
++  open suspend fun confirmUsername(username: Username, accountEntropyPool: AccountEntropyPool): RequestResult<Username, ConfirmUsernameError> = RequestResult.ApplicationError()
++
++  /** Tell the service we're done registering, with a username if the user claimed one. */
++  open suspend fun finalizeRegistration(username: Username?): RequestResult<Unit, RegisterAccountError> = RequestResult.ApplicationError()
++}
+\ No newline at end of file
+diff --git a/stubs/org/signal/registration/screens/util/Navigation.kt b/stubs/org/signal/registration/screens/util/Navigation.kt
+index cd552b4909963363a2f98ece4e36a61e3363ae2c..ecfaba37c14586bd7495b6de0f7106177b5d433e 100644
+--- a/stubs/org/signal/registration/screens/util/Navigation.kt
++++ b/stubs/org/signal/registration/screens/util/Navigation.kt
+@@ -3,5 +3,6 @@ package org.signal.registration.screens.util
+ import org.signal.registration.RegistrationFlowEvent
+ import org.signal.registration.RegistrationRoute
+ 
+-fun ((RegistrationFlowEvent) -> Unit).navigateTo(route: RegistrationRoute) = invoke(RegistrationFlowEvent.NavigateToScreen(route))
++fun ((RegistrationFlowEvent) -> Unit).navigateTo(route: RegistrationRoute, popCurrent: Boolean = false) = invoke(RegistrationFlowEvent.NavigateToScreen(route, popCurrent))
+ fun ((RegistrationFlowEvent) -> Unit).navigateBack() = invoke(RegistrationFlowEvent.NavigateBack)
++fun ((RegistrationFlowEvent) -> Unit).navigateBackTo(route: RegistrationRoute) = invoke(RegistrationFlowEvent.NavigateBackToScreen(route))
+\ No newline at end of file

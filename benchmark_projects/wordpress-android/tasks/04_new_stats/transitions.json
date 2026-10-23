@@ -1,0 +1,893 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_new_stats",
+  "description": "Platform-neutral transitions for interactive, cached, and plan-aware New Stats behavior introduced through WordPress Android 27.6",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_001_metric_replot_persist",
+      "key": "metric_replot_persist",
+      "functionalArea": "chart_metric_selection",
+      "given": {
+        "siteId": 123,
+        "period": "last_7_days",
+        "selectedMetric": "views",
+        "loadedPeriodData": {
+          "totals": {
+            "views": 7000,
+            "visitors": 700,
+            "likes": 50,
+            "comments": 25,
+            "posts": 5
+          },
+          "points": [
+            {
+              "period": "2024-01-14",
+              "views": 1000,
+              "visitors": 300
+            },
+            {
+              "period": "2024-01-15",
+              "views": 1500,
+              "visitors": 400
+            }
+          ]
+        },
+        "periodFetchCount": 1
+      },
+      "event": {
+        "name": "selectMetric",
+        "metric": "visitors"
+      },
+      "expected": {
+        "state": {
+          "selectedMetric": "visitors",
+          "chartTotal": 700,
+          "chartPointValues": [
+            300,
+            400
+          ],
+          "persistedMetric": "visitors",
+          "periodFetchCount": 1
+        },
+        "effects": [
+          {
+            "name": "saveSiteStatsConfiguration",
+            "siteId": 123,
+            "selectedMetric": "visitors"
+          },
+          {
+            "name": "replotFromLoadedPeriodData"
+          }
+        ],
+        "absentEffects": [
+          "fetchStatsForPeriod",
+          "clearLoadedPeriodData",
+          "changePeriod"
+        ]
+      },
+      "invariants": [
+        "the persisted semantic choice remains visitors across restoration",
+        "chart header and series represent the same selected metric",
+        "switching metrics does not reload data already present in the period response"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#onMetricSelected",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#saveMetric",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt#StatsMetric"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a metric is selected, then the chart re-plots that metric without a new fetch",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a metric is selected, then the choice is persisted to the site configuration"
+        ],
+        "baseSemanticGap": "Android 27.1 has no selectable StatsMetric state or persisted metric preference."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "1522c651999fc17096134feb1834e3435bd2ae6c78ea157f434030e6ac45d253"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_002_hourly_fallback_restore",
+      "key": "hourly_fallback_restore",
+      "functionalArea": "chart_metric_compatibility",
+      "given": {
+        "siteId": 123,
+        "period": "today",
+        "persistedMetric": "visitors",
+        "displayedMetric": "views",
+        "chartState": "loaded",
+        "hourlySeriesMetrics": [
+          "views"
+        ],
+        "metricPickedOnCurrentPeriod": false
+      },
+      "event": {
+        "name": "selectPeriod",
+        "period": "last_7_days"
+      },
+      "expected": {
+        "state": {
+          "period": "last_7_days",
+          "selectedMetric": "visitors",
+          "chartState": "loaded",
+          "persistedMetric": "visitors"
+        },
+        "effects": [
+          {
+            "name": "fetchStatsForPeriod",
+            "period": "last_7_days"
+          },
+          {
+            "name": "replotMetric",
+            "metric": "visitors"
+          }
+        ],
+        "absentEffects": [
+          "saveMetric",
+          "replacePersistedMetricWithViews",
+          "showUnavailableChart"
+        ]
+      },
+      "invariants": [
+        "the hourly views fallback never overwrites the user's visitors preference",
+        "returning to a multi-day period restores the compatible preference",
+        "the bottom row and chart retain one coherent period"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#chartedMetric",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#chartAvailableFor",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#onPeriodChanged"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#given a single-day period with a persisted non-views metric, then views is charted instead",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#given a single-day fallback, when moving back to a multi-day period, then the pick is charted again"
+        ],
+        "baseSemanticGap": "Android 27.1 has no persisted alternate metric, hourly fallback, or compatible-period restoration behavior."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "501c3b634de4d4328ae055d2d019011ca60356d974224cc8d79bb370441d712d"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_003_explicit_hourly_unavailable",
+      "key": "explicit_hourly_unavailable",
+      "functionalArea": "chart_metric_compatibility",
+      "given": {
+        "siteId": 123,
+        "period": "today",
+        "selectedMetric": "views",
+        "chartState": "loaded",
+        "bottomStats": {
+          "state": "loaded",
+          "metrics": [
+            "views",
+            "visitors",
+            "likes",
+            "comments",
+            "posts"
+          ]
+        },
+        "periodFetchCount": 1
+      },
+      "event": {
+        "name": "selectMetric",
+        "metric": "visitors"
+      },
+      "expected": {
+        "state": {
+          "selectedMetric": "visitors",
+          "chartState": "unavailable",
+          "bottomStats": {
+            "state": "loaded",
+            "metrics": [
+              "views",
+              "visitors",
+              "likes",
+              "comments",
+              "posts"
+            ]
+          },
+          "persistedMetric": "visitors",
+          "periodFetchCount": 1
+        },
+        "effects": [
+          {
+            "name": "saveSiteStatsConfiguration",
+            "siteId": 123,
+            "selectedMetric": "visitors"
+          }
+        ],
+        "absentEffects": [
+          "fetchStatsForPeriod",
+          "hideBottomStats",
+          "fallbackExplicitChoiceToViews"
+        ]
+      },
+      "invariants": [
+        "an explicit unsupported hourly metric receives an unavailable answer instead of appearing inert",
+        "the independent bottom-stats row remains usable",
+        "the explicit choice is retained for a compatible period"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#onMetricSelected",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#buildChartState",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt#data object Unavailable"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a non-views metric is selected on a single-day period, then the chart is unavailable",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a single-day chart fetch fails, then the bottom row still loads from its dedicated call"
+        ],
+        "baseSemanticGap": "Android 27.1 has no alternate metric selection or distinct unavailable chart state."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "8beaec26096c356b0beb0a2cb265630545f6279553d25b3690f856ee5cdee7fb"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_004_bar_soft_select",
+      "key": "bar_soft_select",
+      "functionalArea": "chart_bucket_interaction",
+      "given": {
+        "committedPeriod": "last_7_days",
+        "selectedMetric": "views",
+        "selectedBar": null,
+        "chartType": "bar",
+        "periodFetchCount": 1,
+        "currentPoints": [
+          {
+            "period": "2024-01-14",
+            "views": 1000,
+            "visitors": 300,
+            "likes": 3,
+            "comments": 1,
+            "posts": 1
+          },
+          {
+            "period": "2024-01-15",
+            "views": 1500,
+            "visitors": 400,
+            "likes": 4,
+            "comments": 2,
+            "posts": 1
+          }
+        ],
+        "previousPoints": [
+          {
+            "period": "2024-01-07",
+            "views": 800,
+            "visitors": 250,
+            "likes": 2,
+            "comments": 0,
+            "posts": 1
+          },
+          {
+            "period": "2024-01-08",
+            "views": 1200,
+            "visitors": 350,
+            "likes": 3,
+            "comments": 1,
+            "posts": 1
+          }
+        ]
+      },
+      "event": {
+        "name": "tapChartBucket",
+        "index": 0
+      },
+      "expected": {
+        "state": {
+          "committedPeriod": "last_7_days",
+          "effectivePeriod": {
+            "type": "custom",
+            "start": "2024-01-14",
+            "end": "2024-01-14"
+          },
+          "selectedBar": {
+            "index": 0,
+            "canDrillDown": true
+          },
+          "chartHeader": {
+            "current": 1000,
+            "previous": 800,
+            "difference": 200
+          },
+          "bottomValues": {
+            "views": 1000,
+            "visitors": 300,
+            "likes": 3,
+            "comments": 1,
+            "posts": 1
+          },
+          "periodFetchCount": 1,
+          "surfaces": {
+            "viewsChartPeriod": "last_7_days",
+            "topRangeAndOtherCardsPeriod": {
+              "start": "2024-01-14",
+              "end": "2024-01-14"
+            }
+          }
+        },
+        "effects": [
+          {
+            "name": "publishEffectivePeriod",
+            "period": {
+              "start": "2024-01-14",
+              "end": "2024-01-14"
+            }
+          }
+        ],
+        "absentEffects": [
+          "fetchStatsForPeriod",
+          "commitSelectedPeriod",
+          "savePeriod"
+        ]
+      },
+      "invariants": [
+        "soft selection freezes the Views chart on its committed period",
+        "header, bottom row, highlight, top range, and other cards refer to the same selected bucket",
+        "a bar tap reuses loaded per-bucket data"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#onBarTapped",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#effectivePeriod",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsActivity.kt#LaunchedEffect(effectivePeriod, cardsToLoad, isPeriodInitialized)",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#buildSelectedBarBottom"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a daily bar is tapped, then it soft-selects without changing the committed period",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a bar is soft-selected, then the bottom row reflects that bar",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a bar is tapped, then no new fetch is triggered"
+        ],
+        "baseSemanticGap": "Android 27.1 commits a bar tap directly to another period and has no soft selection or split committed/effective period propagation."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "c93f51fdcd9f3957d3d0d969dc3c591ae137995e4b1dc774004676824dd817c4"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_005_bar_drill_commit",
+      "key": "bar_drill_commit",
+      "functionalArea": "chart_bucket_interaction",
+      "given": {
+        "committedPeriod": "last_7_days",
+        "effectivePeriod": {
+          "type": "custom",
+          "start": "2024-01-14",
+          "end": "2024-01-14"
+        },
+        "selectedBar": {
+          "index": 0,
+          "rawPeriod": "2024-01-14",
+          "canDrillDown": true
+        },
+        "givenEstablishedBy": [
+          {
+            "name": "loadPeriodData"
+          },
+          {
+            "name": "tapChartBucket",
+            "index": 0
+          }
+        ]
+      },
+      "event": {
+        "name": "drillIntoSelectedBucket"
+      },
+      "expected": {
+        "state": {
+          "committedPeriod": {
+            "type": "custom",
+            "start": "2024-01-14",
+            "end": "2024-01-14"
+          },
+          "effectivePeriod": {
+            "type": "custom",
+            "start": "2024-01-14",
+            "end": "2024-01-14"
+          },
+          "selectedBar": null,
+          "isLoadingNewPeriodAfterCompletion": false
+        },
+        "effects": [
+          {
+            "name": "saveSiteStatsConfiguration",
+            "selectedPeriodType": "custom",
+            "customStart": "2024-01-14",
+            "customEnd": "2024-01-14",
+            "originPeriodType": "custom"
+          },
+          {
+            "name": "fetchStatsForPeriod",
+            "period": {
+              "start": "2024-01-14",
+              "end": "2024-01-14"
+            }
+          },
+          {
+            "name": "propagatePeriodToVisibleCards"
+          }
+        ],
+        "absentEffects": [
+          "retainSoftSelection",
+          "loadUnselectedPeriod"
+        ]
+      },
+      "invariants": [
+        "the given soft selection is established through the real bar-tap path",
+        "committing clears the transient selection before the destination finishes loading",
+        "every visible stats surface receives the committed day"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#onDrillIntoSelectedBar",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#onPeriodChanged",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#savePeriod",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsActivity.kt#dispatchToVisibleCards"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when the arrow is tapped on a daily selection, then the whole screen drills into that day"
+        ],
+        "baseSemanticGap": "Android 27.1 has no soft-selected bar or separate drill-down commit action."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "91925dd950eec13d58eec29b9c4452a0d5bce53f306bdc873767ace8abdfcdfd"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_006_future_bucket_noop",
+      "key": "future_bucket_noop",
+      "functionalArea": "calendar_period_boundaries",
+      "given": {
+        "period": "this_week",
+        "chartType": "bar",
+        "selectedBar": null,
+        "periodFetchCount": 1,
+        "points": [
+          {
+            "period": "2024-01-14",
+            "views": 1000,
+            "isUpcoming": false
+          },
+          {
+            "period": "2024-01-15",
+            "views": 1500,
+            "isUpcoming": false
+          },
+          {
+            "period": "2024-01-16",
+            "views": 0,
+            "isUpcoming": true
+          }
+        ],
+        "wholePeriodAverage": 3500
+      },
+      "event": {
+        "name": "tapChartBucket",
+        "index": 2
+      },
+      "expected": {
+        "state": {
+          "selectedBar": null,
+          "effectivePeriod": "this_week",
+          "committedPeriod": "this_week",
+          "periodFetchCount": 1,
+          "wholePeriodAverage": 3500
+        },
+        "effects": [],
+        "absentEffects": [
+          "publishEffectivePeriod",
+          "fetchStatsForPeriod",
+          "savePeriod",
+          "showDrillDown",
+          "trackBarSelection"
+        ]
+      },
+      "invariants": [
+        "future placeholders occupy chart slots but cannot be selected",
+        "future placeholders are excluded from the elapsed-bucket average",
+        "the chart and all other cards remain on the committed period"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsRepository.kt#calculateCalendarPeriodDates",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#buildChartLoaded",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#onBarTapped"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#given a period that hasn't finished, then the average only counts the buckets that elapsed",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when a bucket that hasn't happened yet is tapped, then nothing is selected"
+        ],
+        "baseSemanticGap": "Android 27.1 truncates current-period charting and has no final upcoming-placeholder eligibility model."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "109ab91bcdbcc2bbf24ab7b35740cf02572a6da4ab8f0b7ed698a726f759c2b8"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_007_period_origin_restore",
+      "key": "period_origin_restore",
+      "functionalArea": "period_persistence_and_navigation",
+      "given": {
+        "siteId": 123,
+        "clockDate": "2026-10-30",
+        "persistedPeriod": {
+          "type": "custom",
+          "start": "2026-09-01",
+          "end": "2026-09-30"
+        },
+        "persistedOrigin": "last_30_days",
+        "processState": "recreated",
+        "givenEstablishedBy": [
+          {
+            "name": "selectPeriod",
+            "period": "last_30_days"
+          },
+          {
+            "name": "navigateBackward"
+          },
+          {
+            "name": "recreateStatsSurface"
+          }
+        ]
+      },
+      "event": {
+        "name": "navigateForwardAfterRestore"
+      },
+      "expected": {
+        "state": {
+          "restoredPeriod": {
+            "type": "custom",
+            "start": "2026-09-01",
+            "end": "2026-09-30"
+          },
+          "restoredOrigin": "last_30_days",
+          "selectedPeriodAfterNavigation": "last_30_days",
+          "canNavigateForwardAfterNavigation": false
+        },
+        "effects": [
+          {
+            "name": "readPersistedStatsConfiguration",
+            "siteId": 123
+          },
+          {
+            "name": "resolveNextPeriod",
+            "period": {
+              "start": "2026-09-01",
+              "end": "2026-09-30"
+            },
+            "origin": "last_30_days"
+          },
+          {
+            "name": "persistPeriodAndOrigin",
+            "period": "last_30_days",
+            "origin": "last_30_days"
+          }
+        ],
+        "absentEffects": [
+          "reinterpretOriginAsCalendarMonth",
+          "navigatePastPresentBoundary"
+        ]
+      },
+      "invariants": [
+        "the persisted configuration is read through the production repository after recreation",
+        "a paged rolling window remains rolling even when its concrete dates form a calendar month",
+        "forward navigation cannot pass the present edge"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#savePeriod",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#restorePeriodFromPreferences",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsRepository.kt#nextPeriod",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsRepository.kt#canNavigateForward"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#given a picked preset, when paging saves the range, then the pick is persisted as the origin",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#given a persisted origin, when restoring, then paging resolves against the picked preset"
+        ],
+        "baseSemanticGap": "Android 27.1 does not persist period origin and cannot preserve rolling-versus-calendar navigation semantics across restoration."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "4c1ad4e6227da833a0d630534b89dc1c39cd294d7d1468aafa798a410e2ec749"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_008_cached_revalidation_recovery",
+      "key": "cached_revalidation_recovery",
+      "functionalArea": "cache_failure_recovery",
+      "given": {
+        "siteId": 123,
+        "today": "2026-10-23",
+        "period": "last_7_days",
+        "requestIdentity": {
+          "surface": "views_chart",
+          "siteId": 123,
+          "today": "2026-10-23",
+          "period": "last_7_days",
+          "variant": null
+        },
+        "displayedCachedResult": {
+          "views": 7000
+        },
+        "loadingPlaceholderVisible": false,
+        "needsRevalidation": true,
+        "nextRevalidationOutcome": {
+          "views": 7100
+        },
+        "givenEstablishedBy": [
+          {
+            "name": "revisitStatsSurface"
+          },
+          {
+            "name": "backgroundRevalidation",
+            "outcome": "network_error",
+            "observableResult": "cached_content_preserved"
+          }
+        ]
+      },
+      "event": {
+        "name": "retryBackgroundRevalidation"
+      },
+      "expected": {
+        "state": {
+          "chartState": "loaded",
+          "views": 7100,
+          "loadingPlaceholderVisible": false,
+          "needsRevalidation": false
+        },
+        "effects": [
+          {
+            "name": "fetchStatsForPeriod",
+            "forceRefresh": true,
+            "count": 1
+          },
+          {
+            "name": "replaceCachedResult",
+            "views": 7100
+          }
+        ],
+        "absentEffects": [
+          "replaceCachedDataWithBlockingError",
+          "cacheFailedResult",
+          "showLoadingPlaceholderForCacheHit"
+        ]
+      },
+      "invariants": [
+        "the failed-revalidation precondition is established through the real screen-entry and refresh path",
+        "request identity includes surface, site, current day, period, and variant",
+        "only a complete successful retry replaces the cached value and marks it revalidated"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsViewModel.kt#onScreenEntered",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsResultCache.kt#markAllStale",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsRepository.kt#cached",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#revalidateIfNeeded"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/NewStatsViewModelTest.kt#when the screen is entered, then cached stats are kept but marked for one refresh",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsResultCacheTest.kt#given markAllStale, then the value is still served but needs revalidation",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsRepositoryCacheTest.kt#given a stale period, when the previous window fails, then the cached comparison is served",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/clicks/ClicksViewModelCacheTest.kt#given revalidation fails, then the cached content stays on screen"
+        ],
+        "testEvidenceGap": "Cache failure preservation is directly tested on repository and Clicks surfaces; the Views chart path is supported by revalidateIfNeeded(applyErrors=false) but lacks an equivalent dedicated failure test.",
+        "baseSemanticGap": "Android 27.1 has no shared period-result cache or stale-entry background revalidation, so it cannot render cached content immediately, preserve it across failed revalidation, and replace it on retry."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "1d70ddc6b3c281f5d9a87ea0ff07f61d92e3af829eea9035a9a7ab3354d74990"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_009_pull_refresh_inflight_isolation",
+      "key": "pull_refresh_inflight_isolation",
+      "functionalArea": "refresh_concurrency",
+      "given": {
+        "siteId": 123,
+        "period": "last_7_days",
+        "displayedCachedResult": {
+          "views": 7000
+        },
+        "olderRequest": {
+          "status": "in_flight",
+          "resultWhenReleased": {
+            "views": 7050
+          }
+        },
+        "refreshRequestResult": {
+          "views": 7200
+        },
+        "completionOrder": [
+          "refresh_request",
+          "older_request"
+        ]
+      },
+      "event": {
+        "name": "pullToRefresh"
+      },
+      "expected": {
+        "state": {
+          "refreshingAfterCompletion": false,
+          "visibleViews": 7200,
+          "cachedViewsForNextVisit": 7200
+        },
+        "effects": [
+          {
+            "name": "invalidateCachedStatsBeforeRefresh"
+          },
+          {
+            "name": "fetchStatsForPeriod",
+            "forceRefresh": true,
+            "result": {
+              "views": 7200
+            }
+          },
+          {
+            "name": "storeRefreshResult",
+            "views": 7200
+          }
+        ],
+        "absentEffects": [
+          "serveOldCachedResultAsFinal",
+          "storeOlderRequestResult",
+          "replaceVisibleStateWith7050"
+        ]
+      },
+      "invariants": [
+        "cache invalidation happens synchronously before visible cards dispatch refreshes",
+        "a result that started before invalidation cannot repopulate refreshed cached state",
+        "the refresh indicator stops even when competing work completes later"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsActivity.kt#PullToRefreshBox(",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsViewModel.kt#invalidateStatsCache",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsResultCache.kt#clear",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsResultCache.kt#put",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt#refresh"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsResultCacheTest.kt#given a fetch that started before clear, when it is stored, then it is dropped",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsRepositoryCacheTest.kt#given the cache is emptied mid-fetch, when the result lands, then it is not stored",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt#when refresh is called, then isRefreshing becomes true then false"
+        ],
+        "baseSemanticGap": "Android 27.1 has no refresh invalidation boundary that rejects results started before the refresh, so an older completion can repopulate stale cached state."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "d678bcd294ff0139a27f8495e251ecef1663101282f6376909c47d018638cb5b"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "ns_state_010_plan_gate_presentation",
+      "key": "plan_gate_presentation",
+      "functionalArea": "plan_gated_states",
+      "given": {
+        "siteId": 123,
+        "period": "last_7_days",
+        "userCanViewStats": true,
+        "selectedLocationType": "countries",
+        "countriesState": {
+          "type": "loaded",
+          "items": [
+            "US"
+          ]
+        },
+        "regionResponse": {
+          "httpStatus": 403,
+          "body": "{\"error\":\"unauthorized\",\"message\":\"localized\"}"
+        },
+        "planActionDestination": "site_upgrade_plans"
+      },
+      "event": {
+        "name": "selectLocationType",
+        "locationType": "regions"
+      },
+      "expected": {
+        "state": {
+          "selectedLocationType": "regions",
+          "regions": {
+            "type": "plan_gated",
+            "isPlanGated": true,
+            "isAuthError": false,
+            "primaryAction": "explore_plans",
+            "ordinaryRetryVisible": false
+          },
+          "countriesStatePreserved": {
+            "type": "loaded",
+            "items": [
+              "US"
+            ]
+          }
+        },
+        "effects": [
+          {
+            "name": "fetchRegionViews",
+            "siteId": 123
+          },
+          {
+            "name": "classifyStatsError",
+            "errorCode": "unauthorized",
+            "classification": "plan_gated"
+          },
+          {
+            "name": "exposeExplorePlansAction",
+            "destination": "site_upgrade_plans"
+          }
+        ],
+        "absentEffects": [
+          "classifyAsGenericPermissionFailure",
+          "showOrdinaryRetryForPlanGate",
+          "discardLoadedCountries"
+        ]
+      },
+      "invariants": [
+        "unauthorized is plan-gated only when the endpoint is gate-eligible and the user already has view-stats capability",
+        "plan-gated and auth-error flags are mutually exclusive",
+        "loading the gated surface does not discard the already loaded unrestricted surface"
+      ],
+      "polarity": {
+        "final": "positive",
+        "base": "semantic_fail"
+      },
+      "evidence": {
+        "androidProduction": [
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/datasource/StatsApiError.kt#isStatsGatedByPlan",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/datasource/StatsDataSourceImpl.kt#classifyError",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsRepository.kt#fetchRegionViews",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/locations/LocationsViewModel.kt#onLocationTypeChanged",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/locations/LocationsCard.kt#StatsCardErrorContent",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/components/StatsCardCommon.kt#StatsCardFeatureGateContent",
+          "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsActivity.kt#openPlans"
+        ],
+        "androidTests": [
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/datasource/StatsApiErrorTest.kt#given a plan gate body and a user who can view stats, when isStatsGatedByPlan, then true",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/datasource/StatsApiErrorTest.kt#given a user who cannot view stats, when isStatsGatedByPlan, then false is returned",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/locations/LocationsViewModelTest.kt#when regions are plan gated, then isPlanGated is true",
+          "WordPress/src/test/java/org/wordpress/android/ui/newstats/locations/LocationsViewModelTest.kt#when switching to regions, then regions are fetched"
+        ],
+        "baseSemanticGap": "Android 27.1 already has region switching and per-location state, but the same unauthorized response is only a generic/auth error with retry; it cannot render the final plan-gated Explore Plans state without ordinary retry."
+      },
+      "taskId": "04_new_stats",
+      "traceDigest": "d06d9928ca38030c984674bc971f22f1b3f438c66f55b7cf26dfe4c215f30953"
+    }
+  ],
+  "owner": "evaluator"
+}

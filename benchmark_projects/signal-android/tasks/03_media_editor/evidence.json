@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_media_editor",
+  "rawEvidence": "raw_release_evidence.json",
+  "releaseEvidence": [
+    "The official v8.23.0 GitHub release says the media editor was completely redesigned for tablets, foldables, and screens of all sizes.",
+    "The same official release says the editor can remove a video's audio track before sending.",
+    "Official commits d6b0826f, ee59bb40, 1fd343df, a4793ebb, and 24fffdf2 connect the editor state refactor, audio-removal pipeline, discard confirmation, and user feedback."
+  ],
+  "implementationEvidence": {
+    "symbols": [
+      "MediaSendFlowState",
+      "MediaSendFlowViewModel",
+      "MediaEditState",
+      "MediaEditViewModel",
+      "MediaEditScreenEvents",
+      "EditorState.VideoTrim",
+      "VideoTrimData",
+      "TransformProperties",
+      "StreamingTranscoder"
+    ],
+    "productionPaths": [
+      "feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowState.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/MediaSendFlowViewModel.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/MediaSendRepository.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditState.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditViewModel.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditScreenEvents.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/MediaEditorToolbar.kt",
+      "feature/media-send/src/main/java/org/signal/mediasend/screens/edit/video/VideoTrimData.kt",
+      "core/models/src/main/java/org/signal/core/models/media/TransformProperties.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/mediasend/VideoTrimTransform.kt",
+      "lib/video/src/main/java/org/thoughtcrime/securesms/video/StreamingTranscoder.java"
+    ],
+    "testPaths": [
+      "feature/media-send/src/test/java/org/signal/mediasend/screens/edit/MediaEditStateTest.kt",
+      "feature/media-send/src/test/java/org/signal/mediasend/screens/edit/MediaEditViewModelTest.kt",
+      "feature/media-send/src/test/java/org/signal/mediasend/screens/edit/MediaEditorToolbarSharedButtonsTest.kt",
+      "core/models/src/test/java/org/signal/core/models/media/TransformPropertiesTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/database/AttachmentDatabaseTransformPropertiesTest.java",
+      "demo/video/src/androidTest/java/org/thoughtcrime/video/app/transcode/VideoTranscodeInstrumentationTest.kt"
+    ],
+    "testEvidenceNote": "Focused tests cover state derivation, event handoff, media-save failure states, mute-control eligibility, transform serialization compatibility, and the transcoder's expanded audio-removal input."
+  },
+  "baseFailureEvidence": [
+    "The v8.22.2 tree has no MediaEditState or MediaEditViewModel production files and no corresponding focused tests.",
+    "The v8.22.2 tree has no ToggleVideoMuted event, no isMuteVideoAudioEnabled state, and no persisted videoMuted transform field.",
+    "The v8.22.2 transcoder has no mute-audio input and therefore cannot force audio-track omission from edited output.",
+    "The v8.23.0 tree contains all of those state, persistence, UI, and transcoding surfaces."
+  ],
+  "boundaryAudit": {
+    "baseTagObject": "c79a049718fbeb6dea429c53cd2b1f67c003313a",
+    "baseCommit": "e3a7a9c8764bf5961bbbb54f5d72d1056dd3974e",
+    "finalTagObject": "5dad886f4a2e9adb9dcaee0b322b9650c3fab729",
+    "finalCommit": "64fa9f50a38fecb088135fd0200c331fe0686bd3",
+    "baseIsAncestor": true,
+    "compareStatus": "ahead",
+    "commitsBetween": 84,
+    "featureContainment": {
+      "ee59bb40803ce927a2b35f8f225571ec60c8e7ae": {"inBase": false, "inFinal": true},
+      "a4793ebba53803aa7c483c429cfa94dfe02b8114": {"inBase": false, "inFinal": true},
+      "1fd343df93e58555fc45caa9354568072ef918e9": {"inBase": false, "inFinal": true},
+      "24fffdf25ed77427def8f450e7fcad5b63cf4afa": {"inBase": false, "inFinal": true},
+      "d6b0826f4e26ddfb63886d6019be35ec1863a0e2": {"inBase": false, "inFinal": true}
+    },
+    "verification": "Local read-only git object queries and the official GitHub compare endpoint agree on ancestry and containment."
+  },
+  "longHorizonSignals": [
+    "The task crosses responsive UI, saved flow state, per-item editor state, pre-upload invalidation, attachment serialization, and video transcoding.",
+    "The state graph includes focus and reorder transitions, mute and unmute transitions, edited-media send preparation, and confirmed versus canceled discard.",
+    "Compatibility must be preserved for existing serialized transforms that lack the new field."
+  ]
+}

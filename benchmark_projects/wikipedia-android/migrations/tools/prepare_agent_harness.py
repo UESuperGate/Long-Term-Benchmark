@@ -101,7 +101,7 @@ def prepare_android(task_id: str, project: Path, migration: Path, hidden: Path) 
         runner = "org.wikipedia.benchmark.reading.native.NativeReadingInstrumentation"
         namespace = "org.wikipedia.benchmark.reading.agent"
         exclude = ""
-    else:
+    elif task_id == "02_hybrid_search":
         selected = [
             "androidx/lifecycle", "androidx/paging", "kotlinx/serialization", "org/wikipedia/dataclient",
             "org/wikipedia/search", "retrofit2/http"
@@ -111,6 +111,14 @@ def prepare_android(task_id: str, project: Path, migration: Path, hidden: Path) 
         copy_tree(migration / "android/shared/native_leaf/kotlin", evaluator_main)
         runner = "org.wikipedia.benchmark.hybrid.native.NativeHybridInstrumentation"
         namespace = "org.wikipedia.benchmark.hybrid.agent"
+        exclude = ""
+    elif task_id == "03_explore_feed":
+        runner = "org.wikipedia.benchmark.explore.native.NativeExploreInstrumentation"
+        namespace = "org.wikipedia.benchmark.explore.agent"
+        exclude = ""
+    else:
+        runner = "org.wikipedia.benchmark.saved.native.NativeSavedInstrumentation"
+        namespace = "org.wikipedia.benchmark.saved.agent"
         exclude = ""
     copy_tree(migration / "android/shared/native_test/kotlin", evaluator_test)
     candidate_literal = json.dumps(str(candidate_sources))
@@ -221,7 +229,7 @@ def patch_arkts(task_id: str, project: Path, target: Path) -> list[Path]:
       await owner.mount(context, { clock: runtime.clock, effects: runtime.effects });
       const episode = await runtime.run(owner);
       console.info('LTB_RUNTIME:' + encodeURIComponent(JSON.stringify(episode)));"""
-    else:
+    elif task_id == "02_hybrid_search":
         launch = "HybridRuntimeLaunch"
         episode_import = "import { prepareHybridEpisode } from '../.benchmark-evaluator/HybridRuntimeEpisode';\n"
         case_body = """      const runtime = await prepareHybridEpisode(context, HybridRuntimeLaunch.caseKey);
@@ -232,6 +240,34 @@ def patch_arkts(task_id: str, project: Path, target: Path) -> list[Path]:
       });
       const episode = await runtime.run(owner);
       console.info('LTB_RUNTIME:' + encodeURIComponent(JSON.stringify(episode)));"""
+    elif task_id == "03_explore_feed":
+        launch = "ExploreRuntimeLaunch"
+        episode_import = "import { prepareExploreEpisode } from '../.benchmark-evaluator/ExploreRuntimeEpisode';\n"
+        case_body = """      const runtime = await prepareExploreEpisode(context, ExploreRuntimeLaunch.caseKey);
+      const owner = this.createRuntimeOwner();
+      await owner.mount(context, { state: runtime.state, persistence: runtime.persistence, leaf: runtime.leaf });
+      const episode = await runtime.run(owner);
+      const payload = encodeURIComponent(JSON.stringify(episode));
+      const chunkSize = 1800;
+      const chunkCount = Math.ceil(payload.length / chunkSize);
+      for (let index = 0; index < chunkCount; index += 1) {
+        console.info('LTB_RUNTIME_CHUNK:' + ExploreRuntimeLaunch.caseKey + ':' + String(index) + ':' +
+          String(chunkCount) + ':' + payload.substring(index * chunkSize, (index + 1) * chunkSize));
+      }"""
+    else:
+        launch = "SavedRuntimeLaunch"
+        episode_import = "import { prepareSavedEpisode } from '../.benchmark-evaluator/SavedRuntimeEpisode';\n"
+        case_body = """      const runtime = await prepareSavedEpisode(context, SavedRuntimeLaunch.caseKey);
+      const owner = this.createRuntimeOwner();
+      await owner.mount(context, { state: runtime.state, persistence: runtime.persistence, leaf: runtime.leaf });
+      const episode = await runtime.run(owner);
+      const payload = encodeURIComponent(JSON.stringify(episode));
+      const chunkSize = 1800;
+      const chunkCount = Math.ceil(payload.length / chunkSize);
+      for (let index = 0; index < chunkCount; index += 1) {
+        console.info('LTB_RUNTIME_CHUNK:' + SavedRuntimeLaunch.caseKey + ':' + String(index) + ':' +
+          String(chunkCount) + ':' + payload.substring(index * chunkSize, (index + 1) * chunkSize));
+      }"""
     launch_import = f"import {{ {launch} }} from '../.benchmark-evaluator/{launch}';\n"
     if launch_import.strip() not in entry_text:
         entry_text = launch_import + entry_text
@@ -261,7 +297,7 @@ def prepare_arkts(task_id: str, project: Path, migration: Path,
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=("android", "arkts"), required=True)
-    parser.add_argument("--task-id", choices=("01_reading_challenge", "02_hybrid_search"), required=True)
+    parser.add_argument("--task-id", choices=("01_reading_challenge", "02_hybrid_search", "03_explore_feed", "04_reading_lists"), required=True)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--migration", type=Path, required=True)
     args = parser.parse_args()

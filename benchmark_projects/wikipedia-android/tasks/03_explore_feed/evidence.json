@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_explore_feed",
+  "baseAbsence": [
+    {
+      "path": "app/src/main/java/org/wikipedia/feed/HomeViewModel.kt",
+      "atCommit": "40876929c5a84e1a1f968b29184c245582c7ff9a",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/feed/HomeScreen.kt",
+      "atCommit": "40876929c5a84e1a1f968b29184c245582c7ff9a",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/feed/personalization/interest/InterestSelectionRepository.kt",
+      "atCommit": "40876929c5a84e1a1f968b29184c245582c7ff9a",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/settings/SettingsRepository.kt",
+      "atCommit": "40876929c5a84e1a1f968b29184c245582c7ff9a",
+      "status": "missing"
+    }
+  ],
+  "semanticBoundary": "The base has the legacy Explore feed but lacks the two-tab Home state holder, Home Compose surface, persisted interest model, and persistent per-module visibility store introduced by the redesign.",
+  "finalProduction": [
+    {
+      "path": "app/src/main/java/org/wikipedia/feed/HomeViewModel.kt",
+      "sha256": "a4b4d2deeb4b2b95576f731b473129752307a170c50f359608d296cb8c60c079",
+      "symbols": [
+        "HomeTab",
+        "CommunityContentState",
+        "ForYouContentState",
+        "loadCommunityContent",
+        "loadForYouContent",
+        "hideCommunityCard",
+        "restoreCommunityCard",
+        "hideModule",
+        "restoreModule"
+      ],
+      "facts": [
+        "Community and For You keep independent loading, content, error, and empty-state data.",
+        "Community age and For You batch counters advance only after successful fetches, so retry repeats failed work.",
+        "A same-day per-language For You cache is read before network generation and filters persisted hidden cards.",
+        "Language changes persist and refresh only the selected tab.",
+        "Card and module hiding has explicit restoration paths."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/feed/HomeScreen.kt",
+      "sha256": "f985db87b6f34f0cf50c67bc0642e248bbdd3ef4ebcca8a8f2336083af55ba9b",
+      "symbols": [
+        "HomeScreen",
+        "HomeTabBar"
+      ],
+      "facts": [
+        "The screen switches between Community and For You surfaces.",
+        "Pull-to-refresh dispatches against the selected tab.",
+        "The language picker is scoped to configured app languages."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/settings/SettingsRepository.kt",
+      "sha256": "f89a8fb9dd5d4769734c1c1dfa5cbec8753878d89783ff46cb7c75bcbd41ea71",
+      "symbols": [
+        "hiddenModules",
+        "addHiddenModule",
+        "removeHiddenModule"
+      ],
+      "facts": [
+        "Hidden module keys are persisted as a DataStore string set and exposed as a reactive flow."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/feed/personalization/interest/InterestSelectionRepository.kt",
+      "sha256": "12b5f3b8320b907da073520b206e3c395d53b986546afaeedcccdbd7331d9c4d",
+      "symbols": [
+        "saveTopic",
+        "deleteTopic",
+        "saveArticle",
+        "deleteArticle",
+        "deleteAllInterests"
+      ],
+      "facts": [
+        "Topic and article interests have database-backed save, remove, and clear operations."
+      ]
+    }
+  ],
+  "renderedRecoveryPaths": [
+    {
+      "paths": [
+        "app/src/main/java/org/wikipedia/feed/CommunityContentTab.kt",
+        "app/src/main/java/org/wikipedia/feed/ForYouContentTab.kt"
+      ],
+      "facts": [
+        "Initial failure renders a retryable error when no content exists.",
+        "Failure after partial success preserves content and appends an inline retry.",
+        "No-data and all-modules-hidden are distinct empty states with recovery actions."
+      ]
+    }
+  ],
+  "finalTests": [
+    {
+      "path": "app/src/androidTest/java/org/wikipedia/tests/settings/CustomizeExploreFeedTest.kt",
+      "sha256": "7698b1600d4efbf62584945ad5b3c7242daaaeb8897a3c93ad9114b2489dd5f2",
+      "changeStatus": "modified_in_boundary",
+      "coveredFacts": [
+        "Home feed settings can hide all modules.",
+        "The feed becomes empty after hide-all.",
+        "Show-all restores non-empty feed content."
+      ]
+    }
+  ],
+  "externalLeaves": [
+    {
+      "name": "Wikimedia content services",
+      "policy": "Control success, empty, held, and failure responses; execute application pagination, caching, filtering, state, and retry bodies."
+    },
+    {
+      "name": "analytics transport",
+      "policy": "Controlled sink after application-owned interaction mapping."
+    }
+  ],
+  "claimSources": [
+    {
+      "claim": "Two-tab Home feed, onboarding, interests, module controls, empty states, and retry behavior were introduced in the boundary.",
+      "sources": [
+        "https://github.com/wikimedia/apps-android-wikipedia/pull/6446",
+        "https://github.com/wikimedia/apps-android-wikipedia/commit/20cc80172dd7b279b7c257254c45c1d6c30c666a"
+      ]
+    }
+  ]
+}

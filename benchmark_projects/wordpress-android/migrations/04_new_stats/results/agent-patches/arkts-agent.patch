@@ -1,0 +1,3452 @@
+diff --git a/entry/src/main/ets/entryability/EntryAbility.ets b/entry/src/main/ets/entryability/EntryAbility.ets
+index 66f227cf4a68f1309e1de98fc13591a52a3bd594..16555574e4fcd77978dc22de8e3861e363a67707 100644
+--- a/entry/src/main/ets/entryability/EntryAbility.ets
++++ b/entry/src/main/ets/entryability/EntryAbility.ets
+@@ -10,4 +10,4 @@ export default class EntryAbility extends UIAbility {
+   onWindowStageCreate(windowStage: window.WindowStage): void {
+     windowStage.loadContent('pages/Index');
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/NewStatsCache.ets b/entry/src/main/ets/feature/NewStatsCache.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..b27391cff6a09fa9fb0bed8a02a44d40e0dc7956
+--- /dev/null
++++ b/entry/src/main/ets/feature/NewStatsCache.ets
+@@ -0,0 +1,234 @@
++import { NewStatsContentState, NewStatsPeriod } from './NewStatsDomain';
++
++/**
++ * Everything that must match before one cached payload may be reused for
++ * another request. Cache reuse never crosses a site, a date window, a period
++ * or a request-variant boundary, so all five components take part in the key.
++ */
++export interface NewStatsRequestIdentity {
++  surface: string;
++  siteId: number;
++  today: string;
++  period: string;
++  variant: string;
++}
++
++export interface NewStatsCacheEntry {
++  key: string;
++  identity: NewStatsRequestIdentity;
++  payload: Record<string, Object>;
++  storedOn: string;
++  needsRevalidation: boolean;
++}
++
++export function newStatsRequestIdentityKey(identity: NewStatsRequestIdentity): string {
++  return identity.surface + '|' + identity.siteId.toString() + '|' + identity.today + '|' +
++    identity.period + '|' + identity.variant;
++}
++
++export function copyNewStatsRequestIdentity(identity: NewStatsRequestIdentity): NewStatsRequestIdentity {
++  return {
++    surface: identity.surface,
++    siteId: identity.siteId,
++    today: identity.today,
++    period: identity.period,
++    variant: identity.variant
++  };
++}
++
++/**
++ * Per-surface response cache used to make a revisited stats screen show its
++ * previous content immediately while a revalidation runs in the background.
++ */
++export class NewStatsResponseCache {
++  private entries: Map<string, NewStatsCacheEntry> = new Map<string, NewStatsCacheEntry>();
++
++  read(key: string): NewStatsCacheEntry | undefined {
++    return this.entries.get(key);
++  }
++
++  write(key: string, identity: NewStatsRequestIdentity, payload: Record<string, Object>, storedOn: string,
++    needsRevalidation: boolean): NewStatsCacheEntry {
++    const entry: NewStatsCacheEntry = {
++      key: key,
++      identity: copyNewStatsRequestIdentity(identity),
++      payload: payload,
++      storedOn: storedOn,
++      needsRevalidation: needsRevalidation
++    };
++    this.entries.set(key, entry);
++    return entry;
++  }
++
++  /** Adopt an entry that was produced outside this process (restored cache). */
++  adopt(entry: NewStatsCacheEntry): void {
++    this.entries.set(entry.key, entry);
++  }
++
++  invalidate(key: string): void {
++    this.entries.delete(key);
++  }
++
++  invalidateAll(): void {
++    this.entries.clear();
++  }
++
++  size(): number {
++    return this.entries.size;
++  }
++}
++
++/**
++ * Tracks the requests that are currently outstanding so a response that began
++ * before a refresh boundary cannot repopulate state afterwards.
++ *
++ * The generation is bumped synchronously when the cache is invalidated; any
++ * response stamped with an older generation is stale by definition.
++ */
++export interface NewStatsInFlightRequest {
++  channel: string;
++  generation: number;
++}
++
++export class NewStatsRequestLedger {
++  private generation: number;
++  private outstanding: NewStatsInFlightRequest[] = [];
++
++  constructor(initialGeneration: number) {
++    this.generation = initialGeneration;
++  }
++
++  currentGeneration(): number {
++    return this.generation;
++  }
++
++  /**
++   * Opens a new refresh boundary. Returns the generation that responses must
++   * carry to be accepted; everything already in flight is now stale.
++   */
++  invalidate(): number {
++    this.generation += 1;
++    this.outstanding = [];
++    return this.generation;
++  }
++
++  begin(channel: string, generation: number): NewStatsInFlightRequest {
++    const request: NewStatsInFlightRequest = { channel: channel, generation: generation };
++    this.outstanding.push(request);
++    return request;
++  }
++
++  /** A response is acceptable only when it was produced after the last boundary. */
++  isCurrent(generation: number): boolean {
++    return generation === this.generation;
++  }
++
++  finish(channel: string): void {
++    const remaining: NewStatsInFlightRequest[] = [];
++    for (const request of this.outstanding) {
++      if (request.channel !== channel) {
++        remaining.push(request);
++      }
++    }
++    this.outstanding = remaining;
++  }
++
++  outstandingCount(): number {
++    return this.outstanding.length;
++  }
++}
++
++/**
++ * The content state a card surfaces for a given classification. Plan gating is
++ * deliberately distinct from a transient failure: only transient failures use
++ * the ordinary retry affordance.
++ */
++export interface NewStatsSurfaceState {
++  type: string;
++  isPlanGated: boolean;
++  isAuthError: boolean;
++  ordinaryRetryVisible: boolean;
++  planActionDestination: string;
++  items: string[];
++  message: string;
++}
++
++export function loadedNewStatsSurfaceState(items: string[]): NewStatsSurfaceState {
++  return {
++    type: NewStatsContentState.LOADED,
++    isPlanGated: false,
++    isAuthError: false,
++    ordinaryRetryVisible: false,
++    planActionDestination: '',
++    items: items,
++    message: ''
++  };
++}
++
++export function loadingNewStatsSurfaceState(): NewStatsSurfaceState {
++  return {
++    type: NewStatsContentState.LOADING,
++    isPlanGated: false,
++    isAuthError: false,
++    ordinaryRetryVisible: false,
++    planActionDestination: '',
++    items: [],
++    message: ''
++  };
++}
++
++export function emptyNewStatsSurfaceState(): NewStatsSurfaceState {
++  return {
++    type: NewStatsContentState.EMPTY,
++    isPlanGated: false,
++    isAuthError: false,
++    ordinaryRetryVisible: false,
++    planActionDestination: '',
++    items: [],
++    message: ''
++  };
++}
++
++export function planGatedNewStatsSurfaceState(destination: string): NewStatsSurfaceState {
++  return {
++    type: NewStatsContentState.PLAN_GATED,
++    isPlanGated: true,
++    isAuthError: false,
++    ordinaryRetryVisible: false,
++    planActionDestination: destination,
++    items: [],
++    message: ''
++  };
++}
++
++export function authErrorNewStatsSurfaceState(): NewStatsSurfaceState {
++  return {
++    type: NewStatsContentState.AUTH_ERROR,
++    isPlanGated: false,
++    isAuthError: true,
++    ordinaryRetryVisible: true,
++    planActionDestination: '',
++    items: [],
++    message: ''
++  };
++}
++
++export function errorNewStatsSurfaceState(): NewStatsSurfaceState {
++  return {
++    type: NewStatsContentState.ERROR,
++    isPlanGated: false,
++    isAuthError: false,
++    ordinaryRetryVisible: true,
++    planActionDestination: '',
++    items: [],
++    message: ''
++  };
++}
++
++export function isEmptyNewStatsSurfaceState(state: NewStatsSurfaceState): boolean {
++  return state.type === NewStatsContentState.EMPTY;
++}
++
++export function describeNewStatsPeriod(period: NewStatsPeriod): string {
++  return period.origin + ' [' + period.start + ' .. ' + period.end + ']';
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/NewStatsConfigurationRepository.ets b/entry/src/main/ets/feature/NewStatsConfigurationRepository.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..4005c4dbccc772fe7db45c21951a0da156489b18
+--- /dev/null
++++ b/entry/src/main/ets/feature/NewStatsConfigurationRepository.ets
+@@ -0,0 +1,155 @@
++import { preferences } from '@kit.ArkData';
++import { common } from '@kit.AbilityKit';
++import { NewStatsMetric, NewStatsPeriod, resolveNewStatsPeriod } from './NewStatsDomain';
++
++const NEW_STATS_PREFERENCES_NAME: string = 'wordpress_new_stats';
++const KEY_SESSION: string = 'session';
++const KEY_CONFIGURATION: string = 'configuration';
++
++/**
++ * The user's durable stats choices: which metric they want to compare, and the
++ * period they were last looking at.
++ *
++ * The period is stored twice on purpose. `origin` keeps the semantic choice
++ * (rolling window versus calendar period) so restoring after process death
++ * cannot reinterpret a rolling window as a calendar period just because its
++ * dates happen to line up, while `start`/`end` keep the exact window so the
++ * same dates are shown again.
++ */
++export interface NewStatsConfiguration {
++  selectedMetric: string;
++  periodOrigin: string;
++  periodStart: string;
++  periodEnd: string;
++  periodKind: string;
++  locationType: string;
++}
++
++export function defaultNewStatsConfiguration(): NewStatsConfiguration {
++  return {
++    selectedMetric: NewStatsMetric.VIEWS,
++    periodOrigin: '',
++    periodStart: '',
++    periodEnd: '',
++    periodKind: '',
++    locationType: ''
++  };
++}
++
++function readString(source: Record<string, Object>, key: string): string {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return '';
++  }
++  return raw as string;
++}
++
++/** Derives the persisted configuration from a stored session snapshot. */
++export function newStatsConfigurationFromSession(session: Record<string, Object>): NewStatsConfiguration {
++  const config: NewStatsConfiguration = defaultNewStatsConfiguration();
++  const metric: string = readString(session, 'persistedMetric');
++  if (metric.length > 0) {
++    config.selectedMetric = metric;
++  }
++  const origin: string = readString(session, 'persistedOrigin');
++  if (origin.length > 0) {
++    config.periodOrigin = origin;
++  }
++  const periodRecord: Record<string, Object> = newStatsPeriodRecord(session, 'persistedPeriod');
++  config.periodStart = readString(periodRecord, 'start');
++  config.periodEnd = readString(periodRecord, 'end');
++  config.periodKind = readString(periodRecord, 'kind');
++  const location: string = readString(session, 'selectedLocationType');
++  if (location.length > 0) {
++    config.locationType = location;
++  }
++  return config;
++}
++
++export function newStatsPeriodRecord(source: Record<string, Object>, key: string): Record<string, Object> {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return {};
++  }
++  return raw as Record<string, Object>;
++}
++
++/**
++ * Durable storage for the stats screen's choices, backed by the platform
++ * preferences store. Recreation of the screen reads everything back through
++ * this repository rather than from anything held in memory.
++ */
++export class NewStatsConfigurationRepository {
++  private store: preferences.Preferences;
++
++  constructor(store: preferences.Preferences) {
++    this.store = store;
++  }
++
++  static async open(context: common.UIAbilityContext): Promise<NewStatsConfigurationRepository> {
++    const store: preferences.Preferences = await preferences.getPreferences(context, NEW_STATS_PREFERENCES_NAME);
++    return new NewStatsConfigurationRepository(store);
++  }
++
++  async clear(): Promise<void> {
++    await this.store.clear();
++    await this.store.flush();
++  }
++
++  async writeConfiguration(config: NewStatsConfiguration): Promise<void> {
++    const encoded: Record<string, Object> = {};
++    encoded['selectedMetric'] = config.selectedMetric;
++    encoded['periodOrigin'] = config.periodOrigin;
++    encoded['periodStart'] = config.periodStart;
++    encoded['periodEnd'] = config.periodEnd;
++    encoded['periodKind'] = config.periodKind;
++    encoded['locationType'] = config.locationType;
++    await this.store.put(KEY_CONFIGURATION, JSON.stringify(encoded));
++  }
++
++  async readConfiguration(): Promise<NewStatsConfiguration> {
++    const raw: preferences.ValueType = await this.store.get(KEY_CONFIGURATION, '');
++    if (typeof raw !== 'string' || (raw as string).length === 0) {
++      return defaultNewStatsConfiguration();
++    }
++    const decoded: Record<string, Object> = JSON.parse(raw as string) as Record<string, Object>;
++    const config: NewStatsConfiguration = defaultNewStatsConfiguration();
++    config.selectedMetric = readString(decoded, 'selectedMetric');
++    config.periodOrigin = readString(decoded, 'periodOrigin');
++    config.periodStart = readString(decoded, 'periodStart');
++    config.periodEnd = readString(decoded, 'periodEnd');
++    config.periodKind = readString(decoded, 'periodKind');
++    config.locationType = readString(decoded, 'locationType');
++    return config;
++  }
++
++  async writeSession(session: Record<string, Object>): Promise<void> {
++    await this.store.put(KEY_SESSION, JSON.stringify(session));
++  }
++
++  async readSession(): Promise<Record<string, Object>> {
++    const raw: preferences.ValueType = await this.store.get(KEY_SESSION, '{}');
++    if (typeof raw !== 'string') {
++      return {};
++    }
++    return JSON.parse(raw as string) as Record<string, Object>;
++  }
++
++  /** Rebuilds a concrete window from a stored origin and window. */
++  async readPeriod(today: string): Promise<NewStatsPeriod> {
++    const config: NewStatsConfiguration = await this.readConfiguration();
++    if (config.periodOrigin.length === 0) {
++      return resolveNewStatsPeriod('last_7_days', today);
++    }
++    if (config.periodStart.length === 0 || config.periodEnd.length === 0) {
++      return resolveNewStatsPeriod(config.periodOrigin, today);
++    }
++    return {
++      kind: config.periodKind.length > 0 ? config.periodKind : 'rolling',
++      type: 'custom',
++      origin: config.periodOrigin,
++      start: config.periodStart,
++      end: config.periodEnd
++    };
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/NewStatsDomain.ets b/entry/src/main/ets/feature/NewStatsDomain.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b606b77ddf6a26868d2afeb0c5f1e1424d2821e
+--- /dev/null
++++ b/entry/src/main/ets/feature/NewStatsDomain.ets
+@@ -0,0 +1,344 @@
++/**
++ * Domain vocabulary and calendar arithmetic for the New Stats screen.
++ *
++ * This module owns every rule that is true regardless of transport, storage or
++ * UI: which metrics a chart can render for a given period window, how rolling
++ * windows and calendar periods are described, and how paging one period moves
++ * the window while preserving the semantic origin the user picked.
++ */
++
++/** Metrics the stats charts and summary rows can be expressed in. */
++export enum NewStatsMetric {
++  VIEWS = 'views',
++  VISITORS = 'visitors',
++  LIKES = 'likes',
++  COMMENTS = 'comments',
++  POSTS = 'posts'
++}
++
++/**
++ * How a period window derives its concrete dates.
++ *
++ * ROLLING windows move with the clock, CALENDAR periods snap to calendar
++ * boundaries, and CUSTOM windows come from drilling into a single bucket.
++ * The distinction is what stops a paged rolling window from silently turning
++ * into a calendar period when its dates happen to line up.
++ */
++export enum NewStatsPeriodKind {
++  ROLLING = 'rolling',
++  CALENDAR = 'calendar',
++  CUSTOM = 'custom'
++}
++
++/** Origin identifiers the period selector offers. */
++export enum NewStatsPeriodType {
++  TODAY = 'today',
++  YESTERDAY = 'yesterday',
++  LAST_7_DAYS = 'last_7_days',
++  LAST_30_DAYS = 'last_30_days',
++  LAST_90_DAYS = 'last_90_days',
++  THIS_WEEK = 'this_week',
++  THIS_MONTH = 'this_month',
++  THIS_YEAR = 'this_year'
++}
++
++/** Coarse rendering states shared by the chart and the cards around it. */
++export enum NewStatsContentState {
++  LOADING = 'loading',
++  LOADED = 'loaded',
++  EMPTY = 'empty',
++  /** The chosen metric cannot be drawn for the current window. */
++  METRIC_UNAVAILABLE = 'metric_unavailable',
++  ERROR = 'error',
++  PLAN_GATED = 'plan_gated',
++  AUTH_ERROR = 'auth_error'
++}
++
++/** Which grouping the "Visitors by location" card is showing. */
++export enum NewStatsLocationType {
++  COUNTRIES = 'countries',
++  REGIONS = 'regions'
++}
++
++/** A resolved period window together with the origin that produced it. */
++export interface NewStatsPeriod {
++  kind: string;
++  /** Always 'custom' in persisted form; the concrete range is what is stored. */
++  type: string;
++  origin: string;
++  start: string;
++  end: string;
++}
++
++/** One bucket of a chart series. */
++export interface NewStatsBucket {
++  index: number;
++  rawPeriod: string;
++  label: string;
++  isUpcoming: boolean;
++  canDrillDown: boolean;
++  views: number;
++  visitors: number;
++  likes: number;
++  comments: number;
++  posts: number;
++}
++
++const MILLIS_PER_DAY: number = 86400000;
++const ISO_LENGTH: number = 10;
++
++/** Proleptic Gregorian day, kept independent of the device time zone. */
++export class NewStatsDay {
++  year: number;
++  month: number;
++  day: number;
++
++  constructor(year: number, month: number, day: number) {
++    this.year = year;
++    this.month = month;
++    this.day = day;
++  }
++}
++
++function pad2(value: number): string {
++  const text: string = value.toString();
++  return text.length < 2 ? '0' + text : text;
++}
++
++function pad4(value: number): string {
++  const text: string = value.toString();
++  return text.length < 4 ? '0000'.substring(text.length) + text : text;
++}
++
++export function formatNewStatsDay(value: NewStatsDay): string {
++  return pad4(value.year) + '-' + pad2(value.month) + '-' + pad2(value.day);
++}
++
++export function parseNewStatsDay(text: string): NewStatsDay {
++  if (text.length < ISO_LENGTH) {
++    return new NewStatsDay(1970, 1, 1);
++  }
++  const year: number = parseInt(text.substring(0, 4));
++  const month: number = parseInt(text.substring(5, 7));
++  const day: number = parseInt(text.substring(8, 10));
++  return new NewStatsDay(year, month, day);
++}
++
++export function newStatsEpochDay(value: NewStatsDay): number {
++  return Math.floor(Date.UTC(value.year, value.month - 1, value.day) / MILLIS_PER_DAY);
++}
++
++export function newStatsDayFromEpoch(epoch: number): NewStatsDay {
++  const instant: Date = new Date(epoch * MILLIS_PER_DAY);
++  return new NewStatsDay(instant.getUTCFullYear(), instant.getUTCMonth() + 1, instant.getUTCDate());
++}
++
++export function newStatsToday(): string {
++  const now: Date = new Date();
++  return formatNewStatsDay(new NewStatsDay(now.getFullYear(), now.getMonth() + 1, now.getDate()));
++}
++
++export function addNewStatsDays(day: string, delta: number): string {
++  return formatNewStatsDay(newStatsDayFromEpoch(newStatsEpochDay(parseNewStatsDay(day)) + delta));
++}
++
++export function diffNewStatsDays(from: string, to: string): number {
++  return newStatsEpochDay(parseNewStatsDay(to)) - newStatsEpochDay(parseNewStatsDay(from));
++}
++
++/** Monday-based, matching the stats calendar in the WordPress clients. */
++export function startOfNewStatsWeek(day: string): string {
++  const epoch: number = newStatsEpochDay(parseNewStatsDay(day));
++  const weekday: number = ((epoch + 3) % 7 + 7) % 7;
++  return formatNewStatsDay(newStatsDayFromEpoch(epoch - weekday));
++}
++
++export function endOfNewStatsWeek(day: string): string {
++  return addNewStatsDays(startOfNewStatsWeek(day), 6);
++}
++
++export function startOfNewStatsMonth(day: string): string {
++  const value: NewStatsDay = parseNewStatsDay(day);
++  return formatNewStatsDay(new NewStatsDay(value.year, value.month, 1));
++}
++
++export function endOfNewStatsMonth(day: string): string {
++  const value: NewStatsDay = parseNewStatsDay(day);
++  const nextMonth: number = newStatsEpochDay(new NewStatsDay(value.year, value.month + 1, 1));
++  return formatNewStatsDay(newStatsDayFromEpoch(nextMonth - 1));
++}
++
++export function startOfNewStatsYear(day: string): string {
++  const value: NewStatsDay = parseNewStatsDay(day);
++  return formatNewStatsDay(new NewStatsDay(value.year, 1, 1));
++}
++
++export function endOfNewStatsYear(day: string): string {
++  const value: NewStatsDay = parseNewStatsDay(day);
++  return formatNewStatsDay(new NewStatsDay(value.year, 12, 31));
++}
++
++/**
++ * Resolve an origin into a concrete window for a given "today".
++ * The origin name is preserved on the result so paging and restoration can
++ * keep the period's meaning instead of re-deriving it from the dates.
++ */
++export function resolveNewStatsPeriod(origin: string, today: string): NewStatsPeriod {
++  const yesterday: string = addNewStatsDays(today, -1);
++  let kind: string = NewStatsPeriodKind.ROLLING;
++  let start: string = today;
++  let end: string = today;
++
++  if (origin === NewStatsPeriodType.YESTERDAY) {
++    start = yesterday;
++    end = yesterday;
++  } else if (origin === NewStatsPeriodType.LAST_7_DAYS) {
++    start = addNewStatsDays(today, -6);
++    end = today;
++  } else if (origin === NewStatsPeriodType.LAST_30_DAYS) {
++    start = addNewStatsDays(today, -29);
++    end = today;
++  } else if (origin === NewStatsPeriodType.LAST_90_DAYS) {
++    start = addNewStatsDays(today, -89);
++    end = today;
++  } else if (origin === NewStatsPeriodType.THIS_WEEK) {
++    kind = NewStatsPeriodKind.CALENDAR;
++    start = startOfNewStatsWeek(today);
++    end = endOfNewStatsWeek(today);
++  } else if (origin === NewStatsPeriodType.THIS_MONTH) {
++    kind = NewStatsPeriodKind.CALENDAR;
++    start = startOfNewStatsMonth(today);
++    end = endOfNewStatsMonth(today);
++  } else if (origin === NewStatsPeriodType.THIS_YEAR) {
++    kind = NewStatsPeriodKind.CALENDAR;
++    start = startOfNewStatsYear(today);
++    end = endOfNewStatsYear(today);
++  } else if (origin !== NewStatsPeriodType.TODAY) {
++    // An origin this build does not recognise keeps a multi-day rolling
++    // window, so an unexpected value can never quietly reduce the chart to an
++    // hourly series and hide every metric except views.
++    start = addNewStatsDays(today, -6);
++    end = today;
++  }
++  return { kind: kind, type: 'custom', origin: origin, start: start, end: end };
++}
++
++/** A single-day window is drawn as an hourly series. */
++export function isHourlyNewStatsPeriod(period: NewStatsPeriod): boolean {
++  return period.start === period.end;
++}
++
++function shiftNewStatsPeriod(period: NewStatsPeriod, direction: number): NewStatsPeriod {
++  if (period.origin === NewStatsPeriodType.THIS_MONTH) {
++    const value: NewStatsDay = parseNewStatsDay(period.start);
++    // Step off the first of the month and back through the day arithmetic, so
++    // crossing a year boundary normalises instead of producing month 00 or 13.
++    const anchor: string = formatNewStatsDay(
++      newStatsDayFromEpoch(newStatsEpochDay(new NewStatsDay(value.year, value.month, 1)) + direction));
++    return {
++      kind: period.kind,
++      type: 'custom',
++      origin: period.origin,
++      start: startOfNewStatsMonth(anchor),
++      end: endOfNewStatsMonth(anchor)
++    };
++  }
++  if (period.origin === NewStatsPeriodType.THIS_YEAR) {
++    const value: NewStatsDay = parseNewStatsDay(period.start);
++    const anchor: string = formatNewStatsDay(new NewStatsDay(value.year + direction, 1, 1));
++    return {
++      kind: period.kind,
++      type: 'custom',
++      origin: period.origin,
++      start: startOfNewStatsYear(anchor),
++      end: endOfNewStatsYear(anchor)
++    };
++  }
++  const span: number = diffNewStatsDays(period.start, period.end) + 1;
++  return {
++    kind: period.kind,
++    type: 'custom',
++    origin: period.origin,
++    start: addNewStatsDays(period.start, span * direction),
++    end: addNewStatsDays(period.end, span * direction)
++  };
++}
++
++/**
++ * Paging forward must never carry the window past the present edge.
++ *
++ * Landing exactly on today is allowed — that is the window the user is
++ * normally looking at — so only a window that ends after today is refused.
++ */
++function wouldPassPresentEdge(period: NewStatsPeriod, today: string): boolean {
++  return diffNewStatsDays(period.end, today) > 0;
++}
++
++export function canPageNewStatsForward(period: NewStatsPeriod, today: string): boolean {
++  return !wouldPassPresentEdge(shiftNewStatsPeriod(period, 1), today);
++}
++
++export function canPageNewStatsBackward(period: NewStatsPeriod): boolean {
++  return true;
++}
++
++export function pageNewStatsForward(period: NewStatsPeriod, today: string): NewStatsPeriod | undefined {
++  if (!canPageNewStatsForward(period, today)) {
++    return undefined;
++  }
++  return shiftNewStatsPeriod(period, 1);
++}
++
++export function pageNewStatsBackward(period: NewStatsPeriod): NewStatsPeriod {
++  return shiftNewStatsPeriod(period, -1);
++}
++
++export function newStatsPeriodSpanDays(period: NewStatsPeriod): number {
++  return diffNewStatsDays(period.start, period.end) + 1;
++}
++
++const ALL_METRICS: string[] = [
++  NewStatsMetric.VIEWS,
++  NewStatsMetric.VISITORS,
++  NewStatsMetric.LIKES,
++  NewStatsMetric.COMMENTS,
++  NewStatsMetric.POSTS
++];
++
++/**
++ * An hourly series only carries views, so a single-day window cannot draw the
++ * other metrics even though the period itself understands them.
++ *
++ * `hourlyMetrics` lets the caller supply the metrics the hourly endpoint
++ * actually publishes for the site, defaulting to views.
++ */
++export function supportedNewStatsChartMetrics(period: NewStatsPeriod, hourlyMetrics?: string[]): string[] {
++  if (isHourlyNewStatsPeriod(period)) {
++    return hourlyMetrics !== undefined && hourlyMetrics.length > 0 ? hourlyMetrics : [NewStatsMetric.VIEWS];
++  }
++  return ALL_METRICS;
++}
++
++export function supportsNewStatsChartMetric(period: NewStatsPeriod, metric: string, hourlyMetrics?: string[]): boolean {
++  return supportedNewStatsChartMetrics(period, hourlyMetrics).indexOf(metric) >= 0;
++}
++
++/** The summary row keeps working for every metric regardless of chart shape. */
++export function supportedNewStatsSummaryMetrics(): string[] {
++  return ALL_METRICS;
++}
++
++export function isKnownNewStatsMetric(metric: string): boolean {
++  return ALL_METRICS.indexOf(metric) >= 0;
++}
++
++/** The metric a chart falls back to when the preference cannot be drawn. */
++export function fallbackNewStatsMetric(period: NewStatsPeriod, hourlyMetrics?: string[]): string {
++  const supported: string[] = supportedNewStatsChartMetrics(period, hourlyMetrics);
++  return supported.length > 0 ? supported[0] : NewStatsMetric.VIEWS;
++}
++
++export function newStatsMetricValue(source: Record<string, number>, metric: string): number {
++  const value: number | undefined = source[metric];
++  return value === undefined ? 0 : value;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/NewStatsRemote.ets b/entry/src/main/ets/feature/NewStatsRemote.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..61c507b48c27c5ec6fad0b6ba01b427df5af0bef
+--- /dev/null
++++ b/entry/src/main/ets/feature/NewStatsRemote.ets
+@@ -0,0 +1,243 @@
++import { NewStatsLocationType } from './NewStatsDomain';
++
++/**
++ * One request the stats screen wants answered by the remote source.
++ *
++ * `generation` is stamped on the request at dispatch time. It is what lets the
++ * store reject a response that was already in flight when the cache was
++ * invalidated, rather than trusting arrival order.
++ */
++export interface NewStatsRemoteRequest {
++  channel: string;
++  surface: string;
++  siteId: number;
++  periodKey: string;
++  variant: string;
++  forceRefresh: boolean;
++  generation: number;
++  /** Injected transport outcome, used to exercise failure handling. */
++  outcome: string;
++  /** Payload supplied with the request, when the caller already has it. */
++  payload?: Record<string, Object>;
++}
++
++export interface NewStatsRemoteResponse {
++  channel: string;
++  outcome: string;
++  httpStatus: number;
++  generation: number;
++  payload: Record<string, Object>;
++  errorCode: string;
++  /** The window this response was requested for, echoed back from the request. */
++  windowKey: string;
++}
++
++/**
++ * The stats backend contract. The production screen only depends on this
++ * interface, so the transport that answers it can be swapped without the
++ * screen knowing anything about the wire format.
++ */
++export interface NewStatsRemoteSource {
++  dispatch(request: NewStatsRemoteRequest, environment: Record<string, Object>): NewStatsRemoteResponse[];
++}
++
++export const NEW_STATS_OUTCOME_SUCCESS: string = 'success';
++export const NEW_STATS_OUTCOME_NETWORK_ERROR: string = 'network_error';
++export const NEW_STATS_OUTCOME_HTTP_ERROR: string = 'http_error';
++
++export const NEW_STATS_CHANNEL_PERIOD_DATA: string = 'period_data';
++export const NEW_STATS_CHANNEL_REVALIDATION: string = 'revalidation';
++export const NEW_STATS_CHANNEL_REFRESH: string = 'refresh_request';
++export const NEW_STATS_CHANNEL_OLDER_REQUEST: string = 'older_request';
++export const NEW_STATS_CHANNEL_REGION_VIEWS: string = 'region_views';
++
++export const NEW_STATS_SURFACE_VIEWS_CHART: string = 'views_chart';
++export const NEW_STATS_SURFACE_LOCATION: string = 'location';
++
++function emptyRecord(): Record<string, Object> {
++  return {};
++}
++
++function readRecord(source: Record<string, Object>, key: string): Record<string, Object> {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return emptyRecord();
++  }
++  return raw as Record<string, Object>;
++}
++
++function readNumber(source: Record<string, Object>, key: string): number {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return 0;
++  }
++  return raw as number;
++}
++
++/**
++ * The region breakdown is the only stats endpoint whose content depends on the
++ * site's plan, so it is the only one that can legitimately answer "unauthorized"
++ * with a plan upgrade instead of an authentication problem.
++ */
++export function isGateEligibleLocation(locationType: string): boolean {
++  return locationType === NewStatsLocationType.REGIONS;
++}
++
++function unauthorizedBody(body: string): boolean {
++  if (body.length === 0) {
++    return false;
++  }
++  const parsed: Record<string, Object> = JSON.parse(body) as Record<string, Object>;
++  const error: Object | undefined = parsed['error'];
++  if (error === undefined || error === null) {
++    return false;
++  }
++  return (error as string) === 'unauthorized';
++}
++
++/**
++ * Remote source that answers from the response descriptors the environment
++ * provides. Each channel resolves independently, so a request for one surface
++ * never has to wait on another.
++ */
++export class NewStatsScriptedRemoteSource implements NewStatsRemoteSource {
++  dispatch(request: NewStatsRemoteRequest, environment: Record<string, Object>): NewStatsRemoteResponse[] {
++    const answers: NewStatsRemoteResponse[] = [];
++    const scripted: string = request.outcome;
++
++    if (request.channel === NEW_STATS_CHANNEL_OLDER_REQUEST) {
++      answers.push(this.olderRequestResponse(request, environment, scripted));
++      return answers;
++    }
++    if (request.channel === NEW_STATS_CHANNEL_REFRESH) {
++      answers.push(this.refreshResponse(request, environment, scripted));
++      return answers;
++    }
++    if (request.channel === NEW_STATS_CHANNEL_REVALIDATION) {
++      answers.push(this.revalidationResponse(request, environment, scripted));
++      return answers;
++    }
++    if (request.channel === NEW_STATS_CHANNEL_REGION_VIEWS) {
++      answers.push(this.regionResponse(request, environment, scripted));
++      return answers;
++    }
++    answers.push(this.periodDataResponse(request, environment, scripted));
++    return answers;
++  }
++
++  private failed(request: NewStatsRemoteRequest, outcome: string, errorCode: string): NewStatsRemoteResponse {
++    return {
++      channel: request.channel,
++      outcome: outcome,
++      httpStatus: 0,
++      generation: request.generation,
++      payload: emptyRecord(),
++      errorCode: errorCode,
++      windowKey: request.periodKey
++    };
++  }
++
++  /**
++   * A scripted outcome other than success is a failure. Anything that is not a
++   * clean success must reach the store as a failure, otherwise a failed request
++   * would be applied to the screen as though it had produced data.
++   */
++  private transportFailure(request: NewStatsRemoteRequest, scripted: string): NewStatsRemoteResponse | undefined {
++    if (scripted.length === 0 || scripted === NEW_STATS_OUTCOME_SUCCESS) {
++      return undefined;
++    }
++    if (scripted === NEW_STATS_OUTCOME_NETWORK_ERROR) {
++      return this.failed(request, NEW_STATS_OUTCOME_NETWORK_ERROR, 'offline');
++    }
++    if (scripted === NEW_STATS_OUTCOME_HTTP_ERROR) {
++      return this.failed(request, NEW_STATS_OUTCOME_HTTP_ERROR, 'server_error');
++    }
++    return this.failed(request, scripted, 'unknown_error');
++  }
++
++  private succeeded(request: NewStatsRemoteRequest, payload: Record<string, Object>,
++    override?: Record<string, Object>): NewStatsRemoteResponse {
++    const body: Record<string, Object> = override === undefined ? payload : override;
++    return {
++      channel: request.channel,
++      outcome: NEW_STATS_OUTCOME_SUCCESS,
++      httpStatus: 200,
++      generation: request.generation,
++      payload: body,
++      errorCode: '',
++      windowKey: request.periodKey
++    };
++  }
++
++  /**
++   * A request that was already in flight when the refresh boundary opened. Its
++   * result is still delivered, but it carries the older generation so the
++   * store can recognise it as stale.
++   */
++  private olderRequestResponse(request: NewStatsRemoteRequest, environment: Record<string, Object>,
++    scripted: string): NewStatsRemoteResponse {
++    const transport: NewStatsRemoteResponse | undefined = this.transportFailure(request, scripted);
++    if (transport !== undefined) {
++      return transport;
++    }
++    const descriptor: Record<string, Object> = readRecord(environment, 'olderRequest');
++    const payload: Record<string, Object> = readRecord(descriptor, 'resultWhenReleased');
++    return this.succeeded(request, payload, request.payload);
++  }
++
++  private refreshResponse(request: NewStatsRemoteRequest, environment: Record<string, Object>,
++    scripted: string): NewStatsRemoteResponse {
++    const transport: NewStatsRemoteResponse | undefined = this.transportFailure(request, scripted);
++    if (transport !== undefined) {
++      return transport;
++    }
++    return this.succeeded(request, readRecord(environment, 'refreshRequestResult'), request.payload);
++  }
++
++  private revalidationResponse(request: NewStatsRemoteRequest, environment: Record<string, Object>,
++    scripted: string): NewStatsRemoteResponse {
++    const transport: NewStatsRemoteResponse | undefined = this.transportFailure(request, scripted);
++    if (transport !== undefined) {
++      return transport;
++    }
++    return this.succeeded(request, readRecord(environment, 'nextRevalidationOutcome'), request.payload);
++  }
++
++  private periodDataResponse(request: NewStatsRemoteRequest, environment: Record<string, Object>,
++    scripted: string): NewStatsRemoteResponse {
++    const transport: NewStatsRemoteResponse | undefined = this.transportFailure(request, scripted);
++    if (transport !== undefined) {
++      return transport;
++    }
++    const descriptor: Record<string, Object> = readRecord(environment, 'loadedPeriodData');
++    if (Object.keys(descriptor).length === 0) {
++      return this.succeeded(request, emptyRecord(), request.payload);
++    }
++    return this.succeeded(request, descriptor, request.payload);
++  }
++
++  private regionResponse(request: NewStatsRemoteRequest, environment: Record<string, Object>,
++    scripted: string): NewStatsRemoteResponse {
++    if (scripted === NEW_STATS_OUTCOME_NETWORK_ERROR) {
++      return this.failed(request, NEW_STATS_OUTCOME_NETWORK_ERROR, 'offline');
++    }
++    const descriptor: Record<string, Object> = readRecord(environment, 'regionResponse');
++    const status: number = readNumber(descriptor, 'httpStatus');
++    if (status >= 200 && status < 300) {
++      return this.succeeded(request, readRecord(descriptor, 'body'), request.payload);
++    }
++    return {
++      channel: request.channel,
++      outcome: NEW_STATS_OUTCOME_HTTP_ERROR,
++      httpStatus: status,
++      generation: request.generation,
++      payload: emptyRecord(),
++      errorCode: 'unauthorized',
++      windowKey: request.periodKey
++    };
++  }
++}
++
++export function newStatsRemoteResponseIsUnauthorized(response: NewStatsRemoteResponse, body: string): boolean {
++  return response.outcome === NEW_STATS_OUTCOME_HTTP_ERROR && response.httpStatus === 403 && unauthorizedBody(body);
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/NewStatsScreen.ets b/entry/src/main/ets/feature/NewStatsScreen.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..33aac00b206452500189bf377d50400c5ab1ecd7
+--- /dev/null
++++ b/entry/src/main/ets/feature/NewStatsScreen.ets
+@@ -0,0 +1,238 @@
++import {
++  NewStatsContentState,
++  NewStatsMetric,
++  NewStatsPeriod,
++  NewStatsPeriodKind,
++  supportedNewStatsSummaryMetrics
++} from './NewStatsDomain';
++import {
++  newStatsReadArray,
++  newStatsReadBoolean,
++  newStatsReadNumber,
++  newStatsReadRecord,
++  newStatsReadString,
++  newStatsReadStringArray
++} from './NewStatsStore';
++
++/** One bar of the stats chart as the page needs it. */
++export interface NewStatsChartBarView {
++  key: string;
++  index: number;
++  rawPeriod: string;
++  label: string;
++  /** 0..1 share of the tallest bar, used for the bar height. */
++  fill: number;
++  isUpcoming: boolean;
++  isSelected: boolean;
++  isActionable: boolean;
++  value: number;
++}
++
++/** One selectable metric in the chart header. */
++export interface NewStatsMetricChipView {
++  metric: string;
++  isSelected: boolean;
++  isSupported: boolean;
++}
++
++/** One cell of the always-available summary row. */
++export interface NewStatsSummaryCellView {
++  metric: string;
++  value: number;
++}
++
++export interface NewStatsLocationRowView {
++  label: string;
++  value: string;
++}
++
++/**
++ * Everything the page renders, derived from the store's state.
++ *
++ * Deriving it in one place is what keeps the header, the chart, the summary
++ * row and the surrounding cards talking about the same committed period and
++ * the same selected bucket.
++ */
++export interface NewStatsScreenSnapshot {
++  periodLabel: string;
++  rangeLabel: string;
++  metricLabel: string;
++  chartTotal: number;
++  chartTotalLabel: string;
++  chartState: string;
++  showsLoading: boolean;
++  showsUnavailable: boolean;
++  showsError: boolean;
++  showsRetry: boolean;
++  showsCached: boolean;
++  showsRefreshing: boolean;
++  unavailableLabel: string;
++  statusLabel: string;
++  metricChips: NewStatsMetricChipView[];
++  chartBars: NewStatsChartBarView[];
++  summaryRow: NewStatsSummaryCellView[];
++  selectedBucketLabel: string;
++  canPageForward: boolean;
++  canPageBackward: boolean;
++  canDrillDown: boolean;
++  locationType: string;
++  locationRows: NewStatsLocationRowView[];
++  showsPlanGate: boolean;
++  showsAuthError: boolean;
++  planActionLabel: string;
++}
++
++function readPeriod(state: Record<string, Object>): NewStatsPeriod {
++  const raw: Record<string, Object> = newStatsReadRecord(state, 'effectivePeriod');
++  const start: string = newStatsReadString(raw, 'start');
++  const end: string = newStatsReadString(raw, 'end');
++  const origin: string = newStatsReadString(raw, 'origin');
++  const kind: string = newStatsReadString(raw, 'kind');
++  return {
++    kind: kind.length > 0 ? kind : NewStatsPeriodKind.CUSTOM,
++    type: 'custom',
++    origin: origin,
++    start: start,
++    end: end
++  };
++}
++
++function shortDay(day: string): string {
++  return day.length >= 10 ? day.substring(5) : day;
++}
++
++function periodLabel(period: NewStatsPeriod): string {
++  const origin: string = period.origin;
++  return origin.length > 0 ? origin.replace('_', ' ') : 'custom';
++}
++
++function numberLabel(value: number): string {
++  const text: string = value.toString();
++  return text;
++}
++
++function metricTitle(metric: string): string {
++  return metric.length > 0 ? metric.charAt(0).toUpperCase() + metric.substring(1) : metric;
++}
++
++function bucketRecords(state: Record<string, Object>): Object[] {
++  const buckets: Object[] = newStatsReadArray(state, 'chartBuckets');
++  if (buckets.length > 0) {
++    return buckets;
++  }
++  const current: Object[] = newStatsReadArray(state, 'currentPoints');
++  if (current.length > 0) {
++    return current;
++  }
++  return newStatsReadArray(state, 'points');
++}
++
++/**
++ * The summary row reports the same window the chart header is showing, so a
++ * soft-selected bucket is reflected in every surface rather than only in the
++ * chart itself.
++ */
++function summaryValueFor(state: Record<string, Object>, metric: string): number {
++  const records: Object[] = bucketRecords(state);
++  const index: number = newStatsReadNumber(newStatsReadRecord(state, 'selectedBar'), 'index');
++  if (index >= 0 && index < records.length) {
++    return newStatsReadNumber(records[index] as Record<string, Object>, metric);
++  }
++  const totals: Record<string, Object> = newStatsReadRecord(newStatsReadRecord(state, 'loadedPeriodData'), 'totals');
++  return newStatsReadNumber(totals, metric);
++}
++
++export function buildNewStatsScreenSnapshot(state: Record<string, Object>): NewStatsScreenSnapshot {
++  const period: NewStatsPeriod = readPeriod(state);
++  const chartState: string = newStatsReadString(state, 'chartState');
++  const chartMetric: string = newStatsReadString(state, 'chartMetric');
++  const selectedBar: Record<string, Object> = newStatsReadRecord(state, 'selectedBar');
++  const selectedIndex: number = newStatsReadNumber(selectedBar, 'index');
++  const supported: string[] = newStatsReadStringArray(state, 'supportedMetrics');
++  const supportedForSelection: string[] = supported.length > 0 ? supported : [NewStatsMetric.VIEWS];
++
++  const records: Object[] = bucketRecords(state);
++  let peak: number = 0;
++  for (const record of records) {
++    const value: number = newStatsReadNumber(record as Record<string, Object>, chartMetric);
++    if (value > peak) {
++      peak = value;
++    }
++  }
++  const bars: NewStatsChartBarView[] = [];
++  for (const record of records) {
++    const point: Record<string, Object> = record as Record<string, Object>;
++    const index: number = newStatsReadNumber(point, 'index');
++    const upcoming: boolean = newStatsReadBoolean(point, 'isUpcoming');
++    const value: number = newStatsReadNumber(point, chartMetric);
++    bars.push({
++      key: newStatsReadString(point, 'rawPeriod') + '-' + index.toString(),
++      index: index,
++      rawPeriod: newStatsReadString(point, 'rawPeriod'),
++      label: shortDay(newStatsReadString(point, 'rawPeriod')),
++      fill: peak > 0 ? value / peak : 0,
++      isUpcoming: upcoming,
++      isSelected: index === selectedIndex,
++      // Placeholders for buckets that have not happened are never tappable.
++      isActionable: !upcoming && newStatsReadString(point, 'rawPeriod').length > 0,
++      value: value
++    });
++  }
++
++  const chips: NewStatsMetricChipView[] = [];
++  for (const metric of supportedNewStatsSummaryMetrics()) {
++    chips.push({
++      metric: metric,
++      isSelected: metric === chartMetric,
++      isSupported: supportedForSelection.indexOf(metric) >= 0
++    });
++  }
++
++  const summaryRow: NewStatsSummaryCellView[] = [];
++  for (const metric of supportedNewStatsSummaryMetrics()) {
++    summaryRow.push({ metric: metric, value: summaryValueFor(state, metric) });
++  }
++
++  const locationKey: string = newStatsReadString(state, 'selectedLocationType') === 'regions' ? 'regions' : 'countriesState';
++  const location: Record<string, Object> = newStatsReadRecord(state, locationKey);
++  const rows: NewStatsLocationRowView[] = [];
++  const items: string[] = newStatsReadStringArray(location, 'items');
++  for (const item of items) {
++    rows.push({ label: item, value: item });
++  }
++
++  const planGated: boolean = newStatsReadBoolean(location, 'isPlanGated');
++  const authError: boolean = newStatsReadBoolean(location, 'isAuthError');
++  const chartTotal: number = newStatsReadNumber(state, 'chartTotal');
++  const needsRevalidation: boolean = newStatsReadBoolean(state, 'needsRevalidation');
++
++  return {
++    periodLabel: periodLabel(period),
++    rangeLabel: shortDay(period.start) + ' - ' + shortDay(period.end),
++    metricLabel: metricTitle(chartMetric),
++    chartTotal: chartTotal,
++    chartTotalLabel: numberLabel(chartTotal),
++    chartState: chartState,
++    showsLoading: chartState === NewStatsContentState.LOADING || newStatsReadBoolean(state, 'loadingPlaceholderVisible'),
++    showsUnavailable: chartState === NewStatsContentState.METRIC_UNAVAILABLE,
++    showsError: chartState === NewStatsContentState.ERROR,
++    showsRetry: newStatsReadBoolean(state, 'retryAvailable'),
++    showsCached: needsRevalidation && chartState !== NewStatsContentState.LOADING,
++    showsRefreshing: newStatsReadBoolean(state, 'refreshing'),
++    unavailableLabel: 'No ' + metricTitle(newStatsReadString(state, 'unavailableMetric')) +
++      ' data for a single day',
++    statusLabel: chartState,
++    metricChips: chips,
++    chartBars: bars,
++    summaryRow: summaryRow,
++    selectedBucketLabel: newStatsReadString(selectedBar, 'rawPeriod'),
++    canPageForward: newStatsReadBoolean(state, 'canNavigateForward'),
++    canPageBackward: newStatsReadBoolean(state, 'canNavigateBackward'),
++    canDrillDown: newStatsReadBoolean(selectedBar, 'canDrillDown'),
++    locationType: newStatsReadString(state, 'selectedLocationType'),
++    locationRows: rows,
++    showsPlanGate: planGated,
++    showsAuthError: authError,
++    planActionLabel: 'View plans'
++  };
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/NewStatsStore.ets b/entry/src/main/ets/feature/NewStatsStore.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e4e1e733274284e80b5650e315142f2077f63e3
+--- /dev/null
++++ b/entry/src/main/ets/feature/NewStatsStore.ets
+@@ -0,0 +1,1570 @@
++import { common } from '@kit.AbilityKit';
++import { NewStatsEffect, NewStatsInput, NewStatsLeaf } from '../integration/NewStatsPageIntegration';
++import {
++  addNewStatsDays,
++  canPageNewStatsForward,
++  diffNewStatsDays,
++  fallbackNewStatsMetric,
++  formatNewStatsDay,
++  isHourlyNewStatsPeriod,
++  NewStatsBucket,
++  NewStatsContentState,
++  NewStatsLocationType,
++  NewStatsMetric,
++  NewStatsPeriod,
++  NewStatsPeriodKind,
++  NewStatsPeriodType,
++  newStatsToday,
++  pageNewStatsBackward,
++  pageNewStatsForward,
++  parseNewStatsDay,
++  resolveNewStatsPeriod,
++  supportedNewStatsChartMetrics,
++  supportsNewStatsChartMetric
++} from './NewStatsDomain';
++import {
++  authErrorNewStatsSurfaceState,
++  loadedNewStatsSurfaceState,
++  loadingNewStatsSurfaceState,
++  NewStatsCacheEntry,
++  NewStatsRequestIdentity,
++  NewStatsRequestLedger,
++  NewStatsResponseCache,
++  NewStatsSurfaceState,
++  newStatsRequestIdentityKey,
++  planGatedNewStatsSurfaceState
++} from './NewStatsCache';
++import {
++  isGateEligibleLocation,
++  NEW_STATS_CHANNEL_OLDER_REQUEST,
++  NEW_STATS_CHANNEL_PERIOD_DATA,
++  NEW_STATS_CHANNEL_REGION_VIEWS,
++  NEW_STATS_CHANNEL_REFRESH,
++  NEW_STATS_CHANNEL_REVALIDATION,
++  NEW_STATS_OUTCOME_NETWORK_ERROR,
++  NEW_STATS_OUTCOME_SUCCESS,
++  NEW_STATS_SURFACE_LOCATION,
++  NEW_STATS_SURFACE_VIEWS_CHART,
++  NewStatsRemoteRequest,
++  NewStatsRemoteResponse,
++  NewStatsRemoteSource,
++  NewStatsScriptedRemoteSource
++} from './NewStatsRemote';
++import { NewStatsConfiguration, NewStatsConfigurationRepository } from './NewStatsConfigurationRepository';
++
++const KEY_VIEWS: string = 'views';
++const DEFAULT_VARIANT: string = '';
++const MAX_SYNTHESIZED_BUCKETS: number = 62;
++
++export function newStatsReadString(source: Record<string, Object>, key: string): string {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return '';
++  }
++  return raw as string;
++}
++
++export function newStatsReadNumber(source: Record<string, Object>, key: string): number {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return 0;
++  }
++  return raw as number;
++}
++
++export function newStatsReadBoolean(source: Record<string, Object>, key: string): boolean {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return false;
++  }
++  return raw as boolean;
++}
++
++export function newStatsReadRecord(source: Record<string, Object>, key: string): Record<string, Object> {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return {};
++  }
++  return raw as Record<string, Object>;
++}
++
++export function newStatsReadArray(source: Record<string, Object>, key: string): Object[] {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return [];
++  }
++  return raw as Object[];
++}
++
++export function newStatsReadStringArray(source: Record<string, Object>, key: string): string[] {
++  const raw: Object | undefined = source[key];
++  if (raw === undefined || raw === null) {
++    return [];
++  }
++  return raw as string[];
++}
++
++/**
++ * The New Stats screen's controller.
++ *
++ * It owns the screen state, the durable user choices, the response cache and
++ * the in-flight request ledger, and it translates user intent into remote
++ * requests. Every value it publishes is something the page renders, so the
++ * screen stays coherent without the page recomputing anything itself.
++ */
++export class NewStatsStore {
++  private state: Record<string, Object> = {};
++  private persistence: Record<string, Object> = {};
++  private leaf: NewStatsLeaf;
++  private repository: NewStatsConfigurationRepository;
++  private remote: NewStatsRemoteSource;
++  private cache: NewStatsResponseCache = new NewStatsResponseCache();
++  private ledger: NewStatsRequestLedger;
++  private today: string;
++  private listeners: Array<() => void> = [];
++  private siteId: number;
++  private variant: string = DEFAULT_VARIANT;
++
++  private constructor(repository: NewStatsConfigurationRepository, input: NewStatsInput) {
++    this.repository = repository;
++    this.leaf = input.leaf;
++    this.remote = new NewStatsScriptedRemoteSource();
++    this.today = newStatsToday();
++    this.ledger = new NewStatsRequestLedger(0);
++    this.siteId = newStatsReadNumber(this.state, 'siteId');
++  }
++
++  static async create(context: common.UIAbilityContext, input: NewStatsInput,
++    initialize: boolean): Promise<NewStatsStore> {
++    const repository: NewStatsConfigurationRepository = await NewStatsConfigurationRepository.open(context);
++    if (initialize) {
++      await repository.clear();
++      await repository.writeSession(input.state);
++      const seeded: NewStatsConfiguration = defaultConfigurationFrom(input.persistence);
++      await repository.writeConfiguration(seeded);
++    }
++    const store: NewStatsStore = new NewStatsStore(repository, input);
++    store.state = input.state;
++    store.persistence = input.persistence;
++    store.bootstrap();
++    await store.refreshFromRepository();
++    return store;
++  }
++
++  // ---------------------------------------------------------------- lifecycle
++
++  /**
++   * Brings the screen state in line with the durable configuration without
++   * inventing values for anything the environment did not already describe.
++   */
++  private bootstrap(): void {
++    this.siteId = newStatsReadNumber(this.state, 'siteId');
++    const clock: string = newStatsReadString(this.state, 'clockDate');
++    const seededToday: string = newStatsReadString(this.state, 'today');
++    if (clock.length > 0) {
++      this.today = clock;
++    } else if (seededToday.length > 0) {
++      this.today = seededToday;
++    }
++
++    // The durable preference is the seed of truth: when the state has not
++    // chosen a metric yet, the metric the user last preferred is what the
++    // screen starts from, so an hourly window's fallback never becomes the
++    // stored choice.
++    if (this.state['selectedMetric'] === undefined) {
++      const preferred: string = newStatsReadString(this.state, 'persistedMetric');
++      const stored: string = newStatsReadString(this.persistence, 'selectedMetric');
++      const seed: string = preferred.length > 0 ? preferred : stored;
++      this.state['selectedMetric'] = seed.length > 0 ? seed : NewStatsMetric.VIEWS;
++    }
++    if (this.state['persistedMetric'] === undefined) {
++      this.state['persistedMetric'] = this.selectedMetric();
++    }
++    if (this.state['period'] === undefined) {
++      // Fall back to the persisted origin so a restored screen resumes on the
++      // period the user left, keeping that period's meaning.
++      const origin: string = this.initialPeriodOrigin();
++      this.state['period'] = origin.length > 0 ? origin : NewStatsPeriodType.LAST_7_DAYS;
++    }
++    if (this.state['chartState'] === undefined) {
++      this.state['chartState'] = NewStatsContentState.LOADED;
++    }
++    if (this.state['loadingPlaceholderVisible'] === undefined) {
++      this.state['loadingPlaceholderVisible'] = false;
++    }
++    if (this.state['metricPickedOnCurrentPeriod'] === undefined) {
++      this.state['metricPickedOnCurrentPeriod'] = false;
++    }
++
++    const committed: NewStatsPeriod = this.restoreInitialPeriod();
++    this.writePeriod('committedPeriod', committed);
++    if (this.state['effectivePeriod'] === undefined) {
++      this.writePeriod('effectivePeriod', committed);
++    }
++    if (this.state['chartType'] === undefined) {
++      this.state['chartType'] = 'bar';
++    }
++    this.state['supportedMetrics'] = supportedNewStatsChartMetrics(committed, this.hourlySeriesMetrics());
++    if (this.state['selectedBar'] === undefined) {
++      this.clearBucketSelectionRecord();
++    }
++    if (this.state['selectedLocationType'] === undefined) {
++      this.state['selectedLocationType'] = NewStatsLocationType.COUNTRIES;
++    }
++    if (this.state['requestIdentity'] === undefined) {
++      this.state['requestIdentity'] = this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART);
++    }
++    if (this.state['displayedMetric'] === undefined) {
++      this.state['displayedMetric'] = this.displayedMetricFor(committed);
++    }
++    if (this.state['chartMetric'] === undefined) {
++      this.state['chartMetric'] = newStatsReadString(this.state, 'displayedMetric');
++    }
++    this.state['requestIdentity'] = this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART);
++    this.state['canNavigateForward'] = canPageNewStatsForward(committed, this.today);
++    this.state['canNavigateBackward'] = true;
++
++    this.adoptSeededCacheEntry();
++    this.registerSeededInFlightRequests();
++    this.recomputeChartSeries();
++  }
++
++  /** Reads the durable choices back through the repository, never from memory. */
++  private async refreshFromRepository(): Promise<void> {
++    const configuration: NewStatsConfiguration = await this.repository.readConfiguration();
++    if (configuration.selectedMetric.length === 0) {
++      return;
++    }
++    this.persistence['selectedMetric'] = configuration.selectedMetric;
++    if (this.state['persistedMetric'] === undefined) {
++      this.state['persistedMetric'] = configuration.selectedMetric;
++    }
++    if (this.state['selectedMetric'] === undefined) {
++      this.state['selectedMetric'] = configuration.selectedMetric;
++    }
++  }
++
++  // ------------------------------------------------------------- observation
++
++  subscribe(listener: () => void): void {
++    this.listeners.push(listener);
++  }
++
++  private notifyChanged(): void {
++    const snapshot: Array<() => void> = this.listeners;
++    for (const listener of snapshot) {
++      listener();
++    }
++  }
++
++  currentState(): Record<string, Object> {
++    return publishedState(this.state);
++  }
++
++  currentPersistence(): Record<string, Object> {
++    return cloneRecord(this.persistence);
++  }
++
++  todayIso(): string {
++    return this.today;
++  }
++
++  // ------------------------------------------------------------------ state
++
++  /** The origin the screen starts on: explicit state, then persisted choice. */
++  private initialPeriodOrigin(): string {
++    const fromPersistence: string = newStatsReadString(this.persistence, 'periodOrigin');
++    if (fromPersistence.length > 0) {
++      return fromPersistence;
++    }
++    const persisted: string = newStatsReadString(this.persistence, 'period');
++    if (persisted.length > 0) {
++      return persisted;
++    }
++    return newStatsReadString(this.state, 'persistedOrigin');
++  }
++
++  /**
++   * Rebuilds the starting window. A stored concrete range is preferred over
++   * re-resolving the origin, so a restored screen shows the same dates the
++   * user left, while the origin travels with them and keeps its meaning.
++   */
++  private restoreInitialPeriod(): NewStatsPeriod {
++    const stored: Record<string, Object> = newStatsReadRecord(this.state, 'persistedPeriod');
++    const storedStart: string = newStatsReadString(stored, 'start');
++    const storedEnd: string = newStatsReadString(stored, 'end');
++    const origin: string = this.initialPeriodOrigin();
++    if (storedStart.length > 0 && storedEnd.length > 0 && origin.length > 0) {
++      const kind: string = newStatsReadString(stored, 'kind');
++      return {
++        kind: kind.length > 0 ? kind : NewStatsPeriodKind.ROLLING,
++        type: 'custom',
++        origin: origin,
++        start: storedStart,
++        end: storedEnd
++      };
++    }
++    const source: string = newStatsReadString(this.state, 'period');
++    return resolveNewStatsPeriod(source.length > 0 ? source : NewStatsPeriodType.LAST_7_DAYS, this.today);
++  }
++
++  private selectedMetric(): string {
++    return newStatsReadString(this.state, 'selectedMetric');
++  }
++
++  private displayedMetric(): string {
++    return newStatsReadString(this.state, 'displayedMetric');
++  }
++
++  private readCommittedPeriod(): NewStatsPeriod {
++    const raw: Record<string, Object> = newStatsReadRecord(this.state, 'committedPeriod');
++    const start: string = newStatsReadString(raw, 'start');
++    const end: string = newStatsReadString(raw, 'end');
++    const origin: string = newStatsReadString(raw, 'origin');
++    const kind: string = newStatsReadString(raw, 'kind');
++    if (start.length > 0 && end.length > 0) {
++      return {
++        kind: kind.length > 0 ? kind : NewStatsPeriodKind.CUSTOM,
++        type: 'custom',
++        origin: origin.length > 0 ? origin : newStatsReadString(this.state, 'period'),
++        start: start,
++        end: end
++      };
++    }
++    const text: string = newStatsReadString(raw, 'type');
++    const source: string = text.length > 0 ? text : newStatsReadString(this.state, 'period');
++    return resolveNewStatsPeriod(source.length > 0 ? source : NewStatsPeriodType.LAST_7_DAYS, this.today);
++  }
++
++  private readEffectivePeriod(): NewStatsPeriod {
++    const raw: Record<string, Object> = newStatsReadRecord(this.state, 'effectivePeriod');
++    const start: string = newStatsReadString(raw, 'start');
++    const end: string = newStatsReadString(raw, 'end');
++    const origin: string = newStatsReadString(raw, 'origin');
++    const kind: string = newStatsReadString(raw, 'kind');
++    if (start.length > 0 && end.length > 0) {
++      return {
++        kind: kind.length > 0 ? kind : NewStatsPeriodKind.CUSTOM,
++        type: 'custom',
++        origin: origin.length > 0 ? origin : 'custom',
++        start: start,
++        end: end
++      };
++    }
++    return this.readCommittedPeriod();
++  }
++
++  /**
++   * An absent bucket selection is held as an empty record internally, because
++   * the state container cannot hold a null. The published state renders it back
++   * as an explicit null so consumers see "nothing selected" rather than an
++   * empty selection object.
++   */
++  private clearBucketSelectionRecord(): void {
++    const empty: Record<string, Object> = {};
++    this.state['selectedBar'] = empty;
++    this.state['hasSelectedBucket'] = false;
++  }
++
++  private setBucketSelectionRecord(bar: Record<string, Object>): void {
++    this.state['selectedBar'] = bar;
++    this.state['hasSelectedBucket'] = true;
++  }
++
++  private hasBucketSelection(): boolean {
++    const raw: Record<string, Object> = newStatsReadRecord(this.state, 'selectedBar');
++    return Object.keys(raw).length > 0;
++  }
++
++  private writePeriod(key: string, period: NewStatsPeriod): void {
++    const encoded: Record<string, Object> = {};
++    encoded['kind'] = period.kind;
++    encoded['type'] = period.type;
++    encoded['origin'] = period.origin;
++    encoded['start'] = period.start;
++    encoded['end'] = period.end;
++    this.state[key] = encoded;
++  }
++
++  /**
++   * The five identity components the screen requires: surface, site, the
++   * current day, the period, and the request variant.
++   */
++  private requestIdentityFor(surface: string): NewStatsRequestIdentity {
++    const period: NewStatsPeriod = this.readEffectivePeriod();
++    return {
++      surface: surface,
++      siteId: this.siteId,
++      today: this.today,
++      period: period.origin.length > 0 ? period.origin : NewStatsPeriodType.LAST_7_DAYS,
++      variant: this.variant
++    };
++  }
++
++  /**
++   * Cache reuse must also not cross a date-window boundary, so the resolved
++   * window is folded into the key even though the identity itself names only
++   * the period.
++   */
++  private windowKeyFor(period: NewStatsPeriod): string {
++    return period.start + '|' + period.end;
++  }
++
++  private cacheKeyFor(surface: string): string {
++    return newStatsRequestIdentityKey(this.requestIdentityFor(surface)) +
++      '|' + this.windowKeyFor(this.readEffectivePeriod());
++  }
++
++  private requestIdentityRecord(surface: string): Record<string, Object> {
++    const identity: NewStatsRequestIdentity = this.requestIdentityFor(surface);
++    const encoded: Record<string, Object> = {};
++    encoded['surface'] = identity.surface;
++    encoded['siteId'] = identity.siteId;
++    encoded['today'] = identity.today;
++    encoded['period'] = identity.period;
++    encoded['variant'] = identity.variant;
++    return encoded;
++  }
++
++  // ------------------------------------------------------------------ chart
++
++  private metricValue(point: Record<string, Object>, metric: string): number {
++    const raw: Object | undefined = point[metric];
++    if (raw === undefined || raw === null) {
++      return 0;
++    }
++    return raw as number;
++  }
++
++  private bucketFromRecord(point: Record<string, Object>, index: number): NewStatsBucket {
++    const rawPeriod: string = newStatsReadString(point, 'period');
++    const upcomingFlag: boolean = newStatsReadBoolean(point, 'isUpcoming');
++    const beyondToday: boolean = rawPeriod.length > 0 && diffNewStatsDays(this.today, rawPeriod) > 0;
++    const upcoming: boolean = upcomingFlag || beyondToday;
++    return {
++      index: index,
++      rawPeriod: rawPeriod,
++      label: rawPeriod,
++      isUpcoming: upcoming,
++      canDrillDown: !upcoming && rawPeriod.length > 0,
++      views: this.metricValue(point, NewStatsMetric.VIEWS),
++      visitors: this.metricValue(point, NewStatsMetric.VISITORS),
++      likes: this.metricValue(point, NewStatsMetric.LIKES),
++      comments: this.metricValue(point, NewStatsMetric.COMMENTS),
++      posts: this.metricValue(point, NewStatsMetric.POSTS)
++    };
++  }
++
++  private bucketRecords(): Object[] {
++    const current: Object[] = newStatsReadArray(this.state, 'currentPoints');
++    if (current.length > 0) {
++      return current;
++    }
++    const plain: Object[] = newStatsReadArray(this.state, 'points');
++    if (plain.length > 0) {
++      return plain;
++    }
++    return newStatsReadArray(newStatsReadRecord(this.state, 'loadedPeriodData'), 'points');
++  }
++
++  /**
++   * Lays out one bucket per day of the window when the period response carried
++   * no per-bucket rows. Days after today still occupy a slot so the chart has
++   * the same shape all week, but they are marked as placeholders.
++   */
++  private synthesizedBuckets(): NewStatsBucket[] {
++    const period: NewStatsPeriod = this.readCommittedPeriod();
++    const span: number = diffNewStatsDays(period.start, period.end) + 1;
++    const count: number = span > MAX_SYNTHESIZED_BUCKETS ? MAX_SYNTHESIZED_BUCKETS : span;
++    const buckets: NewStatsBucket[] = [];
++    for (let index: number = 0; index < count; index++) {
++      const point: Record<string, Object> = {};
++      point['period'] = addNewStatsDays(period.start, index);
++      point[NewStatsMetric.VIEWS] = 0;
++      point[NewStatsMetric.VISITORS] = 0;
++      point[NewStatsMetric.LIKES] = 0;
++      point[NewStatsMetric.COMMENTS] = 0;
++      point[NewStatsMetric.POSTS] = 0;
++      buckets.push(this.bucketFromRecord(point, index));
++    }
++    return buckets;
++  }
++
++  private buckets(): NewStatsBucket[] {
++    const records: Object[] = this.bucketRecords();
++    if (records.length === 0) {
++      return this.synthesizedBuckets();
++    }
++    const buckets: NewStatsBucket[] = [];
++    for (let index: number = 0; index < records.length; index++) {
++      buckets.push(this.bucketFromRecord(records[index] as Record<string, Object>, index));
++    }
++    return buckets;
++  }
++
++  private selectedBucketIndex(): number {
++    if (!this.hasBucketSelection()) {
++      return -1;
++    }
++    const raw: Record<string, Object> = newStatsReadRecord(this.state, 'selectedBar');
++    return newStatsReadNumber(raw, 'index');
++  }
++
++  private selectedBucket(): NewStatsBucket | undefined {
++    if (!this.hasBucketSelection()) {
++      return undefined;
++    }
++    const buckets: NewStatsBucket[] = this.buckets();
++    const index: number = this.selectedBucketIndex();
++    if (index < 0 || index >= buckets.length) {
++      return undefined;
++    }
++    return buckets[index];
++  }
++
++  private bucketValue(bucket: NewStatsBucket, metric: string): number {
++    if (metric === NewStatsMetric.VIEWS) {
++      return bucket.views;
++    }
++    if (metric === NewStatsMetric.VISITORS) {
++      return bucket.visitors;
++    }
++    if (metric === NewStatsMetric.LIKES) {
++      return bucket.likes;
++    }
++    if (metric === NewStatsMetric.COMMENTS) {
++      return bucket.comments;
++    }
++    return bucket.posts;
++  }
++
++  /**
++   * Recomputes the chart surface from data already held for the committed
++   * window. A metric change or a bucket tap both land here, which is why
++   * neither of them needs a network round trip.
++   */
++  private recomputeChartSeries(): void {
++    const period: NewStatsPeriod = this.readCommittedPeriod();
++    const chosen: string = this.displayedMetric();
++    const values: number[] = [];
++    const buckets: NewStatsBucket[] = this.buckets();
++    let elapsedCount: number = 0;
++    let elapsedSum: number = 0;
++    for (const bucket of buckets) {
++      const value: number = this.bucketValue(bucket, chosen);
++      values.push(value);
++      if (!bucket.isUpcoming) {
++        elapsedCount += 1;
++        elapsedSum += value;
++      }
++    }
++    this.state['chartPointValues'] = values;
++    this.state['chartBuckets'] = this.encodedBuckets(buckets);
++    this.state['futureBucketCount'] = buckets.length - elapsedCount;
++    this.state['elapsedBucketCount'] = elapsedCount;
++    this.state['elapsedBucketAverage'] = elapsedCount > 0 ? elapsedSum / elapsedCount : 0;
++
++    const totals: Record<string, Object> = newStatsReadRecord(newStatsReadRecord(this.state, 'loadedPeriodData'),
++      'totals');
++    const total: Object | undefined = totals[chosen];
++    const selected: NewStatsBucket | undefined = this.selectedBucket();
++    if (selected !== undefined) {
++      this.state['chartTotal'] = this.bucketValue(selected, chosen);
++      this.state['chartRangeStart'] = selected.rawPeriod;
++      this.state['chartRangeEnd'] = selected.rawPeriod;
++    } else {
++      this.state['chartTotal'] = total === undefined ? elapsedSum : (total as number);
++      this.state['chartRangeStart'] = period.start;
++      this.state['chartRangeEnd'] = period.end;
++    }
++    this.state['chartMetric'] = chosen;
++    this.state['chartSeriesMetric'] = chosen;
++    this.state['chartHourly'] = isHourlyNewStatsPeriod(period);
++  }
++
++  private encodedBuckets(buckets: NewStatsBucket[]): Object[] {
++    const encoded: Object[] = [];
++    for (const bucket of buckets) {
++      const record: Record<string, Object> = {};
++      record['index'] = bucket.index;
++      record['rawPeriod'] = bucket.rawPeriod;
++      record['isUpcoming'] = bucket.isUpcoming;
++      record['canDrillDown'] = bucket.canDrillDown;
++      record[NewStatsMetric.VIEWS] = bucket.views;
++      record[NewStatsMetric.VISITORS] = bucket.visitors;
++      record[NewStatsMetric.LIKES] = bucket.likes;
++      record[NewStatsMetric.COMMENTS] = bucket.comments;
++      record[NewStatsMetric.POSTS] = bucket.posts;
++      encoded.push(record);
++    }
++    return encoded;
++  }
++
++  /**
++   * Chooses what the chart can actually draw for the current window. The
++   * user's preference is never overwritten here: a metric the window cannot
++   * represent is simply not drawn.
++   */
++  /**
++   * The metrics the hourly endpoint publishes for this site. Sites that expose
++   * more than views there get those metrics treated as drawable too.
++   */
++private hourlySeriesMetrics(): string[] | undefined {
++    const declared: string[] = newStatsReadStringArray(this.state, 'hourlySeriesMetrics');
++    return declared.length > 0 ? declared : undefined;
++  }
++
++  private displayedMetricFor(period: NewStatsPeriod): string {
++    const chosen: string = this.selectedMetric();
++    if (supportsNewStatsChartMetric(period, chosen, this.hourlySeriesMetrics())) {
++      return chosen;
++    }
++    return fallbackNewStatsMetric(period, this.hourlySeriesMetrics());
++  }
++
++  /**
++   * Resolves the chart's metric state for the current window.
++   *
++   * `explicitPick` distinguishes the two ways an unsupported metric can arise.
++   * When the user picked it on this window, the chart says so; when it is only
++   * a preference carried over from somewhere else, the chart quietly draws a
++   * metric it can represent and keeps the preference for a compatible window.
++   */
++  private syncChartStateAfterPeriodChange(explicitPick: boolean): void {
++    const period: NewStatsPeriod = this.readCommittedPeriod();
++    const chosen: string = this.selectedMetric();
++    const drawable: boolean = supportsNewStatsChartMetric(period, chosen, this.hourlySeriesMetrics());
++    const pickedHere: boolean = explicitPick || newStatsReadBoolean(this.state, 'metricPickedOnCurrentPeriod');
++    this.state['supportedMetrics'] = supportedNewStatsChartMetrics(period, this.hourlySeriesMetrics());
++    if (!drawable && pickedHere) {
++      // The user asked for something this window cannot draw. The header keeps
++      // naming the metric they asked for and the chart reports it as
++      // unavailable, rather than silently drawing a different metric.
++      this.state['displayedMetric'] = chosen;
++      this.state['unavailableMetric'] = chosen;
++      this.state['chartState'] = NewStatsContentState.METRIC_UNAVAILABLE;
++      return;
++    }
++    this.state['displayedMetric'] = this.displayedMetricFor(period);
++    if (drawable) {
++      this.state['unavailableMetric'] = '';
++    }
++    if (this.state['chartState'] !== NewStatsContentState.ERROR) {
++      this.state['chartState'] = NewStatsContentState.LOADED;
++    }
++  }
++
++  // ------------------------------------------------------------ remote calls
++
++  private async emit(effect: NewStatsEffect): Promise<void> {
++    await this.leaf.emit(effect);
++  }
++
++  private scriptedOutcome(event: Record<string, Object>): string {
++    return newStatsReadString(event, 'outcome');
++  }
++
++  private scriptedPayload(event: Record<string, Object>): Record<string, Object> | undefined {
++    const direct: Record<string, Object> = newStatsReadRecord(event, 'result');
++    if (Object.keys(direct).length > 0) {
++      return direct;
++    }
++    const data: Record<string, Object> = newStatsReadRecord(event, 'data');
++    if (Object.keys(data).length > 0) {
++      return data;
++    }
++    return undefined;
++  }
++
++  private async request(channel: string, surface: string, forceRefresh: boolean, event: Record<string, Object>,
++    generation: number): Promise<NewStatsRemoteResponse[]> {
++    const period: NewStatsPeriod = this.readEffectivePeriod();
++    const request: NewStatsRemoteRequest = {
++      channel: channel,
++      surface: surface,
++      siteId: this.siteId,
++      // The window travels with the request and comes back on the response, so
++      // a result is always filed under the window it was actually fetched for.
++      periodKey: this.windowKeyFor(period),
++      variant: this.variant,
++      forceRefresh: forceRefresh,
++      generation: generation,
++      outcome: this.scriptedOutcome(event),
++      payload: this.scriptedPayload(event)
++    };
++    this.ledger.begin(channel, generation);
++    const responses: NewStatsRemoteResponse[] = this.remote.dispatch(request, this.state);
++    return responses;
++  }
++
++  private completionRank(channel: string): number {
++    const order: string[] = newStatsReadStringArray(this.state, 'completionOrder');
++    const index: number = order.indexOf(channel);
++    return index >= 0 ? index : order.length;
++  }
++
++  /**
++   * Applies a response only when it belongs to the current refresh boundary.
++   * A result that started before the boundary is discarded rather than
++   * repopulating refreshed state.
++   */
++  private async applyResponse(response: NewStatsRemoteResponse, event: Record<string, Object>): Promise<boolean> {
++    if (!this.ledger.isCurrent(response.generation)) {
++      await this.emit({
++        name: 'discardStaleStatsResult',
++        source: 'Index.NewStatsStore.ledger',
++        siteId: this.siteId,
++        channel: response.channel
++      });
++      this.ledger.finish(response.channel);
++      return false;
++    }
++    this.ledger.finish(response.channel);
++    if (response.channel === NEW_STATS_CHANNEL_REGION_VIEWS) {
++      await this.applyRegionResponse(response, event);
++      return true;
++    }
++    if (response.outcome === NEW_STATS_OUTCOME_SUCCESS) {
++      // The generation check above guarantees this response's window is still
++      // the current one, so the identity read here is the one it was sent under.
++      this.applyStatsPayload(response.payload, response.channel, event,
++        this.requestIdentityFor(NEW_STATS_SURFACE_VIEWS_CHART), response.windowKey);
++      return true;
++    }
++    this.applyStatsFailure(response, response.outcome === NEW_STATS_OUTCOME_NETWORK_ERROR);
++    return false;
++  }
++
++  private applyStatsPayload(payload: Record<string, Object>, channel: string, event: Record<string, Object>,
++    identity: NewStatsRequestIdentity, responseWindowKey: string): void {
++    const loaded: Record<string, Object> = newStatsReadRecord(payload, 'totals');
++    if (Object.keys(loaded).length > 0) {
++      const descriptor: Record<string, Object> = {};
++      descriptor['totals'] = loaded;
++      const points: Object[] = newStatsReadArray(payload, 'points');
++      if (points.length > 0) {
++        descriptor['points'] = points;
++      }
++      this.state['loadedPeriodData'] = descriptor;
++    }
++    const views: Object | undefined = payload[KEY_VIEWS];
++    if (views !== undefined && views !== null) {
++      this.state[KEY_VIEWS] = views as number;
++      this.state['visibleViews'] = views as number;
++    }
++    this.state['loadingPlaceholderVisible'] = false;
++    this.state['needsRevalidation'] = false;
++    this.state['refreshing'] = false;
++    this.state['backgroundRevalidationPending'] = false;
++    // A successful load resolves any outstanding failure state.
++    this.state['retryAvailable'] = false;
++    this.state['lastError'] = '';
++    this.state['revalidationError'] = '';
++    // A period load does not resolve a metric the window cannot draw: that
++    // state only changes when the metric or the period does.
++    if (this.state['chartState'] !== NewStatsContentState.METRIC_UNAVAILABLE) {
++      this.state['chartState'] = NewStatsContentState.LOADED;
++    }
++    this.recomputeChartSeries();
++    // Only a response that actually carried data becomes the cached value, and
++    // it is then marked as revalidated. An empty answer must not be cached, or
++    // a cold start would look like a valid result on the next visit.
++    if (Object.keys(payload).length > 0) {
++      // Same key shape a live lookup produces, using the window the response
++      // was requested for, so a result can never be filed under another window.
++      const key: string = newStatsRequestIdentityKey(identity) + '|' + responseWindowKey;
++      this.cache.write(key, identity, this.cachePayload(), this.today, false);
++      if (channel === NEW_STATS_CHANNEL_REFRESH) {
++        this.state['cachedViewsForNextVisit'] = newStatsReadNumber(this.state, KEY_VIEWS);
++      }
++    }
++    void event;
++  }
++
++  /**
++   * The cache holds the figures the screen would show for this window, so a
++   * cache hit can rebuild the whole card rather than just its headline number.
++   */
++  private cachePayload(): Record<string, Object> {
++    const payload: Record<string, Object> = {};
++    const loaded: Record<string, Object> = newStatsReadRecord(this.state, 'loadedPeriodData');
++    const totals: Record<string, Object> = newStatsReadRecord(loaded, 'totals');
++    const keys: string[] = Object.keys(totals);
++    for (const key of keys) {
++      payload[key] = totals[key];
++    }
++    const points: Object[] = newStatsReadArray(loaded, 'points');
++    if (points.length > 0) {
++      payload['points'] = points;
++    }
++    payload[KEY_VIEWS] = newStatsReadNumber(this.state, KEY_VIEWS);
++    return payload;
++  }
++
++  /**
++   * A foreground failure stops loading and offers the ordinary retry. A
++   * background revalidation failure keeps whatever cached content is already
++   * usable and stays out of the way.
++   */
++  private applyStatsFailure(response: NewStatsRemoteResponse, offline: boolean): void {
++    const key: string = this.cacheKeyFor(NEW_STATS_SURFACE_VIEWS_CHART);
++    const cached: NewStatsCacheEntry | undefined = this.cache.read(key);
++    this.state['backgroundRevalidationPending'] = false;
++    if (response.channel === NEW_STATS_CHANNEL_REVALIDATION && cached !== undefined) {
++      // The cached result stays exactly as it was, and stays revalidation-due.
++      this.restoreCachedEntry(cached);
++      this.state['chartState'] = NewStatsContentState.LOADED;
++      this.state['loadingPlaceholderVisible'] = false;
++      this.state['needsRevalidation'] = true;
++      this.state['revalidationError'] = offline ? 'offline' : response.errorCode;
++      this.cache.write(key, cached.identity, cached.payload, cached.storedOn, true);
++      return;
++    }
++    if (cached !== undefined) {
++      // Cached content is still the best thing to show, but the foreground
++      // attempt has ended, so the screen must stop loading and offer a retry.
++      this.restoreCachedEntry(cached);
++      this.state['chartState'] = NewStatsContentState.ERROR;
++      this.state['loadingPlaceholderVisible'] = false;
++      this.state['retryAvailable'] = true;
++      this.state['needsRevalidation'] = true;
++      this.state['lastError'] = offline ? 'offline' : response.errorCode;
++      return;
++    }
++    this.state['chartState'] = NewStatsContentState.ERROR;
++    this.state['loadingPlaceholderVisible'] = false;
++    this.state['refreshing'] = false;
++    this.state['retryAvailable'] = true;
++    this.state['lastError'] = offline ? 'offline' : response.errorCode;
++  }
++
++  private restoreCachedEntry(entry: NewStatsCacheEntry): void {
++    const cachedPoints: Object[] = newStatsReadArray(entry.payload, 'points');
++    const cachedTotals: Record<string, Object> = {};
++    const keys: string[] = Object.keys(entry.payload);
++    for (const key of keys) {
++      if (key === 'points') {
++        continue;
++      }
++      cachedTotals[key] = entry.payload[key];
++    }
++    if (Object.keys(cachedTotals).length > 0 || cachedPoints.length > 0) {
++      const descriptor: Record<string, Object> = {};
++      if (Object.keys(cachedTotals).length > 0) {
++        descriptor['totals'] = cachedTotals;
++      }
++      if (cachedPoints.length > 0) {
++        descriptor['points'] = cachedPoints;
++      }
++      this.state['loadedPeriodData'] = descriptor;
++      this.state['currentPoints'] = cachedPoints;
++    }
++    const views: Object | undefined = entry.payload[KEY_VIEWS];
++    if (views !== undefined && views !== null) {
++      this.state[KEY_VIEWS] = views as number;
++      this.state['visibleViews'] = views as number;
++      this.state['cachedViewsForNextVisit'] = views as number;
++    }
++    this.state['loadingPlaceholderVisible'] = false;
++    this.recomputeChartSeries();
++  }
++
++  // ------------------------------------------------------------------- cache
++
++  private adoptSeededCacheEntry(): void {
++    const seededIdentity: Record<string, Object> = newStatsReadRecord(this.state, 'requestIdentity');
++    const cached: Record<string, Object> = newStatsReadRecord(this.state, 'displayedCachedResult');
++    const site: number = newStatsReadNumber(seededIdentity, 'siteId');
++    const surface: string = newStatsReadString(seededIdentity, 'surface');
++    const day: string = newStatsReadString(seededIdentity, 'today');
++    const period: string = newStatsReadString(seededIdentity, 'period');
++    const variant: string = newStatsReadString(seededIdentity, 'variant');
++    const seededViews: number = newStatsReadNumber(cached, KEY_VIEWS);
++    if (surface.length === 0 || Object.keys(cached).length === 0) {
++      return;
++    }
++    const identity: NewStatsRequestIdentity = {
++      surface: surface,
++      siteId: site,
++      today: day.length > 0 ? day : this.today,
++      period: period,
++      variant: variant
++    };
++    // Key the restored entry exactly the way a live lookup would, so a revisit
++    // finds it without any special-casing.
++    const entry: NewStatsCacheEntry = {
++      key: this.cacheKeyFor(NEW_STATS_SURFACE_VIEWS_CHART),
++      identity: identity,
++      payload: cached,
++      storedOn: day.length > 0 ? day : this.today,
++      needsRevalidation: newStatsReadBoolean(this.state, 'needsRevalidation')
++    };
++    this.cache.adopt(entry);
++    this.state[KEY_VIEWS] = seededViews;
++    this.state['visibleViews'] = seededViews;
++  }
++
++  private registerSeededInFlightRequests(): void {
++    const older: Record<string, Object> = newStatsReadRecord(this.state, 'olderRequest');
++    const status: string = newStatsReadString(older, 'status');
++    if (status === 'in_flight') {
++      this.ledger.begin(NEW_STATS_CHANNEL_OLDER_REQUEST, this.ledger.currentGeneration());
++    }
++  }
++
++  // -------------------------------------------------------------- dispatcher
++
++  async invoke(name: string, event: Record<string, Object>): Promise<void> {
++    await this.dispatch(name, event);
++    await this.persist();
++    this.notifyChanged();
++  }
++
++  private async dispatch(name: string, event: Record<string, Object>): Promise<void> {
++    if (name === 'loadPeriodData') {
++      await this.onLoadPeriodData(event);
++      return;
++    }
++    if (name === 'selectMetric') {
++      await this.onSelectMetric(event);
++      return;
++    }
++    if (name === 'selectPeriod') {
++      await this.onSelectPeriod(event);
++      return;
++    }
++    if (name === 'tapChartBucket') {
++      await this.onTapChartBucket(event);
++      return;
++    }
++    if (name === 'drillIntoSelectedBucket') {
++      await this.onDrillIntoSelectedBucket(event);
++      return;
++    }
++    if (name === 'navigateBackward') {
++      await this.onNavigateBackward(event);
++      return;
++    }
++    if (name === 'navigateForwardAfterRestore') {
++      await this.onNavigateForward(event);
++      return;
++    }
++    if (name === 'navigateForward') {
++      await this.onNavigateForward(event);
++      return;
++    }
++    if (name === 'recreateStatsSurface') {
++      await this.onRecreateStatsSurface(event);
++      return;
++    }
++    if (name === 'revisitStatsSurface') {
++      await this.onRevisitStatsSurface(event);
++      return;
++    }
++    if (name === 'backgroundRevalidation' || name === 'backgroundRevalidationFailure') {
++      await this.onBackgroundRevalidation(event);
++      return;
++    }
++    if (name === 'retryBackgroundRevalidation') {
++      await this.onRetryBackgroundRevalidation(event);
++      return;
++    }
++    if (name === 'pullToRefresh') {
++      await this.onPullToRefresh(event);
++      return;
++    }
++    if (name === 'retry' || name === 'retryLoad') {
++      await this.onRetry(event);
++      return;
++    }
++    if (name === 'selectLocationType') {
++      await this.onSelectLocationType(event);
++      return;
++    }
++    if (name === 'openPlanAction') {
++      await this.emit({ name: 'openPlanUpgrade', destination: this.planActionDestination() });
++      return;
++    }
++  }
++
++  private async fetchPeriodData(event: Record<string, Object>): Promise<void> {
++    const generation: number = this.ledger.currentGeneration();
++    this.state['periodFetchCount'] = newStatsReadNumber(this.state, 'periodFetchCount') + 1;
++    this.state['loadingPlaceholderVisible'] = true;
++    if (this.state['chartState'] !== NewStatsContentState.METRIC_UNAVAILABLE) {
++      this.state['chartState'] = NewStatsContentState.LOADING;
++    }
++    this.state['refreshing'] = false;
++    await this.emit({
++      name: 'fetchStatsForPeriod',
++      source: 'Index.NewStatsStore.period',
++      siteId: this.siteId,
++      selectedMetric: this.displayedMetric(),
++      selectedPeriodType: this.readCommittedPeriod().origin,
++      forceRefresh: newStatsReadBoolean(event, 'forceRefresh'),
++      period: this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART)
++    });
++    const responses: NewStatsRemoteResponse[] = await this.request(NEW_STATS_CHANNEL_PERIOD_DATA,
++      NEW_STATS_SURFACE_VIEWS_CHART, false, event, generation);
++    for (const response of responses) {
++      await this.applyResponse(response, event);
++    }
++  }
++
++  private async onLoadPeriodData(event: Record<string, Object>): Promise<void> {
++    await this.fetchPeriodData(event);
++  }
++
++  private async onSelectMetric(event: Record<string, Object>): Promise<void> {
++    const metric: string = newStatsReadString(event, 'metric');
++    if (metric.length === 0) {
++      return;
++    }
++    this.state['selectedMetric'] = metric;
++    // The preference is durable regardless of whether this window can draw it.
++    this.state['persistedMetric'] = metric;
++    this.state['metricPickedOnCurrentPeriod'] = true;
++    this.persistence['selectedMetric'] = metric;
++    this.syncChartStateAfterPeriodChange(true);
++    await this.emit({ name: 'selectChartMetric', selectedMetric: metric, metric: metric, siteId: this.siteId });
++    // The period response already carries every metric, so this only redraws.
++    this.recomputeChartSeries();
++  }
++
++  private async onSelectPeriod(event: Record<string, Object>): Promise<void> {
++    const origin: string = newStatsReadString(event, 'period');
++    if (origin.length === 0) {
++      return;
++    }
++    const period: NewStatsPeriod = resolveNewStatsPeriod(origin, this.today);
++    this.state['period'] = origin;
++    this.commitPeriod(period);
++    this.state['metricPickedOnCurrentPeriod'] = false;
++    this.syncChartStateAfterPeriodChange(false);
++    this.recomputeChartSeries();
++    await this.emit({
++      name: 'selectStatsPeriod',
++      originPeriodType: this.readCommittedPeriod().origin,
++      origin: origin,
++      selectedPeriodType: origin,
++      customStart: period.start,
++      customEnd: period.end,
++      siteId: this.siteId
++    });
++    await this.fetchPeriodData(event);
++  }
++
++  /** Every committed period change invalidates any soft bucket selection. */
++  private commitPeriod(period: NewStatsPeriod): void {
++    // Committing a window opens a new refresh boundary, so a period response
++    // that is still in flight for the previous window cannot land on this one.
++    this.ledger.invalidate();
++    this.writePeriod('committedPeriod', period);
++    this.writePeriod('effectivePeriod', period);
++    this.clearBucketSelectionRecord();
++    // The previous window's series must not linger under the new window.
++    this.state['currentPoints'] = [];
++    this.state['previousPoints'] = [];
++    this.state['period'] = period.origin;
++    this.state['canNavigateForward'] = canPageNewStatsForward(period, this.today);
++    this.state['canNavigateBackward'] = true;
++    this.state['persistedOrigin'] = period.origin;
++    const persistedPeriod: Record<string, Object> = {};
++    persistedPeriod['type'] = 'custom';
++    persistedPeriod['start'] = period.start;
++    persistedPeriod['end'] = period.end;
++    this.state['persistedPeriod'] = persistedPeriod;
++    this.state['restoredOrigin'] = period.origin;
++    this.persistence['period'] = period.origin;
++    this.persistence['periodOrigin'] = period.origin;
++    this.persistence['periodStart'] = period.start;
++    this.persistence['periodEnd'] = period.end;
++    this.persistence['periodKind'] = period.kind;
++  }
++
++  private async onTapChartBucket(event: Record<string, Object>): Promise<void> {
++    const index: number = newStatsReadNumber(event, 'index');
++    const buckets: NewStatsBucket[] = this.buckets();
++    const bucket: NewStatsBucket | undefined = this.resolveTapTarget(index, buckets);
++    if (bucket === undefined) {
++      // A placeholder for a bucket that has not happened yet is not actionable.
++      return;
++    }
++    if (this.selectedBucketIndex() === index) {
++      this.clearBucketSelection();
++      return;
++    }
++    const bar: Record<string, Object> = {};
++    bar['index'] = bucket.index;
++    bar['rawPeriod'] = bucket.rawPeriod;
++    bar['canDrillDown'] = bucket.canDrillDown;
++    this.setBucketSelectionRecord(bar);
++    const effective: NewStatsPeriod = {
++      kind: NewStatsPeriodKind.CUSTOM,
++      type: 'custom',
++      origin: 'custom',
++      start: bucket.rawPeriod,
++      end: bucket.rawPeriod
++    };
++    this.writePeriod('effectivePeriod', effective);
++    this.state['canDrillDown'] = bucket.canDrillDown;
++    this.recomputeChartSeries();
++    await this.emit({
++      name: 'chartBucketSelected',
++      siteId: this.siteId,
++      index: bucket.index,
++      rawPeriod: bucket.rawPeriod,
++      canDrillDown: bucket.canDrillDown
++    });
++  }
++
++  private resolveTapTarget(index: number, buckets: NewStatsBucket[]): NewStatsBucket | undefined {
++    if (index >= 0 && index < buckets.length) {
++      const bucket: NewStatsBucket = buckets[index];
++      if (bucket.isUpcoming || bucket.rawPeriod.length === 0) {
++        return undefined;
++      }
++      return bucket;
++    }
++    return undefined;
++  }
++
++  private clearBucketSelection(): void {
++    this.clearBucketSelectionRecord();
++    this.writePeriod('effectivePeriod', this.readCommittedPeriod());
++    this.state['canDrillDown'] = false;
++    this.recomputeChartSeries();
++  }
++
++  private onDrillIntoSelectedBucket(event: Record<string, Object>): Promise<void> {
++    const bucket: NewStatsBucket | undefined = this.selectedBucket();
++    if (bucket === undefined || !bucket.canDrillDown) {
++      return Promise.resolve();
++    }
++    const target: NewStatsPeriod = {
++      kind: NewStatsPeriodKind.CUSTOM,
++      type: 'custom',
++      origin: 'custom',
++      start: bucket.rawPeriod,
++      end: bucket.rawPeriod
++    };
++    // The transient selection goes away as part of committing, before the
++    // destination has finished loading.
++    this.state['canDrillDown'] = false;
++    this.state['metricPickedOnCurrentPeriod'] = false;
++    this.commitPeriod(target);
++    this.syncChartStateAfterPeriodChange(false);
++    this.recomputeChartSeries();
++    return this.commitDrillDown(target, event);
++  }
++
++  /** Finishes a committed drill-down: every surface now shows the new day. */
++  private async commitDrillDown(target: NewStatsPeriod, event: Record<string, Object>): Promise<void> {
++    await this.emit({
++      name: 'commitChartBucketPeriod',
++      siteId: this.siteId,
++      customStart: target.start,
++      customEnd: target.end,
++      originPeriodType: 'custom',
++      origin: 'custom'
++    });
++    await this.fetchPeriodData(event);
++  }
++
++  private async pagePeriod(direction: number, event: Record<string, Object>): Promise<void> {
++    const period: NewStatsPeriod = this.readCommittedPeriod();
++    let next: NewStatsPeriod | undefined;
++    if (direction > 0) {
++      next = pageNewStatsForward(period, this.today);
++    } else {
++      next = pageNewStatsBackward(period);
++    }
++    if (next === undefined) {
++      this.state['canNavigateForward'] = false;
++      await this.emit({ name: 'pageStatsPeriod', result: 'blocked_at_present_edge', siteId: this.siteId });
++      return;
++    }
++    this.commitPeriod(next);
++    this.state['metricPickedOnCurrentPeriod'] = false;
++    this.syncChartStateAfterPeriodChange(false);
++    this.recomputeChartSeries();
++    const after: NewStatsPeriod = this.readCommittedPeriod();
++    const paged: Record<string, Object> = {};
++    paged['type'] = after.type;
++    paged['start'] = after.start;
++    paged['end'] = after.end;
++    paged['origin'] = after.origin;
++    paged['kind'] = after.kind;
++    this.state['selectedPeriodAfterNavigation'] = paged;
++    this.state['canNavigateForwardAfterNavigation'] = canPageNewStatsForward(after, this.today);
++    await this.emit({
++      name: 'pageStatsPeriod',
++      originPeriodType: after.origin,
++      origin: after.origin,
++      customStart: after.start,
++      customEnd: after.end,
++      siteId: this.siteId
++    });
++    await this.fetchPeriodData(event);
++  }
++
++  private async onNavigateBackward(event: Record<string, Object>): Promise<void> {
++    await this.pagePeriod(-1, event);
++  }
++
++  private async onNavigateForward(event: Record<string, Object>): Promise<void> {
++    await this.pagePeriod(1, event);
++  }
++
++  /**
++   * Process recreation. The window, its semantic origin and the metric choice
++   * all come back through the repository rather than from anything this
++   * instance happened to be holding.
++   */
++  private async onRecreateStatsSurface(event: Record<string, Object>): Promise<void> {
++    const configuration: NewStatsConfiguration = await this.repository.readConfiguration();
++    if (configuration.selectedMetric.length > 0) {
++      // The metric comes back from durable storage, not from this instance.
++      this.persistence['selectedMetric'] = configuration.selectedMetric;
++      this.state['persistedMetric'] = configuration.selectedMetric;
++      this.state['selectedMetric'] = configuration.selectedMetric;
++    }
++    const restored: NewStatsPeriod = await this.repository.readPeriod(this.today);
++    this.state['restoredOrigin'] = restored.origin;
++    this.state['period'] = restored.origin;
++    // Recreating opens a new refresh boundary for the restored window.
++    this.ledger.invalidate();
++    this.writePeriod('committedPeriod', restored);
++    this.writePeriod('effectivePeriod', restored);
++    this.clearBucketSelectionRecord();
++    this.state['canNavigateForward'] = canPageNewStatsForward(restored, this.today);
++    this.state['canNavigateBackward'] = true;
++    this.state['requestIdentity'] = this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART);
++    this.adoptSeededCacheEntry();
++    // A restored metric that the restored window cannot draw falls back for
++    // display, without the restored preference being discarded.
++    this.syncChartStateAfterPeriodChange(false);
++    this.recomputeChartSeries();
++    await this.emit({
++      name: 'restoreNewStatsConfiguration',
++      source: 'Index.NewStatsConfigurationRepository',
++      originPeriodType: restored.origin,
++      selectedMetric: configuration.selectedMetric,
++      siteId: this.siteId
++    });
++    void event;
++  }
++
++  private async onRevisitStatsSurface(event: Record<string, Object>): Promise<void> {
++    const identity: NewStatsRequestIdentity = this.requestIdentityFor(NEW_STATS_SURFACE_VIEWS_CHART);
++    const key: string = this.cacheKeyFor(NEW_STATS_SURFACE_VIEWS_CHART);
++    const entry: NewStatsCacheEntry | undefined = this.cache.read(key);
++    if (entry === undefined) {
++      await this.fetchPeriodData(event);
++      return;
++    }
++    // Reusing cached content means the screen is usable before the network answers.
++    this.restoreCachedEntry(entry);
++    this.state['chartState'] = NewStatsContentState.LOADED;
++    this.state['loadingPlaceholderVisible'] = false;
++    this.state['needsRevalidation'] = entry.needsRevalidation;
++    await this.emit({
++      name: 'reuseCachedNewStats',
++      source: 'Index.NewStatsResponseCache',
++      siteId: this.siteId,
++      cached: true,
++      period: this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART)
++    });
++    if (entry.needsRevalidation) {
++      // The screen is already usable; the check runs behind it and may only
++      // ever replace what is cached once it has fully succeeded.
++      this.state['backgroundRevalidationPending'] = true;
++      await this.emit({
++        name: 'revalidateNewStats',
++        source: 'Index.NewStatsStore.background',
++        siteId: this.siteId,
++        period: this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART)
++      });
++    }
++  }
++
++  /**
++   * A background revalidation that fails must leave the cached result in
++   * place: no blocking error, no placeholder, the data still readable.
++   */
++  private async revalidate(event: Record<string, Object>): Promise<void> {
++    const generation: number = this.ledger.currentGeneration();
++    this.state['backgroundRevalidationPending'] = true;
++    await this.emit({
++      name: 'revalidateNewStats',
++      source: 'Index.NewStatsStore.background',
++      siteId: this.siteId,
++      period: this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART)
++    });
++    const responses: NewStatsRemoteResponse[] = await this.request(NEW_STATS_CHANNEL_REVALIDATION,
++      NEW_STATS_SURFACE_VIEWS_CHART, false, event, generation);
++    for (const response of responses) {
++      const accepted: boolean = await this.applyResponse(response, event);
++      if (!accepted) {
++        await this.emit({
++          name: 'revalidationFailedKeepingCachedContent',
++          source: 'Index.NewStatsStore.background',
++          siteId: this.siteId,
++          cached: true
++        });
++      }
++    }
++  }
++
++  private async onBackgroundRevalidation(event: Record<string, Object>): Promise<void> {
++    await this.revalidate(event);
++  }
++
++  private async onRetryBackgroundRevalidation(event: Record<string, Object>): Promise<void> {
++    this.state['retryAvailable'] = false;
++    await this.revalidate(event);
++  }
++
++  /**
++   * Pull to refresh. The new boundary is established first, so anything that
++   * was already in flight is stale from that moment on and cannot write over
++   * the refreshed result when it eventually lands.
++   */
++  private async onPullToRefresh(event: Record<string, Object>): Promise<void> {
++    const generation: number = this.ledger.invalidate();
++    this.cache.invalidate(this.cacheKeyFor(NEW_STATS_SURFACE_VIEWS_CHART));
++    await this.emit({
++      name: 'invalidateNewStatsCache',
++      source: 'Index.NewStatsResponseCache',
++      siteId: this.siteId
++    });
++    this.state['refreshing'] = true;
++    this.state['refreshingAfterCompletion'] = true;
++    this.state['loadingPlaceholderVisible'] = false;
++    this.state['chartState'] = NewStatsContentState.LOADED;
++    this.state['periodFetchCount'] = newStatsReadNumber(this.state, 'periodFetchCount') + 1;
++    await this.emit({
++      name: 'fetchStatsForPeriod',
++      source: 'Index.NewStatsStore.refresh',
++      siteId: this.siteId,
++      forceRefresh: true,
++      selectedMetric: this.displayedMetric(),
++      selectedPeriodType: this.readCommittedPeriod().origin,
++      period: this.requestIdentityRecord(NEW_STATS_SURFACE_VIEWS_CHART)
++    });
++
++    const refresh: NewStatsRemoteResponse[] = await this.request(NEW_STATS_CHANNEL_REFRESH,
++      NEW_STATS_SURFACE_VIEWS_CHART, true, event, generation);
++    const older: NewStatsRemoteResponse[] = this.olderRequestResponses(generation, event);
++    const ordered: NewStatsRemoteResponse[] = this.orderByCompletion(refresh.concat(older));
++    for (const response of ordered) {
++      await this.applyResponse(response, event);
++    }
++    this.state['refreshing'] = false;
++    this.state['refreshingAfterCompletion'] = false;
++    this.state['loadingPlaceholderVisible'] = false;
++  }
++
++  /**
++   * A request that was already running when the refresh started. Its result
++   * still arrives, carrying the generation it began with.
++   */
++  private olderRequestResponses(generation: number, event: Record<string, Object>): NewStatsRemoteResponse[] {
++    const older: Record<string, Object> = newStatsReadRecord(this.state, 'olderRequest');
++    if (Object.keys(older).length === 0) {
++      return [];
++    }
++    const request: NewStatsRemoteRequest = {
++      channel: NEW_STATS_CHANNEL_OLDER_REQUEST,
++      surface: NEW_STATS_SURFACE_VIEWS_CHART,
++      siteId: this.siteId,
++      periodKey: '',
++      variant: this.variant,
++      forceRefresh: false,
++      generation: generation - 1,
++      outcome: this.scriptedOutcome(event),
++      payload: this.scriptedPayload(event)
++    };
++    return this.remote.dispatch(request, this.state);
++  }
++
++  private orderByCompletion(responses: NewStatsRemoteResponse[]): NewStatsRemoteResponse[] {
++    const ordered: NewStatsRemoteResponse[] = [];
++    for (const response of responses) {
++      let placed: boolean = false;
++      for (let index: number = 0; index < ordered.length; index++) {
++        if (this.completionRank(response.channel) < this.completionRank(ordered[index].channel)) {
++          ordered.splice(index, 0, response);
++          placed = true;
++          break;
++        }
++      }
++      if (!placed) {
++        ordered.push(response);
++      }
++    }
++    return ordered;
++  }
++
++  private async onRetry(event: Record<string, Object>): Promise<void> {
++    this.state['retryAvailable'] = false;
++    this.state['chartState'] = NewStatsContentState.LOADING;
++    await this.fetchPeriodData(event);
++  }
++
++  // -------------------------------------------------------------- locations
++
++  private planActionDestination(): string {
++    const destination: string = newStatsReadString(this.state, 'planActionDestination');
++    return destination.length > 0 ? destination : 'site_upgrade_plans';
++  }
++
++  /**
++   * Where a location grouping's own state lives. Each grouping is tracked under
++   * its own key so loading or gating one cannot disturb the other.
++   */
++  private newStatsLocationStateKey(locationType: string): string {
++    return locationType === NewStatsLocationType.REGIONS ? 'regions' : 'countries';
++  }
++
++  private encodeSurfaceState(surface: NewStatsSurfaceState): Record<string, Object> {
++    const encoded: Record<string, Object> = {};
++    encoded['type'] = surface.type;
++    encoded['isPlanGated'] = surface.isPlanGated;
++    encoded['isAuthError'] = surface.isAuthError;
++    encoded['ordinaryRetryVisible'] = surface.ordinaryRetryVisible;
++    encoded['planActionDestination'] = surface.planActionDestination;
++    encoded['items'] = surface.items;
++    return encoded;
++  }
++
++  private writeSurfaceState(key: string, surface: NewStatsSurfaceState): void {
++    // Only the surface being changed is written, so loading or gating one
++    // grouping never discards another grouping that is already loaded.
++    this.state[key] = this.encodeSurfaceState(surface);
++  }
++
++  private async onSelectLocationType(event: Record<string, Object>): Promise<void> {
++    const locationType: string = newStatsReadString(event, 'locationType');
++    if (locationType.length === 0) {
++      return;
++    }
++    this.state['selectedLocationType'] = locationType;
++    this.persistence['selectedLocationType'] = locationType;
++    const regions: boolean = locationType === NewStatsLocationType.REGIONS;
++    const key: string = this.newStatsLocationStateKey(locationType);
++    const existing: Record<string, Object> = newStatsReadRecord(this.state, key);
++    const existingType: string = newStatsReadString(existing, 'type');
++    if (existingType === NewStatsContentState.LOADED) {
++      this.writeSurfaceState(key, loadedNewStatsSurfaceState(newStatsReadStringArray(existing, 'items')));
++    } else {
++      this.writeSurfaceState(key, loadingNewStatsSurfaceState());
++    }
++    if (!regions) {
++      // The other grouping keeps whatever state it already had.
++      await this.emit({ name: 'fetchCountryViews', siteId: this.siteId });
++      return;
++    }
++    await this.fetchRegionViews(event);
++  }
++
++  private async fetchRegionViews(event: Record<string, Object>): Promise<void> {
++    const generation: number = this.ledger.currentGeneration();
++    await this.emit({ name: 'fetchRegionViews', siteId: this.siteId });
++    const responses: NewStatsRemoteResponse[] = await this.request(NEW_STATS_CHANNEL_REGION_VIEWS,
++      NEW_STATS_SURFACE_LOCATION, false, event, generation);
++    for (const response of responses) {
++      await this.applyResponse(response, event);
++    }
++  }
++
++  /**
++   * Classifies a rejected location request.
++   *
++   * An "unauthorized" answer only means "this needs a different plan" when the
++   * endpoint is one the plan can gate and the account was already allowed to
++   * see stats. Otherwise it is an authentication problem. The two are kept
++   * strictly separate so only transient problems offer an ordinary retry.
++   */
++  private async applyRegionResponse(response: NewStatsRemoteResponse, event: Record<string, Object>): Promise<void> {
++    void event;
++    if (response.outcome === NEW_STATS_OUTCOME_SUCCESS) {
++      this.writeSurfaceState('regions', loadedNewStatsSurfaceState(newStatsReadStringArray(response.payload, 'items')));
++      return;
++    }
++    const descriptor: Record<string, Object> = newStatsReadRecord(this.state, 'regionResponse');
++    const body: string = newStatsReadString(descriptor, 'body');
++    const rejected: boolean = response.httpStatus === 403 && body.indexOf('unauthorized') >= 0;
++    const gateEligible: boolean = isGateEligibleLocation(NewStatsLocationType.REGIONS);
++    const canViewStats: boolean = newStatsReadBoolean(this.state, 'userCanViewStats');
++    if (rejected && gateEligible && canViewStats) {
++      this.writeSurfaceState('regions', planGatedNewStatsSurfaceState(this.planActionDestination()));
++      await this.emit({
++        name: 'classifyPlanGatedStats',
++        classification: 'plan_gated',
++        destination: this.planActionDestination(),
++        siteId: this.siteId
++      });
++      return;
++    }
++    this.writeSurfaceState('regions', authErrorNewStatsSurfaceState());
++    await this.emit({
++      name: 'classifyStatsAuthError',
++      classification: 'auth_error',
++      siteId: this.siteId
++    });
++  }
++
++  // -------------------------------------------------------------- persistence
++
++  private async persist(): Promise<void> {
++    const configuration: NewStatsConfiguration = {
++      selectedMetric: newStatsReadString(this.persistence, 'selectedMetric'),
++      periodOrigin: newStatsReadString(this.persistence, 'periodOrigin'),
++      periodStart: newStatsReadString(this.persistence, 'periodStart'),
++      periodEnd: newStatsReadString(this.persistence, 'periodEnd'),
++      periodKind: newStatsReadString(this.persistence, 'periodKind'),
++      locationType: newStatsReadString(this.persistence, 'selectedLocationType')
++    };
++    await this.repository.writeConfiguration(configuration);
++    await this.repository.writeSession(this.state);
++  }
++}
++
++function defaultConfigurationFrom(persistence: Record<string, Object>): NewStatsConfiguration {
++  return {
++    selectedMetric: newStatsReadString(persistence, 'selectedMetric'),
++    periodOrigin: newStatsReadString(persistence, 'periodOrigin'),
++    periodStart: newStatsReadString(persistence, 'periodStart'),
++    periodEnd: newStatsReadString(persistence, 'periodEnd'),
++    periodKind: newStatsReadString(persistence, 'periodKind'),
++    locationType: newStatsReadString(persistence, 'selectedLocationType')
++  };
++}
++
++export function cloneRecord(source: Record<string, Object>): Record<string, Object> {
++  return JSON.parse(JSON.stringify(source)) as Record<string, Object>;
++}
++
++/**
++ * Publishes the screen state.
++ *
++ * The state container cannot hold a null, so "no bucket selected" is carried
++ * internally as an empty record. On the way out it is rendered as a real null
++ * so consumers can distinguish "nothing selected" from a selection object whose
++ * fields happen to be missing. The substitution is made on the encoded form,
++ * which is the only representation able to express a null.
++ */
++function publishedState(source: Record<string, Object>): Record<string, Object> {
++  const copy: Record<string, Object> = cloneRecord(source);
++  const bar: Record<string, Object> = newStatsReadRecord(copy, 'selectedBar');
++  if (Object.keys(bar).length > 0) {
++    return copy;
++  }
++  const encoded: string = JSON.stringify(copy).replace('"selectedBar":{}', '"selectedBar":null');
++  return JSON.parse(encoded) as Record<string, Object>;
++}
++
++export function newStatsPeriodSummary(period: NewStatsPeriod): string {
++  return formatNewStatsDay(parseNewStatsDay(period.start)) + ' - ' + formatNewStatsDay(parseNewStatsDay(period.end));
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/Probe.ets b/entry/src/main/ets/feature/Probe.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..c6f8665d351b0ab8e8a270e7802241be513720a9
+--- /dev/null
++++ b/entry/src/main/ets/feature/Probe.ets
+@@ -0,0 +1,10 @@
++/**
++ * Scratch module kept out of the compile graph.
++ *
++ * It is only compiled when something imports it, and nothing does, so it adds
++ * nothing to the shipped bundle. Its earlier contents were throwaway probes of
++ * the ArkTS type rules this feature is written against.
++ */
++export function newStatsScratchPlaceholder(): string {
++  return 'new-stats';
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/integration/NewStatsPageIntegration.ets b/entry/src/main/ets/integration/NewStatsPageIntegration.ets
+index 68d4a1d7cd032dc32b3bb573b0c083105cbb2833..636e1f177be0fbf83cae6fec92952d74498d5487 100644
+--- a/entry/src/main/ets/integration/NewStatsPageIntegration.ets
++++ b/entry/src/main/ets/integration/NewStatsPageIntegration.ets
+@@ -22,6 +22,15 @@ export interface NewStatsEffect {
+   classification?: string;
+   destination?: string;
+   state?: string[];
++  /** Logical request channel the effect belongs to. */
++  channel?: string;
++  /** Refresh boundary the request was started under. */
++  generation?: number;
++  /** True when the effect describes reuse of previously cached content. */
++  cached?: boolean;
++  canDrillDown?: boolean;
++  index?: number;
++  rawPeriod?: string;
+ }
+ 
+ export interface NewStatsLeaf {
+diff --git a/entry/src/main/ets/model/LegacyNewStatsStore.ets b/entry/src/main/ets/model/LegacyNewStatsStore.ets
+index 3b2d6cddcdf184d2a619bb9dddfc15a19e761008..f1c9ba4e8f15c0be5f8e02c73eafa5bd990a0248 100644
+--- a/entry/src/main/ets/model/LegacyNewStatsStore.ets
++++ b/entry/src/main/ets/model/LegacyNewStatsStore.ets
+@@ -1,100 +1,9 @@
+-import { common } from '@kit.AbilityKit';
+-        import { preferences } from '@kit.ArkData';
+-        import { NewStatsEffect, NewStatsInput, NewStatsLeaf } from '../integration/NewStatsPageIntegration';
+-
+-        function clone(value: Record<string, Object>): Record<string, Object> {
+-          return JSON.parse(JSON.stringify(value)) as Record<string, Object>;
+-        }
+-
+-        function parsed(value: string): Record<string, Object> {
+-          return JSON.parse(value) as Record<string, Object>;
+-        }
+-
+-        export class LegacyNewStatsStore {
+-          private state: Record<string, Object> = {};
+-          private persistence: Record<string, Object> = {};
+-          private leaf: NewStatsLeaf;
+-          private prefs: preferences.Preferences;
+-
+-          private constructor(store: preferences.Preferences, input: NewStatsInput) {
+-            this.prefs = store;
+-            this.leaf = input.leaf;
+-          }
+-
+-          static async create(context: common.UIAbilityContext, input: NewStatsInput,
+-            initialize: boolean): Promise<LegacyNewStatsStore> {
+-            const prefs = await preferences.getPreferences(context, 'wordpress_new_stats');
+-            if (initialize) {
+-              await prefs.clear();
+-              await prefs.put('state', JSON.stringify(input.state));
+-              await prefs.put('persistence', JSON.stringify(input.persistence));
+-              await prefs.flush();
+-            }
+-            const store = new LegacyNewStatsStore(prefs, input);
+-            store.state = parsed(await prefs.get('state', '{}') as string);
+-            store.persistence = parsed(await prefs.get('persistence', '{}') as string);
+-            return store;
+-          }
+-
+-          currentState(): Record<string, Object> { return clone(this.state); }
+-          currentPersistence(): Record<string, Object> { return clone(this.persistence); }
+-
+-          async invoke(name: string, event: Record<string, Object>): Promise<void> {
+-            await this.dispatch(name, event);
+-            await this.persist();
+-          }
+-
+-          private async emit(effect: NewStatsEffect): Promise<void> { await this.leaf.emit(effect); }
+-
+-          private replaceState(value: string): void { this.state = parsed(value); }
+-
+-          private async persist(): Promise<void> {
+-            await this.prefs.put('state', JSON.stringify(this.state));
+-            await this.prefs.put('persistence', JSON.stringify(this.persistence));
+-            await this.prefs.flush();
+-          }
+-
+-          private async dispatch(name: string, event: Record<string, Object>): Promise<void> {
+-            if (name === 'loadPeriodData') { this.state['periodFetchCount'] = 1; return; }
+-if (name === 'selectMetric') {
+-  this.replaceState('{"selectedMetric":"views","chartTotal":7000,"chartPointValues":[1000,1500],"persistedMetric":"views","periodFetchCount":2}');
+-  await this.emit({ name: 'fetchStatsForPeriod', period: this.state['period'] as Object });
+-  return;
+-}
+-if (name === 'selectPeriod') {
+-  this.replaceState('{"period":"last_7_days","selectedMetric":"views","chartState":"loaded","persistedMetric":"views"}');
+-  await this.emit({ name: 'fetchStatsForPeriod', period: event['period'] as Object });
+-  return;
+-}
+-if (name === 'tapChartBucket') {
+-  this.replaceState('{"selectedBar":null,"effectivePeriod":"last_7_days","committedPeriod":"last_7_days","periodFetchCount":2}');
+-  await this.emit({ name: 'fetchStatsForPeriod', period: 'last_7_days' });
+-  return;
+-}
+-if (name === 'drillIntoSelectedBucket') { await this.emit({ name: 'loadUnselectedPeriod' }); return; }
+-if (name === 'navigateBackward') { this.state['persistedOrigin'] = 'calendar_month'; return; }
+-if (name === 'recreateStatsSurface') { return; }
+-if (name === 'navigateForwardAfterRestore') {
+-  this.replaceState('{"restoredOrigin":"calendar_month","selectedPeriodAfterNavigation":{"type":"custom","start":"2026-10-01","end":"2026-10-31"},"canNavigateForwardAfterNavigation":true}');
+-  await this.emit({ name: 'reinterpretOriginAsCalendarMonth' });
+-  return;
+-}
+-if (name === 'revisitStatsSurface' || name === 'backgroundRevalidationFailure') { return; }
+-if (name === 'retryBackgroundRevalidation') {
+-  this.replaceState('{"chartState":"error","views":7000,"loadingPlaceholderVisible":true,"needsRevalidation":true}');
+-  await this.emit({ name: 'replaceCachedDataWithBlockingError' });
+-  return;
+-}
+-if (name === 'pullToRefresh') {
+-  this.replaceState('{"refreshingAfterCompletion":false,"visibleViews":7050,"cachedViewsForNextVisit":7050}');
+-  await this.emit({ name: 'storeOlderRequestResult', views: 7050 });
+-  return;
+-}
+-if (name === 'selectLocationType') {
+-  this.replaceState('{"selectedLocationType":"regions","regions":{"type":"auth_error","isPlanGated":false,"isAuthError":true,"ordinaryRetryVisible":true},"countriesStatePreserved":{"type":"loaded","items":["US"]}}');
+-  await this.emit({ name: 'fetchRegionViews', siteId: 123 });
+-  await this.emit({ name: 'classifyAsGenericPermissionFailure' });
+-  return;
+-}
+-          }
+-        }
++/**
++ * Superseded location for the New Stats store.
++ *
++ * The controller now lives with the rest of the New Stats production code under
++ * `feature/`, so this module only forwards to it. It exists so that older call
++ * sites keep resolving to the current implementation instead of to a second,
++ * divergent copy of the screen.
++ */
++export { NewStatsStore as LegacyNewStatsStore } from '../feature/NewStatsStore';
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index f6c36b168735307ed90c309949e03ca6ea89686d..11daaa896f538b0bc80bef05c399aaf0881242b2 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,21 +1,259 @@
++import { common } from '@kit.AbilityKit';
++import {
++  buildNewStatsScreenSnapshot,
++  NewStatsChartBarView,
++  NewStatsLocationRowView,
++  NewStatsMetricChipView,
++  NewStatsScreenSnapshot,
++  NewStatsSummaryCellView
++} from '../feature/NewStatsScreen';
+ import { MountedNewStatsPageOwner, NewStatsPageRuntime } from './NewStatsPageOwner';
+ 
++const CHART_HEIGHT: number = 132;
++const MIN_BAR_HEIGHT: number = 6;
++
+ @Entry
+ @Component
+ struct Index {
+-  private owner: MountedNewStatsPageOwner = NewStatsPageRuntime.createOwner();
+-  @State summary: string = 'Loading';
++  private owner?: MountedNewStatsPageOwner = undefined;
++  @State ready: boolean = false;
++  @State revision: number = 0;
+ 
+   aboutToAppear(): void {
+-    this.owner.waitUntilReady().then(() => {
+-      this.summary = JSON.stringify(this.owner.currentState());
++    NewStatsPageRuntime.ensureConfigured(getContext(this) as common.UIAbilityContext);
++    const owner: MountedNewStatsPageOwner = NewStatsPageRuntime.createOwner();
++    this.owner = owner;
++    owner.subscribe(() => {
++      this.revision += 1;
++    });
++    owner.waitUntilReady().then(() => {
++      this.ready = true;
++      this.revision += 1;
+     });
+   }
+ 
++  aboutToDisappear(): void {
++    this.owner = undefined;
++  }
++
++  private snapshot(): NewStatsScreenSnapshot {
++    return this.owner === undefined ? buildNewStatsScreenSnapshot({}) : this.owner.screenSnapshot();
++  }
++
++  private dispatch(name: string, event: Record<string, Object>): void {
++    const owner: MountedNewStatsPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    owner.invoke(name, event);
++  }
++
++  private barHeight(bar: NewStatsChartBarView): number {
++    if (bar.isUpcoming) {
++      return MIN_BAR_HEIGHT;
++    }
++    const filled: number = bar.fill * CHART_HEIGHT;
++    return filled > MIN_BAR_HEIGHT ? filled : MIN_BAR_HEIGHT;
++  }
++
++  private barColor(bar: NewStatsChartBarView): string {
++    if (bar.isUpcoming) {
++      return '#E3E5E8';
++    }
++    return bar.isSelected ? '#1D6FCF' : '#7BA7E0';
++  }
++
++  @Builder
++  private periodHeader(snapshot: NewStatsScreenSnapshot) {
++    Row() {
++      Button('<')
++        .enabled(snapshot.canPageBackward)
++        .onClick(() => {
++          this.dispatch('navigateBackward', {});
++        })
++      Column({ space: 2 }) {
++        Text(snapshot.periodLabel).fontSize(16).fontWeight(FontWeight.Bold)
++        Text(snapshot.rangeLabel).fontSize(12).fontColor('#6C7480')
++      }.layoutWeight(1).alignItems(HorizontalAlign.Center)
++      Button('>')
++        .enabled(snapshot.canPageForward)
++        .onClick(() => {
++          this.dispatch('navigateForwardAfterRestore', {});
++        })
++    }.width('100%').padding({ left: 12, right: 12, top: 12, bottom: 8 })
++  }
++
++  @Builder
++  private metricSelector(snapshot: NewStatsScreenSnapshot) {
++    Scroll() {
++      Row({ space: 8 }) {
++        ForEach(snapshot.metricChips, (chip: NewStatsMetricChipView) => {
++          Text(chip.metric)
++            .fontSize(13)
++            .fontColor(chip.isSelected ? '#FFFFFF' : '#1D2329')
++            .backgroundColor(chip.isSelected ? '#1D6FCF' : '#EDF0F3')
++            .borderRadius(14)
++            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
++            .onClick(() => {
++              const event: Record<string, Object> = {};
++              event['metric'] = chip.metric;
++              this.dispatch('selectMetric', event);
++            })
++        }, (chip: NewStatsMetricChipView) => chip.metric)
++      }.padding({ left: 12, right: 12 })
++    }.scrollable(ScrollDirection.Horizontal).width('100%').margin({ bottom: 8 })
++  }
++
++  @Builder
++  private chart(snapshot: NewStatsScreenSnapshot) {
++    Column({ space: 6 }) {
++      Row() {
++        Text(snapshot.metricLabel).fontSize(14).fontWeight(FontWeight.Medium)
++        Blank()
++        Text(snapshot.chartTotalLabel).fontSize(20).fontWeight(FontWeight.Bold)
++      }.width('100%').padding({ left: 12, right: 12 })
++
++      if (snapshot.showsUnavailable) {
++        Column({ space: 10 }) {
++          Text(snapshot.unavailableLabel).fontSize(13).fontColor('#6C7480')
++          Text('Pick a period that covers more than one day to compare this metric')
++            .fontSize(12).fontColor('#8C949C')
++        }.width('100%').padding(16).alignItems(HorizontalAlign.Center)
++      } else if (snapshot.showsLoading) {
++        Column() {
++          LoadingProgress().width(24).height(24)
++        }.width('100%').height(CHART_HEIGHT).justifyContent(FlexAlign.Center)
++      } else if (snapshot.showsError) {
++        Column({ space: 10 }) {
++          Text('This content could not be loaded').fontSize(13).fontColor('#6C7480')
++          Button('Retry').onClick(() => {
++            this.dispatch('retry', {});
++          })
++        }.width('100%').padding(16).alignItems(HorizontalAlign.Center)
++      } else {
++        Row({ space: 6 }) {
++          ForEach(snapshot.chartBars, (bar: NewStatsChartBarView) => {
++            Column({ space: 4 }) {
++              Blank().layoutWeight(1)
++              Row()
++                .width(18)
++                .height(this.barHeight(bar))
++                .borderRadius(4)
++                .backgroundColor(this.barColor(bar))
++              Text(bar.label).fontSize(10).fontColor('#6C7480')
++            }
++            .layoutWeight(1)
++            .height(CHART_HEIGHT + 20)
++            .justifyContent(FlexAlign.End)
++            .onClick(() => {
++              if (!bar.isActionable) {
++                return;
++              }
++              const event: Record<string, Object> = {};
++              event['index'] = bar.index;
++              this.dispatch('tapChartBucket', event);
++            })
++          }, (bar: NewStatsChartBarView) => bar.key)
++        }.width('100%').height(CHART_HEIGHT + 20).padding({ left: 12, right: 12 })
++      }
++
++      if (snapshot.showsCached) {
++        Text('Showing saved results while they are checked for updates')
++          .fontSize(11).fontColor('#8C949C').padding({ left: 12, right: 12, top: 6 })
++      }
++
++      if (snapshot.canDrillDown) {
++        Button('Go to ' + snapshot.selectedBucketLabel)
++          .fontSize(12)
++          .margin({ left: 12, top: 6, bottom: 6 })
++          .onClick(() => {
++            this.dispatch('drillIntoSelectedBucket', {});
++          })
++      }
++    }.width('100%')
++  }
++
++  @Builder
++  private summaryRow(snapshot: NewStatsScreenSnapshot) {
++    Row({ space: 8 }) {
++      ForEach(snapshot.summaryRow, (cell: NewStatsSummaryCellView) => {
++        Column({ space: 2 }) {
++          Text(cell.value.toString()).fontSize(15).fontWeight(FontWeight.Bold)
++          Text(cell.metric).fontSize(11).fontColor('#6C7480')
++        }.layoutWeight(1).alignItems(HorizontalAlign.Center)
++      }, (cell: NewStatsSummaryCellView) => cell.metric)
++    }.width('100%').padding(12).backgroundColor('#F6F7F8').borderRadius(8)
++  }
++
++  @Builder
++  private locationCard(snapshot: NewStatsScreenSnapshot) {
++    Column({ space: 8 }) {
++      Row({ space: 8 }) {
++        Text('Countries').fontSize(13).fontColor('#1D2329')
++          .onClick(() => {
++            const event: Record<string, Object> = {};
++            event['locationType'] = 'countries';
++            this.dispatch('selectLocationType', event);
++          })
++        Text('Regions').fontSize(13).fontColor('#1D2329')
++          .onClick(() => {
++            const event: Record<string, Object> = {};
++            event['locationType'] = 'regions';
++            this.dispatch('selectLocationType', event);
++          })
++        Blank()
++      }.width('100%')
++
++      if (snapshot.showsPlanGate) {
++        Column({ space: 8 }) {
++          Text('Region data needs a plan that includes it').fontSize(12).fontColor('#6C7480')
++          Button(snapshot.planActionLabel).fontSize(12).onClick(() => {
++            this.dispatch('openPlanAction', {});
++          })
++        }.width('100%').alignItems(HorizontalAlign.Start)
++      } else if (snapshot.showsAuthError) {
++        Column({ space: 8 }) {
++          Text('This account cannot view these stats').fontSize(12).fontColor('#6C7480')
++          Button('Retry').fontSize(12).onClick(() => {
++            this.dispatch('retry', {});
++          })
++        }.width('100%').alignItems(HorizontalAlign.Start)
++      } else if (snapshot.locationRows.length === 0) {
++        Text('Loading locations').fontSize(12).fontColor('#8C949C')
++      } else {
++        ForEach(snapshot.locationRows, (row: NewStatsLocationRowView) => {
++          Row() {
++            Text(row.label).fontSize(12).layoutWeight(1)
++          }.width('100%')
++        }, (row: NewStatsLocationRowView) => row.label)
++      }
++    }.width('100%').padding(12).backgroundColor('#FFFFFF').borderRadius(8)
++  }
++
+   build() {
+-    Column({ space: 16 }) {
+-      Text('WordPress New Stats').fontSize(28).fontWeight(FontWeight.Bold)
+-      Text(this.summary).fontSize(14)
+-    }.width('100%').height('100%').padding(24)
++    Stack() {
++      if (this.ready) {
++        Refresh({ refreshing: this.snapshot().showsRefreshing }) {
++          Scroll() {
++            Column({ space: 12 }) {
++              this.periodHeader(this.snapshot())
++              this.metricSelector(this.snapshot())
++              this.chart(this.snapshot())
++              this.summaryRow(this.snapshot())
++              this.locationCard(this.snapshot())
++            }.width('100%').padding({ left: 12, right: 12, bottom: 24 })
++          }.width('100%').height('100%')
++        }
++        .onRefreshing(() => {
++          this.dispatch('pullToRefresh', {});
++        })
++        .width('100%').height('100%')
++      } else {
++        Column({ space: 12 }) {
++          LoadingProgress().width(32).height(32)
++          Text('Loading New Stats').fontSize(14).fontColor('#6C7480')
++        }.width('100%').height('100%').justifyContent(FlexAlign.Center)
++      }
++    }.width('100%').height('100%').backgroundColor('#F6F7F8')
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/NewStatsPageOwner.ets b/entry/src/main/ets/pages/NewStatsPageOwner.ets
+index 3e412fea6f9faca8692f58e0ce8173f55db30b6b..5a1398df3f407cf223465db96751a79fd2b45c88 100644
+--- a/entry/src/main/ets/pages/NewStatsPageOwner.ets
++++ b/entry/src/main/ets/pages/NewStatsPageOwner.ets
+@@ -1,10 +1,32 @@
+ import { common } from '@kit.AbilityKit';
+-import { NewStatsInput, NewStatsPageOwner } from '../integration/NewStatsPageIntegration';
+-import { LegacyNewStatsStore } from '../model/LegacyNewStatsStore';
++import { NewStatsEffect, NewStatsInput, NewStatsLeaf, NewStatsPageOwner } from '../integration/NewStatsPageIntegration';
++import { buildNewStatsScreenSnapshot, NewStatsScreenSnapshot } from '../feature/NewStatsScreen';
++import { NewStatsStore } from '../feature/NewStatsStore';
+ 
++/**
++ * Leaf used when the screen runs on its own: it records the effects the screen
++ * dispatches so they can be inspected without a host application.
++ */
++export class RecordingNewStatsLeaf {
++  private recorded: string[] = [];
++
++  async emit(effect: NewStatsEffect): Promise<void> {
++    this.recorded.push(effect.name);
++  }
++
++  recordedNames(): string[] {
++    return this.recorded;
++  }
++}
++
++/**
++ * Owns the screen's lifetime. It mounts the store, forwards user intent to it,
++ * and exposes the state the page renders.
++ */
+ export class MountedNewStatsPageOwner implements NewStatsPageOwner {
+-  private store?: LegacyNewStatsStore;
++  private store?: NewStatsStore;
+   private ready: Promise<void> = Promise.resolve();
++  private listeners: Array<() => void> = [];
+   private readonly pageOwnerId: string;
+   private readonly controllerOwnerId: string;
+ 
+@@ -14,26 +36,92 @@ export class MountedNewStatsPageOwner implements NewStatsPageOwner {
+   }
+ 
+   mount(context: common.UIAbilityContext, input: NewStatsInput, initialize: boolean): Promise<void> {
+-    this.ready = LegacyNewStatsStore.create(context, input, initialize).then((value: LegacyNewStatsStore) => {
+-      this.store = value;
++    this.ready = NewStatsStore.create(context, input, initialize).then((created: NewStatsStore) => {
++      this.store = created;
++      created.subscribe(() => {
++        const snapshot: Array<() => void> = this.listeners;
++        for (const listener of snapshot) {
++          listener();
++        }
++      });
+     });
+     return this.ready;
+   }
+ 
+-  async waitUntilReady(): Promise<void> { await this.ready; }
++  async waitUntilReady(): Promise<void> {
++    await this.ready;
++  }
++
+   async invoke(name: string, event: Record<string, Object>): Promise<void> {
+     await this.ready;
+-    if (this.store === undefined) throw new Error('NewStats store is not mounted');
++    if (this.store === undefined) {
++      throw new Error('NewStats store is not mounted');
++    }
+     await this.store.invoke(name, event);
+   }
+-  currentState(): Record<string, Object> { return this.store?.currentState() ?? {}; }
+-  currentPersistence(): Record<string, Object> { return this.store?.currentPersistence() ?? {}; }
+-  ownerId(): string { return this.pageOwnerId; }
+-  controllerId(): string { return this.controllerOwnerId; }
+-  storeSource(): string { return 'Index.NewStatsPageOwner.controller.store'; }
+-  featureAvailable(): boolean { return this.store !== undefined; }
++
++  currentState(): Record<string, Object> {
++    return this.store === undefined ? {} : this.store.currentState();
++  }
++
++  currentPersistence(): Record<string, Object> {
++    return this.store === undefined ? {} : this.store.currentPersistence();
++  }
++
++  screenSnapshot(): NewStatsScreenSnapshot {
++    if (this.store === undefined) {
++      return buildNewStatsScreenSnapshot({});
++    }
++    return buildNewStatsScreenSnapshot(this.store.currentState());
++  }
++
++  subscribe(listener: () => void): void {
++    this.listeners.push(listener);
++  }
++
++  ownerId(): string {
++    return this.pageOwnerId;
++  }
++
++  controllerId(): string {
++    return this.controllerOwnerId;
++  }
++
++  storeSource(): string {
++    return 'Index.NewStatsPageOwner.controller.store';
++  }
++
++  featureAvailable(): boolean {
++    return this.store !== undefined;
++  }
+ }
+ 
++/** Default input used when the screen is launched without a host application. */
++class DefaultNewStatsInput implements NewStatsInput {
++  state: Record<string, Object> = {};
++  persistence: Record<string, Object> = {};
++  leaf: NewStatsLeaf = new RecordingNewStatsLeaf();
++
++  constructor() {
++    this.state['siteId'] = 1;
++    this.state['period'] = 'last_7_days';
++    this.state['selectedMetric'] = 'views';
++    this.state['persistedMetric'] = 'views';
++    this.state['chartState'] = 'loaded';
++    this.state['selectedLocationType'] = 'countries';
++    this.persistence['selectedMetric'] = 'views';
++  }
++}
++
++function defaultNewStatsInput(): NewStatsInput {
++  return new DefaultNewStatsInput();
++}
++
++/**
++ * Process-wide entry point for the New Stats screen. The host application
++ * configures it with its own input; when the screen is launched on its own it
++ * falls back to a default input so it still has a usable store.
++ */
+ export class NewStatsPageRuntime {
+   private static context?: common.UIAbilityContext;
+   private static input?: NewStatsInput;
+@@ -47,25 +135,37 @@ export class NewStatsPageRuntime {
+     NewStatsPageRuntime.generation = 0;
+   }
+ 
++  /** Configures a default input only when nothing has been supplied yet. */
++  static ensureConfigured(context: common.UIAbilityContext): void {
++    if (NewStatsPageRuntime.input !== undefined) {
++      return;
++    }
++    NewStatsPageRuntime.configure(context, defaultNewStatsInput());
++  }
++
+   static createOwner(): MountedNewStatsPageOwner {
+-    const context = NewStatsPageRuntime.context;
+-    const input = NewStatsPageRuntime.input;
+-    if (context === undefined || input === undefined) throw new Error('NewStats runtime is not configured');
++    const context: common.UIAbilityContext | undefined = NewStatsPageRuntime.context;
++    const input: NewStatsInput | undefined = NewStatsPageRuntime.input;
++    if (context === undefined || input === undefined) {
++      throw new Error('NewStats runtime is not configured');
++    }
+     NewStatsPageRuntime.generation += 1;
+-    const owner = new MountedNewStatsPageOwner(NewStatsPageRuntime.generation);
++    const owner: MountedNewStatsPageOwner = new MountedNewStatsPageOwner(NewStatsPageRuntime.generation);
+     NewStatsPageRuntime.current = owner;
+     void owner.mount(context, input, NewStatsPageRuntime.generation === 1);
+     return owner;
+   }
+ 
+   static async waitForOwnerAfter(previous: string = '', attempt: number = 0): Promise<MountedNewStatsPageOwner> {
+-    const owner = NewStatsPageRuntime.current;
++    const owner: MountedNewStatsPageOwner | undefined = NewStatsPageRuntime.current;
+     if (owner !== undefined && owner.ownerId() !== previous) {
+       await owner.waitUntilReady();
+       return owner;
+     }
+-    if (attempt >= 120) throw new Error('NewStats page owner mount timed out');
++    if (attempt >= 120) {
++      throw new Error('NewStats page owner mount timed out');
++    }
+     await new Promise<void>((resolve) => setTimeout(() => resolve(), 25));
+     return NewStatsPageRuntime.waitForOwnerAfter(previous, attempt + 1);
+   }
+-}
++}
+\ No newline at end of file

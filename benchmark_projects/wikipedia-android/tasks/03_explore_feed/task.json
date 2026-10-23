@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wikipedia-android",
+  "taskId": "03_explore_feed",
+  "title": "Personalized Home feed lifecycle",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wikimedia/apps-android-wikipedia.git",
+    "baseRef": "r/50586-r-2026-05-12",
+    "baseCommit": "40876929c5a84e1a1f968b29184c245582c7ff9a",
+    "finalRef": "r/50590-r-2026-05-28",
+    "finalCommit": "0c4d8a2e33dda8dface830e7ac90d1e923fe7c6e",
+    "featureCommit": "20cc80172dd7b279b7c257254c45c1d6c30c666a",
+    "pullRequest": "https://github.com/wikimedia/apps-android-wikipedia/pull/6446"
+  },
+  "releaseNotes": [
+    {
+      "text": "The release interval redesigns Explore as a two-tab Home feed with community modules, personalized recommendations, onboarding, language selection, persistent interest and module controls, empty states, and retryable loading.",
+      "source": "https://github.com/wikimedia/apps-android-wikipedia/commit/20cc80172dd7b279b7c257254c45c1d6c30c666a"
+    }
+  ],
+  "functionalAreas": [
+    "onboarding",
+    "community_feed",
+    "personalized_feed",
+    "interest_persistence",
+    "module_customization",
+    "failure_recovery"
+  ],
+  "stateSurfaces": [
+    "Home tab selection",
+    "community content state",
+    "personalized content state",
+    "interest store",
+    "hidden module and card preferences"
+  ],
+  "eventEntrypoints": [
+    "complete Home onboarding",
+    "switch Home tab",
+    "change feed language",
+    "refresh or load more",
+    "hide or restore a card or module",
+    "edit interests"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "app/src/main/java/org/wikipedia/feed/HomeViewModel.kt",
+      "app/src/main/java/org/wikipedia/feed/HomeScreen.kt",
+      "app/src/main/java/org/wikipedia/feed/CommunityContentTab.kt",
+      "app/src/main/java/org/wikipedia/feed/ForYouContentTab.kt",
+      "app/src/main/java/org/wikipedia/feed/personalization/interest/InterestSelectionRepository.kt",
+      "app/src/main/java/org/wikipedia/settings/SettingsRepository.kt",
+      "app/src/main/java/org/wikipedia/settings/homefeed/ModulesViewModel.kt"
+    ],
+    "testPaths": [
+      "app/src/androidTest/java/org/wikipedia/tests/settings/CustomizeExploreFeedTest.kt"
+    ],
+    "commits": [
+      "20cc80172dd7b279b7c257254c45c1d6c30c666a",
+      "50424247f4e",
+      "f74f2008127",
+      "29604f7c714",
+      "36aab1c3fdb",
+      "480a19f0aaf"
+    ]
+  },
+  "nonGoals": [
+    "Live Wikimedia service availability or recommendation quality",
+    "Pixel-perfect rendering of individual feed cards",
+    "Changing article rendering, history, saved-page, or notification semantics",
+    "Reproducing analytics transport"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json"
+  }
+}

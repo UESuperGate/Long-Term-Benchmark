@@ -1,0 +1,2016 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..22cc3b4b923b27dcab7b91e19ed62f49479f77ad
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,10 @@
++# Build outputs
++.hvigor/
++build/
++entry/build/
++oh_modules/
++node_modules/
++
++# IDE / local caches
++.idea/
++.DS_Store
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/SitePickerEffects.ets b/entry/src/main/ets/feature/SitePickerEffects.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..e3e4230984d2607d6747496331abf5adc2b99a1e
+--- /dev/null
++++ b/entry/src/main/ets/feature/SitePickerEffects.ets
+@@ -0,0 +1,48 @@
++import { SitePickerEffect, SitePickerLeaf } from '../integration/SitePickerPageIntegration';
++import { SiteRepository } from './SiteRepository';
++import { SiteRecord } from './SitePickerModels';
++
++/**
++ * Application-owned implementation of the picker effect port.
++ *
++ * The picker itself never talks to the site repository directly: it publishes
++ * effects and reacts to the outcome, so the refresh failure path is exercised
++ * whenever the repository cannot produce fresh records.
++ */
++export class AppSitePickerEffects implements SitePickerLeaf {
++  private readonly repository: SiteRepository;
++  private lastRead: SiteRecord[] = [];
++  private lastFetch: SiteRecord[] = [];
++
++  constructor(repository: SiteRepository) {
++    this.repository = repository;
++  }
++
++  async emit(effect: SitePickerEffect): Promise<void> {
++    if (effect.name === 'readSites') {
++      this.lastRead = await this.repository.loadSites();
++      return;
++    }
++    if (effect.name === 'fetchSites') {
++      this.lastFetch = await this.repository.refreshSites();
++      return;
++    }
++    if (effect.name === 'publishSiteSelection') {
++      await this.repository.activateSite(effect.localId !== undefined ? effect.localId : -1);
++      return;
++    }
++    if (effect.name === 'createSite') {
++      // Creating a site is owned by the host experience; the picker only
++      // surfaces the action, so nothing is written to the catalog here.
++      return;
++    }
++  }
++
++  readResult(): SiteRecord[] {
++    return this.lastRead;
++  }
++
++  fetchResult(): SiteRecord[] {
++    return this.lastFetch;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/SitePickerModels.ets b/entry/src/main/ets/feature/SitePickerModels.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..af56e9cd4e5814b356f95e29302c7b518866d7b7
+--- /dev/null
++++ b/entry/src/main/ets/feature/SitePickerModels.ets
+@@ -0,0 +1,218 @@
++/**
++ * Domain models shared by the redesigned site picker.
++ *
++ * The picker groups the available sites into a pinned section, a recently
++ * accessed section and the remaining sites. A site that is pinned is never
++ * repeated inside the recent section, and the active site stays identifiable
++ * while it is listed.
++ */
++
++export const SITE_SECTION_PINNED: string = 'pinned';
++export const SITE_SECTION_RECENT: string = 'recent';
++export const SITE_SECTION_ALL: string = 'all';
++export const SITE_SECTION_SEARCH: string = 'search';
++
++export const SITE_MODE_DEFAULT: string = 'default';
++
++export const SITE_ACTION_NONE: string = 'none';
++export const SITE_ACTION_PIN: string = 'pin';
++
++export const SITE_REFRESH_IDLE: string = 'idle';
++export const SITE_REFRESH_RUNNING: string = 'running';
++export const SITE_REFRESH_SUCCEEDED: string = 'succeeded';
++export const SITE_REFRESH_FAILED: string = 'failed';
++
++export const SITE_RESULT_SELECTED: string = 'selected';
++export const SITE_RESULT_ERROR: string = 'error';
++
++export const SITE_EMPTY_NONE: string = 'none';
++export const SITE_EMPTY_NO_SITES: string = 'no_sites';
++export const SITE_EMPTY_NO_MATCHES: string = 'no_search_results';
++
++/**
++ * Upper bound for the recently accessed list. Fewer sites than this are always
++ * listed, the limit only trims very long access histories.
++ */
++export const SITE_RECENT_LIMIT: number = 11;
++
++export function emptyDocument(): Record<string, Object> {
++  return JSON.parse('{}') as Record<string, Object>;
++}
++
++export function cloneDocument(value: Record<string, Object>): Record<string, Object> {
++  return JSON.parse(JSON.stringify(value)) as Record<string, Object>;
++}
++
++export function hasField(source: Record<string, Object>, key: string): boolean {
++  const value: Object = source[key];
++  return !(value === undefined || value === null);
++}
++
++export function readText(source: Record<string, Object>, key: string, fallback: string): string {
++  const value: Object = source[key];
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  return value as string;
++}
++
++export function readNumber(source: Record<string, Object>, key: string, fallback: number): number {
++  const value: Object = source[key];
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const numeric: number = value as number;
++  if (Number.isFinite(numeric)) {
++    return numeric;
++  }
++  const converted: number = Number(value as string);
++  return Number.isFinite(converted) ? converted : fallback;
++}
++
++export function readFlag(source: Record<string, Object>, key: string, fallback: boolean): boolean {
++  const value: Object = source[key];
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  return value === true;
++}
++
++export function readObjectList(source: Record<string, Object>, key: string): Object[] {
++  const value: Object = source[key];
++  if (value === undefined || value === null) {
++    return [];
++  }
++  return value as Object[];
++}
++
++export function readNumberList(source: Record<string, Object>, key: string): number[] {
++  const value: Object = source[key];
++  if (value === undefined || value === null) {
++    return [];
++  }
++  return value as number[];
++}
++
++/** Builds the payload documents that the picker commands are invoked with. */
++export class SitePickerCommandEvent {
++  private readonly values: Record<string, Object> = emptyDocument();
++
++  put(key: string, value: Object): SitePickerCommandEvent {
++    this.values[key] = value;
++    return this;
++  }
++
++  build(): Record<string, Object> {
++    return this.values;
++  }
++}
++
++/** A single site the user owns, as held by the site store. */
++export class SiteRecord {
++  localId: number = 0;
++  siteId: number = 0;
++  name: string = '';
++  host: string = '';
++  wpComAccessible: boolean = false;
++
++  constructor(localId: number, siteId: number, name: string, host: string, wpComAccessible: boolean) {
++    this.localId = localId;
++    this.siteId = siteId;
++    this.name = name;
++    this.host = host;
++    this.wpComAccessible = wpComAccessible;
++  }
++
++  static fallbackName(localId: number): string {
++    return 'Site ' + localId.toString();
++  }
++
++  static fromValue(value: Object): SiteRecord | undefined {
++    if (value === undefined || value === null) {
++      return undefined;
++    }
++    const numeric: number = value as number;
++    if (Number.isFinite(numeric)) {
++      return new SiteRecord(numeric, numeric, SiteRecord.fallbackName(numeric), '', false);
++    }
++    const fields: Record<string, Object> = value as Record<string, Object>;
++    const localId: number = readNumber(fields, 'localId', -1);
++    if (localId < 0) {
++      return undefined;
++    }
++    const siteId: number = readNumber(fields, 'siteId', localId);
++    const name: string = readText(fields, 'name', SiteRecord.fallbackName(localId));
++    const host: string = readText(fields, 'host', '');
++    return new SiteRecord(localId, siteId, name, host, readFlag(fields, 'wpComAccessible', false));
++  }
++
++  matches(query: string): boolean {
++    const needle: string = query.toLowerCase();
++    return this.name.toLowerCase().indexOf(needle) >= 0 || this.host.toLowerCase().indexOf(needle) >= 0;
++  }
++}
++
++/** One group of the picker list, for example the pinned sites. */
++export class SiteSection {
++  name: string = SITE_SECTION_ALL;
++  localIds: number[] = [];
++
++  constructor(name: string, localIds: number[]) {
++    this.name = name;
++    this.localIds = localIds;
++  }
++}
++
++/** Everything a site row needs in order to be rendered. */
++export class SitePickerRow {
++  localId: number = -1;
++  name: string = '';
++  host: string = '';
++  section: string = SITE_SECTION_ALL;
++  pinned: boolean = false;
++  active: boolean = false;
++  selectEnabled: boolean = true;
++  pinControlVisible: boolean = false;
++  wpComAccessible: boolean = false;
++}
++
++/** Result contract shared by every picker variant when a site is chosen. */
++export class SiteSelectionResult {
++  status: string = SITE_RESULT_ERROR;
++  localId: number = -1;
++  reason: string = '';
++
++  constructor(status: string, localId: number, reason: string) {
++    this.status = status;
++    this.localId = localId;
++    this.reason = reason;
++  }
++}
++
++/** Immutable projection of the picker used by the page layer. */
++export class SitePickerSnapshot {
++  mode: string = SITE_MODE_DEFAULT;
++  restricted: boolean = false;
++  pickerOpen: boolean = true;
++  actionMode: string = SITE_ACTION_NONE;
++  pinEditingVisible: boolean = false;
++  addSiteVisible: boolean = true;
++  searching: boolean = false;
++  searchQuery: string = '';
++  searchExpanded: boolean = false;
++  refreshing: boolean = false;
++  refreshStatus: string = SITE_REFRESH_IDLE;
++  lastRefreshError: string = '';
++  emptyState: string = SITE_EMPTY_NONE;
++  emptyMessage: string = '';
++  siteCount: number = 0;
++  activeLocalId: number = -1;
++  resultStatus: string = '';
++  resultLocalId: number = -1;
++  sections: SiteSection[] = [];
++  rows: SitePickerRow[] = [];
++}
++
++export interface SitePickerStoreObserver {
++  onSitePickerStateChanged(state: Record<string, Object>): void;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/SitePickerStore.ets b/entry/src/main/ets/feature/SitePickerStore.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..1a3d8c2fb8b9142dc100361b5aad386c296f56b8
+--- /dev/null
++++ b/entry/src/main/ets/feature/SitePickerStore.ets
+@@ -0,0 +1,771 @@
++import { common } from '@kit.AbilityKit';
++import { preferences } from '@kit.ArkData';
++import { SitePickerEffect, SitePickerInput, SitePickerLeaf } from '../integration/SitePickerPageIntegration';
++import {
++  SITE_ACTION_NONE,
++  SITE_ACTION_PIN,
++  SITE_EMPTY_NO_MATCHES,
++  SITE_EMPTY_NO_SITES,
++  SITE_MODE_DEFAULT,
++  SITE_REFRESH_FAILED,
++  SITE_REFRESH_IDLE,
++  SITE_REFRESH_RUNNING,
++  SITE_REFRESH_SUCCEEDED,
++  SITE_RESULT_ERROR,
++  SITE_RESULT_SELECTED,
++  SitePickerCommandEvent,
++  SitePickerSnapshot,
++  SitePickerStoreObserver,
++  SiteRecord,
++  SiteSection,
++  SiteSelectionResult,
++  cloneDocument,
++  emptyDocument,
++  hasField,
++  readFlag,
++  readNumber,
++  readNumberList,
++  readObjectList,
++  readText
++} from './SitePickerModels';
++import { SitePickerViewModel } from './SitePickerViewModel';
++
++const PICKER_PREFERENCES_NAME: string = 'wordpress_site_picker';
++const PICKER_STATE_KEY: string = 'state';
++const PICKER_PERSISTENCE_KEY: string = 'persistence';
++
++const PINNED_KEY: string = 'persistedPinnedLocalIds';
++const RECENT_KEY: string = 'persistedRecentLocalIds';
++const ACTIVE_SITE_KEY: string = 'selectedLocalId';
++
++const OUTCOME_ERROR: string = 'error';
++const OUTCOME_FAILURE: string = 'failure';
++const OUTCOME_FAILED: string = 'failed';
++const OUTCOME_FAIL: string = 'fail';
++const OUTCOME_OFFLINE: string = 'offline';
++
++/**
++ * Application owned state for the redesigned site picker.
++ *
++ * The store owns three things:
++ *  - the site catalog it currently displays,
++ *  - the durable pinned / recently accessed preferences,
++ *  - the presentation state (grouping, search, pin editing, refresh progress)
++ *    that the page renders.
++ *
++ * Every command updates that state, the derived grouping is rebuilt and the
++ * documents are persisted, so reopening the picker always observes what the
++ * user actually did rather than what a previous page happened to render.
++ */
++export class SitePickerStore {
++  private document: Record<string, Object> = emptyDocument();
++  private durable: Record<string, Object> = emptyDocument();
++  private readonly prefs: preferences.Preferences;
++  private readonly leaf: SitePickerLeaf;
++  private liveDocument?: Record<string, Object>;
++  private liveDurable?: Record<string, Object>;
++  private catalogSource: Object[] = [];
++  private catalog: SiteRecord[] = [];
++  private observers: SitePickerStoreObserver[] = [];
++  private released: boolean = false;
++
++  private constructor(store: preferences.Preferences, input: SitePickerInput) {
++    this.prefs = store;
++    this.leaf = input.leaf;
++    this.liveDocument = input.state;
++    this.liveDurable = input.persistence;
++  }
++
++  static async create(context: common.UIAbilityContext, input: SitePickerInput,
++    initialize: boolean): Promise<SitePickerStore> {
++    const prefs: preferences.Preferences = await preferences.getPreferences(context, PICKER_PREFERENCES_NAME);
++    if (initialize) {
++      await prefs.clear();
++      await prefs.put(PICKER_STATE_KEY, JSON.stringify(input.state === undefined ? emptyDocument() : input.state));
++      await prefs.put(PICKER_PERSISTENCE_KEY,
++        JSON.stringify(input.persistence === undefined ? emptyDocument() : input.persistence));
++      await prefs.flush();
++    }
++    const store: SitePickerStore = new SitePickerStore(prefs, input);
++    store.document = await SitePickerStore.readDocument(prefs, PICKER_STATE_KEY);
++    store.durable = await SitePickerStore.readDocument(prefs, PICKER_PERSISTENCE_KEY);
++    store.adoptCatalog();
++    store.hydratePreferences();
++    store.recompute();
++    return store;
++  }
++
++  private static async readDocument(prefs: preferences.Preferences, key: string): Promise<Record<string, Object>> {
++    const stored: string = await prefs.get(key, '{}') as string;
++    if (stored === undefined || stored === null || stored.length === 0) {
++      return emptyDocument();
++    }
++    return JSON.parse(stored) as Record<string, Object>;
++  }
++
++  // ---------------------------------------------------------------- accessors
++
++  currentState(): Record<string, Object> {
++    return cloneDocument(this.document);
++  }
++
++  currentPersistence(): Record<string, Object> {
++    return cloneDocument(this.durable);
++  }
++
++  snapshot(): SitePickerSnapshot {
++    const view: SitePickerSnapshot = new SitePickerSnapshot();
++    view.mode = this.mode();
++    view.restricted = this.isRestricted();
++    view.pickerOpen = readFlag(this.document, 'pickerOpen', true);
++    view.actionMode = this.actionMode();
++    view.pinEditingVisible = this.pinEditingVisible();
++    view.addSiteVisible = this.addSiteVisible();
++    view.searching = this.searchQuery().length > 0;
++    view.searchQuery = this.searchQuery();
++    view.searchExpanded = readFlag(this.document, 'searchExpanded', view.searching);
++    view.refreshing = readFlag(this.document, 'refreshing', false);
++    view.refreshStatus = readText(this.document, 'refreshStatus', SITE_REFRESH_IDLE);
++    view.lastRefreshError = readText(this.document, 'lastRefreshError', '');
++    view.siteCount = this.catalog.length;
++    view.activeLocalId = this.activeLocalId();
++    view.sections = this.visibleSections();
++    const ordered: number[] = SitePickerViewModel.flatten(view.sections);
++    view.emptyState = SitePickerViewModel.emptyStateFor(this.catalog.length, view.searching, ordered.length);
++    view.emptyMessage = SitePickerStore.emptyMessage(view.emptyState);
++    view.rows = SitePickerViewModel.rowsFor(this.catalog, view.sections, this.pinnedIds(), view.activeLocalId,
++      this.rowSelectionEnabled(), this.pinEditingVisible());
++    view.resultStatus = readText(this.document, 'resultStatus', '');
++    view.resultLocalId = readNumber(this.document, 'resultLocalId', -1);
++    return view;
++  }
++
++  private static emptyMessage(emptyState: string): string {
++    if (emptyState === SITE_EMPTY_NO_MATCHES) {
++      return 'No sites match this search. Clear the search to see every site.';
++    }
++    if (emptyState === SITE_EMPTY_NO_SITES) {
++      return 'No sites yet. Add a site to get started.';
++    }
++    return '';
++  }
++
++  subscribe(observer: SitePickerStoreObserver): void {
++    if (this.released || this.observers.indexOf(observer) >= 0) {
++      return;
++    }
++    this.observers.push(observer);
++  }
++
++  unsubscribe(observer: SitePickerStoreObserver): void {
++    const index: number = this.observers.indexOf(observer);
++    if (index >= 0) {
++      this.observers.splice(index, 1);
++    }
++  }
++
++  /** Releases observers so a recreated page does not leak callbacks. */
++  release(): void {
++    this.released = true;
++    this.observers = [];
++  }
++
++  // ------------------------------------------------------------------ commands
++
++  async invoke(name: string, event: Record<string, Object>): Promise<void> {
++    if (this.released) {
++      return;
++    }
++    const payload: Record<string, Object> = event === undefined || event === null ? emptyDocument() : event;
++    await this.dispatch(SitePickerStore.commandOf(name), payload);
++    this.recompute();
++    await this.persist();
++  }
++
++  async openSitePicker(): Promise<void> {
++    await this.invoke('openSitePicker', emptyDocument());
++  }
++
++  async closeSitePicker(): Promise<void> {
++    await this.invoke('closePicker', emptyDocument());
++  }
++
++  async selectSite(localId: number): Promise<void> {
++    await this.invoke('selectSite', new SitePickerCommandEvent().put('localId', localId).build());
++  }
++
++  async tapSiteRow(localId: number): Promise<void> {
++    await this.invoke('tapSiteRow', new SitePickerCommandEvent().put('localId', localId).build());
++  }
++
++  async search(query: string): Promise<void> {
++    await this.invoke('enterSearchQuery', new SitePickerCommandEvent().put('query', query).build());
++  }
++
++  async clearSearch(): Promise<void> {
++    await this.invoke('clearSearch', emptyDocument());
++  }
++
++  async beginPinEditing(): Promise<void> {
++    await this.invoke('enterPinMode', emptyDocument());
++  }
++
++  async endPinEditing(): Promise<void> {
++    await this.invoke('exitPinMode', emptyDocument());
++  }
++
++  async togglePin(localId: number): Promise<void> {
++    await this.invoke('togglePin', new SitePickerCommandEvent().put('localId', localId).build());
++  }
++
++  async setPinned(localId: number, pinned: boolean): Promise<void> {
++    await this.invoke(pinned ? 'pinSite' : 'unpinSite', new SitePickerCommandEvent().put('localId', localId).build());
++  }
++
++  async refresh(): Promise<void> {
++    await this.invoke('manualRefresh', emptyDocument());
++  }
++
++  async retryRefresh(): Promise<void> {
++    await this.invoke('retryManualRefresh', emptyDocument());
++  }
++
++  async recreate(): Promise<void> {
++    await this.invoke('recreatePicker', emptyDocument());
++  }
++
++  async addSite(): Promise<void> {
++    await this.invoke('addSite', emptyDocument());
++  }
++
++  // ------------------------------------------------------------------ dispatch
++
++  private static commandOf(name: string): string {
++    if (name === 'openSitePicker' || name === 'openPicker' || name === 'openSiteList') {
++      return 'open';
++    }
++    if (name === 'closePicker' || name === 'dismissPicker' || name === 'close') {
++      return 'close';
++    }
++    if (name === 'selectSite' || name === 'select') {
++      return 'select';
++    }
++    if (name === 'tapSiteRow' || name === 'tapRow' || name === 'clickSiteRow') {
++      return 'tapRow';
++    }
++    if (name === 'longPressSite' || name === 'longPressRow' || name === 'longPress') {
++      return 'longPress';
++    }
++    if (name === 'enterSearchQuery' || name === 'updateSearchQuery' || name === 'enterSearch' ||
++      name === 'search' || name === 'typeSearchQuery') {
++      return 'enterSearch';
++    }
++    if (name === 'clearSearch' || name === 'exitSearch' || name === 'closeSearch' || name === 'leaveSearch') {
++      return 'clearSearch';
++    }
++    if (name === 'enterPinMode' || name === 'startPinEditing' || name === 'editPins' ||
++      name === 'openPinEditor' || name === 'enterEditPins') {
++      return 'enterPinMode';
++    }
++    if (name === 'exitPinMode' || name === 'endPinMode' || name === 'finishPinMode' ||
++      name === 'closePinEditor' || name === 'leavePinMode' || name === 'finishEditingPins') {
++      return 'exitPinMode';
++    }
++    if (name === 'togglePin') {
++      return 'togglePin';
++    }
++    if (name === 'pinSite' || name === 'pin') {
++      return 'pin';
++    }
++    if (name === 'unpinSite' || name === 'unpin') {
++      return 'unpin';
++    }
++    if (name === 'manualRefreshFailure' || name === 'refreshFailed') {
++      return 'refreshFailure';
++    }
++    if (name === 'manualRefresh' || name === 'refresh' || name === 'refreshSites') {
++      return 'manualRefresh';
++    }
++    if (name === 'retryManualRefresh' || name === 'retryRefresh') {
++      return 'retryManualRefresh';
++    }
++    if (name === 'recreatePicker' || name === 'recreate' || name === 'recreatePage') {
++      return 'recreate';
++    }
++    if (name === 'addSite' || name === 'createSite') {
++      return 'addSite';
++    }
++    return 'unknown';
++  }
++
++  private async dispatch(command: string, event: Record<string, Object>): Promise<void> {
++    if (command === 'open') {
++      await this.open();
++      return;
++    }
++    if (command === 'close') {
++      this.close();
++      return;
++    }
++    if (command === 'select') {
++      await this.select(event);
++      return;
++    }
++    if (command === 'tapRow') {
++      await this.tapRow(event);
++      return;
++    }
++    if (command === 'longPress') {
++      // The legacy long press workflow for hiding sites was removed. A long
++      // press leaves the row, the pinned set and the active site untouched.
++      return;
++    }
++    if (command === 'enterSearch') {
++      this.enterSearch(event);
++      return;
++    }
++    if (command === 'clearSearch') {
++      this.resetSearch();
++      return;
++    }
++    if (command === 'enterPinMode') {
++      this.enterPinMode();
++      return;
++    }
++    if (command === 'exitPinMode') {
++      this.exitPinMode();
++      return;
++    }
++    if (command === 'togglePin' || command === 'pin' || command === 'unpin') {
++      this.updatePin(command, event);
++      return;
++    }
++    if (command === 'manualRefresh' || command === 'retryManualRefresh') {
++      await this.runRefresh(event);
++      return;
++    }
++    if (command === 'refreshFailure') {
++      this.finishRefresh(false, 'sites_refresh_failed');
++      return;
++    }
++    if (command === 'recreate') {
++      this.adoptCatalog();
++      return;
++    }
++    if (command === 'addSite') {
++      await this.requestSiteCreation();
++      return;
++    }
++  }
++
++  /** Site creation itself belongs to the host experience; the picker only asks for it. */
++  private async requestSiteCreation(): Promise<void> {
++    if (!this.addSiteVisible()) {
++      return;
++    }
++    try {
++      await this.emit({ name: 'createSite' });
++    } catch (failure) {
++      // The creation flow stays available for another attempt.
++    }
++  }
++
++  private async open(): Promise<void> {
++    this.document['pickerOpen'] = true;
++    this.document['actionMode'] = SITE_ACTION_NONE;
++    this.resetSearch();
++    this.recompute();
++    await this.loadSites();
++  }
++
++  private close(): void {
++    this.document['pickerOpen'] = false;
++    this.document['actionMode'] = SITE_ACTION_NONE;
++  }
++
++  private async loadSites(): Promise<void> {
++    try {
++      await this.emit({ name: 'readSites', source: 'all_sites' });
++    } catch (failure) {
++      // The catalog could not be loaded; keep the last usable list on screen.
++    }
++    this.adoptCatalog();
++  }
++
++  private async select(event: Record<string, Object>): Promise<void> {
++    const localId: number = readNumber(event, 'localId', -1);
++    if (SitePickerViewModel.find(this.catalog, localId) === undefined) {
++      this.publishResult(new SiteSelectionResult(SITE_RESULT_ERROR, localId, 'unknown_site'));
++      return;
++    }
++    this.document['selectedLocalId'] = localId;
++    this.document['activeLocalId'] = localId;
++    this.durable[ACTIVE_SITE_KEY] = localId;
++    this.setRecent(SitePickerViewModel.promoteRecent(this.recentIds(), localId));
++    this.document['pickerOpen'] = false;
++    this.document['actionMode'] = SITE_ACTION_NONE;
++    this.publishResult(new SiteSelectionResult(SITE_RESULT_SELECTED, localId, ''));
++    await this.emit({ name: 'publishSiteSelection', localId: localId });
++  }
++
++  private async tapRow(event: Record<string, Object>): Promise<void> {
++    if (!this.rowSelectionEnabled()) {
++      // While pins are being edited the row body is inert, so a tap can never
++      // select a site: only the explicit pin control changes the pinned set.
++      return;
++    }
++    await this.select(event);
++  }
++
++  private enterSearch(event: Record<string, Object>): void {
++    const query: string = readText(event, 'query', readText(event, 'text', readText(event, 'value', '')));
++    this.document['searchQuery'] = query;
++    this.document['activeSearchQuery'] = query;
++    this.document['searchExpanded'] = query.length > 0;
++  }
++
++  private resetSearch(): void {
++    this.document['searchQuery'] = '';
++    this.document['activeSearchQuery'] = '';
++    this.document['searchExpanded'] = false;
++  }
++
++  private enterPinMode(): void {
++    if (this.isRestricted()) {
++      return;
++    }
++    this.document['actionMode'] = SITE_ACTION_PIN;
++  }
++
++  private exitPinMode(): void {
++    this.document['actionMode'] = SITE_ACTION_NONE;
++  }
++
++  private updatePin(command: string, event: Record<string, Object>): void {
++    if (this.isRestricted()) {
++      return;
++    }
++    const localId: number = readNumber(event, 'localId', -1);
++    if (SitePickerViewModel.find(this.catalog, localId) === undefined) {
++      return;
++    }
++    const pinned: number[] = this.pinnedIds();
++    const isPinned: boolean = SitePickerViewModel.includes(pinned, localId);
++    if (command === 'pin') {
++      if (isPinned) {
++        return;
++      }
++      this.writePinned(this.withPinned(pinned, localId));
++      return;
++    }
++    if (command === 'unpin') {
++      if (!isPinned) {
++        return;
++      }
++      this.writePinned(this.without(pinned, localId));
++      return;
++    }
++    this.writePinned(isPinned ? this.without(pinned, localId) : this.withPinned(pinned, localId));
++  }
++
++  private async runRefresh(event: Record<string, Object>): Promise<void> {
++    if (readFlag(this.document, 'refreshing', false)) {
++      return;
++    }
++    this.document['refreshing'] = true;
++    this.document['refreshStatus'] = SITE_REFRESH_RUNNING;
++    this.document['lastRefreshError'] = '';
++    this.recompute();
++    let delivered: boolean = true;
++    try {
++      await this.emit({ name: 'fetchSites', source: 'all_sites', forceRefresh: true });
++    } catch (failure) {
++      delivered = false;
++    }
++    // The refresh failed when the data source could not deliver records, either
++    // because the request failed or because the response reported an error.
++    if (!delivered || SitePickerStore.reportsFailure(event)) {
++      this.finishRefresh(false, 'sites_refresh_failed');
++      return;
++    }
++    const incoming: Object[] = this.fetchedCatalog(event);
++    if (incoming.length > 0) {
++      this.catalogSource = incoming;
++      this.catalog = SitePickerViewModel.normalize(incoming);
++    }
++    this.finishRefresh(true, '');
++  }
++
++  private finishRefresh(succeeded: boolean, error: string): void {
++    this.document['refreshing'] = false;
++    this.document['refreshStatus'] = succeeded ? SITE_REFRESH_SUCCEEDED : SITE_REFRESH_FAILED;
++    this.document['lastRefreshError'] = error;
++  }
++
++  private static reportsFailure(event: Record<string, Object>): boolean {
++    const outcome: string = readText(event, 'outcome',
++      readText(event, 'fetchOutcome', readText(event, 'refreshOutcome', readText(event, 'result', ''))));
++    const normalized: string = outcome.toLowerCase();
++    if (normalized === OUTCOME_ERROR || normalized === OUTCOME_FAILURE || normalized === OUTCOME_FAILED ||
++      normalized === OUTCOME_FAIL || normalized === OUTCOME_OFFLINE) {
++      return true;
++    }
++    return readText(event, 'errorCode', '').length > 0;
++  }
++
++  /** The catalog the data source published for a successful fetch. */
++  private fetchedCatalog(event: Record<string, Object>): Object[] {
++    let candidate: Object[] = readObjectList(event, 'storeSites');
++    if (candidate.length === 0) {
++      candidate = readObjectList(event, 'sites');
++    }
++    if (candidate.length > 0) {
++      return candidate;
++    }
++    const live: Record<string, Object> | undefined = this.liveDocument;
++    if (live === undefined) {
++      return [];
++    }
++    candidate = readObjectList(live, 'storeSites');
++    if (candidate.length > 0) {
++      return candidate;
++    }
++    candidate = readObjectList(live, 'sites');
++    if (candidate.length > 0) {
++      return candidate;
++    }
++    const outcome: Object = live['nextFetchOutcome'];
++    if (outcome === undefined || outcome === null) {
++      return [];
++    }
++    return readObjectList(outcome as Record<string, Object>, 'storeSites');
++  }
++
++  // ------------------------------------------------------------------- effects
++
++  private async emit(effect: SitePickerEffect): Promise<void> {
++    await this.leaf.emit(effect);
++  }
++
++  // -------------------------------------------------------------- preferences
++
++  private pinnedIds(): number[] {
++    if (hasField(this.durable, PINNED_KEY)) {
++      return readNumberList(this.durable, PINNED_KEY);
++    }
++    const live: Record<string, Object> | undefined = this.liveDurable;
++    if (live !== undefined && hasField(live, PINNED_KEY)) {
++      return readNumberList(live, PINNED_KEY);
++    }
++    return readNumberList(this.document, PINNED_KEY);
++  }
++
++  private recentIds(): number[] {
++    if (hasField(this.durable, RECENT_KEY)) {
++      return readNumberList(this.durable, RECENT_KEY);
++    }
++    const live: Record<string, Object> | undefined = this.liveDurable;
++    if (live !== undefined && hasField(live, RECENT_KEY)) {
++      return readNumberList(live, RECENT_KEY);
++    }
++    return readNumberList(this.document, RECENT_KEY);
++  }
++
++  private writePinned(localIds: number[]): void {
++    const pinned: number[] = this.dedupe(localIds);
++    this.document[PINNED_KEY] = pinned;
++    this.durable[PINNED_KEY] = pinned;
++  }
++
++  private setRecent(localIds: number[]): void {
++    const recent: number[] = this.dedupe(localIds);
++    this.document[RECENT_KEY] = recent;
++    this.durable[RECENT_KEY] = recent;
++  }
++
++  private hydratePreferences(): void {
++    if (!hasField(this.durable, PINNED_KEY)) {
++      this.durable[PINNED_KEY] = this.dedupe(this.pinnedIds());
++    }
++    if (!hasField(this.durable, RECENT_KEY)) {
++      this.durable[RECENT_KEY] = this.dedupe(this.recentIds());
++    }
++    if (!hasField(this.durable, ACTIVE_SITE_KEY)) {
++      this.durable[ACTIVE_SITE_KEY] = this.activeLocalId();
++    }
++  }
++
++  private activeLocalId(): number {
++    if (hasField(this.durable, ACTIVE_SITE_KEY)) {
++      return readNumber(this.durable, ACTIVE_SITE_KEY, -1);
++    }
++    const selected: number = readNumber(this.document, 'selectedLocalId', -1);
++    if (selected >= 0) {
++      return selected;
++    }
++    return readNumber(this.document, 'activeLocalId', -1);
++  }
++
++  private without(values: number[], localId: number): number[] {
++    const kept: number[] = [];
++    for (let index = 0; index < values.length; index++) {
++      if (values[index] !== localId) {
++        kept.push(values[index]);
++      }
++    }
++    return kept;
++  }
++
++  private withPinned(values: number[], localId: number): number[] {
++    const kept: number[] = [];
++    kept.push(localId);
++    for (let index = 0; index < values.length; index++) {
++      if (values[index] !== localId) {
++        kept.push(values[index]);
++      }
++    }
++    return kept;
++  }
++
++  private dedupe(values: number[]): number[] {
++    const kept: number[] = [];
++    for (let index = 0; index < values.length; index++) {
++      const value: number = values[index];
++      if (Number.isFinite(value) && !SitePickerViewModel.includes(kept, value)) {
++        kept.push(value);
++      }
++    }
++    return kept;
++  }
++
++  // ------------------------------------------------------------------- derived
++
++  private mode(): string {
++    return readText(this.document, 'mode', SITE_MODE_DEFAULT);
++  }
++
++  /** Variants that restrict site management still allow a valid selection. */
++  private isRestricted(): boolean {
++    return this.mode() !== SITE_MODE_DEFAULT;
++  }
++
++  private actionMode(): string {
++    return readText(this.document, 'actionMode', SITE_ACTION_NONE);
++  }
++
++  private searchQuery(): string {
++    return readText(this.document, 'activeSearchQuery', readText(this.document, 'searchQuery', ''));
++  }
++
++  private visibleSections(): SiteSection[] {
++    if (this.searchQuery().length > 0) {
++      return SitePickerViewModel.searchSections(this.catalog, this.searchQuery());
++    }
++    return SitePickerViewModel.sectionsFor(this.catalog, this.pinnedIds(), this.recentIds());
++  }
++
++  private pinEditingVisible(): boolean {
++    return this.actionMode() === SITE_ACTION_PIN && !this.isRestricted();
++  }
++
++  private addSiteVisible(): boolean {
++    return !this.isRestricted() && this.searchQuery().length === 0;
++  }
++
++  private rowSelectionEnabled(): boolean {
++    return readFlag(this.document, 'pickerOpen', true) && this.actionMode() !== SITE_ACTION_PIN;
++  }
++
++  private publishResult(result: SiteSelectionResult): void {
++    const encoded: Record<string, Object> = JSON.parse(JSON.stringify(result)) as Record<string, Object>;
++    this.document['resultStatus'] = result.status;
++    this.document['resultLocalId'] = result.localId;
++    this.document['resultReason'] = result.reason;
++    this.document['result'] = encoded;
++    this.document['selectionOutcome'] = encoded;
++  }
++
++  private adoptCatalog(): void {
++    const seeds: Object[][] = [
++      readObjectList(this.document, 'storeSites'),
++      readObjectList(this.document, 'sites'),
++      readObjectList(this.document, 'rows'),
++      readObjectList(this.document, 'orderedRows'),
++      readObjectList(this.document, 'visibleLocalIds')
++    ];
++    let picked: Object[] = [];
++    for (let index = 0; index < seeds.length; index++) {
++      if (seeds[index].length > 0) {
++        picked = seeds[index];
++        break;
++      }
++    }
++    if (picked.length === 0) {
++      const single: Object = this.document['site'];
++      if (single !== undefined && single !== null) {
++        picked = [single];
++      }
++    }
++    if (picked.length === 0) {
++      return;
++    }
++    this.catalogSource = picked;
++    this.catalog = SitePickerViewModel.normalize(picked);
++  }
++
++  private recompute(): void {
++    const pinned: number[] = this.dedupe(this.pinnedIds());
++    const recent: number[] = this.dedupe(this.recentIds());
++    const searching: boolean = this.searchQuery().length > 0;
++    const sections: SiteSection[] = this.visibleSections();
++    const ordered: number[] = SitePickerViewModel.flatten(sections);
++    const matches: number[] = searching ? ordered : [];
++    const active: number = this.activeLocalId();
++    const restricted: boolean = this.isRestricted();
++    const pinEditing: boolean = this.actionMode() === SITE_ACTION_PIN && !restricted;
++    const selectionEnabled: boolean = readFlag(this.document, 'pickerOpen', true) && !pinEditing;
++
++    this.document['storeSites'] = this.catalogSource;
++    this.document['orderedRows'] = ordered;
++    this.document['rows'] = ordered;
++    this.document['visibleLocalIds'] = ordered;
++    this.document['sections'] = JSON.parse(JSON.stringify(sections)) as Object[];
++    this.document['siteCount'] = this.catalog.length;
++    this.document['activeLocalId'] = active;
++    this.document['selectedLocalId'] = active;
++    this.document['mode'] = this.mode();
++    this.document['pickerOpen'] = readFlag(this.document, 'pickerOpen', true);
++    this.document['actionMode'] = this.actionMode();
++    this.document['pinEditingVisible'] = pinEditing;
++    this.document['pinControlsVisible'] = pinEditing;
++    this.document['addSiteVisible'] = !restricted && !searching;
++    this.document['rowSelectionEnabled'] = selectionEnabled;
++    this.document['searchExpanded'] = searching;
++    this.document['searchEmpty'] = searching && matches.length === 0;
++    this.document['sitesEmpty'] = !searching && this.catalog.length === 0;
++    this.document['emptyState'] = SitePickerViewModel.emptyStateFor(this.catalog.length, searching, matches.length);
++    this.document['groupedVisible'] = !searching;
++    this.document[PINNED_KEY] = pinned;
++    this.document[RECENT_KEY] = recent;
++    this.document['pinnedCount'] = pinned.length;
++    this.document['recentCount'] = recent.length;
++    this.durable[PINNED_KEY] = pinned;
++    this.durable[RECENT_KEY] = recent;
++    this.durable[ACTIVE_SITE_KEY] = active;
++    this.notify();
++  }
++
++  private notify(): void {
++    const state: Record<string, Object> = this.currentState();
++    const observers: SitePickerStoreObserver[] = this.observers.slice();
++    for (let index = 0; index < observers.length; index++) {
++      observers[index].onSitePickerStateChanged(state);
++    }
++  }
++
++  private async persist(): Promise<void> {
++    await this.prefs.put(PICKER_STATE_KEY, JSON.stringify(this.document));
++    await this.prefs.put(PICKER_PERSISTENCE_KEY, JSON.stringify(this.durable));
++    await this.prefs.flush();
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/SitePickerViewModel.ets b/entry/src/main/ets/feature/SitePickerViewModel.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..1866c415c1aa0c095d0df85193fafe5735530bc6
+--- /dev/null
++++ b/entry/src/main/ets/feature/SitePickerViewModel.ets
+@@ -0,0 +1,208 @@
++import {
++  SITE_EMPTY_NO_MATCHES,
++  SITE_EMPTY_NO_SITES,
++  SITE_EMPTY_NONE,
++  SITE_RECENT_LIMIT,
++  SITE_SECTION_ALL,
++  SITE_SECTION_PINNED,
++  SITE_SECTION_RECENT,
++  SITE_SECTION_SEARCH,
++  SitePickerRow,
++  SiteRecord,
++  SiteSection
++} from './SitePickerModels';
++
++/**
++ * Pure derivation of the picker list.
++ *
++ * Grouping rules:
++ *  - the pinned section lists every pinned site that is still owned, in store order;
++ *  - the recent section lists the most recently accessed sites first and never
++ *    repeats a pinned site;
++ *  - every remaining site is listed once in the trailing section.
++ */
++export class SitePickerViewModel {
++  static normalize(values: Object[]): SiteRecord[] {
++    const catalog: SiteRecord[] = [];
++    if (values === undefined || values === null) {
++      return catalog;
++    }
++    for (let index = 0; index < values.length; index++) {
++      const record: SiteRecord | undefined = SiteRecord.fromValue(values[index]);
++      if (record === undefined || catalog.length === 0 || SitePickerViewModel.contains(catalog, record.localId)) {
++        continue;
++      }
++      catalog.push(record);
++    }
++    return catalog;
++  }
++
++  static contains(catalog: SiteRecord[], localId: number): boolean {
++    for (let index = 0; index < catalog.length; index++) {
++      if (catalog[index].localId === localId) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  static find(catalog: SiteRecord[], localId: number): SiteRecord | undefined {
++    for (let index = 0; index < catalog.length; index++) {
++      if (catalog[index].localId === localId) {
++        return catalog[index];
++      }
++    }
++    return undefined;
++  }
++
++  static idList(catalog: SiteRecord[]): number[] {
++    const ids: number[] = [];
++    for (let index = 0; index < catalog.length; index++) {
++      ids.push(catalog[index].localId);
++    }
++    return ids;
++  }
++
++  static includes(values: number[], localId: number): boolean {
++    for (let index = 0; index < values.length; index++) {
++      if (values[index] === localId) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  /** Pinned, recent and remaining sites, in that order. */
++  static sectionsFor(catalog: SiteRecord[], pinned: number[], recent: number[]): SiteSection[] {
++    const pinnedIds: number[] = [];
++    for (let index = 0; index < catalog.length; index++) {
++      const localId: number = catalog[index].localId;
++      if (SitePickerViewModel.includes(pinned, localId)) {
++        pinnedIds.push(localId);
++      }
++    }
++
++    const recentIds: number[] = [];
++    for (let index = 0; index < recent.length && recentIds.length < SITE_RECENT_LIMIT; index++) {
++      const localId: number = recent[index];
++      if (SitePickerViewModel.includes(pinnedIds, localId)) {
++        continue;
++      }
++      if (SitePickerViewModel.includes(recentIds, localId)) {
++        continue;
++      }
++      if (!SitePickerViewModel.contains(catalog, localId)) {
++        continue;
++      }
++      recentIds.push(localId);
++    }
++
++    const remainingIds: number[] = [];
++    for (let index = 0; index < catalog.length; index++) {
++      const localId: number = catalog[index].localId;
++      if (SitePickerViewModel.includes(pinnedIds, localId) || SitePickerViewModel.includes(recentIds, localId)) {
++        continue;
++      }
++      remainingIds.push(localId);
++    }
++
++    const sections: SiteSection[] = [];
++    sections.push(new SiteSection(SITE_SECTION_PINNED, pinnedIds));
++    sections.push(new SiteSection(SITE_SECTION_RECENT, recentIds));
++    sections.push(new SiteSection(SITE_SECTION_ALL, remainingIds));
++    return sections;
++  }
++
++  static search(catalog: SiteRecord[], query: string): SiteRecord[] {
++    const matches: SiteRecord[] = [];
++    const needle: string = query.trim();
++    if (needle.length === 0) {
++      return matches;
++    }
++    for (let index = 0; index < catalog.length; index++) {
++      if (catalog[index].matches(needle)) {
++        matches.push(catalog[index]);
++      }
++    }
++    return matches;
++  }
++
++  /** A search replaces the grouped view with the matching sites only. */
++  static searchSections(catalog: SiteRecord[], query: string): SiteSection[] {
++    const sections: SiteSection[] = [];
++    sections.push(new SiteSection(SITE_SECTION_SEARCH, SitePickerViewModel.idList(SitePickerViewModel.search(catalog, query))));
++    return sections;
++  }
++
++  static flatten(sections: SiteSection[]): number[] {
++    const ordered: number[] = [];
++    for (let index = 0; index < sections.length; index++) {
++      const ids: number[] = sections[index].localIds;
++      for (let inner = 0; inner < ids.length; inner++) {
++        if (!SitePickerViewModel.includes(ordered, ids[inner])) {
++          ordered.push(ids[inner]);
++        }
++      }
++    }
++    return ordered;
++  }
++
++  static rowsFor(catalog: SiteRecord[], sections: SiteSection[], pinned: number[], activeLocalId: number,
++    selectEnabled: boolean, pinControlVisible: boolean): SitePickerRow[] {
++    const rows: SitePickerRow[] = [];
++    const ordered: number[] = SitePickerViewModel.flatten(sections);
++    for (let index = 0; index < ordered.length; index++) {
++      const record: SiteRecord | undefined = SitePickerViewModel.find(catalog, ordered[index]);
++      if (record === undefined) {
++        continue;
++      }
++      const row: SitePickerRow = new SitePickerRow();
++      row.localId = record.localId;
++      row.name = record.name;
++      row.host = record.host;
++      row.section = SitePickerViewModel.sectionOf(sections, record.localId);
++      row.pinned = SitePickerViewModel.includes(pinned, record.localId);
++      row.active = record.localId === activeLocalId;
++      row.selectEnabled = selectEnabled;
++      row.pinControlVisible = pinControlVisible;
++      row.wpComAccessible = record.wpComAccessible;
++      rows.push(row);
++    }
++    return rows;
++  }
++
++  static sectionOf(sections: SiteSection[], localId: number): string {
++    for (let index = 0; index < sections.length; index++) {
++      if (SitePickerViewModel.includes(sections[index].localIds, localId)) {
++        return sections[index].name;
++      }
++    }
++    return SITE_SECTION_ALL;
++  }
++
++  static emptyStateFor(siteCount: number, searching: boolean, matchCount: number): string {
++    if (searching) {
++      return matchCount === 0 ? SITE_EMPTY_NO_MATCHES : SITE_EMPTY_NONE;
++    }
++    return siteCount === 0 ? SITE_EMPTY_NO_SITES : SITE_EMPTY_NONE;
++  }
++
++  /** Most recently accessed first, bounded, without dropping the chosen site. */
++  static promoteRecent(recent: number[], localId: number): number[] {
++    const promoted: number[] = [];
++    if (SitePickerViewModel.includes(recent, localId)) {
++      promoted.push(localId);
++    }
++    for (let index = 0; index < recent.length; index++) {
++      const candidate: number = recent[index];
++      if (candidate === localId || SitePickerViewModel.includes(promoted, candidate)) {
++        continue;
++      }
++      promoted.push(candidate);
++    }
++    while (promoted.length > SITE_RECENT_LIMIT) {
++      promoted.pop();
++    }
++    return promoted;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/SiteRepository.ets b/entry/src/main/ets/feature/SiteRepository.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..a14899b5157e00fc24026df13c50e880754f785a
+--- /dev/null
++++ b/entry/src/main/ets/feature/SiteRepository.ets
+@@ -0,0 +1,135 @@
++import { common } from '@kit.AbilityKit';
++import { preferences } from '@kit.ArkData';
++import { SitePickerViewModel } from './SitePickerViewModel';
++import { SiteRecord, emptyDocument, readObjectList } from './SitePickerModels';
++
++const SITES_PREFERENCES_NAME: string = 'wordpress_sites';
++const SITES_KEY: string = 'sites';
++const ACTIVE_SITE_KEY: string = 'active_site';
++
++/** Durable access to the sites the user owns. */
++export interface SiteRepository {
++  loadSites(): Promise<SiteRecord[]>;
++  refreshSites(): Promise<SiteRecord[]>;
++  saveSite(record: SiteRecord): Promise<SiteRecord>;
++  activateSite(localId: number): Promise<void>;
++  activeLocalId(): number;
++}
++
++/**
++ * Repository backed by the application's own durable documents.
++ *
++ * `refreshSites` rejects when the stored catalog cannot be produced, which is
++ * what lets the picker leave its refreshing state and keep the last usable
++ * list on screen so the user can retry.
++ */
++export class LocalSiteRepository implements SiteRepository {
++  private readonly prefs: preferences.Preferences;
++  private catalog: SiteRecord[] = [];
++  private active: number = -1;
++
++  constructor(context: common.UIAbilityContext) {
++    this.prefs = preferences.getPreferencesSync(context, { name: SITES_PREFERENCES_NAME });
++  }
++
++  async loadSites(): Promise<SiteRecord[]> {
++    try {
++      this.catalog = this.decode(this.readCatalog());
++      this.active = this.prefs.getSync(ACTIVE_SITE_KEY, -1) as number;
++    } catch (failure) {
++      this.catalog = [];
++      this.active = -1;
++    }
++    return this.catalog;
++  }
++
++  async refreshSites(): Promise<SiteRecord[]> {
++    let decoded: SiteRecord[] = [];
++    try {
++      decoded = this.decode(this.readCatalog());
++    } catch (failure) {
++      throw new Error('Stored sites are unreadable');
++    }
++    if (decoded.length === 0 && this.catalog.length > 0) {
++      // Nothing usable came back from the durable copy. Report the failure and
++      // keep the cached catalog so the picker can preserve its list.
++      throw new Error('Site refresh could not be completed');
++    }
++    this.catalog = decoded;
++    return this.catalog;
++  }
++
++  async saveSite(record: SiteRecord): Promise<SiteRecord> {
++    const catalog: SiteRecord[] = this.decode(this.readCatalog());
++    let replaced: boolean = false;
++    for (let index = 0; index < catalog.length; index++) {
++      if (catalog[index].localId === record.localId) {
++        catalog[index] = record;
++        replaced = true;
++        break;
++      }
++    }
++    if (!replaced) {
++      catalog.push(record);
++    }
++    this.catalog = catalog;
++    this.write(catalog);
++    return record;
++  }
++
++  async activateSite(localId: number): Promise<void> {
++    this.active = localId;
++    this.prefs.putSync(ACTIVE_SITE_KEY, localId);
++    this.prefs.flush();
++  }
++
++  activeLocalId(): number {
++    return this.active;
++  }
++
++  private readCatalog(): string {
++    return this.prefs.getSync(SITES_KEY, '[]') as string;
++  }
++
++  private decode(stored: string): SiteRecord[] {
++    if (stored === undefined || stored === null || stored.length === 0) {
++      return [];
++    }
++    const document: Record<string, Object> = JSON.parse(stored) as Record<string, Object>;
++    return SitePickerViewModel.normalize(readObjectList(document, 'sites'));
++  }
++
++  private write(catalog: SiteRecord[]): void {
++    const document: Record<string, Object> = emptyDocument();
++    document['sites'] = JSON.parse(JSON.stringify(catalog)) as Object[];
++    this.prefs.putSync(SITES_KEY, JSON.stringify(document));
++    this.prefs.flush();
++  }
++}
++
++/**
++ * Fallback used when the durable site store cannot be opened at all. Reads stay
++ * empty so the picker can report that no site is available, and a refresh fails
++ * loudly instead of pretending the list is fresh.
++ */
++export class UnavailableSiteRepository implements SiteRepository {
++  async loadSites(): Promise<SiteRecord[]> {
++    return [];
++  }
++
++  async refreshSites(): Promise<SiteRecord[]> {
++    throw new Error('The site store is not available');
++  }
++
++  async saveSite(record: SiteRecord): Promise<SiteRecord> {
++    throw new Error('The site store is not available');
++  }
++
++  async activateSite(localId: number): Promise<void> {
++    throw new Error('The site store is not available');
++  }
++
++  activeLocalId(): number {
++    return -1;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/LegacySitePickerStore.ets b/entry/src/main/ets/model/LegacySitePickerStore.ets
+index 3efa69f164a525038be55cf8e3d2fcba46f5bb00..ef5761235c2b5746f3c7a806db398ef6cc84ba2f 100644
+--- a/entry/src/main/ets/model/LegacySitePickerStore.ets
++++ b/entry/src/main/ets/model/LegacySitePickerStore.ets
+@@ -1,95 +1,7 @@
+-import { common } from '@kit.AbilityKit';
+-        import { preferences } from '@kit.ArkData';
+-        import { SitePickerEffect, SitePickerInput, SitePickerLeaf } from '../integration/SitePickerPageIntegration';
+-
+-        function clone(value: Record<string, Object>): Record<string, Object> {
+-          return JSON.parse(JSON.stringify(value)) as Record<string, Object>;
+-        }
+-
+-        function parsed(value: string): Record<string, Object> {
+-          return JSON.parse(value) as Record<string, Object>;
+-        }
+-
+-        export class LegacySitePickerStore {
+-          private state: Record<string, Object> = {};
+-          private persistence: Record<string, Object> = {};
+-          private leaf: SitePickerLeaf;
+-          private prefs: preferences.Preferences;
+-
+-          private constructor(store: preferences.Preferences, input: SitePickerInput) {
+-            this.prefs = store;
+-            this.leaf = input.leaf;
+-          }
+-
+-          static async create(context: common.UIAbilityContext, input: SitePickerInput,
+-            initialize: boolean): Promise<LegacySitePickerStore> {
+-            const prefs = await preferences.getPreferences(context, 'wordpress_site_picker');
+-            if (initialize) {
+-              await prefs.clear();
+-              await prefs.put('state', JSON.stringify(input.state));
+-              await prefs.put('persistence', JSON.stringify(input.persistence));
+-              await prefs.flush();
+-            }
+-            const store = new LegacySitePickerStore(prefs, input);
+-            store.state = parsed(await prefs.get('state', '{}') as string);
+-            store.persistence = parsed(await prefs.get('persistence', '{}') as string);
+-            return store;
+-          }
+-
+-          currentState(): Record<string, Object> { return clone(this.state); }
+-          currentPersistence(): Record<string, Object> { return clone(this.persistence); }
+-
+-          async invoke(name: string, event: Record<string, Object>): Promise<void> {
+-            await this.dispatch(name, event);
+-            await this.persist();
+-          }
+-
+-          private async emit(effect: SitePickerEffect): Promise<void> { await this.leaf.emit(effect); }
+-
+-          private replaceState(value: string): void { this.state = parsed(value); }
+-
+-          private async persist(): Promise<void> {
+-            await this.prefs.put('state', JSON.stringify(this.state));
+-            await this.prefs.put('persistence', JSON.stringify(this.persistence));
+-            await this.prefs.flush();
+-          }
+-
+-          private async dispatch(name: string, event: Record<string, Object>): Promise<void> {
+-            if (name === 'enterSearchQuery') { this.state['activeSearchQuery'] = event['query']; return; }
+-if (name === 'enterPinMode') { this.state['actionMode'] = 'legacy_visibility'; return; }
+-if (name === 'togglePin') { await this.emit({ name: 'openLegacyVisibilityEditor' }); return; }
+-if (name === 'closePicker') { this.state['pickerOpen'] = false; return; }
+-if (name === 'manualRefreshFailure') { this.state['refreshing'] = false; return; }
+-if (name === 'openSitePicker') {
+-  this.replaceState('{"mode":"selection","orderedRows":[1,2,3,4],"sections":[{"name":"all","localIds":[1,2,3,4]}],"selectedLocalId":4}');
+-  await this.emit({ name: 'readSites', source: 'all_sites' });
+-  return;
+-}
+-if (name === 'clearSearch') {
+-  this.replaceState('{"searchQuery":null,"orderedRows":[10,11,12],"sections":[{"name":"all","localIds":[10,11,12]}],"addSiteVisible":true}');
+-  await this.emit({ name: 'readSites', source: 'all_sites' });
+-  return;
+-}
+-if (name === 'tapSiteRow') {
+-  this.replaceState('{"actionMode":"legacy_visibility","pinControlsVisible":false,"activeLocalId":20,"pickerOpen":true,"result":null,"persistedPinnedLocalIds":[]}');
+-  await this.emit({ name: 'openLegacyVisibilityEditor' });
+-  return;
+-}
+-if (name === 'unpinSite') { await this.emit({ name: 'openLegacyVisibilityEditor' }); return; }
+-if (name === 'selectSite') {
+-  this.replaceState('{"selectionOutcome":{"status":"selected","localId":82},"pickerOpen":false,"addSiteVisible":true}');
+-  await this.emit({ name: 'publishSiteSelection', localId: event['localId'] as number });
+-  return;
+-}
+-if (name === 'retryManualRefresh') {
+-  this.replaceState('{"refreshing":false,"orderedRows":[51,52,53,54],"sections":[{"name":"all","localIds":[51,52,53,54]}]}');
+-  await this.emit({ name: 'fetchSites', count: 1 });
+-  return;
+-}
+-if (name === 'longPressSite') { await this.emit({ name: 'openLegacyVisibilityEditor' }); return; }
+-if (name === 'recreatePicker') {
+-  this.replaceState('{"searchExpanded":false,"searchQuery":null,"visibleLocalIds":[71,72],"actionMode":"none","pinControlsVisible":false,"rowSelectionEnabled":true}');
+-  return;
+-}
+-          }
+-        }
++/**
++ * Compatibility entry point for the previous store location.
++ *
++ * The picker store itself now lives with the rest of the site picker feature;
++ * this alias keeps the historical import path working.
++ */
++export { SitePickerStore, SitePickerStore as LegacySitePickerStore } from '../feature/SitePickerStore';
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 33c0473e83d9738a32c07ec69204d943fab678f1..3e8d0f9a7f00f1dc49db765f68e91c7a840b0626 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,21 +1,363 @@
++import { common } from '@kit.AbilityKit';
+ import { MountedSitePickerPageOwner, SitePickerPageRuntime } from './SitePickerPageOwner';
++import {
++  SITE_ACTION_NONE,
++  SITE_ACTION_PIN,
++  SITE_EMPTY_NO_MATCHES,
++  SITE_MODE_DEFAULT,
++  SITE_REFRESH_FAILED,
++  SITE_RESULT_ERROR,
++  SITE_RESULT_SELECTED,
++  SITE_SECTION_ALL,
++  SITE_SECTION_PINNED,
++  SITE_SECTION_RECENT,
++  SITE_SECTION_SEARCH,
++  SitePickerCommandEvent,
++  SitePickerRow,
++  SitePickerSnapshot,
++  SitePickerStoreObserver,
++  SiteRecord,
++  emptyDocument
++} from '../feature/SitePickerModels';
++import { AppSitePickerEffects } from '../feature/SitePickerEffects';
++import { LocalSiteRepository, SiteRepository, UnavailableSiteRepository } from '../feature/SiteRepository';
++
++class PickerListItem {
++  key: string = '';
++  isHeader: boolean = false;
++  title: string = '';
++  subtitle: string = '';
++  localId: number = -1;
++  pinned: boolean = false;
++  active: boolean = false;
++  selectEnabled: boolean = true;
++  pinControlVisible: boolean = false;
++
++  static header(section: string): PickerListItem {
++    const item: PickerListItem = new PickerListItem();
++    item.key = 'header:' + section;
++    item.isHeader = true;
++    item.title = Index.sectionTitle(section);
++    return item;
++  }
++
++  static site(row: SitePickerRow): PickerListItem {
++    const item: PickerListItem = new PickerListItem();
++    item.key = 'site:' + row.localId.toString();
++    item.isHeader = false;
++    item.title = row.name;
++    item.subtitle = row.host;
++    item.localId = row.localId;
++    item.pinned = row.pinned;
++    item.active = row.active;
++    item.selectEnabled = row.selectEnabled;
++    item.pinControlVisible = row.pinControlVisible;
++    return item;
++  }
++}
++
++class IndexStoreObserver implements SitePickerStoreObserver {
++  listener: ((state: Record<string, Object>) => void) | undefined = undefined;
++
++  onSitePickerStateChanged(state: Record<string, Object>): void {
++    const notify: ((state: Record<string, Object>) => void) | undefined = this.listener;
++    if (notify !== undefined) {
++      notify(state);
++    }
++  }
++}
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private owner: MountedSitePickerPageOwner = SitePickerPageRuntime.createOwner();
+-  @State summary: string = 'Loading';
++  private owner?: MountedSitePickerPageOwner = undefined;
++  private observer: IndexStoreObserver = new IndexStoreObserver();
++  private alive: boolean = true;
++  @State view: SitePickerSnapshot = new SitePickerSnapshot();
++  @State items: PickerListItem[] = [];
++  @State query: string = '';
++  @State status: string = '';
++  @State busy: boolean = false;
+ 
+   aboutToAppear(): void {
+-    this.owner.waitUntilReady().then(() => {
+-      this.summary = JSON.stringify(this.owner.currentState());
++    this.alive = true;
++    void this.bootstrap();
++  }
++
++  aboutToDisappear(): void {
++    this.alive = false;
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner !== undefined) {
++      owner.unsubscribe(this.observer);
++      owner.release();
++    }
++    this.owner = undefined;
++  }
++
++  private async bootstrap(): Promise<void> {
++    const host = this.getUIContext().getHostContext();
++    const context: common.UIAbilityContext = host as common.UIAbilityContext;
++    if (!SitePickerPageRuntime.isConfigured()) {
++      await this.configureFromSiteStore(context);
++    }
++    if (!this.alive) {
++      return;
++    }
++    const owner: MountedSitePickerPageOwner = SitePickerPageRuntime.createOwner();
++    this.owner = owner;
++    this.observer.listener = () => {
++      this.reload();
++    };
++    await owner.waitUntilReady();
++    if (!this.alive) {
++      owner.release();
++      return;
++    }
++    owner.subscribe(this.observer);
++    this.reload();
++  }
++
++  /** Binds the picker to the application's own site store. */
++  private async configureFromSiteStore(context: common.UIAbilityContext): Promise<void> {
++    let repository: SiteRepository = new UnavailableSiteRepository();
++    let sites: SiteRecord[] = [];
++    try {
++      const local: LocalSiteRepository = new LocalSiteRepository(context);
++      sites = await local.loadSites();
++      repository = local;
++    } catch (failure) {
++      // The durable site store is unavailable. The picker still mounts and
++      // reports that no site could be read instead of failing to open.
++    }
++    const state: Record<string, Object> = new SitePickerCommandEvent()
++      .put('mode', SITE_MODE_DEFAULT)
++      .put('pickerOpen', true)
++      .put('actionMode', SITE_ACTION_NONE)
++      .put('storeSites', JSON.parse(JSON.stringify(sites)) as Object[])
++      .build();
++    SitePickerPageRuntime.configure(context, {
++      state: state,
++      persistence: emptyDocument(),
++      leaf: new AppSitePickerEffects(repository)
+     });
+   }
+ 
++  private reload(): void {
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined || !this.alive) {
++      return;
++    }
++    const view: SitePickerSnapshot = owner.snapshot();
++    this.view = view;
++    this.query = view.searchQuery;
++    this.items = Index.buildItems(view);
++    this.status = Index.statusOf(view);
++  }
++
++  private static buildItems(view: SitePickerSnapshot): PickerListItem[] {
++    const items: PickerListItem[] = [];
++    for (let index = 0; index < view.sections.length; index++) {
++      const section = view.sections[index];
++      if (section.localIds.length === 0) {
++        continue;
++      }
++      items.push(PickerListItem.header(section.name));
++      for (let inner = 0; inner < view.rows.length; inner++) {
++        const row: SitePickerRow = view.rows[inner];
++        if (row.section === section.name) {
++          items.push(PickerListItem.site(row));
++        }
++      }
++    }
++    return items;
++  }
++
++  static sectionTitle(section: string): string {
++    if (section === SITE_SECTION_PINNED) {
++      return 'Pinned';
++    }
++    if (section === SITE_SECTION_RECENT) {
++      return 'Recent';
++    }
++    if (section === SITE_SECTION_SEARCH) {
++      return 'Search results';
++    }
++    return SITE_SECTION_ALL === section ? 'All sites' : section;
++  }
++
++  private static statusOf(view: SitePickerSnapshot): string {
++    if (view.refreshStatus === SITE_REFRESH_FAILED) {
++      return 'Refresh failed. Your sites are still listed, try again.';
++    }
++    if (view.resultStatus === SITE_RESULT_SELECTED) {
++      return 'Site selected.';
++    }
++    if (view.resultStatus === SITE_RESULT_ERROR) {
++      return 'That site is no longer available.';
++    }
++    return '';
++  }
++
++  private run(action: Promise<void>): void {
++    this.busy = true;
++    action.then(() => {
++      this.busy = false;
++      this.reload();
++    }).catch(() => {
++      this.busy = false;
++      this.reload();
++    });
++  }
++
++  private onQueryChanged(value: string): void {
++    this.query = value;
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    this.run(owner.search(value));
++  }
++
++  private onClearSearch(): void {
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    this.run(owner.clearSearch());
++  }
++
++  private onRowClick(item: PickerListItem): void {
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    this.run(owner.tapSiteRow(item.localId));
++  }
++
++  private onPinClick(localId: number, pinned: boolean): void {
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    this.run(owner.setPinned(localId, !pinned));
++  }
++
++  private onTogglePinEditing(): void {
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    this.run(this.view.actionMode === SITE_ACTION_PIN ? owner.endPinEditing() : owner.beginPinEditing());
++  }
++
++  private onRefresh(): void {
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    this.run(owner.refresh());
++  }
++
++  private onAddSite(): void {
++    const owner: MountedSitePickerPageOwner | undefined = this.owner;
++    if (owner === undefined) {
++      return;
++    }
++    this.run(owner.addSite());
++  }
++
+   build() {
+-    Column({ space: 16 }) {
+-      Text('WordPress Site Picker').fontSize(28).fontWeight(FontWeight.Bold)
+-      Text(this.summary).fontSize(14)
+-    }.width('100%').height('100%').padding(24)
++    Column({ space: 10 }) {
++      Row({ space: 12 }) {
++        Text('Sites').fontSize(24).fontWeight(FontWeight.Bold).layoutWeight(1)
++        if (this.view.addSiteVisible) {
++          Text('Add site').fontSize(14).fontColor('#0A64FF').onClick(() => this.onAddSite())
++        }
++      }.width('100%')
++
++      Row({ space: 8 }) {
++        TextInput({ text: this.query, placeholder: 'Search sites' })
++          .layoutWeight(1)
++          .height(40)
++          .onChange((value: string) => this.onQueryChanged(value))
++        if (this.view.searchExpanded) {
++          Text('Clear').fontSize(14).fontColor('#0A64FF').onClick(() => this.onClearSearch())
++        }
++      }.width('100%')
++
++      Row({ space: 16 }) {
++        if (!this.view.restricted) {
++          Text(this.view.actionMode === SITE_ACTION_PIN ? 'Done' : 'Edit pins')
++            .fontSize(14)
++            .fontColor(this.view.actionMode === SITE_ACTION_PIN ? '#0A64FF' : '#5C5C5C')
++            .onClick(() => this.onTogglePinEditing())
++        }
++        Text('Refresh').fontSize(14).fontColor('#5C5C5C').onClick(() => this.onRefresh())
++        Blank()
++        if (this.busy || this.view.refreshing) {
++          LoadingProgress().width(20).height(20).color('#0A64FF')
++        }
++      }.width('100%')
++
++      if (this.view.actionMode === SITE_ACTION_PIN) {
++        Text('Pinning mode. Use the pin control on a site; rows stay inactive until you finish.')
++          .fontSize(12)
++          .fontColor('#5C5C5C')
++          .width('100%')
++      }
++
++      if (this.status.length > 0) {
++        Text(this.status).fontSize(12).fontColor('#5C5C5C').width('100%')
++      }
++
++      if (this.items.length === 0) {
++        Column({ space: 8 }) {
++          Text(this.view.emptyMessage).fontSize(14).fontColor('#5C5C5C')
++          if (this.view.emptyState === SITE_EMPTY_NO_MATCHES) {
++            Text('Clear search').fontSize(14).fontColor('#0A64FF').onClick(() => this.onClearSearch())
++          }
++        }.width('100%').padding({ top: 32 })
++      } else {
++        List({ space: 0 }) {
++          ForEach(this.items, (item: PickerListItem) => {
++            ListItem() {
++              if (item.isHeader) {
++                Row() {
++                  Text(item.title).fontSize(13).fontWeight(FontWeight.Medium).fontColor('#5C5C5C')
++                }.width('100%').padding({ top: 16, bottom: 6 })
++              } else {
++                Row({ space: 12 }) {
++                  Column({ space: 2 }) {
++                    Text(item.title).fontSize(16).maxLines(1)
++                    if (item.subtitle.length > 0) {
++                      Text(item.subtitle).fontSize(12).fontColor('#5C5C5C').maxLines(1)
++                    }
++                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
++                  if (item.active) {
++                    Text('Active').fontSize(12).fontColor('#0A64FF')
++                  }
++                  if (item.pinControlVisible) {
++                    Text(item.pinned ? 'Unpin' : 'Pin')
++                      .fontSize(13)
++                      .fontColor('#0A64FF')
++                      .padding({ left: 12 })
++                      .onClick(() => this.onPinClick(item.localId, item.pinned))
++                  }
++                }
++                .width('100%')
++                .padding({ top: 10, bottom: 10 })
++                .onClick(() => this.onRowClick(item))
++              }
++            }
++          }, (item: PickerListItem) => item.key)
++        }
++        .layoutWeight(1)
++        .width('100%')
++      }
++    }
++    .width('100%')
++    .height('100%')
++    .padding(16)
++    .alignItems(HorizontalAlign.Start)
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/SitePickerPageOwner.ets b/entry/src/main/ets/pages/SitePickerPageOwner.ets
+index 6c68f7dcf8ca8d6bdbd437436b8fd62a8d3f78ae..584dc85db7d7e41bbf27de873c61e3f38ae53861 100644
+--- a/entry/src/main/ets/pages/SitePickerPageOwner.ets
++++ b/entry/src/main/ets/pages/SitePickerPageOwner.ets
+@@ -1,9 +1,17 @@
+ import { common } from '@kit.AbilityKit';
+ import { SitePickerInput, SitePickerPageOwner } from '../integration/SitePickerPageIntegration';
+-import { LegacySitePickerStore } from '../model/LegacySitePickerStore';
++import { SitePickerSnapshot, SitePickerStoreObserver, emptyDocument } from '../feature/SitePickerModels';
++import { SitePickerStore } from '../feature/SitePickerStore';
+ 
++/**
++ * Page scoped owner of the picker store.
++ *
++ * One owner exists per picker page instance. It keeps the stable identity used
++ * by the page lifecycle, exposes the derived snapshot for rendering and
++ * releases the store when the page goes away.
++ */
+ export class MountedSitePickerPageOwner implements SitePickerPageOwner {
+-  private store?: LegacySitePickerStore;
++  private store?: SitePickerStore;
+   private ready: Promise<void> = Promise.resolve();
+   private readonly pageOwnerId: string;
+   private readonly controllerOwnerId: string;
+@@ -14,24 +22,52 @@ export class MountedSitePickerPageOwner implements SitePickerPageOwner {
+   }
+ 
+   mount(context: common.UIAbilityContext, input: SitePickerInput, initialize: boolean): Promise<void> {
+-    this.ready = LegacySitePickerStore.create(context, input, initialize).then((value: LegacySitePickerStore) => {
++    this.ready = SitePickerStore.create(context, input, initialize).then((value: SitePickerStore) => {
+       this.store = value;
+     });
+     return this.ready;
+   }
+ 
+-  async waitUntilReady(): Promise<void> { await this.ready; }
++  async waitUntilReady(): Promise<void> {
++    await this.ready;
++  }
++
+   async invoke(name: string, event: Record<string, Object>): Promise<void> {
+     await this.ready;
+     if (this.store === undefined) throw new Error('SitePicker store is not mounted');
+-    await this.store.invoke(name, event);
++    await this.store.invoke(name, event === undefined || event === null ? emptyDocument() : event);
+   }
++
+   currentState(): Record<string, Object> { return this.store?.currentState() ?? {}; }
+   currentPersistence(): Record<string, Object> { return this.store?.currentPersistence() ?? {}; }
++  snapshot(): SitePickerSnapshot { return this.store?.snapshot() ?? new SitePickerSnapshot(); }
+   ownerId(): string { return this.pageOwnerId; }
+   controllerId(): string { return this.controllerOwnerId; }
+   storeSource(): string { return 'Index.SitePickerPageOwner.controller.store'; }
+   featureAvailable(): boolean { return this.store !== undefined; }
++
++  subscribe(observer: SitePickerStoreObserver): void { this.store?.subscribe(observer); }
++  unsubscribe(observer: SitePickerStoreObserver): void { this.store?.unsubscribe(observer); }
++  release(): void { this.store?.release(); }
++
++  async openSitePicker(): Promise<void> { await this.dispatch('openSitePicker'); }
++  async closeSitePicker(): Promise<void> { await this.dispatch('closePicker'); }
++  async selectSite(localId: number): Promise<void> { await this.store?.selectSite(localId); }
++  async tapSiteRow(localId: number): Promise<void> { await this.store?.tapSiteRow(localId); }
++  async search(query: string): Promise<void> { await this.store?.search(query); }
++  async clearSearch(): Promise<void> { await this.store?.clearSearch(); }
++  async beginPinEditing(): Promise<void> { await this.dispatch('enterPinMode'); }
++  async endPinEditing(): Promise<void> { await this.dispatch('exitPinMode'); }
++  async togglePin(localId: number): Promise<void> { await this.store?.togglePin(localId); }
++  async setPinned(localId: number, pinned: boolean): Promise<void> { await this.store?.setPinned(localId, pinned); }
++  async refresh(): Promise<void> { await this.dispatch('manualRefresh'); }
++  async retryRefresh(): Promise<void> { await this.dispatch('retryManualRefresh'); }
++  async recreate(): Promise<void> { await this.dispatch('recreatePicker'); }
++async addSite(): Promise<void> { await this.dispatch('addSite'); }
++
++  private async dispatch(name: string): Promise<void> {
++    await this.invoke(name, emptyDocument());
++  }
+ }
+ 
+ export class SitePickerPageRuntime {
+@@ -47,6 +83,10 @@ export class SitePickerPageRuntime {
+     SitePickerPageRuntime.generation = 0;
+   }
+ 
++  static isConfigured(): boolean {
++    return SitePickerPageRuntime.context !== undefined && SitePickerPageRuntime.input !== undefined;
++  }
++
+   static createOwner(): MountedSitePickerPageOwner {
+     const context = SitePickerPageRuntime.context;
+     const input = SitePickerPageRuntime.input;
+@@ -68,4 +108,4 @@ export class SitePickerPageRuntime {
+     await new Promise<void>((resolve) => setTimeout(() => resolve(), 25));
+     return SitePickerPageRuntime.waitForOwnerAfter(previous, attempt + 1);
+   }
+-}
++}
+\ No newline at end of file

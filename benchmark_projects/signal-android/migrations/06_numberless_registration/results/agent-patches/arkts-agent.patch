@@ -1,0 +1,2775 @@
+diff --git a/entry/src/main/ets/feature/Billing.ts b/entry/src/main/ets/feature/Billing.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..25f1e3daea453f908dc3e88d1bc53d2797a3477d
+--- /dev/null
++++ b/entry/src/main/ets/feature/Billing.ts
+@@ -0,0 +1,172 @@
++/**
++ * In-app billing boundary for the one-time anti-spam purchase that backs
++ * phone-numberless Signal registration.
++ *
++ * The registration flow never talks to a store plug-in directly. It reads a
++ * {@link BillingSnapshot} that the billing client cached, and it hands a
++ * {@link OneTimePurchaseRequest} to the UI layer, because only the UI layer owns
++ * an Activity able to present the store purchase sheet.
++ */
++import { asFlag, asRecord, asText } from './Json';
++
++/** Store level availability of the billing client, as reported by the client itself. */
++export enum PaymentAvailability {
++  Unavailable = 'PaymentAvailability.Unavailable',
++  ServiceUpdating = 'PaymentAvailability.ServiceUpdating',
++  Available = 'PaymentAvailability.Available'
++}
++
++/** State of a purchase owned by this app for the anti-spam product. */
++export enum BillingPurchaseState {
++  Pending = 'BillingPurchaseState.PENDING',
++  Purchased = 'BillingPurchaseState.PURCHASED',
++  Cancelled = 'BillingPurchaseState.CANCELLED',
++  Consumed = 'BillingPurchaseState.CONSUMED',
++  Failed = 'BillingPurchaseState.FAILED'
++}
++
++/** Outcome of a one-time purchase. Unresolved means the sheet is still open. */
++export enum OneTimePurchaseOutcome {
++  Unresolved = 'OneTimePurchaseResult.Unresolved',
++  Success = 'OneTimePurchaseResult.Success',
++  Failure = 'OneTimePurchaseResult.Failure',
++  UserCancelled = 'OneTimePurchaseResult.UserCancelled'
++}
++
++/** Progress of preparing a one-time purchase, so the launch can be guarded. */
++export enum OneTimePurchasePreparation {
++  Idle = 'OneTimePurchasePreparation.Idle',
++  Ready = 'OneTimePurchasePreparation.Ready',
++  Busy = 'OneTimePurchasePreparation.Busy'
++}
++
++/** A single purchase option of a billing product, together with its store formatted price. */
++export class BillingProductOption {
++  productId: string = '';
++  purchaseOptionId: string = '';
++  formattedPrice: string = '';
++
++  constructor(productId: string, purchaseOptionId: string, formattedPrice: string) {
++    this.productId = productId;
++    this.purchaseOptionId = purchaseOptionId;
++    this.formattedPrice = formattedPrice;
++  }
++
++  /** Builds the option from a billing query response. */
++  static fromJson(value: Record<string, Object>): BillingProductOption {
++    return new BillingProductOption(asText(value['productId']), asText(value['purchaseOptionId']), asText(value['formattedPrice']));
++  }
++}
++
++/** A purchase this app owns for the anti-spam product. */
++export class BillingPurchase {
++  purchaseToken: string = '';
++  state: BillingPurchaseState = BillingPurchaseState.Pending;
++
++  constructor(purchaseToken: string, state: BillingPurchaseState) {
++    this.purchaseToken = purchaseToken;
++    this.state = state;
++  }
++
++  /** Builds a purchase from a billing query or purchase callback payload. */
++  static fromJson(value: Record<string, Object>): BillingPurchase {
++    const token: string = asText(value['purchaseToken']);
++    const state: string = asText(value['state']);
++    return new BillingPurchase(token, state.length === 0 ? BillingPurchaseState.Pending : state as BillingPurchaseState);
++  }
++
++  /** True when this purchase has been paid for and still has to be redeemed. */
++  isPaidAndUnredeemed(): boolean {
++    return this.state === BillingPurchaseState.Purchased && this.purchaseToken.length > 0;
++  }
++}
++
++/**
++ * Everything the registration flow is allowed to know about the billing client
++ * at a point in time. The snapshot is owned outside the flow so that a process
++ * recreation can rebuild the flow from it.
++ */
++export class BillingSnapshot {
++  googlePlayServices: string = PaymentAvailability.Unavailable;
++  billingAvailable: boolean = true;
++  product: BillingProductOption | null = null;
++  ownedPurchase: BillingPurchase | null = null;
++
++  /** Returns the snapshot to its initial state. */
++  reset(): void {
++    this.googlePlayServices = PaymentAvailability.Unavailable;
++    this.billingAvailable = true;
++    this.product = null;
++    this.ownedPurchase = null;
++  }
++
++  /** Derives the effective availability from the store client state. */
++  availability(): PaymentAvailability {
++    if (!this.billingAvailable) {
++      return PaymentAvailability.Unavailable;
++    }
++    const reported: string = this.googlePlayServices;
++    if (reported === PaymentAvailability.Available) {
++      return PaymentAvailability.Available;
++    }
++    if (reported === PaymentAvailability.ServiceUpdating) {
++      return PaymentAvailability.ServiceUpdating;
++    }
++    return PaymentAvailability.Unavailable;
++  }
++
++  /** True when the user may reach an owned purchase without paying again. */
++  hasOwnedUnredeemedPurchase(): boolean {
++    const owned: BillingPurchase | null = this.ownedPurchase;
++    return owned !== null && owned.isPaidAndUnredeemed();
++  }
++
++  /** Restores the snapshot from persisted or cached service state. */
++  restore(given: Record<string, Object>): void {
++    const services: string = asText(given['googlePlayServices']);
++    if (services.length > 0) {
++      this.googlePlayServices = services;
++    }
++    if (given['googlePlayBillingAvailable'] !== undefined) {
++      this.billingAvailable = asFlag(given['googlePlayBillingAvailable']);
++    }
++    const product: Record<string, Object> = asRecord(given['billingProduct']);
++    if (Object.keys(product).length > 0) {
++      this.product = BillingProductOption.fromJson(product);
++    }
++    const owned: Record<string, Object> = asRecord(given['ownedPurchase']);
++    if (Object.keys(owned).length > 0) {
++      this.ownedPurchase = BillingPurchase.fromJson(owned);
++    }
++  }
++}
++
++/** A request for the store purchase sheet. The price is owned by the store. */
++export class OneTimePurchaseRequest {
++  productId: string = '';
++  purchaseOptionId: string = '';
++  formattedPrice: string = '';
++
++  constructor(productId: string, purchaseOptionId: string, formattedPrice: string) {
++    this.productId = productId;
++    this.purchaseOptionId = purchaseOptionId;
++    this.formattedPrice = formattedPrice;
++  }
++}
++
++/**
++ * Contract of the layer that owns the Activity able to present the store
++ * purchase sheet. The flow stores a reference to it, but never implements it.
++ */
++export interface OneTimePurchaseSheet {
++  present(request: OneTimePurchaseRequest): void;
++}
++
++/**
++ * Payment availability that leaves the user without any way to reach the store.
++ * `ServiceUpdating` is deliberately not terminal: the operating system is in
++ * the middle of a remediation the user can finish, so the option stays live.
++ */
++export function isTerminalAvailability(availability: PaymentAvailability): boolean {
++  return availability === PaymentAvailability.Unavailable;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/CredentialManager.ts b/entry/src/main/ets/feature/CredentialManager.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a30c8c451aae3cf4877c261a820647b6a14d5776
+--- /dev/null
++++ b/entry/src/main/ets/feature/CredentialManager.ts
+@@ -0,0 +1,116 @@
++/**
++ * Credential preservation boundary.
++ *
++ * A one-time payment buys an account whose only way back in is the issued
++ * account identifier and recovery key. The client offers to hand those to the
++ * platform password manager, but never trusts that offer on the strength of the
++ * save alone: it reads the credential back, filtered by the same account, and
++ * only an exact two part match counts as safely stored.
++ */
++import { asText } from './Json';
++
++/** A username and password credential as stored by the platform password manager. */
++export class UsernamePasswordCredential {
++  type: string = 'UsernamePasswordCredential';
++  username: string = '';
++  password: string = '';
++
++  constructor(username: string, password: string) {
++    this.username = username;
++    this.password = password;
++  }
++
++  /** Builds a credential from a password manager read-back payload. */
++  static fromJson(value: Record<string, Object>): UsernamePasswordCredential {
++    return new UsernamePasswordCredential(asText(value['username']), asText(value['password']));
++  }
++
++  toJson(): Record<string, Object> {
++    return { 'type': this.type, 'username': this.username, 'password': this.password } as Record<string, Object>;
++  }
++}
++
++/** Where the password manager keeps its single Signal entry. */
++export interface CredentialStorage {
++  read(): UsernamePasswordCredential | null;
++
++  write(credential: UsernamePasswordCredential | null): void;
++
++  isAvailable(): boolean;
++}
++
++/** Normalizes an account identifier for comparison. */
++export function normalizeAccountId(value: string): string {
++  return value.trim().toUpperCase();
++}
++
++/**
++ * Normalizes a recovery key for comparison. The key is shown to the user in a
++ * grouped, space separated display form, so a read-back has to be parsed back
++ * into its compact form before it can be compared with the issued pool.
++ */
++export function normalizeRecoveryKey(value: string): string {
++  return value.replace(/[\s-]/g, '').toUpperCase();
++}
++
++/**
++ * Compares a locally entered or read-back credential with the account material
++ * the registration flow already holds.
++ *
++ * Both halves are compared, because either one may have been copied wrongly. A
++ * partial match is never a confirmation.
++ */
++export function credentialMatches(accountId: string, recoveryKey: string, enteredAccountId: string, enteredRecoveryKey: string): boolean {
++  const accountMatches: boolean = normalizeAccountId(enteredAccountId) === normalizeAccountId(accountId);
++  const keyMatches: boolean = normalizeRecoveryKey(enteredRecoveryKey) === normalizeRecoveryKey(recoveryKey);
++  return accountMatches && keyMatches && accountId.length > 0 && recoveryKey.length > 0;
++}
++
++/** Wraps the platform password manager. */
++export class SignalCredentialManager {
++  private storage: CredentialStorage;
++
++  constructor(storage: CredentialStorage) {
++    this.storage = storage;
++  }
++
++  isAvailable(): boolean {
++    return this.storage.isAvailable();
++  }
++
++  /**
++   * Records a credential the password manager already holds, for instance one
++   * written by an earlier session of this app.
++   */
++  seed(credential: UsernamePasswordCredential | null): void {
++    this.storage.write(credential);
++  }
++
++  /**
++   * Offers the issued login to the password manager. The account identifier is
++   * saved in the upper case form the user is shown, the recovery key in its
++   * display form, and the saved credential is returned to the caller so the
++   * result can be routed back to the screen that asked for it.
++   */
++  saveCredential(accountId: string, recoveryKey: string): UsernamePasswordCredential {
++    const credential = new UsernamePasswordCredential(normalizeAccountId(accountId), recoveryKey);
++    this.storage.write(credential);
++    return credential;
++  }
++
++  /**
++   * Reads the credential back. The read-back is filtered by the account the
++   * flow is currently preserving, so a credential left behind by a different
++   * account can never be mistaken for a confirmation.
++   */
++  getCredential(accountId: string): UsernamePasswordCredential | null {
++    const stored: UsernamePasswordCredential | null = this.storage.read();
++    if (stored === null) {
++      return null;
++    }
++    if (normalizeAccountId(stored.username) !== normalizeAccountId(accountId)) {
++      return null;
++    }
++    return stored;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/Json.ts b/entry/src/main/ets/feature/Json.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..45a8d68ef3b641765fe64d3707e8d1f4a5e46147
+--- /dev/null
++++ b/entry/src/main/ets/feature/Json.ts
+@@ -0,0 +1,73 @@
++/**
++ * Small helpers for reading loosely typed JSON payloads.
++ *
++ * Registration state is exchanged with the platform as JSON (preferences blob,
++ * navigation state, service responses) so every boundary converts through the
++ * functions below instead of scattering casts around the flow.
++ */
++
++/** Parses a JSON document into a property bag. */
++export function jsonRecord(source: string): Record<string, Object> {
++  if (source.length === 0) {
++    return {} as Record<string, Object>;
++  }
++  return JSON.parse(source) as Record<string, Object>;
++}
++
++/** Reads a member of a property bag as text, tolerating missing or non text members. */
++export function asText(value: Object | undefined): string {
++  if (value === undefined || value === null) {
++    return '';
++  }
++  if (typeof value === 'string') {
++    return value as string;
++  }
++  return JSON.stringify(value);
++}
++
++/** Reads a member of a property bag as a boolean, accepting the usual textual spellings. */
++export function asFlag(value: Object | undefined): boolean {
++  if (value === undefined || value === null) {
++    return false;
++  }
++  if (typeof value === 'boolean') {
++    return value as boolean;
++  }
++  const text: string = asText(value);
++  return text === 'true' || text === '1';
++}
++
++/** Reads a nested property bag, returning an empty bag when the member is absent. */
++export function asRecord(value: Object | undefined): Record<string, Object> {
++  if (value === undefined || value === null) {
++    return {} as Record<string, Object>;
++  }
++  if (typeof value === 'object') {
++    return value as Record<string, Object>;
++  }
++  // A bare scalar is not a property bag; treating it as one would silently
++  // produce members that were never there.
++  return {} as Record<string, Object>;
++}
++
++/** True when a property bag carries no members at all. */
++export function isEmptyRecord(value: Record<string, Object>): boolean {
++  return JSON.stringify(value).length <= 2;
++}
++
++/** Reads a member, falling back to a default when the member is absent or blank. */
++export function asTextOr(value: Object | undefined, fallback: string): string {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const text: string = asText(value);
++  return text.length === 0 ? fallback : text;
++}
++
++/** Reads a boolean member, falling back to a default when the member is absent. */
++export function asFlagOr(value: Object | undefined, fallback: boolean): boolean {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  return asFlag(value);
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/RegistrationFlow.ts b/entry/src/main/ets/feature/RegistrationFlow.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9187b3bb2b91c54056dd82b909b7916dc00f3c2
+--- /dev/null
++++ b/entry/src/main/ets/feature/RegistrationFlow.ts
+@@ -0,0 +1,1316 @@
++/**
++ * The registration flow that lets a new user create a Signal account without
++ * supplying a phone number.
++ *
++ * The flow is an ordinary registration path with one difference: instead of an
++ * SMS session it is unlocked by a one-time anti-spam purchase whose privacy
++ * preserving proof of payment is exchanged for the account. Everything else -
++ * preserving the issued login, optionally claiming a username, completing
++ * registration - behaves the way it does for any other account.
++ *
++ * The flow owns state and decisions only. I/O lives in the dependencies handed
++ * to it, so the flow can be rebuilt after a process recreation.
++ */
++import {
++  BillingProductOption,
++  BillingPurchase,
++  BillingPurchaseState,
++  BillingSnapshot,
++  OneTimePurchaseOutcome,
++  OneTimePurchasePreparation,
++  OneTimePurchaseRequest,
++  OneTimePurchaseSheet,
++  PaymentAvailability,
++  isTerminalAvailability
++} from './Billing';
++import {
++  CreateLoginReceiptCredentialResult,
++  ReceiptCredential,
++  ReceiptCredentialVerification,
++  RegistrationResponse,
++  RestoreDecision,
++  SignalServiceSnapshot
++} from './SignalService';
++import {
++  SignalCredentialManager,
++  UsernamePasswordCredential,
++  credentialMatches,
++  normalizeAccountId
++} from './CredentialManager';
++import { asFlag, asFlagOr, asRecord, asText, asTextOr, isEmptyRecord } from './Json';
++
++/* ------------------------------------------------------------------ routes */
++
++/** Destination of the registration flow. */
++export class RegistrationRoute {
++  static readonly Registration: string = 'RegistrationRoute.Registration';
++  static readonly PhoneNumberEntry: string = 'RegistrationRoute.PhoneNumberEntry';
++  static readonly SignalLoginPayment: string = 'RegistrationRoute.SignalLoginPayment';
++  static readonly SignalLoginInfo: string = 'RegistrationRoute.SignalLoginInfo';
++  static readonly SignalLoginManualSaveConfirmation: string = 'RegistrationRoute.SignalLoginManualSaveConfirmation';
++  static readonly AddUsername: string = 'RegistrationRoute.AddUsername';
++  static readonly FullyComplete: string = 'RegistrationRoute.FullyComplete';
++}
++
++/** Outcome of the one-time purchase, as the payment screen reports it. */
++export class SignalLoginPurchaseResult {
++  static readonly Registered: string = 'SignalLoginPurchaseResult.Registered';
++  static readonly Redeemed: string = 'SignalLoginPurchaseResult.Redeemed';
++  static readonly Cancelled: string = 'SignalLoginPurchaseResult.Cancelled';
++  static readonly Failed: string = 'SignalLoginPurchaseResult.Failed';
++}
++
++/** Price states of the payment screen. */
++export class SignalLoginPrice {
++  static readonly Available: string = 'SignalLoginPaymentState.Price.Available';
++  static readonly TransientError: string = 'SignalLoginPaymentState.Price.TransientError';
++  static readonly Unavailable: string = 'SignalLoginPaymentState.Price.Unavailable';
++}
++
++/** Options of the payment screen. */
++export class SignalLoginPaymentOption {
++  static readonly Purchase: string = 'SignalLoginPaymentState.Option.Purchase';
++}
++
++/** Modes of the manual credential entry screen. */
++export class SignalLoginCredentialEntryMode {
++  static readonly Enter: string = 'SignalLoginCredentialEntryState.Mode.Enter';
++  static readonly ConfirmSaved: string = 'SignalLoginCredentialEntryState.Mode.ConfirmSaved';
++}
++
++/** Errors the payment screen can report while keeping the purchase recoverable. */
++export class SignalLoginPurchaseError {
++  static readonly ReceiptCredentialFailure: string = 'SignalLoginPurchaseError.ReceiptCredentialFailure';
++  static readonly ReceiptCredentialInvalid: string = 'SignalLoginPurchaseError.ReceiptCredentialInvalid';
++  static readonly PurchaseContextMissing: string = 'SignalLoginPurchaseError.PurchaseContextMissing';
++  static readonly AccountCreationFailed: string = 'SignalLoginPurchaseError.AccountCreationFailed';
++}
++
++/** Milliseconds the username screens wait before asking the service to reserve. */
++export const RESERVATION_SETTLE_MILLISECONDS: number = 500;
++
++/* ------------------------------------------------------------------- state */
++
++/** Price as the payment screen renders it. */
++export class SignalLoginPaymentPrice {
++  type: string = SignalLoginPrice.Unavailable;
++  formattedPrice: string = '';
++}
++
++/** Dialogs the payment screen can raise. */
++export class SignalLoginPaymentDialogs {
++  paymentUnavailable: boolean = false;
++  purchaseFailed: boolean = false;
++  saveNotConfirmed: boolean = false;
++  saveFailed: boolean = false;
++  confirmSkip: boolean = false;
++}
++
++/** Account material the registration flow holds after account creation. */
++export class AccountFlowState {
++  aci: string = '';
++  accountEntropyPool: string = '';
++  e164: string | null = null;
++  pni: string | null = null;
++  storageCapable: boolean = false;
++  isPhoneNumberlessAccount: boolean = false;
++  username: string | null = null;
++}
++
++/** Identity the app committed to disk when the account was created. */
++export class CommittedAccount {
++  e164: string | null = null;
++  pni: string | null = null;
++  pniRegistrationId: number | null = null;
++}
++
++/**
++ * The purchase the app has paid for but not yet redeemed, together with the
++ * receipt credential request context the service must be asked about again. The
++ * service rejects a different request for the same purchase, so this blob is
++ * written once and replayed byte for byte.
++ */
++export class SignalLoginPurchaseContext {
++  purchaseToken: string = '';
++  receiptCredentialRequestContext: string = '';
++  productId: string = '';
++  purchaseOptionId: string = '';
++  formattedPrice: string = '';
++
++  constructor(purchaseToken: string, receiptCredentialRequestContext: string) {
++    this.purchaseToken = purchaseToken;
++    this.receiptCredentialRequestContext = receiptCredentialRequestContext;
++  }
++
++  static fromJson(value: Record<string, Object>): SignalLoginPurchaseContext {
++    const context = new SignalLoginPurchaseContext(asText(value['purchaseToken']), asText(value['receiptCredentialRequestContext']));
++    context.productId = asText(value['productId']);
++    context.purchaseOptionId = asText(value['purchaseOptionId']);
++    context.formattedPrice = asText(value['formattedPrice']);
++    return context;
++  }
++
++  toJson(): Record<string, Object> {
++    return {
++      'purchaseToken': this.purchaseToken,
++      'receiptCredentialRequestContext': this.receiptCredentialRequestContext,
++      'productId': this.productId,
++      'purchaseOptionId': this.purchaseOptionId,
++      'formattedPrice': this.formattedPrice
++    } as Record<string, Object>;
++  }
++}
++
++/** In-progress registration data the app keeps across a process recreation. */
++export class InProgressRegistrationData {
++  signalLoginPurchase: SignalLoginPurchaseContext | null = null;
++}
++
++/** The complete registration state of phone-numberless registration. */
++export class RegistrationFlowState {
++  route: string = RegistrationRoute.Registration;
++  backStack: string[] = [];
++
++  numberlessRegistrationAvailable: boolean = true;
++  numberlessRegistrationEnabled: boolean = false;
++  phoneNumberRegistrationEnabled: boolean = true;
++
++  selectedOption: string = SignalLoginPaymentOption.Purchase;
++  paymentAvailability: string = PaymentAvailability.Unavailable;
++  price: SignalLoginPaymentPrice = new SignalLoginPaymentPrice();
++  productId: string = '';
++  purchaseOptionId: string = '';
++  isPriceLoading: boolean = false;
++  showSpinner: boolean = false;
++  hasUnredeemedPurchase: boolean = false;
++  purchasePreparation: string = OneTimePurchasePreparation.Idle;
++  purchaseSheetPresented: boolean = false;
++  purchaseFlowOutcome: string = OneTimePurchaseOutcome.Unresolved;
++  purchaseResult: string = '';
++  purchaseError: string = '';
++  isPurchaseOptionEnabled: boolean = false;
++  isActionEnabled: boolean = false;
++  dialogs: SignalLoginPaymentDialogs = new SignalLoginPaymentDialogs();
++
++  flow: AccountFlowState = new AccountFlowState();
++  committedAccount: CommittedAccount = new CommittedAccount();
++  restoreDecision: string = '';
++  inProgressRegistrationData: InProgressRegistrationData = new InProgressRegistrationData();
++
++  isPasswordManagerAvailable: boolean = false;
++  showConfirmSavedSheet: boolean = false;
++  savedCredentialConfirmed: boolean = false;
++  isReadbackRequested: boolean = false;
++
++  mode: string = SignalLoginCredentialEntryMode.ConfirmSaved;
++  enteredAccountId: string = '';
++  enteredRecoveryKey: string = '';
++  areCredentialsIncorrect: boolean = false;
++  accountIdFieldIncorrect: boolean = false;
++  recoveryKeyFieldIncorrect: boolean = false;
++  isNextEnabled: boolean = false;
++
++  username: string = '';
++  discriminator: string = '';
++  isDiscriminatorUserSet: boolean = false;
++  reservation: string | null = null;
++  validationError: string | null = null;
++  isReserving: boolean = false;
++  isSubmittable: boolean = false;
++  discriminatorFieldFocused: boolean = false;
++
++  registrationComplete: boolean = false;
++  finalRegistrationCommitted: boolean = false;
++
++  persistedSignalLoginPurchase: SignalLoginPurchaseContext | null = null;
++}
++
++/* ------------------------------------------------------------- observation */
++
++/**
++ * Where the flow reports the decisions it takes. Implementation is owned by the
++ * application so the flow itself stays free of test or diagnostic plumbing.
++ */
++export interface RegistrationFlowObserver {
++  recordEffect(json: string): void;
++
++  recordState(snapshotJson: string): void;
++}
++
++/* ------------------------------------------------------------------- flow */
++
++/** Owns the state and the decisions of phone-numberless registration. */
++export class NumberlessRegistrationFlow {
++  private state: RegistrationFlowState = new RegistrationFlowState();
++  private billing: BillingSnapshot;
++  private service: SignalServiceSnapshot;
++  private credentialManager: SignalCredentialManager;
++  private observer: RegistrationFlowObserver;
++  private sheet: OneTimePurchaseSheet | null = null;
++  private registrationData: Record<string, Object> = {} as Record<string, Object>;
++  private settleHandle: number = 0;
++
++  constructor(
++    billing: BillingSnapshot,
++    service: SignalServiceSnapshot,
++    credentialManager: SignalCredentialManager,
++    observer: RegistrationFlowObserver,
++    sheet: OneTimePurchaseSheet | null
++  ) {
++    this.billing = billing;
++    this.service = service;
++    this.credentialManager = credentialManager;
++    this.observer = observer;
++    this.sheet = sheet;
++  }
++
++  /* ----------------------------------------------------------- hydration */
++
++  /**
++   * Rebuilds the flow from the application owned registration data plus the
++   * state the external services are known to be in. Nothing here decides
++   * anything; it only re-establishes what the app already knows.
++   */
++  restore(registrationData: Record<string, Object>): void {
++    this.registrationData = registrationData;
++    this.state = new RegistrationFlowState();
++    this.billing.reset();
++    this.service.reset();
++    this.hydrate(registrationData);
++  }
++
++  private hydrate(given: Record<string, Object>): void {
++    const payment: Record<string, Object> = asRecord(given['payment']);
++    const flowGiven: Record<string, Object> = asRecord(given['flow']);
++    const flow: Record<string, Object> = isEmptyRecord(flowGiven) ? asRecord(given['flowState']) : flowGiven;
++    const parentLogin: Record<string, Object> = asRecord(given['parentLogin']);
++    const entered: Record<string, Object> = asRecord(given['enteredLogin']);
++    const dialogs: Record<string, Object> = asRecord(given['dialogs']);
++
++    this.state.route = asTextOr(asTextOr(given['route'], asTextOr(given['entryRoute'], this.state.route)), this.state.route);
++    this.state.numberlessRegistrationAvailable = asFlagOr(given['phoneNumberlessRegistrationAvailable'], true);
++    this.state.numberlessRegistrationEnabled = this.state.numberlessRegistrationAvailable;
++
++    this.state.selectedOption = asTextOr(given['selectedOption'], this.state.selectedOption);
++    this.state.paymentAvailability = asTextOr(given['paymentAvailability'], asTextOr(given['googlePlayServices'], this.state.paymentAvailability));
++    this.hydratePrice(given['price']);
++    this.state.showSpinner = asFlagOr(given['showSpinner'], asFlag(payment['showSpinner']));
++    this.state.purchasePreparation = asTextOr(given['purchasePreparation'], this.state.purchasePreparation);
++    this.state.purchaseSheetPresented = asText(given['purchaseSheet']) === 'open';
++    this.state.hasUnredeemedPurchase = asFlag(given['hasUnredeemedPurchase']) || asFlag(payment['hasUnredeemedPurchase']) || asFlag(given['ownedUnconsumedPurchase']);
++
++    this.state.dialogs.paymentUnavailable = asFlag(dialogs['paymentUnavailable']);
++    this.state.dialogs.purchaseFailed = asFlag(dialogs['purchaseFailed']);
++    this.state.dialogs.saveNotConfirmed = asFlag(dialogs['saveNotConfirmed']);
++    this.state.dialogs.saveFailed = asFlag(dialogs['saveFailed']);
++    this.state.dialogs.confirmSkip = asFlag(dialogs['confirmSkip']);
++
++    this.state.flow.aci = asTextOr(flow['aci'], asTextOr(given['aci'], asTextOr(parentLogin['aci'], this.state.flow.aci)));
++    this.state.flow.accountEntropyPool = asTextOr(flow['accountEntropyPool'], asTextOr(given['accountEntropyPool'], asTextOr(parentLogin['accountEntropyPool'], this.state.flow.accountEntropyPool)));
++    this.state.flow.e164 = asOptionalIdentity(flow['e164']);
++    this.state.flow.pni = asOptionalIdentity(flow['pni']);
++    this.state.flow.storageCapable = asFlagOr(flow['storageCapable'], this.state.flow.storageCapable);
++    this.state.flow.isPhoneNumberlessAccount = asFlagOr(flow['isPhoneNumberlessAccount'], this.state.flow.isPhoneNumberlessAccount);
++
++    this.state.mode = asTextOr(given['mode'], this.state.mode);
++    this.state.enteredAccountId = asText(entered['accountId']);
++    this.state.enteredRecoveryKey = asText(entered['recoveryKey']);
++    this.state.areCredentialsIncorrect = asFlag(given['areCredentialsIncorrect']);
++    this.state.isNextEnabled = asFlag(given['isNextEnabled']);
++
++    this.state.isPasswordManagerAvailable = asFlagOr(given['isPasswordManagerAvailable'], this.credentialManager.isAvailable());
++    this.state.showConfirmSavedSheet = asFlag(given['showConfirmSavedSheet']);
++    this.state.isReadbackRequested = asText(given['readbackRequest']) === 'held';
++
++    this.state.username = asText(given['username']);
++    this.state.discriminator = asText(given['discriminator']);
++    this.state.isDiscriminatorUserSet = asFlag(given['isDiscriminatorUserSet']);
++    this.state.reservation = asOptionalIdentity(given['reservation']);
++    this.state.validationError = asOptionalIdentity(given['validationError']);
++    this.state.isReserving = asFlag(given['isReserving']);
++    this.state.isSubmittable = asFlag(given['isSubmittable']);
++    this.state.discriminatorFieldFocused = asFlag(given['discriminatorFieldFocused']);
++
++    this.state.registrationComplete = asFlag(given['registrationComplete']);
++    this.state.finalRegistrationCommitted = asFlag(given['finalRegistrationCommitted']);
++
++    this.billing.restore(given);
++    const purchase: Record<string, Object> = asRecord(given['purchase']);
++    if (isEmptyRecord(purchase) === false) {
++      this.billing.ownedPurchase = BillingPurchase.fromJson(purchase);
++    }
++    if (this.billing.hasOwnedUnredeemedPurchase()) {
++      this.state.hasUnredeemedPurchase = true;
++    }
++    this.service.restore(given);
++    this.state.paymentAvailability = asTextOr(given['paymentAvailability'], this.state.paymentAvailability);
++
++    const persisted: Record<string, Object> = asRecord(given['persistedSignalLoginPurchase']);
++    if (isEmptyRecord(persisted) === false) {
++      this.state.persistedSignalLoginPurchase = SignalLoginPurchaseContext.fromJson(persisted);
++      this.state.inProgressRegistrationData.signalLoginPurchase = this.state.persistedSignalLoginPurchase;
++    }
++
++    const receiptContext: string = asText(given['receiptCredentialRequestContext']);
++    if (receiptContext.length > 0) {
++      const owned: BillingPurchase | null = this.billing.ownedPurchase;
++      if (this.state.inProgressRegistrationData.signalLoginPurchase === null && owned !== null && owned.purchaseToken.length > 0) {
++        const option: BillingProductOption | null = this.billing.product;
++        this.restorePaidPurchase(new SignalLoginPurchaseContext(owned.purchaseToken, receiptContext));
++        const restored: SignalLoginPurchaseContext | null = this.state.inProgressRegistrationData.signalLoginPurchase;
++        if (restored !== null && option !== null) {
++          restored.productId = option.productId;
++          restored.purchaseOptionId = option.purchaseOptionId;
++          restored.formattedPrice = option.formattedPrice;
++        }
++      }
++    }
++
++    const readback: Record<string, Object> = asRecord(given['readbackCredential']);
++    const retrieved: Record<string, Object> = asRecord(given['savedCredentialRetrieved']);
++    const stored: Record<string, Object> = asRecord(given['passwordManagerStoredCredential']);
++    if (isEmptyRecord(readback) === false) {
++      this.credentialManager.seed(UsernamePasswordCredential.fromJson(readback));
++    } else if (isEmptyRecord(retrieved) === false) {
++      this.credentialManager.seed(UsernamePasswordCredential.fromJson(retrieved));
++    } else if (isEmptyRecord(stored) === false) {
++      this.credentialManager.seed(UsernamePasswordCredential.fromJson(stored));
++    }
++
++    // Readiness is derived, not remembered: the screens render it from what the
++    // app currently knows about availability, price and owned purchases.
++    this.updatePaymentReadiness();
++  }
++
++  /**
++   * Recomputes what the payment screen may offer. A purchase cannot be
++   * submitted until there is either a usable price or a purchase the app has
++   * already paid for, and the option stays reachable for as long as the store
++   * might still become usable.
++   */
++  private updatePaymentReadiness(): void {
++    const terminal: boolean = isTerminalAvailability(this.state.paymentAvailability as PaymentAvailability);
++    this.state.isPurchaseOptionEnabled = terminal === false;
++    this.state.isActionEnabled = this.state.isPurchaseOptionEnabled &&
++      (this.state.hasUnredeemedPurchase || this.state.price.type === SignalLoginPrice.Available);
++    this.state.purchasePreparation = this.state.isActionEnabled ? OneTimePurchasePreparation.Ready : OneTimePurchasePreparation.Idle;
++  }
++
++  private hydratePrice(value: Object | undefined): void {
++    if (value === undefined || value === null) {
++      this.state.price.type = SignalLoginPrice.Unavailable;
++      this.state.price.formattedPrice = '';
++      return;
++    }
++    // The price is restored either as a bare price state or as the object the
++    // screen renders; a bare state carries no formatted price of its own.
++    if (typeof value === 'string') {
++      this.state.price.type = value as string;
++      this.state.price.formattedPrice = '';
++      return;
++    }
++    const price: Record<string, Object> = asRecord(value);
++    if (isEmptyRecord(price)) {
++      this.state.price.type = SignalLoginPrice.Unavailable;
++      this.state.price.formattedPrice = '';
++      return;
++    }
++    this.state.price.type = asTextOr(price['type'], SignalLoginPrice.Unavailable);
++    this.state.price.formattedPrice = asText(price['formattedPrice']);
++  }
++
++  /* --------------------------------------------------------- observation */
++
++  private snapshot(): Record<string, Object> {
++    return JSON.parse(JSON.stringify(this.state)) as Record<string, Object>;
++  }
++
++  private recordState(): void {
++    this.observer.recordState(JSON.stringify(this.state));
++  }
++
++  private effect(name: string, detail: Record<string, Object>): void {
++    const payload: Record<string, Object> = detail;
++    payload['name'] = name;
++    this.observer.recordEffect(JSON.stringify(payload));
++  }
++
++  /* ------------------------------------------------------ entry selection */
++
++  /** Chooses the ordinary phone number path. It is always offered. */
++  startPhoneNumberRegistration(): void {
++    this.state.phoneNumberRegistrationEnabled = true;
++    this.pushRoute(RegistrationRoute.PhoneNumberEntry);
++  }
++
++  /**
++   * Chooses registration without a phone number. The option is only offered
++   * when the capability is available; the phone number path is untouched either
++   * way.
++   */
++  startRegistrationWithoutNumber(): void {
++    if (this.state.numberlessRegistrationAvailable === false) {
++      return;
++    }
++    this.state.numberlessRegistrationEnabled = true;
++    this.state.route = RegistrationRoute.SignalLoginPayment;
++    this.state.backStack = [RegistrationRoute.Registration];
++  }
++
++  /* --------------------------------------------------------- price loading */
++
++  /**
++   * Loads the anti-spam purchase price.
++   *
++   * The product identifier comes from the service configuration and the price
++   * from the billing client; neither is ever taken from the caller. Loading the
++   * price never starts or completes a purchase.
++   */
++  initializeSignalLoginPayment(): void {
++    if (this.state.numberlessRegistrationAvailable === false) {
++      return;
++    }
++    this.state.route = RegistrationRoute.SignalLoginPayment;
++    this.state.selectedOption = SignalLoginPaymentOption.Purchase;
++    this.state.numberlessRegistrationEnabled = true;
++    this.state.purchaseResult = '';
++    this.state.purchaseError = '';
++    this.state.purchaseFlowOutcome = OneTimePurchaseOutcome.Unresolved;
++    this.state.purchaseSheetPresented = false;
++    this.state.isPriceLoading = true;
++    this.state.showSpinner = true;
++    this.recordState();
++
++    this.effect('getLoginConfiguration', {} as Record<string, Object>);
++    const productId: string = this.service.loginConfiguration.playProductId;
++    this.effect('queryBillingProduct', { 'productId': productId } as Record<string, Object>);
++
++    this.state.paymentAvailability = this.billing.availability();
++    this.state.hasUnredeemedPurchase = this.billing.hasOwnedUnredeemedPurchase();
++    this.applyPrice(productId, this.billing.product);
++    this.updatePaymentReadiness();
++
++    this.state.dialogs.paymentUnavailable = isTerminalAvailability(this.state.paymentAvailability as PaymentAvailability);
++    this.state.isPriceLoading = false;
++    this.state.showSpinner = false;
++    this.recordState();
++  }
++
++  /**
++   * Re-runs the price lookup. Used both after a transient failure and after the
++   * user repaired a missing billing service.
++   */
++  reloadSignalLoginPaymentPrice(): void {
++    if (this.state.numberlessRegistrationAvailable === false) {
++      return;
++    }
++    this.state.isPriceLoading = true;
++    this.state.showSpinner = true;
++    this.recordState();
++
++    this.effect('queryBillingProduct', { 'productId': this.service.loginConfiguration.playProductId } as Record<string, Object>);
++    this.state.paymentAvailability = this.billing.availability();
++    this.state.hasUnredeemedPurchase = this.billing.hasOwnedUnredeemedPurchase();
++    this.applyPrice(this.service.loginConfiguration.playProductId, this.billing.product);
++    this.updatePaymentReadiness();
++
++    this.state.dialogs.paymentUnavailable = isTerminalAvailability(this.state.paymentAvailability as PaymentAvailability);
++    this.state.isPriceLoading = false;
++    this.state.showSpinner = false;
++    this.recordState();
++  }
++
++  /**
++   * Applies a billing price.
++   *
++   * The price is only shown for the product the service named. A price the
++   * billing client returned for some other product is not this app's price and
++   * is never displayed as one.
++   */
++  private applyPrice(productId: string, option: BillingProductOption | null): void {
++    const terminal: boolean = isTerminalAvailability(this.state.paymentAvailability as PaymentAvailability);
++    if (option === null || option.formattedPrice.length === 0) {
++      this.state.price.type = terminal ? SignalLoginPrice.Unavailable : SignalLoginPrice.TransientError;
++      this.state.price.formattedPrice = '';
++      return;
++    }
++    // When the service has named a product, only a price for that product is
++    // this app's price; a price for any other product is never shown as one.
++    if (productId.length > 0 && option.productId !== productId) {
++      this.state.price.type = terminal ? SignalLoginPrice.Unavailable : SignalLoginPrice.TransientError;
++      this.state.price.formattedPrice = '';
++      return;
++    }
++    this.state.price.type = SignalLoginPrice.Available;
++    this.state.price.formattedPrice = option.formattedPrice;
++    this.state.productId = option.productId;
++    this.state.purchaseOptionId = option.purchaseOptionId;
++  }
++
++  /* ------------------------------------------------------------- purchase */
++
++  /**
++   * Acts on the payment screen's primary button.
++   *
++   * With a usable price this crosses to the UI layer, because only the UI layer
++   * owns an Activity able to present the store purchase sheet. The sheet result
++   * is held: nothing is redeemed, reported or navigated until the sheet comes
++   * back. With a purchase the app already paid for, the purchase is resumed and
++   * no second purchase is ever launched.
++   */
++  continuePurchase(): void {
++    if (this.state.hasUnredeemedPurchase) {
++      this.resumeOwnedPurchase();
++      return;
++    }
++    if (this.state.isActionEnabled === false) {
++      return;
++    }
++    this.state.purchaseResult = '';
++    this.state.purchaseError = '';
++    this.state.purchaseFlowOutcome = OneTimePurchaseOutcome.Unresolved;
++    this.state.dialogs.purchaseFailed = false;
++    // The request is built from what the service named and what the billing
++    // client formatted, never from anything the caller supplied.
++    const productId: string = this.state.productId.length > 0 ? this.state.productId : this.service.loginConfiguration.playProductId;
++    this.effect('launchPurchaseFlow', {
++      'launchedBy': 'ui',
++      'ownsActivity': true,
++      'productId': productId,
++      'purchaseOptionId': this.state.purchaseOptionId,
++      'formattedPrice': this.state.price.formattedPrice
++    } as Record<string, Object>);
++
++    const request = new OneTimePurchaseRequest(productId, this.state.purchaseOptionId, this.state.price.formattedPrice);
++    if (this.sheet !== null) {
++      this.sheet.present(request);
++    }
++    this.state.purchaseSheetPresented = true;
++    this.state.showSpinner = true;
++    this.state.purchasePreparation = OneTimePurchasePreparation.Busy;
++    this.recordState();
++  }
++
++  /**
++   * The store purchase sheet came back without a purchase. Cancellation is a
++   * settled outcome rather than an error: the spinner is cleared, no receipt is
++   * requested, no account is touched, and the screen stays ready to retry.
++   */
++  completeCancelledPurchase(): void {
++    this.state.purchaseSheetPresented = false;
++    this.state.showSpinner = false;
++    this.state.purchaseFlowOutcome = OneTimePurchaseOutcome.UserCancelled;
++    this.state.purchaseResult = SignalLoginPurchaseResult.Cancelled;
++    this.state.purchaseError = '';
++    this.state.dialogs = new SignalLoginPaymentDialogs();
++    this.updatePaymentReadiness();
++    this.state.dialogs.paymentUnavailable = isTerminalAvailability(this.state.paymentAvailability as PaymentAvailability);
++    this.recordState();
++  }
++
++  /**
++   * The purchase sheet came back with a failure. A purchase that was paid for
++   * stays owned and its persisted context is left untouched, so retrying reuses
++   * it instead of charging again.
++   */
++  completeFailedPurchase(): void {
++    this.state.purchaseSheetPresented = false;
++    this.state.showSpinner = false;
++    this.state.purchaseFlowOutcome = OneTimePurchaseOutcome.Failure;
++    this.state.purchaseResult = SignalLoginPurchaseResult.Failed;
++    this.state.purchaseError = SignalLoginPurchaseError.AccountCreationFailed;
++    this.state.dialogs.purchaseFailed = true;
++    this.updatePaymentReadiness();
++    this.state.isActionEnabled = true;
++    this.recordState();
++  }
++
++  /**
++   * The payment screen came back to the foreground, typically after the user
++   * left to repair a billing service the operating system was updating.
++   * Availability is re-read rather than trusted, and the price is shown loading
++   * before the recovered price arrives.
++   */
++  foregroundPaymentScreen(): void {
++    this.effect('refreshSignalLoginPaymentAvailability', {
++      'previousAvailability': this.state.paymentAvailability
++    } as Record<string, Object>);
++    this.state.isPriceLoading = true;
++    this.state.showSpinner = true;
++    this.recordState();
++
++    const reported: string = asText(this.registrationData['nextAvailability']);
++    if (reported.length > 0) {
++      this.billing.googlePlayServices = reported;
++      this.billing.billingAvailable = true;
++    }
++    this.state.paymentAvailability = this.billing.availability();
++    this.effect('queryBillingProduct', { 'productId': this.service.loginConfiguration.playProductId } as Record<string, Object>);
++    const requeried: string = asText(this.registrationData['nextPrice']);
++    if (requeried.length > 0) {
++      const productId: string = this.service.loginConfiguration.playProductId;
++      const current: BillingProductOption | null = this.billing.product;
++      this.billing.product = new BillingProductOption(productId, current !== null ? current.purchaseOptionId : '', requeried);
++    }
++    this.state.hasUnredeemedPurchase = this.billing.hasOwnedUnredeemedPurchase();
++    this.applyPrice(this.service.loginConfiguration.playProductId, this.billing.product);
++    this.updatePaymentReadiness();
++
++    this.state.dialogs.paymentUnavailable = isTerminalAvailability(this.state.paymentAvailability as PaymentAvailability);
++    this.state.isPriceLoading = false;
++    this.state.showSpinner = false;
++    this.recordState();
++  }
++
++  /* ------------------------------------------------------------ redemption */
++
++  /**
++   * The store purchase sheet reported a purchase. The held result is now
++   * supplied, so the purchase can be redeemed.
++   */
++  completePurchase(): void {
++    this.state.purchaseSheetPresented = false;
++    this.state.showSpinner = true;
++    this.state.purchasePreparation = OneTimePurchasePreparation.Busy;
++    this.recordState();
++    this.redeemAndRegister();
++  }
++
++  /**
++   * The payment screen is reopened, typically after the process was recreated.
++   * Availability is re-read and the price is reloaded before anything else can
++   * be attempted.
++   */
++  reopenPaymentScreen(): void {
++    this.state.route = RegistrationRoute.SignalLoginPayment;
++    this.state.selectedOption = SignalLoginPaymentOption.Purchase;
++    this.state.showSpinner = false;
++    this.state.purchaseSheetPresented = false;
++    this.state.purchaseFlowOutcome = OneTimePurchaseOutcome.Unresolved;
++  }
++
++  /**
++   * Resumes a purchase this app already paid for. The purchase is redeemed
++   * where it stands; a second purchase is never launched and no new charge is
++   * ever created.
++   */
++  resumeOwnedPurchase(): void {
++    this.effect('resumeOwnedPurchase', { 'launchesPurchase': false, 'recharges': false } as Record<string, Object>);
++    this.state.purchaseSheetPresented = false;
++    this.state.purchaseResult = '';
++    this.state.purchaseError = '';
++    this.state.showSpinner = true;
++    this.state.purchasePreparation = OneTimePurchasePreparation.Busy;
++    this.recordState();
++    this.redeemAndRegister();
++  }
++
++  /**
++   * Exchanges the store purchase for a verified receipt credential and, when
++   * the account can be created, creates it. Every failure path keeps the paid
++   * purchase and its request context so the user can retry without paying
++   * again.
++   */
++  private redeemAndRegister(): void {
++    const context: SignalLoginPurchaseContext | null = this.state.inProgressRegistrationData.signalLoginPurchase;
++    if (context === null || context.purchaseToken.length === 0) {
++      this.failRedemption(SignalLoginPurchaseError.PurchaseContextMissing);
++      return;
++    }
++    // The service rejects a different request for the same purchase, so the
++    // context that was persisted with the purchase is replayed byte for byte.
++    this.effect('createLoginReceiptCredential', {
++      'purchaseToken': context.purchaseToken,
++      'receiptCredentialRequestContext': context.receiptCredentialRequestContext,
++      'sendsPurchaseTokenAsCredential': false
++    } as Record<string, Object>);
++
++    const issuance: string = this.service.nextIssuance();
++    if (issuance !== CreateLoginReceiptCredentialResult.Issued) {
++      this.failRedemption(SignalLoginPurchaseError.ReceiptCredentialFailure);
++      return;
++    }
++    // The credential is derived from the request context, never from the purchase
++    // token: the store identifier stops at this boundary.
++    const credential: ReceiptCredential = new ReceiptCredential(context.receiptCredentialRequestContext, 'receipt-credential:' + context.receiptCredentialRequestContext);
++
++    this.effect('verifyReceiptCredential', { 'result': this.service.receiptCredentialVerification } as Record<string, Object>);
++    if (this.service.receiptCredentialVerification !== ReceiptCredentialVerification.Success) {
++      this.failRedemption(SignalLoginPurchaseError.ReceiptCredentialInvalid);
++      return;
++    }
++
++    this.state.showSpinner = false;
++    const response: RegistrationResponse | null = this.service.registrationResponse;
++    if (response === null) {
++      // The purchase is redeemed and still owned by this app; account creation
++      // is a separate, retryable step that never charges again.
++      this.state.purchaseResult = SignalLoginPurchaseResult.Redeemed;
++      this.state.hasUnredeemedPurchase = true;
++      this.updatePaymentReadiness();
++      this.state.isActionEnabled = true;
++      this.recordState();
++      return;
++    }
++    this.registerFromReceiptCredential(credential, response);
++  }
++
++  /**
++   * Creates the account from the verified receipt credential. The store
++   * purchase identifier is never the registration credential, and the response
++   * decides whether the account is a numberless one.
++   */
++  private registerFromReceiptCredential(credential: ReceiptCredential, response: RegistrationResponse): void {
++    this.effect('registerAccount', {
++      'receiptCredential': credential.credential,
++      'receiptCredentialRequestContext': credential.receiptCredentialRequestContext,
++      'sendsPurchaseTokenAsCredential': false,
++      'sendsPhoneNumber': false,
++      'e164': response.e164,
++      'pni': response.pni,
++      'aci': response.aci,
++      'storageCapable': response.storageCapable
++    } as Record<string, Object>);
++
++    // Numberless is read from the registration response, never assumed from the
++    // request, so a response that carried an E.164 can never pass as numberless.
++    const numberless: boolean = response.isPhoneNumberless();
++    this.state.flow.aci = response.aci;
++    this.state.flow.accountEntropyPool = response.accountEntropyPool;
++    this.state.flow.e164 = response.e164;
++    this.state.flow.pni = response.pni;
++    this.state.flow.storageCapable = response.storageCapable;
++    this.state.flow.isPhoneNumberlessAccount = numberless;
++    this.state.committedAccount.e164 = response.e164;
++    this.state.committedAccount.pni = response.pni;
++    this.state.committedAccount.pniRegistrationId = null;
++
++    // The purchase is consumed exactly once, and only now that the account it
++    // paid for exists. Its persisted context is dropped in the same step.
++    const context: SignalLoginPurchaseContext | null = this.state.inProgressRegistrationData.signalLoginPurchase;
++    if (this.service.consumePurchaseSucceeds && context !== null) {
++      this.effect('consumePurchase', { 'purchaseToken': context.purchaseToken } as Record<string, Object>);
++      this.state.hasUnredeemedPurchase = false;
++      this.clearPurchaseContext();
++    }
++
++    this.effect('emitRegistrationFlowEvent.Registered', {
++      'aci': response.aci,
++      'accountEntropyPool': response.accountEntropyPool,
++      'isPhoneNumberlessAccount': numberless
++    } as Record<string, Object>);
++
++    this.state.restoreDecision = RestoreDecision.NewAccount;
++    this.state.purchaseResult = SignalLoginPurchaseResult.Registered;
++    this.state.purchaseFlowOutcome = OneTimePurchaseOutcome.Success;
++    this.state.purchasePreparation = OneTimePurchasePreparation.Ready;
++    this.state.showSpinner = false;
++    this.recordState();
++
++    this.openSignalLoginInfo();
++  }
++
++  private failRedemption(error: string): void {
++    this.state.showSpinner = false;
++    this.state.purchaseFlowOutcome = OneTimePurchaseOutcome.Failure;
++    this.state.purchaseResult = SignalLoginPurchaseResult.Failed;
++    this.state.purchaseError = error;
++    this.state.dialogs.purchaseFailed = true;
++    // The purchase stays owned and its context stays persisted, so retrying
++    // reuses it rather than charging again.
++    this.state.hasUnredeemedPurchase = this.billing.hasOwnedUnredeemedPurchase();
++    this.updatePaymentReadiness();
++    this.state.isActionEnabled = true;
++    this.recordState();
++  }
++
++  /** Drops the paid purchase context once it has been consumed. */
++  private clearPurchaseContext(): void {
++    this.state.inProgressRegistrationData.signalLoginPurchase = null;
++    this.state.persistedSignalLoginPurchase = null;
++    const owned: BillingPurchase | null = this.billing.ownedPurchase;
++    if (owned !== null) {
++      owned.state = BillingPurchaseState.Consumed;
++      this.billing.ownedPurchase = owned;
++    }
++    this.effect('clearPersistedSignalLoginPurchase', {} as Record<string, Object>);
++  }
++
++  /* --------------------------------------------------------- navigation */
++
++  private pushRoute(route: string): void {
++    this.state.backStack = [this.state.route];
++    this.state.route = route;
++    this.effect('navigate', { 'route': route } as Record<string, Object>);
++    this.recordState();
++  }
++
++  /**
++   * Opens the login information screen.
++   *
++   * The pre-registration back stack is cleared here: once the account exists
++   * there is nothing to go back to, and no phone verification or PIN step is
++   * inserted anywhere, because a numberless account has neither.
++   */
++  private openSignalLoginInfo(): void {
++    this.state.route = RegistrationRoute.SignalLoginInfo;
++    this.state.backStack = [];
++    this.state.showSpinner = false;
++    this.effect('navigate', {
++      'route': RegistrationRoute.SignalLoginInfo,
++      'clearedBackStack': true,
++      'insertedRoutes': []
++    } as Record<string, Object>);
++    this.recordState();
++  }
++
++  /**
++   * Advances past credential preservation. Registration does not reach the
++   * username step until the issued account identifier and recovery key have
++   * been confirmed.
++   */
++  private completeCredentialPreservation(): void {
++    this.state.savedCredentialConfirmed = true;
++    this.state.route = RegistrationRoute.AddUsername;
++    this.state.backStack = [];
++    this.effect('navigate', {
++      'route': RegistrationRoute.AddUsername,
++      'clearedBackStack': true
++    } as Record<string, Object>);
++    this.recordState();
++  }
++
++  /* ---------------------------------------------- password manager pathway */
++
++  /**
++   * Offers the issued login to the platform password manager. This is the work
++   * the navigation collector does while leaving the login screen, and the
++   * outcome is routed straight back to the screen that owns the state.
++   */
++  saveCredentialForReadback(): void {
++    if (this.state.isPasswordManagerAvailable === false) {
++      this.state.dialogs.saveFailed = true;
++      this.state.showSpinner = false;
++      this.state.showConfirmSavedSheet = false;
++      this.effect('saveCredentialToPasswordManager', { 'available': false } as Record<string, Object>);
++      this.recordState();
++      return;
++    }
++    const accountId: string = this.state.flow.aci;
++    const recoveryKey: string = this.state.flow.accountEntropyPool;
++    this.effect('saveCredentialToPasswordManager', {
++      'username': normalizeAccountId(accountId),
++      'password': recoveryKey,
++      'routedTo': 'SignalLoginInfoViewModel'
++    } as Record<string, Object>);
++    this.credentialManager.saveCredential(accountId, recoveryKey);
++    this.state.showSpinner = true;
++    this.state.isReadbackRequested = true;
++    this.state.showConfirmSavedSheet = true;
++    this.state.savedCredentialConfirmed = false;
++    this.state.dialogs.saveFailed = false;
++    this.state.dialogs.saveNotConfirmed = false;
++    this.recordState();
++  }
++
++  /**
++   * The read-back of the saved credential came back. A save is not trusted on
++   * its own: the credential is filtered by this account, its username is
++   * normalized to an account identifier and its password parsed as a recovery
++   * key, and only an exact two part match counts as safely stored.
++   */
++  completePasswordManagerReadback(): void {
++    const accountId: string = this.state.flow.aci;
++    this.state.showSpinner = true;
++    this.effect('getCredentialFromPasswordManager', {
++      'accountId': normalizeAccountId(accountId)
++    } as Record<string, Object>);
++
++    const readBack: UsernamePasswordCredential | null = this.credentialManager.getCredential(accountId);
++    if (readBack === null) {
++      this.failReadback();
++      return;
++    }
++    const matched: boolean = credentialMatches(accountId, this.state.flow.accountEntropyPool, readBack.username, readBack.password);
++    this.effect('compareReadBackCredential', {
++      'type': readBack.type,
++      'accountIdMatches': normalizeAccountId(readBack.username) === normalizeAccountId(accountId),
++      'recoveryKeyMatches': matched,
++      'confirmed': matched
++    } as Record<string, Object>);
++    if (matched === false) {
++      this.failReadback();
++      return;
++    }
++    this.state.dialogs.saveNotConfirmed = false;
++    this.state.dialogs.saveFailed = false;
++    this.state.showConfirmSavedSheet = false;
++    this.state.showSpinner = false;
++    this.recordState();
++    this.completeCredentialPreservation();
++  }
++
++  /**
++   * The saved credential could not be confirmed. The user stays on the login
++   * screen and can either save again or record the credential by hand.
++   */
++  private failReadback(): void {
++    this.state.showSpinner = false;
++    this.state.showConfirmSavedSheet = false;
++    this.state.savedCredentialConfirmed = false;
++    this.state.dialogs.saveNotConfirmed = true;
++    this.state.route = RegistrationRoute.SignalLoginInfo;
++    this.recordState();
++  }
++
++  /* ------------------------------------------------------- manual recording */
++
++  /** Opens the manual preservation path. */
++  startManualCredentialEntry(): void {
++    this.state.route = RegistrationRoute.SignalLoginManualSaveConfirmation;
++    this.state.mode = SignalLoginCredentialEntryMode.Enter;
++    this.state.enteredAccountId = '';
++    this.state.enteredRecoveryKey = '';
++    this.state.areCredentialsIncorrect = false;
++    this.state.accountIdFieldIncorrect = false;
++    this.state.recoveryKeyFieldIncorrect = false;
++    this.state.isNextEnabled = false;
++    this.effect('navigate', { 'route': RegistrationRoute.SignalLoginManualSaveConfirmation } as Record<string, Object>);
++    this.recordState();
++  }
++
++  /**
++   * Records an edit to one of the two credential halves. Editing either half
++   * clears the incorrect flag, so a mistyped credential stays editable and a
++   * corrected retry is reachable without recreating the account.
++   */
++  updateManualCredentialField(field: string, value: string): void {
++    if (field === 'accountId') {
++      this.state.enteredAccountId = value;
++      this.state.accountIdFieldIncorrect = false;
++    } else {
++      this.state.enteredRecoveryKey = value;
++      this.state.recoveryKeyFieldIncorrect = false;
++    }
++    this.state.areCredentialsIncorrect = false;
++    this.state.isNextEnabled = value.length > 0;
++    this.recordState();
++  }
++
++  /**
++   * Confirms a manually recorded login. Both halves are compared with the
++   * account material the registration flow already holds; a mismatch flags both
++   * fields, because either half may have been copied wrongly.
++   */
++  submitManualSaveConfirmation(): void {
++    this.effect('compareEnteredCredential', {
++      'comparedAgainst': 'RegistrationFlowState',
++      'comparedAccountId': true,
++      'comparedRecoveryKey': true
++    } as Record<string, Object>);
++    const matched: boolean = credentialMatches(
++      this.state.flow.aci,
++      this.state.flow.accountEntropyPool,
++      this.state.enteredAccountId,
++      this.state.enteredRecoveryKey
++    );
++    if (matched === false) {
++      this.state.areCredentialsIncorrect = true;
++      this.state.accountIdFieldIncorrect = true;
++      this.state.recoveryKeyFieldIncorrect = true;
++      this.state.isNextEnabled = true;
++      this.state.savedCredentialConfirmed = false;
++      this.effect('manualSaveConfirmationRejected', {
++        'staysOnRoute': RegistrationRoute.SignalLoginManualSaveConfirmation
++      } as Record<string, Object>);
++      this.recordState();
++      return;
++    }
++    this.state.areCredentialsIncorrect = false;
++    this.state.accountIdFieldIncorrect = false;
++    this.state.recoveryKeyFieldIncorrect = false;
++    this.state.isNextEnabled = true;
++    this.state.savedCredentialConfirmed = true;
++    this.state.mode = SignalLoginCredentialEntryMode.ConfirmSaved;
++    this.effect('emitRegistrationFlowEvent.AccountCredentialRecorded', {} as Record<string, Object>);
++    this.recordState();
++    this.completeCredentialPreservation();
++  }
++
++  /* --------------------------------------------------------------- username */
++
++  /** The username draft changed. */
++  changeUsername(value: string): void {
++    this.cancelReservationSettle();
++    this.state.username = value;
++    this.state.reservation = null;
++    this.state.validationError = null;
++    this.state.isSubmittable = false;
++    if (value.length === 0) {
++      this.state.isReserving = false;
++      this.recordState();
++      return;
++    }
++    if (this.state.discriminator.length > 0 && this.state.discriminatorFieldFocused === false) {
++      this.requestUserChosenReservation();
++      return;
++    }
++    this.recordState();
++  }
++
++  /** The discriminator field gained focus. */
++  focusDiscriminator(): void {
++    this.cancelReservationSettle();
++    this.state.discriminatorFieldFocused = true;
++    this.state.isReserving = false;
++    this.recordState();
++  }
++
++  /**
++   * The discriminator changed. Typing a discriminator reserves the exact
++   * pairing the user asked for once they stop; clearing it drops that pairing,
++   * because a reservation for digits the screen no longer holds can never be
++   * confirmed.
++   */
++  changeDiscriminator(value: string): void {
++    if (value.length === 0) {
++      this.clearUserChosenDiscriminator();
++      return;
++    }
++    this.cancelReservationSettle();
++    this.state.discriminator = value;
++    this.state.isDiscriminatorUserSet = true;
++    this.state.validationError = null;
++    this.state.isSubmittable = false;
++    this.state.isReserving = true;
++    this.recordState();
++    this.scheduleReservationSettle();
++  }
++
++  /**
++   * Clears a user chosen discriminator. The exact reservation made for the
++   * erased pairing is invalidated immediately and cannot be confirmed, and no
++   * fresh reservation is asked for until the field loses focus.
++   */
++  clearUserChosenDiscriminator(): void {
++    this.cancelReservationSettle();
++    this.state.discriminator = '';
++    this.state.isDiscriminatorUserSet = false;
++    this.state.reservation = null;
++    this.state.validationError = null;
++    this.state.isReserving = false;
++    this.state.isSubmittable = false;
++    this.recordState();
++  }
++
++  /** The discriminator field lost focus, so reservations may start again. */
++  loseDiscriminatorFocus(): void {
++    this.state.discriminatorFieldFocused = false;
++    this.cancelReservationSettle();
++    if (this.state.isDiscriminatorUserSet && this.state.discriminator.length > 0 && this.state.reservation !== null) {
++      this.state.isSubmittable = this.state.username.length > 0;
++      this.recordState();
++      return;
++    }
++    this.requestServiceAssignedReservation();
++  }
++
++  private scheduleReservationSettle(): void {
++    this.settleHandle = setTimeout(() => {
++      this.settleHandle = 0;
++      this.settleReservation();
++    }, RESERVATION_SETTLE_MILLISECONDS);
++  }
++
++  private cancelReservationSettle(): void {
++    if (this.settleHandle !== 0) {
++      clearTimeout(this.settleHandle);
++      this.settleHandle = 0;
++    }
++  }
++
++  /**
++   * Runs after the user stopped typing. A reservation is never requested while
++   * the field still has focus, because the response would race an edit that has
++   * not reached the flow yet.
++   */
++  private settleReservation(): void {
++    if (this.state.discriminatorFieldFocused) {
++      this.state.isReserving = false;
++      return;
++    }
++    if (this.state.isDiscriminatorUserSet && this.state.discriminator.length > 0) {
++      this.requestUserChosenReservation();
++      return;
++    }
++    this.requestServiceAssignedReservation();
++  }
++
++  private requestUserChosenReservation(): void {
++    const username: string = this.state.username;
++    if (username.length === 0) {
++      this.state.isReserving = false;
++      this.state.isSubmittable = false;
++      this.recordState();
++      return;
++    }
++    const reservation: string = username + '.' + this.state.discriminator;
++    const validationError: string = this.service.serviceUsernameValidationError;
++    this.effect('reserveUsername.' + username + '.userChosen', {
++      'reservation': reservation,
++      'validationError': validationError
++    } as Record<string, Object>);
++    this.applyReservation(reservation, validationError);
++  }
++
++  private requestServiceAssignedReservation(): void {
++    const username: string = this.state.username;
++    if (username.length === 0) {
++      this.state.isReserving = false;
++      this.state.isSubmittable = false;
++      this.recordState();
++      return;
++    }
++    const assigned: string = this.service.serviceAssignedReservation.length > 0 ? this.service.serviceAssignedReservation : username;
++    const validationError: string = this.service.serviceUsernameValidationError;
++    this.effect('reserveUsername.' + username + '.serviceAssigned', {
++      'reservation': assigned,
++      'validationError': validationError
++    } as Record<string, Object>);
++    this.applyReservation(assigned, validationError);
++  }
++
++  /** A reservation failure stays retryable and never discards the current draft. */
++  private applyReservation(reservation: string, validationError: string): void {
++    this.state.isReserving = false;
++    this.state.isDiscriminatorUserSet = this.state.discriminator.length > 0;
++    if (validationError.length > 0) {
++      this.state.reservation = null;
++      this.state.validationError = validationError;
++      this.state.isSubmittable = false;
++      this.recordState();
++      return;
++    }
++    this.state.reservation = reservation;
++    this.state.validationError = null;
++    this.state.isSubmittable = this.state.username.length > 0;
++    this.recordState();
++  }
++
++  /** The reservation failed and the user asked to try again. */
++  retryUsernameReservation(): void {
++    if (this.state.username.length === 0) {
++      return;
++    }
++    if (this.state.isDiscriminatorUserSet && this.state.discriminator.length > 0) {
++      this.requestUserChosenReservation();
++      return;
++    }
++    this.requestServiceAssignedReservation();
++  }
++
++  /**
++   * The user asked to continue without a username. This is only a request: the
++   * flow stays on the username screen and registration stays incomplete until
++   * the request is confirmed.
++   */
++  requestUsernameSkip(): void {
++    this.state.dialogs.confirmSkip = true;
++    this.state.registrationComplete = false;
++    this.state.finalRegistrationCommitted = false;
++    this.recordState();
++  }
++
++  /** The skip confirmation was dismissed, so the username draft is still editable. */
++  dismissUsernameSkipConfirmation(): void {
++    this.state.dialogs.confirmSkip = false;
++    this.state.registrationComplete = false;
++    this.state.finalRegistrationCommitted = false;
++    this.recordState();
++  }
++
++  /** The skip confirmation was accepted, which is the only way to skip. */
++  confirmUsernameSkip(): void {
++    if (this.state.dialogs.confirmSkip === false) {
++      return;
++    }
++    this.effect('emitRegistrationFlowEvent.RegistrationComplete', {
++      'username': '',
++      'skippedUsername': true
++    } as Record<string, Object>);
++    this.state.dialogs.confirmSkip = false;
++    this.state.registrationComplete = true;
++    this.state.finalRegistrationCommitted = true;
++    this.state.isSubmittable = false;
++    this.state.route = RegistrationRoute.FullyComplete;
++    this.state.flow.username = null;
++    this.effect('navigate', { 'route': RegistrationRoute.FullyComplete } as Record<string, Object>);
++    this.recordState();
++  }
++
++  /** The reserved username was confirmed and registration completes. */
++  confirmUsername(): void {
++    if (this.state.isSubmittable === false || this.state.reservation === null) {
++      return;
++    }
++    this.effect('emitRegistrationFlowEvent.RegistrationComplete', {
++      'username': this.state.username,
++      'reservation': this.state.reservation as string
++    } as Record<string, Object>);
++    this.state.dialogs.confirmSkip = false;
++    this.state.registrationComplete = true;
++    this.state.finalRegistrationCommitted = true;
++    this.state.route = RegistrationRoute.FullyComplete;
++    this.state.flow.username = this.state.username;
++    this.effect('navigate', { 'route': RegistrationRoute.FullyComplete } as Record<string, Object>);
++    this.recordState();
++  }
++
++  /* ------------------------------------------------------------ accessors */
++
++  currentState(): Record<string, Object> {
++    return this.snapshot();
++  }
++
++  /**
++   * True while the app still owes durable storage a purchase context. Once a
++   * purchase has been consumed the blob describing it has to be dropped, so
++   * nothing can redeem it a second time.
++   */
++  hasPersistedPurchaseContext(): boolean {
++    return this.state.inProgressRegistrationData.signalLoginPurchase !== null;
++  }
++
++  registrationSnapshot(): Record<string, Object> {
++    return this.registrationData;
++  }
++
++  /** Records the purchase the app paid for so it survives a process recreation. */
++  rememberPaidPurchase(context: SignalLoginPurchaseContext): void {
++    this.state.inProgressRegistrationData.signalLoginPurchase = context;
++    this.state.persistedSignalLoginPurchase = context;
++    this.state.hasUnredeemedPurchase = true;
++    const productId: string = this.service.loginConfiguration.playProductId;
++    this.billing.ownedPurchase = new BillingPurchase(context.purchaseToken, BillingPurchaseState.Purchased);
++    this.billing.product = new BillingProductOption(productId, context.purchaseOptionId, context.formattedPrice);
++  }
++
++  /** Restores a paid purchase context that was read back out of durable storage. */
++  restorePaidPurchase(context: SignalLoginPurchaseContext): void {
++    this.state.inProgressRegistrationData.signalLoginPurchase = context;
++    this.state.persistedSignalLoginPurchase = context;
++    this.state.hasUnredeemedPurchase = true;
++    this.billing.ownedPurchase = new BillingPurchase(context.purchaseToken, BillingPurchaseState.Purchased);
++    if (context.productId.length > 0) {
++      this.billing.product = new BillingProductOption(context.productId, context.purchaseOptionId, context.formattedPrice);
++    }
++  }
++}
++
++function asOptionalIdentity(value: Object | undefined): string | null {
++  if (value === undefined || value === null) {
++    return null;
++  }
++  const text: string = asText(value);
++  return text.length === 0 ? null : text;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/RegistrationStore.ts b/entry/src/main/ets/feature/RegistrationStore.ts
+index 1e0bb4c04b677d2d7470d66191affb964f09b04a..0f3897868d89243fc894bab847a50dda533c8314 100644
+--- a/entry/src/main/ets/feature/RegistrationStore.ts
++++ b/entry/src/main/ets/feature/RegistrationStore.ts
+@@ -1,73 +1,610 @@
++/**
++ * Application wiring for phone-numberless registration.
++ *
++ * `RegistrationEnvironment` is the application scoped container: it owns the
++ * observable record of what the app did, the durable blob store handle, the
++ * cached external service state and the platform password manager. A
++ * `RegistrationStore` is a disposable view model built on top of it, so the
++ * flow can be thrown away and rebuilt - for instance after the process was
++ * recreated - while the durable state underneath stays authoritative.
++ */
+ import { common } from '@kit.AbilityKit';
+ import { preferences } from '@kit.ArkData';
++import {
++  BillingSnapshot,
++  OneTimePurchaseOutcome,
++  OneTimePurchaseRequest,
++  OneTimePurchaseSheet
++} from './Billing';
++import { SignalServiceSnapshot } from './SignalService';
++import {
++  CredentialStorage,
++  SignalCredentialManager,
++  UsernamePasswordCredential
++} from './CredentialManager';
++import {
++  NumberlessRegistrationFlow,
++  RegistrationFlowObserver,
++  SignalLoginPurchaseContext
++} from './RegistrationFlow';
++import { asFlag, asRecord, asText, isEmptyRecord, jsonRecord } from './Json';
+ 
+-function record(json: string): Record<string, Object> { return JSON.parse(json) as Record<string, Object>; }
+-function clone(value: Object): Record<string, Object> { return record(JSON.stringify(value)); }
+-export class RegistrationEnvironment {
+-  effects: Record<string, Object>[] = []; orderedStates: Object[] = []; persistedPurchaseBlob: string = '{}';
++/** Name of the durable blob the paid purchase context is kept in. */
++const PURCHASE_PREFERENCES_NAME: string = 'signal_numberless_purchase';
++const PURCHASE_PREFERENCES_KEY: string = 'purchase';
++
++/**
++ * Application scoped container shared by every registration store instance.
++ *
++ * It doubles as the flow's observer and as the password manager's storage, so
++ * there is exactly one place where the effects of registration are recorded and
++ * exactly one place where the saved credential lives.
++ */
++export class RegistrationEnvironment implements RegistrationFlowObserver, CredentialStorage {
++  effects: Record<string, Object>[] = [];
++  orderedStates: Object[] = [];
++  persistedPurchaseBlob: string = '{}';
+   passwordManagerCredential: Record<string, Object> | null = null;
+-  purchaseBlobWrites: number = 0; purchaseBlobReads: number = 0;
+-  reset(): void { this.effects = []; this.orderedStates = []; }
+-  effectCursor(): number { return this.effects.length; }
+-  effectsAfter(cursor: number): Record<string, Object>[] { return this.effects.slice(cursor); }
+-  addEffect(json: string): void { this.effects.push(record(json)); }
+-  persistPurchase(value: Record<string, Object>): void { this.persistedPurchaseBlob = JSON.stringify(value); this.purchaseBlobWrites += 1; }
+-  reopenPurchase(): Record<string, Object> { this.purchaseBlobReads += 1; return record(this.persistedPurchaseBlob); }
++  purchaseBlobWrites: number = 0;
++  purchaseBlobReads: number = 0;
++
++  /** Registration data the app restored for the current runtime generation. */
++  registrationData: Record<string, Object> = jsonRecord('{}');
++
++  billing: BillingSnapshot = new BillingSnapshot();
++  service: SignalServiceSnapshot = new SignalServiceSnapshot();
++  credentialManager: SignalCredentialManager = new SignalCredentialManager(this);
++
++  private isPasswordManagerAvailable: boolean = true;
++  private effectCounts: Map<string, number> = new Map<string, number>();
++
++  /** Clears the observable record, keeping durable state and cached services. */
++  reset(): void {
++    this.effects = [];
++    this.orderedStates = [];
++    this.effectCounts.clear();
++  }
++
++  effectCursor(): number {
++    return this.effects.length;
++  }
++
++  effectsAfter(cursor: number): Record<string, Object>[] {
++    return this.effects.slice(cursor);
++  }
++
++  addEffect(json: string): void {
++    this.effects.push(jsonRecord(json));
++  }
++
++  /** Records one effect, numbering it with how many times it has happened. */
++  recordEffect(json: string): void {
++    const effect: Record<string, Object> = jsonRecord(json);
++    const name: string = asText(effect['name']);
++    const previous: number = this.effectCounts.has(name) ? this.effectCounts.get(name) as number : 0;
++    const next: number = previous + 1;
++    this.effectCounts.set(name, next);
++    effect['count'] = next;
++    this.effects.push(effect);
++  }
++
++  /** Records the state the flow settled on, in the order it settled. */
++  recordState(snapshotJson: string): void {
++    this.orderedStates.push(jsonRecord(snapshotJson));
++  }
++
++  /** Mirrors the durable blob so the app can see what it wrote. */
++  persistPurchase(value: Record<string, Object>): void {
++    this.persistedPurchaseBlob = JSON.stringify(value);
++    this.purchaseBlobWrites += 1;
++  }
++
++  /** Reopens the mirror of the durable blob. */
++  reopenPurchase(): Record<string, Object> {
++    this.purchaseBlobReads += 1;
++    return jsonRecord(this.persistedPurchaseBlob);
++  }
++
++  /* ------------------------------------------------- password manager store */
++
++  isAvailable(): boolean {
++    return this.isPasswordManagerAvailable;
++  }
++
++  setPasswordManagerAvailable(available: boolean): void {
++    this.isPasswordManagerAvailable = available;
++  }
++
++  read(): UsernamePasswordCredential | null {
++    const stored: Record<string, Object> | null = this.passwordManagerCredential;
++    if (stored === null) {
++      return null;
++    }
++    return UsernamePasswordCredential.fromJson(stored);
++  }
++
++  write(credential: UsernamePasswordCredential | null): void {
++    if (credential === null) {
++      this.passwordManagerCredential = null;
++      return;
++    }
++    this.passwordManagerCredential = credential.toJson();
++  }
+ }
++
++/** Reads and writes the durable registration blob. */
+ export class RegistrationRepository {
+   private readonly leaf: RegistrationEnvironment;
+-  constructor(leaf: RegistrationEnvironment) { this.leaf = leaf; }
+-  effect(json: string): void { this.leaf.addEffect(json); }
++
++  constructor(leaf: RegistrationEnvironment) {
++    this.leaf = leaf;
++  }
++
++  environment(): RegistrationEnvironment {
++    return this.leaf;
++  }
++
++  effect(json: string): void {
++    this.leaf.recordEffect(json);
++  }
++
++  /**
++   * Writes the purchase the app paid for, together with the receipt credential
++   * request context the service must be asked about again. A different request
++   * for the same purchase is rejected, so this blob has to survive the process.
++   */
+   async persistPurchase(context: common.UIAbilityContext, value: Record<string, Object>): Promise<void> {
+-    const store = await preferences.getPreferences(context, 'signal_numberless_purchase');
+-    await store.clear(); await store.put('purchase', JSON.stringify(value)); await store.flush(); this.leaf.purchaseBlobWrites += 1;
++    const store = await preferences.getPreferences(context, PURCHASE_PREFERENCES_NAME);
++    await store.clear();
++    await store.put(PURCHASE_PREFERENCES_KEY, JSON.stringify(value));
++    await store.flush();
++    this.leaf.persistPurchase(value);
+   }
++
++  /** Reopens the durable blob and returns the purchase context it holds. */
+   async readPersistedPurchase(context: common.UIAbilityContext): Promise<Record<string, Object>> {
+     this.effect('{"name":"readInProgressRegistrationData","backingIo":"production blob reopened","countAtLeast":1}');
+-    const reopened = await preferences.getPreferences(context, 'signal_numberless_purchase');
+-    const raw = await reopened.get('purchase', '{}') as string; this.leaf.purchaseBlobReads += 1; return record(raw);
++    const reopened = await preferences.getPreferences(context, PURCHASE_PREFERENCES_NAME);
++    const raw = await reopened.get(PURCHASE_PREFERENCES_KEY, '{}') as string;
++    this.leaf.purchaseBlobReads += 1;
++    this.leaf.persistedPurchaseBlob = raw;
++    return jsonRecord(raw);
++  }
++
++  /** Drops the durable blob once the purchase it described has been consumed. */
++  async clearPersistedPurchase(context: common.UIAbilityContext): Promise<void> {
++    const store = await preferences.getPreferences(context, PURCHASE_PREFERENCES_NAME);
++    await store.clear();
++    await store.flush();
++    this.leaf.persistedPurchaseBlob = '{}';
++    this.leaf.purchaseBlobWrites += 1;
+   }
+ }
++
++/**
++ * The registration store. It owns one {@link NumberlessRegistrationFlow} and
++ * forwards the screens' events to it.
++ */
+ export class RegistrationStore {
+-  private stateValue: Record<string, Object> = {}; private readonly repository: RegistrationRepository;
+-  constructor(repository: RegistrationRepository) { this.repository = repository; }
+-  restore(given: Record<string, Object>): void { this.stateValue = clone(given); }
+-  state(): Record<string, Object> { return clone(this.stateValue); }
+-  initializeSignalLoginPayment(): void { this.stateValue = record('{"selectedOption":"SignalLoginPaymentState.Option.Purchase","paymentAvailability":"PaymentAvailability.Unavailable","price":"SignalLoginPaymentState.Price.Unavailable","hasUnredeemedPurchase":false,"isPurchaseOptionEnabled":false,"isActionEnabled":false,"showSpinner":false,"dialogs":{"paymentUnavailable":true}}'); }
+-  continuePurchase(): void { this.repository.effect('{"name":"registerAccount","count":1}'); this.stateValue = record('{"route":"RegistrationRoute.SignalLoginPayment","showSpinner":false,"purchaseStep":"SignalLoginPurchaseStep.Completed"}'); }
+-  completeCancelledPurchase(): void { this.stateValue = record('{"route":"RegistrationRoute.SignalLoginPayment","selectedOption":"SignalLoginPaymentState.Option.Purchase","showSpinner":true,"hasUnredeemedPurchase":false,"dialogs":{"paymentUnavailable":true},"result":"SignalLoginPurchaseResult.Failed"}'); }
+-  foregroundPaymentScreen(): void { this.stateValue = record('{"selectedOption":"SignalLoginPaymentState.Option.Purchase","paymentAvailability":"PaymentAvailability.ServiceUpdating","price":"SignalLoginPaymentState.Price.TransientError","dialogs":{"paymentUnavailable":true},"isActionEnabled":false}'); }
++  private readonly repository: RegistrationRepository;
++  private readonly environment: RegistrationEnvironment;
++  private flow: NumberlessRegistrationFlow;
++
++  constructor(repository: RegistrationRepository, sheet?: OneTimePurchaseSheet) {
++    this.repository = repository;
++    this.environment = repository.environment();
++    this.flow = new NumberlessRegistrationFlow(
++      this.environment.billing,
++      this.environment.service,
++      this.environment.credentialManager,
++      this.environment,
++      sheet === undefined ? null : sheet
++    );
++  }
++
++  /* ------------------------------------------------------------- hydration */
++
++  restore(given: Record<string, Object>): void {
++    this.environment.registrationData = given;
++    if (given['isPasswordManagerAvailable'] !== undefined) {
++      this.environment.setPasswordManagerAvailable(asFlag(given['isPasswordManagerAvailable']));
++    }
++    this.flow.restore(given);
++  }
++
++  /** Rebuilds the flow after the process was recreated. */
++  reopenRegistrationData(): void {
++    this.restore(this.environment.registrationData);
++  }
++
++  state(): Record<string, Object> {
++    return this.flow.currentState();
++  }
++
++  private effect(json: string): void {
++    this.repository.effect(json);
++  }
++
++  /**
++   * Applies the result the store purchase sheet came back with. The sheet result
++   * is the only thing that can move the payment screen on from "unresolved", so
++   * the purchase flow is completed through here rather than from each screen.
++   */
++  completePurchaseFlow(result: string): void {
++    if (result === OneTimePurchaseOutcome.UserCancelled) {
++      this.flow.completeCancelledPurchase();
++      return;
++    }
++    if (result === OneTimePurchaseOutcome.Success) {
++      this.flow.completePurchase();
++      return;
++    }
++    this.flow.completeFailedPurchase();
++  }
++
++  /* ------------------------------------------------------ entry selection */
++
++  startPhoneNumberRegistration(): void {
++    this.flow.startPhoneNumberRegistration();
++  }
++
++  startRegistrationWithoutNumber(): void {
++    this.flow.startRegistrationWithoutNumber();
++  }
++
++  /* --------------------------------------------------------- price loading */
++
++  initializeSignalLoginPayment(): void {
++    this.flow.initializeSignalLoginPayment();
++  }
++
++  reloadSignalLoginPaymentPrice(): void {
++    this.flow.reloadSignalLoginPaymentPrice();
++  }
++
++  foregroundPaymentScreen(): void {
++    this.flow.foregroundPaymentScreen();
++  }
++
++  /* ------------------------------------------------------------- purchase */
++
++  continuePurchase(): void {
++    this.flow.continuePurchase();
++  }
++
++  completeCancelledPurchase(): void {
++    this.flow.completeCancelledPurchase();
++  }
++
++  completeFailedPurchase(): void {
++    this.flow.completeFailedPurchase();
++  }
++
++  completePurchase(): void {
++    this.flow.completePurchase();
++  }
++
++  /** The released behavior: a paid purchase creates the account. */
+   completeSuccessfulPurchase(): void {
+-    this.repository.effect('{"name":"sendPurchaseTokenInRegisterAccount","count":1}'); this.repository.effect('{"name":"sendPhoneNumber","count":1}');
+-    this.repository.effect('{"name":"registerAccount","e164":"+15551234567","count":1}');
+-    this.stateValue = record('{"result":"SignalLoginPurchaseResult.Registered","payment":{"showSpinner":false,"hasUnredeemedPurchase":true},"inProgressRegistrationData":{"signalLoginPurchase":{"purchaseToken":"play-token-1"}},"committedAccount":{"e164":"+15551234567","pni":"legacy-pni","pniRegistrationId":1},"restoreDecision":"RestoreDecision.EXISTING_ACCOUNT","flow":{"aci":"legacy ACI","accountEntropyPool":null,"storageCapable":true,"isPhoneNumberlessAccount":false},"backStack":["RegistrationRoute.PhoneNumberEntry"]}');
+-  }
+-  submitManualSaveConfirmation(): void { this.repository.effect('{"name":"networkLogin","count":1}'); this.stateValue = record('{"route":"RegistrationRoute.SignalLoginManualSaveConfirmation","mode":"SignalLoginCredentialEntryState.Mode.ConfirmSaved","areCredentialsIncorrect":false,"isLoggingIn":true}'); }
+-  requestUsernameSkip(): void { this.repository.effect('{"name":"emitRegistrationFlowEvent.RegistrationComplete","count":1}'); this.stateValue = record('{"route":"RegistrationRoute.FullyComplete","dialogs":{"confirmSkip":false},"registrationComplete":true,"finalRegistrationCommitted":true}'); }
+-  clearUserChosenDiscriminator(): void { this.repository.effect('{"name":"reserveUsername.maya.serviceAssigned","count":1}'); this.stateValue = record('{"username":"maya","discriminator":"42","isDiscriminatorUserSet":false,"reservation":"maya.42","validationError":null,"isReserving":false,"isSubmittable":true,"discriminatorFieldFocused":true}'); }
+-  async retryOwnedPurchaseAfterReopen(context: common.UIAbilityContext): Promise<void> { await this.repository.readPersistedPurchase(context); this.repository.effect('{"name":"launchPurchaseFlow","count":1}'); this.stateValue = record('{"result":"SignalLoginPurchaseResult.Failed","hasUnredeemedPurchase":true,"persistedSignalLoginPurchase":null}'); }
+-  completePasswordManagerReadback(): void { this.stateValue = record('{"route":"RegistrationRoute.SignalLoginInfo","showSpinner":false,"showConfirmSavedSheet":true,"dialogs":{"saveFailed":true}}'); }
+-  saveCredentialForReadback(): void {}
++    this.flow.completePurchase();
++  }
++
++  /**
++   * Drops the durable purchase context once the account it paid for exists, so
++   * nothing can redeem the same purchase a second time.
++   */
++  async finalizeConsumedPurchase(context: common.UIAbilityContext): Promise<void> {
++    if (this.flow.hasPersistedPurchaseContext() === false) {
++      return;
++    }
++    await this.repository.clearPersistedPurchase(context);
++  }
++
++  /* ------------------------------------------------------------ redemption */
++
++  /** Remembers a paid purchase so it survives a process recreation. */
++  rememberPaidPurchase(context: SignalLoginPurchaseContext): void {
++    this.flow.rememberPaidPurchase(context);
++  }
++
++  async persistPurchaseContext(context: common.UIAbilityContext, value: Record<string, Object>): Promise<void> {
++    await this.repository.persistPurchase(context, value);
++  }
++
++  /**
++   * Redeems a purchase the app already paid for after the process was recreated.
++   *
++   * The receipt credential request context comes out of the durable blob and is
++   * replayed byte for byte, so the service is asked about the same purchase the
++   * same way and the user is never charged again.
++   */
++  async retryOwnedPurchaseAfterReopen(context: common.UIAbilityContext): Promise<void> {
++    const restored: SignalLoginPurchaseContext | null = await this.readDurablePurchaseContext(context);
++    if (restored !== null) {
++      this.flow.restorePaidPurchase(restored);
++    } else {
++      // Durable storage does not know about this purchase yet. The restored
++      // registration data does, so it is adopted and written back before it is
++      // redeemed: the receipt credential request context must be durable for any
++      // later recovery, not only for this run.
++      const inMemory: Record<string, Object> = asRecord(this.flow.registrationSnapshot()['persistedSignalLoginPurchase']);
++      if (isEmptyRecord(inMemory) === false) {
++        const adopted: SignalLoginPurchaseContext = SignalLoginPurchaseContext.fromJson(inMemory);
++        this.flow.restorePaidPurchase(adopted);
++        await this.writeDurablePurchaseContext(context, adopted);
++      }
++    }
++    this.flow.reopenPaymentScreen();
++    this.flow.resumeOwnedPurchase();
++  }
++
++  /**
++   * Reads the purchase context out of durable storage. A store that cannot be
++   * reached leaves the paid purchase recoverable rather than aborting the run.
++   */
++  private async readDurablePurchaseContext(context: common.UIAbilityContext): Promise<SignalLoginPurchaseContext | null> {
++    try {
++      const persisted: Record<string, Object> = await this.repository.readPersistedPurchase(context);
++      const nested: Record<string, Object> = asRecord(persisted['signalLoginPurchase']);
++      const source: Record<string, Object> = isEmptyRecord(nested) ? persisted : nested;
++      const restored: SignalLoginPurchaseContext = SignalLoginPurchaseContext.fromJson(source);
++      if (restored.purchaseToken.length > 0) {
++        return restored;
++      }
++      return null;
++    } catch (error) {
++      this.effect('{"name":"readInProgressRegistrationData","backingIo":"unreachable","failed":true}');
++      return null;
++    }
++  }
++
++  private async writeDurablePurchaseContext(context: common.UIAbilityContext, value: SignalLoginPurchaseContext): Promise<void> {
++    try {
++      await this.repository.persistPurchase(context, value.toJson());
++    } catch (error) {
++      this.effect('{"name":"persistSignalLoginPurchase","failed":true}');
++    }
++  }
++
++  /* ---------------------------------------------------- credential capture */
++
++  saveCredentialForReadback(): void {
++    this.flow.saveCredentialForReadback();
++  }
++
++  completePasswordManagerReadback(): void {
++    this.flow.completePasswordManagerReadback();
++  }
++
++  startManualCredentialEntry(): void {
++    this.flow.startManualCredentialEntry();
++  }
++
++  updateManualCredentialField(field: string, value: string): void {
++    this.flow.updateManualCredentialField(field, value);
++  }
++
++  submitManualSaveConfirmation(): void {
++    this.flow.submitManualSaveConfirmation();
++  }
++
++  /* -------------------------------------------------------------- username */
++
++  changeUsername(value: string): void {
++    this.flow.changeUsername(value);
++  }
++
++  focusDiscriminator(): void {
++    this.flow.focusDiscriminator();
++  }
++
++  changeDiscriminator(value: string): void {
++    this.flow.changeDiscriminator(value);
++  }
++
++  clearUserChosenDiscriminator(): void {
++    this.flow.clearUserChosenDiscriminator();
++  }
++
++  loseDiscriminatorFocus(): void {
++    this.flow.loseDiscriminatorFocus();
++  }
++
++  retryUsernameReservation(): void {
++    this.flow.retryUsernameReservation();
++  }
++
++  requestUsernameSkip(): void {
++    this.flow.requestUsernameSkip();
++  }
++
++  dismissUsernameSkipConfirmation(): void {
++    this.flow.dismissUsernameSkipConfirmation();
++  }
++
++  confirmUsernameSkip(): void {
++    this.flow.confirmUsernameSkip();
++  }
++
++  confirmUsername(): void {
++    this.flow.confirmUsername();
++  }
++
++  async clearPersistedPurchase(context: common.UIAbilityContext): Promise<void> {
++    try {
++      await this.repository.clearPersistedPurchase(context);
++    } catch (error) {
++      this.effect('{"name":"clearPersistedSignalLoginPurchase","failed":true}');
++    }
++  }
+ }
+-export class RegistrationPageOwner {
++
++/**
++ * The UI layer object that owns the registration surface, including the store
++ * purchase sheet. The flow asks it to present the sheet because only a UI layer
++ * can own an Activity able to do so.
++ */
++export class RegistrationPageOwner implements OneTimePurchaseSheet {
+   readonly ownerId: string = `registration-owner-${Date.now()}`;
++
+   private readonly leaf: RegistrationEnvironment = new RegistrationEnvironment();
+   private repository: RegistrationRepository = new RegistrationRepository(this.leaf);
+-  private store: RegistrationStore = new RegistrationStore(this.repository);
+-  externalLeaf(): RegistrationEnvironment { return this.leaf; }
+-  appear(): void {}
+-  prepare(given: Record<string, Object>): void { this.repository = new RegistrationRepository(this.leaf); this.store = new RegistrationStore(this.repository); this.store.restore(given); this.leaf.reset(); }
+-  initializeSignalLoginPayment(): void { this.store.initializeSignalLoginPayment(); }
+-  continuePurchase(): void { this.store.continuePurchase(); }
+-  completeCancelledPurchase(): void { this.store.completeCancelledPurchase(); }
+-  foregroundPaymentScreen(): void { this.store.foregroundPaymentScreen(); }
+-  completeSuccessfulPurchase(): void { this.store.completeSuccessfulPurchase(); }
+-  submitManualSaveConfirmation(): void { this.store.submitManualSaveConfirmation(); }
+-  requestUsernameSkip(): void { this.store.requestUsernameSkip(); }
+-  clearUserChosenDiscriminator(): void { this.store.clearUserChosenDiscriminator(); }
+-  async persistPurchaseContext(context: common.UIAbilityContext, value: Record<string, Object>): Promise<void> { await this.repository.persistPurchase(context, value); }
+-  async retryOwnedPurchaseAfterProcessReopen(context: common.UIAbilityContext): Promise<void> { this.repository = new RegistrationRepository(this.leaf); this.store = new RegistrationStore(this.repository); await this.store.retryOwnedPurchaseAfterReopen(context); }
+-  completePasswordManagerReadback(): void { this.store.completePasswordManagerReadback(); }
+-  saveCredentialForReadback(): void { this.store.saveCredentialForReadback(); }
+-  state(): Record<string, Object> { return this.store.state(); }
+-}
++  private store: RegistrationStore = new RegistrationStore(this.repository, this);
++
++  /** The purchase sheet the UI layer most recently presented, if any. */
++  presentedPurchaseRequest: OneTimePurchaseRequest | null = null;
++
++  externalLeaf(): RegistrationEnvironment {
++    return this.leaf;
++  }
++
++  storeInstance(): RegistrationStore {
++    return this.store;
++  }
++
++  /** Presents the store purchase sheet on behalf of the flow. */
++  present(request: OneTimePurchaseRequest): void {
++    this.presentedPurchaseRequest = request;
++  }
++
++  appear(): void {
++    this.store.reopenRegistrationData();
++  }
++
++  prepare(given: Record<string, Object>): void {
++    this.repository = new RegistrationRepository(this.leaf);
++    this.store = new RegistrationStore(this.repository, this);
++    this.store.restore(given);
++    this.leaf.reset();
++  }
++
++  initializeSignalLoginPayment(): void {
++    this.store.initializeSignalLoginPayment();
++  }
++
++  continuePurchase(): void {
++    this.store.continuePurchase();
++  }
++
++  completeCancelledPurchase(): void {
++    this.store.completeCancelledPurchase();
++  }
++
++  /** Applies the result the store purchase sheet came back with. */
++  completePurchaseFlow(result: string): void {
++    this.store.completePurchaseFlow(result);
++  }
++
++  foregroundPaymentScreen(): void {
++    this.store.foregroundPaymentScreen();
++  }
++
++  completeSuccessfulPurchase(): void {
++    this.store.completeSuccessfulPurchase();
++  }
++
++  /**
++   * Runs the payment surface's completion: the held purchase result is applied
++   * and, once the account exists, the durable purchase context is dropped.
++   */
++  async completeSuccessfulPurchaseInPaymentSurface(context: common.UIAbilityContext): Promise<void> {
++    this.store.completeSuccessfulPurchase();
++    await this.store.finalizeConsumedPurchase(context);
++  }
++
++  /** Resumes a paid purchase after the process was recreated. */
++  async resumeOwnedPurchaseAfterProcessReopen(context: common.UIAbilityContext): Promise<void> {
++    await this.retryOwnedPurchaseAfterProcessReopen(context);
++  }
++
++  completeFailedPurchase(): void {
++    this.store.completeFailedPurchase();
++  }
++
++  submitManualSaveConfirmation(): void {
++    this.store.submitManualSaveConfirmation();
++  }
++
++  requestUsernameSkip(): void {
++    this.store.requestUsernameSkip();
++  }
++
++  dismissUsernameSkipConfirmation(): void {
++    this.store.dismissUsernameSkipConfirmation();
++  }
++
++  confirmUsernameSkip(): void {
++    this.store.confirmUsernameSkip();
++  }
++
++  clearUserChosenDiscriminator(): void {
++    this.store.clearUserChosenDiscriminator();
++  }
++
++  loseDiscriminatorFocus(): void {
++    this.store.loseDiscriminatorFocus();
++  }
++
++  retryUsernameReservation(): void {
++    this.store.retryUsernameReservation();
++  }
++
++  focusDiscriminator(): void {
++    this.store.focusDiscriminator();
++  }
++
++  confirmUsername(): void {
++    this.store.confirmUsername();
++  }
++
++  changeUsername(value: string): void {
++    this.store.changeUsername(value);
++  }
++
++  changeDiscriminator(value: string): void {
++    this.store.changeDiscriminator(value);
++  }
++
++  async persistPurchaseContext(context: common.UIAbilityContext, value: Record<string, Object>): Promise<void> {
++    await this.store.persistPurchaseContext(context, value);
++  }
++
++  async retryOwnedPurchaseAfterProcessReopen(context: common.UIAbilityContext): Promise<void> {
++    this.repository = new RegistrationRepository(this.leaf);
++    this.store = new RegistrationStore(this.repository, this);
++    this.store.reopenRegistrationData();
++    await this.store.retryOwnedPurchaseAfterReopen(context);
++  }
++
++  startManualCredentialEntry(): void {
++    this.store.startManualCredentialEntry();
++  }
++
++  updateManualCredentialField(field: string, value: string): void {
++    this.store.updateManualCredentialField(field, value);
++  }
++
++  startPhoneNumberRegistration(): void {
++    this.store.startPhoneNumberRegistration();
++  }
++
++  startRegistrationWithoutNumber(): void {
++    this.store.startRegistrationWithoutNumber();
++  }
++
++  reloadSignalLoginPaymentPrice(): void {
++    this.store.reloadSignalLoginPaymentPrice();
++  }
++
++  completePasswordManagerReadback(): void {
++    this.store.completePasswordManagerReadback();
++  }
++
++  saveCredentialForReadback(): void {
++    this.store.saveCredentialForReadback();
++  }
++
++  state(): Record<string, Object> {
++    return this.store.state();
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/SignalService.ts b/entry/src/main/ets/feature/SignalService.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2ead2f93dcc90761fbc965ba2df6078f84434d25
+--- /dev/null
++++ b/entry/src/main/ets/feature/SignalService.ts
+@@ -0,0 +1,168 @@
++/**
++ * Signal service boundary used by phone-numberless registration.
++ *
++ * Two things matter for this flow:
++ *  - the anti-spam product identifier is owned by the service, never by the
++ *    caller, so the client can never substitute its own product;
++ *  - account creation is driven by a privacy preserving proof of payment. The
++ *    store purchase token is exchanged for a receipt credential first, and only
++ *    the receipt credential is ever attached to a registration request.
++ */
++import { asFlag, asRecord, asText, asTextOr } from './Json';
++
++/** Service provided configuration for the Signal login payment product. */
++export class LoginConfiguration {
++  playProductId: string = '';
++
++  constructor(playProductId: string) {
++    this.playProductId = playProductId;
++  }
++
++  /** Builds the configuration from a service response. */
++  static fromJson(value: Record<string, Object>): LoginConfiguration {
++    return new LoginConfiguration(asText(value['playProductId']));
++  }
++}
++
++/** Result of asking the service to issue a receipt credential for a purchase. */
++export enum CreateLoginReceiptCredentialResult {
++  Issued = 'CreateLoginReceiptCredentialResult.Issued',
++  Failure = 'CreateLoginReceiptCredentialResult.Failure',
++  InternalError = 'CreateLoginReceiptCredentialResult.InternalError'
++}
++
++/** Verification outcome of an issued receipt credential. */
++export enum ReceiptCredentialVerification {
++  Success = 'ReceiptCredentialResult.Success',
++  Failure = 'ReceiptCredentialResult.Failure'
++}
++
++/** What the registration flow decided to do with any backup it found. */
++export enum RestoreDecision {
++  NewAccount = 'RestoreDecision.NEW_ACCOUNT',
++  SkipRestore = 'RestoreDecision.SKIP_RESTORE',
++  Restore = 'RestoreDecision.RESTORE'
++}
++
++/** The receipt credential the service issued for a purchase. */
++export class ReceiptCredential {
++  receiptCredentialRequestContext: string = '';
++  credential: string = '';
++
++  constructor(receiptCredentialRequestContext: string, credential: string) {
++    this.receiptCredentialRequestContext = receiptCredentialRequestContext;
++    this.credential = credential;
++  }
++}
++
++/** Account material returned by a receipt backed registration. */
++export class RegistrationResponse {
++  aci: string = '';
++  accountEntropyPool: string = '';
++  e164: string | null = null;
++  pni: string | null = null;
++  storageCapable: boolean = false;
++  authCredentialSalt: string = '';
++
++  /**
++   * A numberless account is one the service created without a phone number.
++   * The client derives this from the response rather than from the request, so a
++   * response that carried an E.164 can never be treated as numberless.
++   */
++  isPhoneNumberless(): boolean {
++    return this.e164 === null;
++  }
++
++  /** Builds the response from a service payload. */
++  static fromJson(value: Record<string, Object>): RegistrationResponse {
++    const response = new RegistrationResponse();
++    response.aci = asText(value['aci']);
++    response.accountEntropyPool = asText(value['accountEntropyPool']);
++    response.e164 = asOptionalE164(value['e164']);
++    response.pni = asOptionalE164(value['pni']);
++    response.storageCapable = asFlag(value['storageCapable']);
++    response.authCredentialSalt = asText(value['authCredentialSalt']);
++    return response;
++  }
++}
++
++/**
++ * External service state cached outside the registration flow, so a process
++ * recreation can rebuild the flow without re-running every request.
++ */
++export class SignalServiceSnapshot {
++  loginConfiguration: LoginConfiguration = new LoginConfiguration('');
++  receiptCredentialResult: string = CreateLoginReceiptCredentialResult.Issued;
++  receiptCredentialVerification: string = ReceiptCredentialVerification.Success;
++  nextReceiptCredentialResult: string = '';
++  registrationResponse: RegistrationResponse | null = null;
++  consumePurchaseSucceeds: boolean = true;
++  serviceAssignedReservation: string = '';
++  serviceUsernameValidationError: string = '';
++
++  /** Returns the cached service state to its initial value. */
++  reset(): void {
++    this.loginConfiguration = new LoginConfiguration('');
++    this.receiptCredentialResult = CreateLoginReceiptCredentialResult.Issued;
++    this.receiptCredentialVerification = ReceiptCredentialVerification.Success;
++    this.nextReceiptCredentialResult = '';
++    this.registrationResponse = null;
++    this.consumePurchaseSucceeds = true;
++    this.serviceAssignedReservation = '';
++    this.serviceUsernameValidationError = '';
++  }
++
++  /** True when the service has already issued a receipt credential for a purchase. */
++  private hasIssuance(): boolean {
++    return this.receiptCredentialResult === CreateLoginReceiptCredentialResult.Issued;
++  }
++
++  /** Result the service will return for the next receipt credential request. */
++  nextIssuance(): string {
++    const configured: string = this.nextReceiptCredentialResult;
++    return configured.length > 0 ? configured : this.hasIssuance() ? this.receiptCredentialResult : CreateLoginReceiptCredentialResult.Failure;
++  }
++
++  /** Restores the cached service state. */
++  restore(given: Record<string, Object>): void {
++    const configuration: Record<string, Object> = asRecord(given['serviceLoginConfiguration']);
++    if (Object.keys(configuration).length > 0) {
++      this.loginConfiguration = LoginConfiguration.fromJson(configuration);
++    }
++    const receiptResult: string = asText(given['serviceReceiptResult']);
++    if (receiptResult.length > 0) {
++      this.receiptCredentialResult = receiptResult;
++    }
++    const nextReceiptResult: string = asText(given['nextReceiptRequestResult']);
++    if (nextReceiptResult.length > 0) {
++      this.nextReceiptCredentialResult = nextReceiptResult;
++    }
++    const verification: string = asText(given['receiptVerification']);
++    if (verification.length > 0) {
++      this.receiptCredentialVerification = verification;
++    }
++    const response: Record<string, Object> = asRecord(given['registrationResponse']);
++    if (Object.keys(response).length > 0) {
++      this.registrationResponse = RegistrationResponse.fromJson(response);
++    }
++    if (given['consumePurchaseSucceeds'] !== undefined) {
++      this.consumePurchaseSucceeds = asFlag(given['consumePurchaseSucceeds']);
++    }
++    const reservation: string = asText(given['serviceAssignedReservation']);
++    if (reservation.length > 0) {
++      this.serviceAssignedReservation = reservation;
++    }
++    const validationError: string = asTextOr(given['serviceUsernameValidationError'], asTextOr(given['nextUsernameValidationError'], ''));
++    if (validationError.length > 0) {
++      this.serviceUsernameValidationError = validationError;
++    }
++  }
++}
++
++function asOptionalE164(value: Object | undefined): string | null {
++  if (value === undefined || value === null) {
++    return null;
++  }
++  const text: string = asText(value);
++  return text.length === 0 ? null : text;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index aca0a1b2a2937d614921bea0bf3ff449b871b463..35e50581a996d640e958879155db70b2587c1edc 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,20 +1,210 @@
++import { common } from '@kit.AbilityKit';
+ import { RegistrationPageOwner } from '../feature/RegistrationStore';
+ 
+ @Entry
+ @Component
+ struct Index {
+   private readonly owner: RegistrationPageOwner = new RegistrationPageOwner();
++  private abilityContext: common.UIAbilityContext | null = null;
+   @State private revision: number = 0;
+-  aboutToAppear(): void { this.owner.appear(); this.refresh(); }
+-  private refresh(): void { this.revision += 1; }
++  @State private route: string = '';
++  @State private formattedPrice: string = '';
++  @State private priceType: string = '';
++  @State private accountId: string = '';
++  @State private recoveryKey: string = '';
++  @State private enteredAccountId: string = '';
++  @State private enteredRecoveryKey: string = '';
++  @State private showSpinner: boolean = false;
++  @State private showConfirmSkip: boolean = false;
++  @State private saveNotConfirmed: boolean = false;
++  @State private paymentUnavailable: boolean = false;
++  @State private purchaseFailed: boolean = false;
++  @State private credentialsIncorrect: boolean = false;
++  @State private registrationComplete: boolean = false;
++  @State private username: string = '';
++  @State private discriminator: string = '';
++  @State private reservation: string = '';
++  @State private usernameError: string = '';
++
++  aboutToAppear(): void {
++    this.abilityContext = getContext(this) as common.UIAbilityContext;
++    this.owner.appear();
++    this.refresh();
++  }
++
++  private text(state: Record<string, Object>, key: string): string {
++    const value: Object | undefined = state[key];
++    return value === undefined || value === null ? '' : JSON.stringify(value);
++  }
++
++  private nested(state: Record<string, Object>, parent: string, key: string): string {
++    const value: Object | undefined = state[parent];
++    if (value === undefined || value === null) {
++      return '';
++    }
++    const child: Record<string, Object> = JSON.parse(JSON.stringify(value)) as Record<string, Object>;
++    const member: Object | undefined = child[key];
++    return member === undefined || member === null ? '' : JSON.stringify(member);
++  }
++
++  private flag(state: Record<string, Object>, key: string): boolean {
++    return this.text(state, key) === 'true';
++  }
++
++  private refresh(): void {
++    const state: Record<string, Object> = this.owner.state();
++    this.route = this.text(state, 'route');
++    this.priceType = this.nested(state, 'price', 'type');
++    this.formattedPrice = this.nested(state, 'price', 'formattedPrice');
++    this.accountId = this.nested(state, 'flow', 'aci');
++    this.recoveryKey = this.nested(state, 'flow', 'accountEntropyPool');
++    this.enteredAccountId = this.text(state, 'enteredAccountId');
++    this.enteredRecoveryKey = this.text(state, 'enteredRecoveryKey');
++    this.showSpinner = this.flag(state, 'showSpinner');
++    this.showConfirmSkip = this.flag(state, 'dialogs.confirmSkip');
++    this.saveNotConfirmed = this.nested(state, 'dialogs', 'saveNotConfirmed') === 'true';
++    this.paymentUnavailable = this.nested(state, 'dialogs', 'paymentUnavailable') === 'true';
++    this.purchaseFailed = this.nested(state, 'dialogs', 'purchaseFailed') === 'true';
++    this.credentialsIncorrect = this.flag(state, 'areCredentialsIncorrect');
++    this.registrationComplete = this.flag(state, 'registrationComplete');
++    this.username = this.text(state, 'username');
++    this.discriminator = this.text(state, 'discriminator');
++    this.reservation = this.text(state, 'reservation');
++    this.usernameError = this.text(state, 'validationError');
++    this.revision += 1;
++  }
++
++  private run(action: () => void): void {
++    action();
++    this.refresh();
++  }
++
++  private runAsync(action: (context: common.UIAbilityContext) => Promise<void>): void {
++    const context: common.UIAbilityContext | null = this.abilityContext;
++    if (context === null) {
++      return;
++    }
++    action(context).then(() => {
++      this.refresh();
++    });
++  }
++
+   build() {
+-    Column({ space: 16 }) {
++    Column({ space: 12 }) {
+       Text('Signal registration').fontSize(24).fontWeight(FontWeight.Bold)
+       Text('Register without sharing a phone number')
+-      Button('Check purchase').id('payment-init').onClick(() => { this.owner.initializeSignalLoginPayment(); this.refresh(); })
+-      Button('Continue').id('payment-continue').onClick(() => { this.owner.continuePurchase(); this.refresh(); })
+-      Button('Skip username').id('username-skip').onClick(() => { this.owner.requestUsernameSkip(); this.refresh(); })
+-      Button('Verify saved login').id('credential-readback').onClick(() => { this.owner.completePasswordManagerReadback(); this.refresh(); })
+-    }.width('100%').height('100%').padding(24)
++      Text(`Route: ${this.route}`).id('route').fontSize(12)
++
++      Text(`Price: ${this.formattedPrice} (${this.priceType})`).id('price')
++
++      if (this.showSpinner) {
++        LoadingProgress().id('payment-spinner').width(24).height(24)
++      }
++
++      if (this.paymentUnavailable) {
++        Text('Payment is unavailable on this device. You can still register with a phone number.')
++          .id('payment-unavailable')
++      }
++
++      if (this.purchaseFailed) {
++        Text('The purchase could not be completed. Your paid purchase is kept; try again without paying again.')
++          .id('purchase-failed')
++      }
++
++      if (this.saveNotConfirmed) {
++        Text('The saved login could not be confirmed. Save it again or record it by hand.')
++          .id('save-not-confirmed')
++      }
++
++      Column({ space: 8 }) {
++        Text('Register with a phone number').id('choose-phone')
++        Button('Phone number').id('start-phone').onClick(() => { this.run(() => { this.owner.startPhoneNumberRegistration(); }); })
++        Button('Register without a number').id('start-numberless')
++          .onClick(() => { this.run(() => { this.owner.startRegistrationWithoutNumber(); }); })
++      }.width('100%')
++
++      Column({ space: 8 }) {
++        Button('Check purchase').id('payment-init').onClick(() => { this.run(() => { this.owner.initializeSignalLoginPayment(); }); })
++        Button('Reload price').id('payment-reload').onClick(() => { this.run(() => { this.owner.reloadSignalLoginPaymentPrice(); }); })
++        Button('Continue').id('payment-continue').onClick(() => { this.run(() => { this.owner.continuePurchase(); }); })
++        Button('Purchase cancelled').id('payment-cancel').onClick(() => { this.run(() => { this.owner.completeCancelledPurchase(); }); })
++        Button('Purchase failed').id('payment-failed').onClick(() => { this.run(() => { this.owner.completeFailedPurchase(); }); })
++        Button('Purchase succeeded').id('payment-success')
++          .onClick(() => { this.runAsync((context: common.UIAbilityContext) => this.owner.completeSuccessfulPurchaseInPaymentSurface(context)); })
++        Button('Resume paid purchase').id('payment-resume')
++          .onClick(() => { this.runAsync((context: common.UIAbilityContext) => this.owner.resumeOwnedPurchaseAfterProcessReopen(context)); })
++        Button('Back to foreground').id('payment-foreground').onClick(() => { this.run(() => { this.owner.foregroundPaymentScreen(); }); })
++      }.width('100%')
++
++      Column({ space: 8 }) {
++        Text(`Account identifier: ${this.accountId}`).id('login-aci')
++        Text(`Recovery key: ${this.recoveryKey}`).id('login-recovery-key')
++        Button('Save login to password manager').id('credential-save')
++          .onClick(() => { this.run(() => { this.owner.saveCredentialForReadback(); }); })
++        Button('Verify saved login').id('credential-readback').onClick(() => { this.run(() => { this.owner.completePasswordManagerReadback(); }); })
++        Button('Record login by hand').id('credential-manual').onClick(() => { this.run(() => { this.owner.startManualCredentialEntry(); }); })
++      }.width('100%')
++
++      Column({ space: 8 }) {
++        TextInput({ placeholder: 'Account identifier', text: this.enteredAccountId }).id('manual-account-id')
++          .onChange((value: string) => {
++            this.owner.updateManualCredentialField('accountId', value);
++            this.enteredAccountId = value;
++            this.refresh();
++          })
++        TextInput({ placeholder: 'Recovery key', text: this.enteredRecoveryKey }).id('manual-recovery-key')
++          .onChange((value: string) => {
++            this.owner.updateManualCredentialField('recoveryKey', value);
++            this.enteredRecoveryKey = value;
++            this.refresh();
++          })
++        if (this.credentialsIncorrect) {
++          Text('Those values do not match the login you were given. Check both and try again.').id('manual-incorrect')
++        }
++        Button('Confirm recorded login').id('manual-confirm')
++          .onClick(() => { this.run(() => { this.owner.submitManualSaveConfirmation(); }); })
++      }.width('100%')
++
++      Column({ space: 8 }) {
++        TextInput({ placeholder: 'Username', text: this.username }).id('username-input')
++          .onChange((value: string) => {
++            this.owner.changeUsername(value);
++            this.username = value;
++            this.refresh();
++          })
++        Text(`Reservation: ${this.reservation}`).id('username-reservation')
++        TextInput({ placeholder: 'Discriminator (optional)', text: this.discriminator }).id('discriminator-input')
++          .onFocus(() => {
++            this.run(() => { this.owner.focusDiscriminator(); });
++          })
++          .onChange((value: string) => {
++            this.owner.changeDiscriminator(value);
++            this.discriminator = value;
++            this.refresh();
++          })
++          .onBlur(() => {
++            this.run(() => { this.owner.loseDiscriminatorFocus(); });
++          })
++        if (this.usernameError.length > 0) {
++          Text(this.usernameError).id('username-error')
++        }
++        Button('Retry reservation').id('username-retry').onClick(() => { this.run(() => { this.owner.retryUsernameReservation(); }); })
++        Button('Clear discriminator').id('discriminator-clear')
++          .onClick(() => { this.run(() => { this.owner.clearUserChosenDiscriminator(); }); })
++        Button('Leave discriminator field').id('discriminator-blur')
++          .onClick(() => { this.run(() => { this.owner.loseDiscriminatorFocus(); }); })
++        Button('Commit username').id('username-confirm').onClick(() => { this.run(() => { this.owner.confirmUsername(); }); })
++        Button('Skip username').id('username-skip').onClick(() => { this.run(() => { this.owner.requestUsernameSkip(); }); })
++        if (this.showConfirmSkip) {
++          Text('Skip choosing a username?').id('skip-confirm-text')
++          Button('Keep username').id('skip-dismiss').onClick(() => { this.run(() => { this.owner.dismissUsernameSkipConfirmation(); }); })
++          Button('Skip anyway').id('skip-confirm').onClick(() => { this.run(() => { this.owner.confirmUsernameSkip(); }); })
++        }
++      }.width('100%')
++
++      if (this.registrationComplete) {
++        Text('Registration complete').id('registration-complete')
++      }
++    }.width('100%').height('100%').padding(24).alignItems(HorizontalAlign.Start)
+   }
+-}
++}
+\ No newline at end of file

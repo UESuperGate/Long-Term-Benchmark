@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "projectId": "signal-android",
+  "taskId": "05_member_labels",
+  "title": "Group member labels candidate with no version delta",
+  "status": "rejected",
+  "android": {
+    "repository": "https://github.com/signalapp/Signal-Android.git",
+    "baseRef": "v8.4.1",
+    "baseCommit": "c7ec3ab837b3c149d5579840317b1dc6cd4629f3",
+    "finalRef": "v8.5.0",
+    "finalCommit": "068eaff8010365353410914fbcf1bed79e69d6bb"
+  },
+  "releaseNotes": [
+    {
+      "text": "Users can add a member label describing themselves or their role in a group; labels appear beside profile names, and administrators control who can set one through the Edit group info permission.",
+      "source": "https://github.com/signalapp/Signal-Android/releases/tag/v8.4.0"
+    },
+    {
+      "text": "Users can add a member label describing themselves or their role in a group; labels appear beside profile names, and administrators control who can set one through the Edit group info permission.",
+      "source": "https://github.com/signalapp/Signal-Android/releases/tag/v8.5.0"
+    },
+    {
+      "text": "Users can add a member label describing themselves or their role in a group; labels appear beside profile names, and administrators control who can set one through the Edit group info permission.",
+      "source": "https://github.com/signalapp/Signal-Android/releases/tag/v8.5.1"
+    }
+  ],
+  "functionalAreas": [
+    "member_label_editing",
+    "label_validation",
+    "group_protocol_sync",
+    "conversation_rendering",
+    "administrator_access_control",
+    "backup_round_trip",
+    "failure_recovery"
+  ],
+  "stateSurfaces": [
+    "MemberLabelUiState",
+    "MemberLabelUiState.SaveState",
+    "GroupRecord.memberLabelAccessControl",
+    "DecryptedGroup.memberLabelAccessControl",
+    "DecryptedMember.memberLabel"
+  ],
+  "eventEntrypoints": [
+    "onLabelTextChanged",
+    "onLabelEmojiChanged",
+    "clearLabel",
+    "save",
+    "onSaveStateConsumed",
+    "onMemberLabelPermissionChangeRequested",
+    "onRestrictMemberLabelsToAdminsConfirmed"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelRepository.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelViewModel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/memberlabel/SenderNameWithLabel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/ConversationSettingsFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/permissions/PermissionsSettingsFragment.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/components/settings/conversation/permissions/PermissionsSettingsViewModel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/groups/GroupManagerV2.java",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/exporters/GroupArchiveExporter.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/backup/v2/importer/GroupArchiveImporter.kt",
+      "lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations.java",
+      "lib/libsignal-service/src/main/protowire/Groups.proto",
+      "lib/libsignal-service/src/main/protowire/DecryptedGroups.proto"
+    ],
+    "testPaths": [
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelViewModelTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelEmojiValidationTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/groups/memberlabel/MemberLabelSanitizationTest.kt",
+      "app/src/test/java/org/thoughtcrime/securesms/components/settings/conversation/permissions/PermissionsSettingsViewModelTest.kt",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/DecryptedGroupUtil_apply_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupChangeUtil_changeIsEmpty_Test.java",
+      "lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/groupsv2/GroupsV2Operations_decrypt_change_Test.java",
+      "app/src/androidTest/java/org/thoughtcrime/securesms/backup/v2/ArchiveImportExportTests.kt"
+    ],
+    "commits": []
+  },
+  "nonGoals": [
+    "Group termination behavior",
+    "General group-role administration",
+    "Profile about-text editing",
+    "Benchmarking a feature-flag removal as a long-horizon implementation",
+    "Benchmarking the Android-to-ArkTS migration itself"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json"
+  }
+}

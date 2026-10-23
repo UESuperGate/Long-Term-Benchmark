@@ -1,0 +1,4292 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 2f219aa51cc6d6a352e448ae74f119805401d7ff..31c3af79e15b9dbdab58e34f567896eca0147a0b 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -16,8 +16,16 @@ android {
+             manifest.srcFile("src/main/AndroidManifest.xml")
+             kotlin.srcDirs("src/main/upstream/kotlin", "src/main/java")
+         }
++        getByName("test") {
++            kotlin.srcDirs("src/test/kotlin", "src/test/java")
++        }
+     }
+     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+     kotlinOptions { jvmTarget = "17" }
++    testOptions { unitTests.isReturnDefaultValues = true }
+ }
+ 
++dependencies {
++    // Host-side verification of the Saved stack (see test-local.sh).
++    testImplementation("junit:junit:4.13.2")
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/auth/AccountState.kt b/app/src/main/upstream/kotlin/org/wikipedia/auth/AccountState.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..6dcc06af6d6c6bed7b4772515a310f578aeb753c
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/auth/AccountState.kt
+@@ -0,0 +1,44 @@
++package org.wikipedia.auth
++
++import org.wikipedia.database.QueryFlow
++
++/**
++ * The signed-in account as the Saved stack needs it.
++ *
++ * [isTemporaryAccount] marks a throw-away account; such an account is signed in but is *not*
++ * eligible for reading list synchronization, so a pull-to-refresh from one prompts for login
++ * instead of dispatching a sync.
++ */
++data class AccountInfo(
++    val isLoggedIn: Boolean = false,
++    val isTemporaryAccount: Boolean = false,
++    val userName: String? = null
++) {
++    val isEligibleForSync: Boolean get() = isLoggedIn && !isTemporaryAccount
++}
++
++class AccountStateHolder(initial: AccountInfo = AccountInfo()) {
++    private var current = initial
++    private val flow = QueryFlow { current }
++
++    val account: AccountInfo get() = current
++
++    fun observe() = flow
++
++    fun onLogin(userName: String?, temporary: Boolean = false) {
++        current = AccountInfo(isLoggedIn = true, isTemporaryAccount = temporary, userName = userName)
++        flow.invalidate()
++    }
++
++    fun onLogout() {
++        current = AccountInfo()
++        flow.invalidate()
++    }
++
++    fun update(account: AccountInfo) {
++        if (account != current) {
++            current = account
++            flow.invalidate()
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/database/AppDatabase.kt b/app/src/main/upstream/kotlin/org/wikipedia/database/AppDatabase.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..702a3b6099e228c8b7507601e17a2f1d103ac8c3
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/database/AppDatabase.kt
+@@ -0,0 +1,173 @@
++package org.wikipedia.database
++
++import org.wikipedia.readinglist.ReadList
++import org.wikipedia.readinglist.ReadingListPage
++import org.wikipedia.readinglist.ReadingListWithPages
++import org.wikipedia.util.jsonArrayOf
++import org.wikipedia.util.jsonOf
++import org.wikipedia.util.objectList
++import org.json.JSONObject
++
++/**
++ * Application-owned persistence for the Saved experience.
++ *
++ * Two tables: collections (`ReadList`) and memberships (`ReadingListPage`). Reads are exposed as
++ * [QueryFlow] projections so that every surface watching saved content is re-projected after a
++ * write instead of being rebuilt by hand. Writes bump a change counter and re-publish the
++ * projections, and are mirrored into the [KeyValueStore] so state survives process death.
++ */
++class AppDatabase(private val store: KeyValueStore? = null) {
++
++    private val lists = LinkedHashMap<Long, ReadList>()
++    private val pages = LinkedHashMap<Long, ReadingListPage>()
++    private var nextListId = 1L
++    private var nextPageId = 1L
++
++    private val listsFlow = QueryFlow { lists.values.toList() }
++    private val withPagesFlow = QueryFlow { loadReadingListsWithPages() }
++
++    init {
++        restore()
++    }
++
++    // ---------------------------------------------------------------- collections
++
++    fun insertList(list: ReadList): Long {
++        val id = if (list.id > 0) list.id else nextListId
++        val stored = list.copy(id = id)
++        lists[id] = stored
++        if (id >= nextListId) {
++            nextListId = id + 1
++        }
++        invalidate()
++        return id
++    }
++
++    fun updateList(list: ReadList) {
++        if (lists.containsKey(list.id)) {
++            lists[list.id] = list
++            invalidate()
++        }
++    }
++
++    fun deleteList(list: ReadList) {
++        lists.remove(list.id)
++        pages.values.filter { it.listId == list.id }.forEach { pages.remove(it.id) }
++        invalidate()
++    }
++
++    fun getList(id: Long): ReadList? = lists[id]
++
++    fun getListByTitle(title: String): ReadList? =
++        lists.values.firstOrNull { !it.isDeleted && it.title.equals(title, ignoreCase = true) }
++
++    fun getLists(): List<ReadList> = lists.values.filter { !it.isDeleted }
++
++    fun observeLists(): QueryFlow<List<ReadList>> = listsFlow
++
++    // ---------------------------------------------------------------- memberships
++
++    fun insertPage(page: ReadingListPage): Long {
++        val id = if (page.id > 0) page.id else nextPageId
++        val stored = page.copy(id = id)
++        pages[id] = stored
++        if (id >= nextPageId) {
++            nextPageId = id + 1
++        }
++        invalidate()
++        return id
++    }
++
++    fun updatePage(page: ReadingListPage) {
++        if (pages.containsKey(page.id)) {
++            pages[page.id] = page
++            invalidate()
++        }
++    }
++
++    fun deletePage(page: ReadingListPage) {
++        pages.remove(page.id)
++        invalidate()
++    }
++
++    fun deletePages(predicate: (ReadingListPage) -> Boolean): Int {
++        val doomed = pages.values.filter(predicate)
++        doomed.forEach { pages.remove(it.id) }
++        if (doomed.isNotEmpty()) {
++            invalidate()
++        }
++        return doomed.size
++    }
++
++    fun getPage(listId: Long, articleKey: String): ReadingListPage? =
++        pages.values.firstOrNull { it.listId == listId && it.title.logicalKey == articleKey }
++
++    fun getPages(listId: Long): List<ReadingListPage> =
++        pages.values.filter { it.listId == listId }.toList()
++
++    fun getAllPages(): List<ReadingListPage> = pages.values.toList()
++
++    // ---------------------------------------------------------------- projections
++
++    /** Collections joined with their active articles; queued-for-delete rows are excluded. */
++    fun loadReadingListsWithPages(): List<ReadingListWithPages> =
++        lists.values.filter { !it.isDeleted }.map { ReadingListWithPages.project(it, pages.values.toList()) }
++
++    fun observeReadingListsWithPages(): QueryFlow<List<ReadingListWithPages>> = withPagesFlow
++
++    fun invalidate() {
++        listsFlow.invalidate()
++        withPagesFlow.invalidate()
++        persist()
++    }
++
++    // ---------------------------------------------------------------- durability
++
++    private fun persist() {
++        val target = store ?: return
++        target.putString(KEY_LISTS, rowsJson(lists.values.map { it.toJson() }).toString())
++        target.putString(KEY_PAGES, rowsJson(pages.values.map { it.toJson() }).toString())
++    }
++
++    private fun restore() {
++        val target = store ?: return
++        val storedLists = target.getString(KEY_LISTS)?.let { runCatching { JSONObject(it) }.getOrNull() }
++        val storedPages = target.getString(KEY_PAGES)?.let { runCatching { JSONObject(it) }.getOrNull() }
++        if (storedLists == null && storedPages == null) {
++            return
++        }
++        storedLists?.let { json ->
++            json.objectList("rows").forEach { raw ->
++                val list = ReadList.fromJson(raw)
++                lists[list.id] = list
++                if (list.id >= nextListId) {
++                    nextListId = list.id + 1
++                }
++            }
++        }
++        storedPages?.let { json ->
++            json.objectList("rows").forEach { raw ->
++                val page = ReadingListPage.fromJson(raw)
++                pages[page.id] = page
++                if (page.id >= nextPageId) {
++                    nextPageId = page.id + 1
++                }
++            }
++        }
++        invalidate()
++    }
++
++    /** Compact snapshot of the tables; used by diagnostics and by tooling. */
++    fun debugSnapshot(): JSONObject = jsonOf(
++        "collections" to jsonArrayOf(lists.values.map { it.toJson() }),
++        "memberships" to jsonArrayOf(pages.values.map { it.toJson() })
++    )
++
++    private fun rowsJson(rows: List<JSONObject>): JSONObject =
++        jsonOf("rows" to jsonArrayOf(rows))
++
++    companion object {
++        private const val KEY_LISTS = "reading_list_collections"
++        private const val KEY_PAGES = "reading_list_memberships"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/database/KeyValueStore.kt b/app/src/main/upstream/kotlin/org/wikipedia/database/KeyValueStore.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d0a91b679a1baaf50c02551aa6f0a6cc77db76c4
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/database/KeyValueStore.kt
+@@ -0,0 +1,50 @@
++package org.wikipedia.database
++
++import android.content.SharedPreferences
++
++/**
++ * Small durable key/value seam used by the Saved stack so that sort modes, the sync preference
++ * and the reading list tables survive process death. [SharedPreferencesKeyValueStore] is the
++ * production implementation backed by the platform preferences file.
++ */
++interface KeyValueStore {
++    fun getString(key: String): String?
++
++    fun putString(key: String, value: String)
++
++    fun getBoolean(key: String, fallback: Boolean): Boolean
++
++    fun putBoolean(key: String, value: Boolean)
++}
++
++class SharedPreferencesKeyValueStore(private val preferences: SharedPreferences?) : KeyValueStore {
++    override fun getString(key: String): String? = preferences?.getString(key, null)
++
++    override fun putString(key: String, value: String) {
++        preferences?.edit()?.putString(key, value)?.apply()
++    }
++
++    override fun getBoolean(key: String, fallback: Boolean): Boolean =
++        preferences?.getBoolean(key, fallback) ?: fallback
++
++    override fun putBoolean(key: String, value: Boolean) {
++        preferences?.edit()?.putBoolean(key, value)?.apply()
++    }
++}
++
++/** In-memory store used when no preferences file is attached (for example in isolated tooling). */
++class InMemoryKeyValueStore : KeyValueStore {
++    private val values = HashMap<String, Any?>()
++
++    override fun getString(key: String): String? = values[key] as? String
++
++    override fun putString(key: String, value: String) {
++        values[key] = value
++    }
++
++    override fun getBoolean(key: String, fallback: Boolean): Boolean = values[key] as? Boolean ?: fallback
++
++    override fun putBoolean(key: String, value: Boolean) {
++        values[key] = value
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/database/QueryFlow.kt b/app/src/main/upstream/kotlin/org/wikipedia/database/QueryFlow.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..56dd1448f59586551e7e19c001fe5129bdbbeeab
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/database/QueryFlow.kt
+@@ -0,0 +1,52 @@
++package org.wikipedia.database
++
++import java.util.concurrent.CopyOnWriteArrayList
++
++fun interface ChangeListener<T> {
++    fun onChanged(value: T)
++}
++
++/** Handle returned by [QueryFlow.observe]; cancelling detaches the listener. */
++class Subscription internal constructor(private val onCancel: () -> Unit) {
++    private var cancelled = false
++
++    fun cancel() {
++        if (!cancelled) {
++            cancelled = true
++            onCancel()
++        }
++    }
++}
++
++/**
++ * Push-based projection of a database query.
++ *
++ * Surfaces subscribe once and receive a fresh projection whenever the backing tables change, so
++ * a page never has to be rebuilt by hand after a write. The projection is recomputed lazily from
++ * the source lambda and only published when it actually differs from the last published value.
++ */
++class QueryFlow<T>(private val source: () -> T) {
++    private val listeners = CopyOnWriteArrayList<ChangeListener<T>>()
++    private var cached: T = source()
++
++    val value: T get() = cached
++
++    fun observe(listener: ChangeListener<T>): Subscription {
++        listeners.add(listener)
++        listener.onChanged(cached)
++        return Subscription { listeners.remove(listener) }
++    }
++
++    fun invalidate() {
++        val next = source()
++        if (next == cached) {
++            return
++        }
++        cached = next
++        listeners.forEach { it.onChanged(cached) }
++    }
++
++    fun close() {
++        listeners.clear()
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/dataclients/RedirectResolver.kt b/app/src/main/upstream/kotlin/org/wikipedia/dataclients/RedirectResolver.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..1cc73170cbae53919568f77fd281905ab588a18e
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/dataclients/RedirectResolver.kt
+@@ -0,0 +1,58 @@
++package org.wikipedia.dataclients
++
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++import java.io.IOException
++
++/** Page metadata as returned by the wiki API. */
++data class PageMetadata(
++    val languageCode: String,
++    val apiTitle: String,
++    val displayTitle: String
++)
++
++/**
++ * External HTTP boundary.
++ *
++ * Everything above this interface is application-owned; everything below it is a leaf. The
++ * production app supplies a wiki-API backed implementation. A `null` service means no network is
++ * reachable, which is what the offline path looks like from the caller's point of view.
++ */
++fun interface WikiService {
++    @Throws(IOException::class)
++    fun getPageMetadata(languageCode: String, apiTitle: String): PageMetadata
++}
++
++/**
++ * Resolves the canonical identity of an article before it is persisted.
++ *
++ * Saving must never depend on the network being available. If the metadata request cannot be
++ * served - the device is offline or the request fails - the original language and API title are
++ * used unchanged, so the persisted identity is always the one the reader acted on.
++ */
++class RedirectResolver(
++    private val service: WikiService?,
++    private val log: ProductionLog? = null
++) {
++    fun resolve(title: PageTitle): PageTitle {
++        val client = service
++        if (client == null) {
++            log?.record("RedirectResolver.resolve:offline")
++            return title
++        }
++        return try {
++            val metadata = client.getPageMetadata(title.languageCode, title.apiTitle)
++            log?.record("RedirectResolver.resolve:resolved")
++            PageTitle(metadata.languageCode, metadata.apiTitle, metadata.displayTitle)
++        } catch (e: IOException) {
++            log?.record("RedirectResolver.resolve:io_failure")
++            title
++        } catch (e: WikiApiException) {
++            log?.record("RedirectResolver.resolve:api_failure")
++            title
++        }
++    }
++}
++
++/** Non-I/O failure reported by the wiki API; also handled by falling back to the original title. */
++class WikiApiException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/offline/ArticleOfflineStore.kt b/app/src/main/upstream/kotlin/org/wikipedia/offline/ArticleOfflineStore.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..fee7938748b48fcd2f2ba45c8ea6ea7d76d91ba3
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/offline/ArticleOfflineStore.kt
+@@ -0,0 +1,60 @@
++package org.wikipedia.offline
++
++import org.wikipedia.page.PageTitle
++import org.wikipedia.database.QueryFlow
++import org.wikipedia.util.ProductionLog
++
++/** How completely an article is available for offline reading right now. */
++enum class ArticleOfflineStatus {
++    NOT_DOWNLOADED,
++    DOWNLOADING,
++    AVAILABLE,
++    STALE
++}
++
++data class ArticleAvailability(
++    val status: ArticleOfflineStatus = ArticleOfflineStatus.NOT_DOWNLOADED,
++    val downloadProgress: Int = NO_ACTIVE_DOWNLOAD
++) {
++    val hasActiveDownload: Boolean get() = status == ArticleOfflineStatus.DOWNLOADING
++
++    companion object {
++        const val NO_ACTIVE_DOWNLOAD = -1
++    }
++}
++
++/**
++ * Application-owned view of offline availability for saved articles.
++ *
++ * Rows of the Saved surfaces join this store so a visible article always reports whether it is
++ * available offline and whether a download is still running. Downloads are outside the Saved
++ * feature; this store only mirrors their observable outcome.
++ */
++class ArticleOfflineStore(private val log: ProductionLog? = null) {
++    private val availability = LinkedHashMap<String, ArticleAvailability>()
++    private val flow: QueryFlow<Map<String, ArticleAvailability>> = QueryFlow { LinkedHashMap(availability) }
++
++    fun observe(): QueryFlow<Map<String, ArticleAvailability>> = flow
++
++    fun availabilityFor(title: PageTitle): ArticleAvailability =
++        availability[title.logicalKey] ?: ArticleAvailability()
++
++    fun setStatus(title: PageTitle, status: ArticleOfflineStatus, progress: Int = ArticleAvailability.NO_ACTIVE_DOWNLOAD) {
++        log?.record("ArticleOfflineStore.setStatus:${title.logicalKey}:$status")
++        availability[title.logicalKey] = ArticleAvailability(status, progress)
++        flow.invalidate()
++    }
++
++    fun beginDownload(title: PageTitle, progress: Int) =
++        setStatus(title, ArticleOfflineStatus.DOWNLOADING, progress)
++
++    fun reportProgress(title: PageTitle, progress: Int) {
++        log?.record("ArticleOfflineStore.reportProgress:${title.logicalKey}:$progress")
++        availability[title.logicalKey] = ArticleAvailability(ArticleOfflineStatus.DOWNLOADING, progress)
++        flow.invalidate()
++    }
++
++    fun completeDownload(title: PageTitle) {
++        setStatus(title, ArticleOfflineStatus.AVAILABLE, 100)
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/page/PageTitle.kt b/app/src/main/upstream/kotlin/org/wikipedia/page/PageTitle.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..230bb8050e6936d1c25585ee5839e1a4b90e90cb
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/page/PageTitle.kt
+@@ -0,0 +1,52 @@
++package org.wikipedia.page
++
++import org.wikipedia.util.jsonOf
++import org.wikipedia.util.stringOr
++import org.wikipedia.util.stringOrNull
++import org.json.JSONObject
++
++/**
++ * Logical identity of a wiki article.
++ *
++ * An article is identified by the pair of its wiki language and its API title. That pair - not
++ * the number of reading lists it lives in, not its display title, and not the database row id
++ * that happens to carry the membership - is what makes two rows the *same* logical article.
++ */
++data class PageTitle(
++    val languageCode: String,
++    val apiTitle: String,
++    val displayTitle: String = apiTitle.replace('_', ' ')
++) {
++    /** Stable key used for grouping and de-duplication: `languageCode:apiTitle`. */
++    val logicalKey: String get() = key(languageCode, apiTitle)
++
++    override fun toString(): String = logicalKey
++
++    fun toJson(): JSONObject = jsonOf(
++        "language" to languageCode,
++        "apiTitle" to apiTitle,
++        "displayTitle" to displayTitle
++    )
++
++    companion object {
++        const val DEFAULT_LANGUAGE = "en"
++
++        fun key(languageCode: String, apiTitle: String): String = "$languageCode:$apiTitle"
++
++        /** Parses the canonical `language:Api_Title` key used across storage and IPC. */
++        fun fromKey(key: String): PageTitle {
++            val separator = key.indexOf(':')
++            if (separator <= 0 || separator == key.length - 1) {
++                return PageTitle(DEFAULT_LANGUAGE, key.replace(' ', '_'))
++            }
++            return PageTitle(key.substring(0, separator), key.substring(separator + 1))
++        }
++
++        fun fromJson(json: JSONObject): PageTitle = PageTitle(
++            languageCode = json.stringOr("language", DEFAULT_LANGUAGE),
++            apiTitle = json.stringOr("apiTitle", ""),
++            displayTitle = json.stringOrNull("displayTitle")
++                ?: json.stringOr("apiTitle", "").replace('_', ' ')
++        )
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadList.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadList.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..b24629f264d730b823d8e7ddf21252559572faa5
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadList.kt
+@@ -0,0 +1,109 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.jsonOf
++import org.wikipedia.util.stringOr
++import org.wikipedia.util.stringOrNull
++import org.json.JSONObject
++
++/**
++ * A reading list collection.
++ *
++ * Exactly one collection per account is the *default* collection ("Saved"). It is the implicit
++ * home of every saved article, is never presented as a user-created collection, and is
++ * protected from deletion.
++ */
++data class ReadList(
++    val id: Long,
++    val title: String,
++    val description: String? = null,
++    val isDefault: Boolean = false,
++    val isRemote: Boolean = false,
++    val isDeleted: Boolean = false
++) {
++    /** A default collection is protected: it can neither be deleted nor renamed away. */
++    val isProtected: Boolean get() = isDefault
++
++    fun toJson(): JSONObject = jsonOf(
++        "id" to id,
++        "title" to title,
++        "description" to description,
++        "isDefault" to isDefault,
++        "isRemote" to isRemote,
++        "isDeleted" to isDeleted
++    )
++
++    companion object {
++        const val DEFAULT_TITLE = "Saved"
++
++        fun fromJson(json: JSONObject) = ReadList(
++            id = json.optLong("id"),
++            title = json.stringOr("title", DEFAULT_TITLE),
++            description = json.stringOrNull("description"),
++            isDefault = json.optBoolean("isDefault"),
++            isRemote = json.optBoolean("isRemote"),
++            isDeleted = json.optBoolean("isDeleted")
++        )
++    }
++}
++
++/**
++ * A single membership row: one article inside one collection.
++ *
++ * A membership row is not an article. The same logical article produces one row per containing
++ * collection, and rows are what selection, queueing and undo operate on.
++ */
++data class ReadingListPage(
++    val id: Long,
++    val listId: Long,
++    val title: PageTitle,
++    val status: Int = STATUS_NORMAL,
++    val mtime: Long = 0L
++) {
++    val isQueuedForDeletion: Boolean get() = status == STATUS_QUEUE_FOR_DELETE
++
++    fun toJson(): JSONObject = jsonOf(
++        "id" to id,
++        "listId" to listId,
++        "article" to title.logicalKey,
++        "status" to status
++    )
++
++    companion object {
++        const val STATUS_NORMAL = 0
++
++        /** Row is staged for removal and must not be rendered as an active membership. */
++        const val STATUS_QUEUE_FOR_DELETE = 1
++
++        fun fromJson(json: JSONObject) = ReadingListPage(
++            id = json.optLong("id"),
++            listId = json.optLong("listId"),
++            title = PageTitle.fromKey(json.stringOr("article", "en:")),
++            status = json.optInt("status", STATUS_NORMAL),
++            mtime = json.optLong("mtime")
++        )
++    }
++}
++
++/**
++ * A collection together with its *active* articles.
++ *
++ * Rows staged for deletion are filtered out here, so a queued membership disappears from the
++ * projection immediately - before it is physically removed and before undo can bring it back.
++ */
++data class ReadingListWithPages(
++    val list: ReadList,
++    val pages: List<ReadingListPage>
++) {
++    val articleKeys: List<String> get() = pages.map { it.title.logicalKey }
++
++    fun contains(articleKey: String): Boolean = pages.any { it.title.logicalKey == articleKey }
++
++    companion object {
++        fun project(list: ReadList, allPages: List<ReadingListPage>): ReadingListWithPages =
++            ReadingListWithPages(
++                list = list,
++                pages = allPages.filter { it.listId == list.id && !it.isQueuedForDeletion }
++            )
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListArticleActions.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListArticleActions.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..74737bb39b4fc7801aeeec18d72dea43666d17cb
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListArticleActions.kt
+@@ -0,0 +1,108 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.dataclients.RedirectResolver
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++
++/**
++ * Per-article state behind the Save sheet.
++ *
++ * Opening the sheet for an article makes sure the article is saved first - into the default
++ * collection - and then presents the collections it currently belongs to. Toggling a collection
++ * row resolves the collection by id at the moment of the tap; a row that was rendered before the
++ * collection disappeared therefore finds nothing and does nothing.
++ */
++class ReadingListArticleActions(
++    internal val manager: ReadingListManager,
++    private val redirectResolver: RedirectResolver,
++    private val log: ProductionLog
++) {
++    private val sheets = LinkedHashMap<String, ArticleSheetState>()
++
++    fun sheetState(title: PageTitle): ArticleSheetState =
++        sheets.getOrPut(title.logicalKey) { ArticleSheetState(title) }.also { it.refresh(this) }
++
++    /** Resolves the identity, then makes sure the article is saved in the default collection. */
++    fun ensureSaved(requested: PageTitle): MembershipChange {
++        log.record("ReadingListArticleActions.ensureSaved:${requested.logicalKey}")
++        val resolved = redirectResolver.resolve(requested)
++        val defaultCollection = manager.ensureDefaultCollection()
++        val result = manager.addPageToReadingList(defaultCollection, resolved)
++        sheets[resolved.logicalKey]?.let { it.refresh(this) }
++        return result
++    }
++
++    fun createCollectionAndAdd(title: PageTitle, collectionTitle: String): MembershipChange {
++        log.record("ReadingListArticleActions.createCollectionAndAdd:$collectionTitle")
++        val created = manager.createUserCollection(collectionTitle)
++        if (created is CollectionChange.Rejected) {
++            return MembershipChange.Rejected(title, created.reason, created.message)
++        }
++        val list = (created as CollectionChange.Applied).list
++        return manager.addPageToReadingList(list, title)
++    }
++
++    fun toggleCollection(title: PageTitle, collectionId: Long): MembershipChange {
++        log.record("ReadingListArticleActions.toggleCollection:$collectionId")
++        val result = manager.toggleCollection(title, collectionId)
++        sheets[title.logicalKey]?.refresh(this)
++        return result
++    }
++
++    /**
++     * Removes every membership of [title], asking for confirmation first when the article is
++     * held by at least one user-created collection. Holding only the default collection needs no
++     * confirmation.
++     */
++    fun unsave(title: PageTitle): UnsaveOutcome {
++        log.record("ReadingListArticleActions.unsave:${title.logicalKey}")
++        val collections = manager.memberships(title)
++        if (collections.isEmpty()) {
++            return UnsaveOutcome.Removed
++        }
++        val named = collections.filter { !it.isDefault }.map { it.title }
++        return if (named.isEmpty()) {
++            performUnsave(title)
++            UnsaveOutcome.Removed
++        } else {
++            UnsaveOutcome.NeedsConfirmation(named)
++        }
++    }
++
++    /** The confirmation step; only reached when the reader accepted it. */
++    fun confirmUnsave(title: PageTitle): UnsaveOutcome {
++        log.record("ReadingListArticleActions.confirmUnsave:${title.logicalKey}")
++        return performUnsave(title)
++    }
++
++    private fun performUnsave(title: PageTitle): UnsaveOutcome {
++        manager.removePageFromAllReadingLists(title)
++        sheets[title.logicalKey]?.refresh(this)
++        return UnsaveOutcome.Removed
++    }
++}
++
++/** Live state rendered by one Save sheet. */
++class ArticleSheetState(val requestedTitle: PageTitle) {
++    var resolvedTitle: PageTitle = requestedTitle
++        internal set
++    var isSaved: Boolean = false
++        internal set
++    var collections: List<ReadList> = emptyList()
++        internal set
++    var pendingUnsaveConfirmation: Boolean = false
++        internal set
++    var confirmationCollections: List<String> = emptyList()
++        internal set
++    var lastChange: MembershipChange? = null
++        internal set
++
++    internal fun refresh(actions: ReadingListArticleActions) {
++        isSaved = actions.manager.memberships(resolvedTitle).isNotEmpty()
++        collections = actions.manager.collections()
++    }
++
++    internal fun markResolved(title: PageTitle) {
++        resolvedTitle = title
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListManager.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListManager.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..1dde3e2bae17fd7f33724992bf4dcace8a978525
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListManager.kt
+@@ -0,0 +1,296 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++
++/** Why a requested change to saved content was refused. */
++enum class LimitReason {
++    DEFAULT_COLLECTION_PROTECTED,
++    COLLECTION_LIMIT_REACHED,
++    ARTICLE_LIMIT_REACHED,
++    COLLECTION_UNAVAILABLE,
++    ARTICLE_NOT_SAVED
++}
++
++/**
++ * Result of a write against saved content.
++ *
++ * A [Rejected] write never touches stored membership: the requested addition is blocked, the
++ * reason is reported, and every existing membership is left exactly as it was.
++ */
++sealed class MembershipChange {
++    abstract val title: PageTitle
++
++    data class Applied(
++        override val title: PageTitle,
++        val collectionTitles: List<String>,
++        val addedCollection: String? = null,
++        val removedCollection: String? = null,
++        val wasAlreadySaved: Boolean = false
++    ) : MembershipChange()
++
++    data class Rejected(
++        override val title: PageTitle,
++        val reason: LimitReason,
++        val message: String
++    ) : MembershipChange()
++
++    val isApplied: Boolean get() = this is Applied
++}
++
++/** Result of a collection-scoped action such as deletion. */
++sealed class CollectionChange {
++    data class Applied(val list: ReadList) : CollectionChange()
++    data class Rejected(val list: ReadList, val reason: LimitReason, val message: String) : CollectionChange()
++
++    val isApplied: Boolean get() = this is Applied
++}
++
++/** Result of an unsave request; the sheet asks for confirmation only when it is required. */
++sealed class UnsaveOutcome {
++    object Removed : UnsaveOutcome()
++    data class NeedsConfirmation(val collectionTitles: List<String>) : UnsaveOutcome()
++}
++
++/**
++ * Hard caps enforced by the Saved experience.
++ *
++ * A request that would cross a cap is refused up front with a reason the surface can show; no
++ * partial write happens.
++ */
++object ReadingListLimits {
++    /** Maximum number of user-created collections. */
++    const val MAX_COLLECTIONS = 300
++
++    /** Maximum number of articles a single collection may hold. */
++    const val MAX_ARTICLES_PER_COLLECTION = 1000
++
++    fun canCreateCollection(existingCollectionCount: Int): Boolean =
++        existingCollectionCount < MAX_COLLECTIONS
++
++    fun canAddArticle(currentArticleCount: Int): Boolean =
++        currentArticleCount < MAX_ARTICLES_PER_COLLECTION
++
++    fun describeCollectionLimit(): String =
++        "You can keep up to $MAX_COLLECTIONS collections."
++
++    fun describeArticleLimit(): String =
++        "A collection can hold up to $MAX_ARTICLES_PER_COLLECTION articles."
++}
++
++/**
++ * The only writer of saved content.
++ *
++ * Everything that changes membership - saving from an article, creating a collection, toggling a
++ * membership, deleting rows - goes through this class, so limits, default-collection protection
++ * and undo bookkeeping are applied consistently. Reads for the surfaces come from
++ * [org.wikipedia.database.AppDatabase] projections instead.
++ */
++class ReadingListManager(
++    private val database: org.wikipedia.database.AppDatabase,
++    private val log: ProductionLog? = null
++) {
++    /** Monotonic recency stamp so "recently added" ordering is meaningful offline. */
++    private var clock = 0L
++
++    private fun nextMtime(): Long = ++clock
++
++    // ---------------------------------------------------------------- collections
++
++    /** Returns the default collection, creating it on first use. */
++    fun ensureDefaultCollection(): ReadList {
++        database.getLists().firstOrNull { it.isDefault }?.let {
++            log?.record("ReadingListManager.ensureDefaultCollection:hit")
++            return it
++        }
++        val created = createCollection(ReadList.DEFAULT_TITLE, isDefault = true)
++        log?.record("ReadingListManager.ensureDefaultCollection:created")
++        return created
++    }
++
++    fun findListById(id: Long): ReadList? = database.getList(id)?.takeIf { !it.isDeleted }
++
++    fun findListByTitle(title: String): ReadList? = database.getListByTitle(title)
++
++    fun collections(): List<ReadList> = database.getLists()
++
++    /** Collections a reader created themselves; the default collection is not one of them. */
++    fun userCollections(): List<ReadList> = database.getLists().filter { !it.isDefault }
++
++    fun createCollection(
++        title: String,
++        description: String? = null,
++        isDefault: Boolean = false,
++        isRemote: Boolean = false
++    ): ReadList {
++        val existing = database.getListByTitle(title)
++        if (existing != null) {
++            log?.record("ReadingListManager.createCollection:existing:$title")
++            return existing
++        }
++        val id = database.insertList(
++            ReadList(id = 0, title = title, description = description, isDefault = isDefault, isRemote = isRemote)
++        )
++        log?.record("ReadingListManager.createCollection:$title")
++        return database.getList(id)!!
++    }
++
++    fun deleteCollection(list: ReadList): CollectionChange {
++        if (list.isProtected) {
++            log?.record("ReadingListManager.deleteCollection:refused_default")
++            return CollectionChange.Rejected(
++                list,
++                LimitReason.DEFAULT_COLLECTION_PROTECTED,
++                "${ReadList.DEFAULT_TITLE} cannot be deleted."
++            )
++        }
++        log?.record("ReadingListManager.deleteCollection:${list.title}")
++        database.deleteList(list)
++        return CollectionChange.Applied(list)
++    }
++
++    /** Creation with the collection cap applied. */
++    fun createUserCollection(title: String, description: String? = null): CollectionChange {
++        val existing = database.getListByTitle(title)
++        if (existing != null) {
++            return CollectionChange.Applied(existing)
++        }
++        if (!ReadingListLimits.canCreateCollection(userCollections().size)) {
++            log?.record("ReadingListManager.createUserCollection:limit_reached:$title")
++            return CollectionChange.Rejected(
++                ReadList(id = -1, title = title),
++                LimitReason.COLLECTION_LIMIT_REACHED,
++                ReadingListLimits.describeCollectionLimit()
++            )
++        }
++        return CollectionChange.Applied(createCollection(title, description))
++    }
++
++    // ---------------------------------------------------------------- memberships
++
++    /** Collections that currently contain [title], default collection first. */
++    fun memberships(title: PageTitle): List<ReadList> {
++        val containing = database.getAllPages()
++            .filter { !it.isQueuedForDeletion && it.title.logicalKey == title.logicalKey }
++            .mapNotNull { database.getList(it.listId)?.takeIf { list -> !list.isDeleted } }
++        return containing.sortedByDescending { it.isDefault }
++    }
++
++    fun collectionTitles(title: PageTitle): List<String> = memberships(title).map { it.title }
++
++    fun isSaved(title: PageTitle): Boolean = memberships(title).isNotEmpty()
++
++    /**
++     * Adds [title] to [list].
++     *
++     * Rejects - leaving all membership untouched - when the collection is gone or the
++     * per-collection article cap would be crossed.
++     */
++    fun addPageToReadingList(list: ReadList, title: PageTitle, explicitId: Long? = null): MembershipChange {
++        val target = database.getList(list.id)?.takeIf { !it.isDeleted }
++        if (target == null) {
++            log?.record("ReadingListManager.addPageToReadingList:missing_collection:${list.title}")
++            return MembershipChange.Rejected(
++                title,
++                LimitReason.COLLECTION_UNAVAILABLE,
++                "That collection is no longer available."
++            )
++        }
++        val existing = database.getPage(target.id, title.logicalKey)
++        if (existing != null && !existing.isQueuedForDeletion) {
++            return MembershipChange.Applied(
++                title = title,
++                collectionTitles = collectionTitles(title),
++                addedCollection = target.title,
++                wasAlreadySaved = true
++            )
++        }
++        val currentCount = database.getPages(target.id).count { !it.isQueuedForDeletion }
++        if (!ReadingListLimits.canAddArticle(currentCount)) {
++            log?.record("ReadingListManager.addPageToReadingList:limit_reached:${target.title}")
++            return MembershipChange.Rejected(
++                title,
++                LimitReason.ARTICLE_LIMIT_REACHED,
++                ReadingListLimits.describeArticleLimit()
++            )
++        }
++        if (existing != null) {
++            database.deletePage(existing)
++        }
++        val page = ReadingListPage(
++            id = explicitId ?: 0L,
++            listId = target.id,
++            title = title,
++            status = ReadingListPage.STATUS_NORMAL,
++            mtime = nextMtime()
++        )
++        database.insertPage(page)
++        log?.record("ReadingListManager.addPageToReadingList:${target.title}:${title.logicalKey}")
++        return MembershipChange.Applied(
++            title = title,
++            collectionTitles = collectionTitles(title),
++            addedCollection = target.title
++        )
++    }
++
++    fun removePageFromReadingList(listId: Long, title: PageTitle): Boolean {
++        val page = database.getPage(listId, title.logicalKey) ?: return false
++        database.deletePage(page)
++        log?.record("ReadingListManager.removePageFromReadingList:$listId:${title.logicalKey}")
++        return true
++    }
++
++    /** Removes every membership of [title] and returns the memberships that were removed. */
++    fun removePageFromAllReadingLists(title: PageTitle): List<ReadList> {
++        val removed = memberships(title)
++        removed.forEach { removePageFromReadingList(it.id, title) }
++        log?.record("ReadingListManager.removePageFromAllReadingLists:${title.logicalKey}:${removed.size}")
++        return removed
++    }
++
++    /** Toggles membership of [title] in the collection identified by [collectionId]. */
++    fun toggleCollection(title: PageTitle, collectionId: Long): MembershipChange {
++        val list = findListById(collectionId)
++        if (list == null) {
++            // The collection was removed while the sheet was on screen. The row callback that is
++            // still bound to it must not fall back to any other collection.
++            log?.record("ReadingListManager.toggleCollection:collection_unavailable:$collectionId")
++            return MembershipChange.Rejected(
++                title,
++                LimitReason.COLLECTION_UNAVAILABLE,
++                "That collection is no longer available."
++            )
++        }
++        val page = database.getPage(list.id, title.logicalKey)
++        return if (page != null && !page.isQueuedForDeletion) {
++            removePageFromReadingList(list.id, title)
++            MembershipChange.Applied(
++                title = title,
++                collectionTitles = collectionTitles(title),
++                removedCollection = list.title
++            )
++        } else {
++            addPageToReadingList(list, title)
++        }
++    }
++
++    /**
++     * Stages every membership of [title] for removal. Staged rows stop being rendered as active
++     * memberships immediately; they are still recoverable through undo.
++     */
++    fun queueArticleForDeletion(title: PageTitle): List<ReadingListPage> {
++        val active = database.getAllPages()
++            .filter { it.title.logicalKey == title.logicalKey && !it.isQueuedForDeletion }
++        active.forEach { database.updatePage(it.copy(status = ReadingListPage.STATUS_QUEUE_FOR_DELETE)) }
++        if (active.isNotEmpty()) {
++            log?.record("ReadingListManager.queueArticleForDeletion:${title.logicalKey}:${active.size}")
++        }
++        return active
++    }
++
++    /** Physically drops [title] from every collection, used after the undo window closes. */
++    fun purgeArticle(title: PageTitle) {
++        database.deletePages { it.title.logicalKey == title.logicalKey }
++        log?.record("ReadingListManager.purgeArticle:${title.logicalKey}")
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListSync.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListSync.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..633ada2574e7722be4f343bce100c404141da2f8
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListSync.kt
+@@ -0,0 +1,103 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.database.KeyValueStore
++import org.wikipedia.page.PageTitle
++
++/**
++ * Outcome of a reading list synchronization pass.
++ *
++ * The refresh spinner on the Saved surface stays up from [isRunning] until a terminal event
++ * arrives; only the transport reports those events, and it is a leaf boundary.
++ */
++class ReadingListSyncEvent private constructor(
++    val status: Status,
++    val cause: Throwable? = null
++) {
++    val isRunning: Boolean get() = status == Status.RUNNING
++    val isError: Boolean get() = status == Status.ERROR
++
++    val isTerminal: Boolean get() = status == Status.COMPLETED || status == Status.ERROR
++
++    enum class Status { RUNNING, COMPLETED, ERROR }
++
++    companion object {
++        fun started() = ReadingListSyncEvent(Status.RUNNING)
++
++        fun finished() = ReadingListSyncEvent(Status.COMPLETED)
++
++        fun error(cause: Throwable? = null) = ReadingListSyncEvent(Status.ERROR, cause)
++    }
++}
++
++/**
++ * Reading list synchronization.
++ *
++ * The Saved surface owns two things here: whether sync is enabled for the account, and the
++ * lifecycle of a refresh. Dispatching a sync is an external effect - the transport is a leaf -
++ * but deciding *whether* to dispatch, keeping the refresh state alive until an event arrives,
++ * and applying the resulting memberships are all application-owned.
++ */
++class ReadingListSync(
++    private val manager: ReadingListManager,
++    private val store: KeyValueStore,
++    private val log: org.wikipedia.util.ProductionLog? = null
++) {
++    private val listeners = mutableListOf<(ReadingListSyncEvent) -> Unit>()
++
++    /** One remote collection as reported by the sync transport. */
++    data class RemoteList(val title: String, val articles: List<PageTitle>)
++
++    /** Transport that performs the actual network work; a leaf boundary. */
++    fun interface Transport {
++        fun start(account: org.wikipedia.auth.AccountInfo, remote: List<RemoteList>)
++    }
++
++    var transport: Transport? = null
++
++    fun addListener(listener: (ReadingListSyncEvent) -> Unit) {
++        listeners.add(listener)
++    }
++
++    fun removeListener(listener: (ReadingListSyncEvent) -> Unit) {
++        listeners.remove(listener)
++    }
++
++    fun isSyncEnabled(): Boolean = store.getBoolean(KEY_SYNC_ENABLED, false)
++
++    fun setSyncEnabled(enabled: Boolean) {
++        store.putBoolean(KEY_SYNC_ENABLED, enabled)
++        log?.record("ReadingListSync.setSyncEnabled:$enabled")
++    }
++
++    /**
++     * Starts a sync pass and applies the resulting memberships locally so the database
++     * projections update immediately, while the pass itself is still running.
++     */
++    fun start(account: org.wikipedia.auth.AccountInfo, remote: List<RemoteList>) {
++        log?.record("ReadingListSync.start")
++        emit(ReadingListSyncEvent.started())
++        applyRemote(remote)
++        transport?.start(account, remote)
++    }
++
++    /** Delivers a transport-reported event to every listener. */
++    fun onEvent(event: ReadingListSyncEvent) {
++        log?.record("ReadingListSync.onEvent:${event.status}")
++        emit(event)
++    }
++
++    private fun applyRemote(remote: List<RemoteList>) {
++        remote.forEach { list ->
++            val target = manager.findListByTitle(list.title) ?: manager.createCollection(list.title, isRemote = true)
++            list.articles.forEach { manager.addPageToReadingList(target, it) }
++        }
++    }
++
++    private fun emit(event: ReadingListSyncEvent) {
++        listeners.toList().forEach { it(event) }
++    }
++
++    companion object {
++        private const val KEY_SYNC_ENABLED = "reading_list_sync_enabled"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListUndo.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListUndo.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac93d03f0ea129f1f63bee986c6b48dd5340da31
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListUndo.kt
+@@ -0,0 +1,106 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++
++/** What an article looked like before a destructive action. */
++data class ArticleMembershipSnapshot(
++    val listId: Long,
++    val listTitle: String,
++    val title: PageTitle
++)
++
++/** What a collection looked like before a destructive action. */
++data class CollectionSnapshot(
++    val id: Long,
++    val title: String,
++    val description: String?,
++    val isRemote: Boolean
++)
++
++/** A pending, reversible destructive action. */
++sealed class UndoAction {
++    abstract val description: String
++
++    data class RemoveArticles(
++        val articles: List<PageTitle>,
++        val memberships: List<ArticleMembershipSnapshot>
++    ) : UndoAction() {
++        override val description: String get() = "Removed ${articles.size} article(s)"
++    }
++
++    data class RemoveCollections(
++        val collections: List<CollectionSnapshot>
++    ) : UndoAction() {
++        override val description: String get() = "Removed ${collections.size} collection(s)"
++    }
++}
++
++/**
++ * Single-slot undo for destructive actions on the Saved surfaces.
++ *
++ * Deleting rows stages them so they vanish from the projection immediately while the action is
++ * still reversible. Undo drops the staged rows and re-creates exactly the memberships - or the
++ * collections - that existed before, by logical identity; database row ids may differ afterwards.
++ * Rows that were not part of the action are never touched.
++ */
++class ReadingListUndo(
++    private val manager: ReadingListManager,
++    private val log: ProductionLog? = null
++) {
++    var pending: UndoAction? = null
++        private set
++
++    val isAvailable: Boolean get() = pending != null
++
++    val description: String? get() = pending?.description
++
++    fun trackArticles(articles: List<PageTitle>, memberships: List<ArticleMembershipSnapshot>) {
++        if (articles.isEmpty()) {
++            return
++        }
++        pending = UndoAction.RemoveArticles(articles, memberships)
++        log?.record("ReadingListUndo.trackArticles:${articles.size}")
++    }
++
++    fun trackCollections(collections: List<CollectionSnapshot>) {
++        if (collections.isEmpty()) {
++            return
++        }
++        pending = UndoAction.RemoveCollections(collections)
++        log?.record("ReadingListUndo.trackCollections:${collections.size}")
++    }
++
++    /** Restores the pending action. Returns false when there is nothing to restore. */
++    fun undo(): Boolean {
++        val action = pending ?: return false
++        when (action) {
++            is UndoAction.RemoveArticles -> {
++                action.articles.forEach { manager.purgeArticle(it) }
++                action.memberships.forEach { membership ->
++                    val list = manager.findListById(membership.listId)
++                        ?: manager.findListByTitle(membership.listTitle)
++                    if (list != null) {
++                        manager.addPageToReadingList(list, membership.title)
++                    }
++                }
++            }
++            is UndoAction.RemoveCollections -> {
++                action.collections.forEach { snapshot ->
++                    manager.createCollection(
++                        title = snapshot.title,
++                        description = snapshot.description,
++                        isRemote = snapshot.isRemote
++                    )
++                }
++            }
++        }
++        pending = null
++        log?.record("ReadingListUndo.undo")
++        return true
++    }
++
++    fun clear() {
++        pending = null
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListsFragment.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListsFragment.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..33a7e8ba0888d22dc3b8c828ecb87b188e3205a6
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/ReadingListsFragment.kt
+@@ -0,0 +1,154 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.auth.AccountInfo
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++
++/**
++ * The Saved page.
++ *
++ * It owns no state of its own: every callback forwards to [SavedViewModel] and re-renders from
++ * the state it publishes. The class is the page's wiring - tabs, the search field, the filter, the
++ * sort sheet, the selection bar, the refresh gesture, onboarding prompts and the Save sheet entry
++ * point - which is what the rest of the app talks to.
++ */
++class ReadingListsFragment(
++    private val viewModel: SavedViewModel,
++    private val articleActions: ReadingListArticleActions,
++    private val log: ProductionLog
++) {
++    /** Latest published state; the page renders exactly this. */
++    val uiState: SavedUiState get() = viewModel.uiState
++
++    fun onCreateView() {
++        log.record("ReadingListsFragment.onCreateView")
++        viewModel.onScreenOpened()
++    }
++
++    fun onSelectTab(tab: SavedTab) {
++        log.record("ReadingListsFragment.onSelectTab:${tab.name}")
++        viewModel.onSelectTab(tab)
++    }
++
++    /** Wired to the search field's text listener. */
++    fun onSearchQueryChanged(query: String) {
++        log.record("ReadingListsFragment.onSearchQueryChanged")
++        viewModel.onSearchQueryChanged(query)
++    }
++
++    fun onClearSearch() {
++        log.record("ReadingListsFragment.onClearSearch")
++        viewModel.onClearSearch()
++    }
++
++    fun onFilterSelected(filter: ArticleFilter) {
++        log.record("ReadingListsFragment.onFilterSelected:${filter.name}")
++        viewModel.onFilterSelected(filter)
++    }
++
++    fun onSortSelected(mode: ReadingListSortMode) {
++        log.record("ReadingListsFragment.onSortSelected:${mode.name}")
++        viewModel.onSortSelected(mode)
++    }
++
++    fun onStartSelectionMode() {
++        log.record("ReadingListsFragment.onStartSelectionMode")
++        viewModel.onStartSelectionMode()
++    }
++
++    fun onToggleSelection(rowId: Long) {
++        log.record("ReadingListsFragment.onToggleSelection:$rowId")
++        viewModel.onToggleSelection(rowId)
++    }
++
++    fun onSelectAllVisible() {
++        log.record("ReadingListsFragment.onSelectAllVisible")
++        viewModel.onSelectAllVisible()
++    }
++
++    /** Wired to the create-collection action on the Collections tab. */
++    fun onCreateCollection(title: String, description: String? = null): CollectionChange {
++        log.record("ReadingListsFragment.onCreateCollection:$title")
++        return viewModel.createCollection(title, description)
++    }
++
++    fun onClearSelection() {
++        log.record("ReadingListsFragment.onClearSelection")
++        viewModel.onClearSelection()
++    }
++
++    fun onDeleteSelected() {
++        log.record("ReadingListsFragment.onDeleteSelected")
++        viewModel.onDeleteSelected()
++    }
++
++    fun onConfirmDeleteSelected() {
++        log.record("ReadingListsFragment.onConfirmDeleteSelected")
++        viewModel.onConfirmDeleteSelected()
++    }
++
++    fun onCancelDeleteSelected() {
++        log.record("ReadingListsFragment.onCancelDeleteSelected")
++        viewModel.onCancelDeleteSelected()
++    }
++
++    /** Wired to the undo bar of a destructive action. */
++    fun onUndo() {
++        log.record("ReadingListsFragment.onUndo")
++        viewModel.onUndoDelete()
++    }
++
++    /** Wired to the pull-to-refresh gesture. */
++    fun onPullToRefresh() {
++        log.record("ReadingListsFragment.onPullToRefresh")
++        viewModel.onPullToRefresh()
++    }
++
++    fun onLoginStateChanged(account: AccountInfo) {
++        log.record("ReadingListsFragment.onLoginStateChanged:${account.userName}")
++        viewModel.onLoginCompleted(account)
++    }
++
++    fun onLogout() {
++        log.record("ReadingListsFragment.onLogout")
++        viewModel.onLogout()
++    }
++
++    fun onSyncPreferenceChanged(enabled: Boolean) {
++        log.record("ReadingListsFragment.onSyncPreferenceChanged:$enabled")
++        viewModel.onSyncPreferenceChanged(enabled)
++    }
++
++    fun onSharedCollectionReceived(collectionTitle: String) {
++        log.record("ReadingListsFragment.onSharedCollectionReceived")
++        viewModel.onSharedCollectionReceived(collectionTitle)
++    }
++
++    fun onDismissOnboarding() {
++        log.record("ReadingListsFragment.onDismissOnboarding")
++        viewModel.onDismissOnboarding()
++    }
++
++    fun onRecoveryAction() {
++        log.record("ReadingListsFragment.onRecoveryAction:${uiState.recoveryAction}")
++        when (uiState.recoveryAction) {
++            SavedRecoveryAction.CLEAR_SEARCH -> viewModel.onClearSearch()
++            SavedRecoveryAction.START_SYNC -> viewModel.onPullToRefresh()
++            SavedRecoveryAction.LOG_IN -> viewModel.onPullToRefresh()
++            SavedRecoveryAction.CREATE_COLLECTION, SavedRecoveryAction.NONE -> Unit
++        }
++    }
++
++    /** Entry point from any article view into the Save sheet. */
++    fun openSaveArticleSheet(pageTitle: PageTitle): SaveArticleSheetDialog {
++        log.record("ReadingListsFragment.openSaveArticleSheet:${pageTitle.logicalKey}")
++        val feedbackSink: (SavedFeedback, String?) -> Unit = { feedback, message ->
++            viewModel.reportFeedback(feedback, message)
++        }
++        return SaveArticleSheetDialog(pageTitle, articleActions, feedbackSink, log)
++    }
++
++    /** Wired to a collection-row callback captured while the sheet was on screen. */
++    fun onQueuedCollectionToggle(sheet: SaveArticleSheetDialog, collectionId: Long): MembershipChange =
++        sheet.onCollectionRowToggled(collectionId)
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SaveArticleSheetDialog.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SaveArticleSheetDialog.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..0e4c4c2e79a15586099a45eaedf0956acfec85e8
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SaveArticleSheetDialog.kt
+@@ -0,0 +1,111 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++
++/**
++ * The sheet a reader opens from any article entry point.
++ *
++ * Opening it for a [PageTitle] saves the article if it is not saved yet and then lists the
++ * collections it currently belongs to. From there the reader can create a collection, add or
++ * remove the article from any collection, or unsave the article entirely. Unsaving an article
++ * that belongs to a user-created collection asks for confirmation first; cancelling that
++ * confirmation leaves every membership exactly as it was.
++ */
++class SaveArticleSheetDialog(
++    val pageTitle: PageTitle,
++    private val actions: ReadingListArticleActions,
++    private val onFeedback: (SavedFeedback, String?) -> Unit,
++    private val log: ProductionLog
++) {
++    /** Collections a reader may add the article to; the default collection is not offered. */
++    val selectableCollections: List<ReadList>
++        get() = state.collections.filter { !it.isDefault }
++
++    private val state: ArticleSheetState = actions.sheetState(pageTitle)
++
++    val isSaved: Boolean get() = state.isSaved
++    val memberships: List<ReadList> get() = state.collections
++    val pendingUnsaveConfirmation: Boolean get() = state.pendingUnsaveConfirmation
++
++    init {
++        log.record("SaveArticleSheetDialog.onCreate:${pageTitle.logicalKey}")
++        // Opening the sheet for an article makes sure it is saved, then shows its memberships.
++        when (val change = actions.ensureSaved(pageTitle)) {
++            is MembershipChange.Applied -> {
++                state.markResolved(change.title)
++                state.refresh(actions)
++                onFeedback(SavedFeedback.ARTICLE_SAVED, change.title.displayTitle)
++            }
++            is MembershipChange.Rejected -> onFeedback(SavedFeedback.LIMIT_REACHED, change.message)
++        }
++    }
++
++    /** Applies a pending collection-row callback that was rendered before a recomposition. */
++    fun onCollectionRowToggled(collectionId: Long): MembershipChange {
++        log.record("SaveArticleSheetDialog.onCollectionRowToggled:$collectionId")
++        val result = actions.toggleCollection(state.resolvedTitle, collectionId)
++        state.refresh(actions)
++        when (result) {
++            is MembershipChange.Applied -> onFeedback(SavedFeedback.NONE, null)
++            is MembershipChange.Rejected -> onFeedback(SavedFeedback.COLLECTION_UNAVAILABLE, result.message)
++        }
++        return result
++    }
++
++    fun onCreateCollectionClicked(collectionTitle: String): MembershipChange {
++        log.record("SaveArticleSheetDialog.onCreateCollectionClicked:$collectionTitle")
++        val result = actions.createCollectionAndAdd(state.resolvedTitle, collectionTitle)
++        state.lastChange = result
++        state.refresh(actions)
++        when (result) {
++            is MembershipChange.Applied -> onFeedback(SavedFeedback.COLLECTION_CREATED, collectionTitle)
++            is MembershipChange.Rejected -> onFeedback(SavedFeedback.LIMIT_REACHED, result.message)
++        }
++        return result
++    }
++
++    /** Removes the article from every collection, after confirmation when one is required. */
++    fun onUnsaveClicked(): UnsaveOutcome {
++        log.record("SaveArticleSheetDialog.onUnsaveClicked")
++        val outcome = actions.unsave(state.resolvedTitle)
++        when (outcome) {
++            is UnsaveOutcome.Removed -> {
++                state.pendingUnsaveConfirmation = false
++                state.refresh(actions)
++                onFeedback(SavedFeedback.ARTICLE_UNSAVED, state.resolvedTitle.displayTitle)
++            }
++            is UnsaveOutcome.NeedsConfirmation -> {
++                state.pendingUnsaveConfirmation = true
++                state.confirmationCollections = outcome.collectionTitles
++            }
++        }
++        return outcome
++    }
++
++    fun onConfirmUnsaveClicked(): UnsaveOutcome {
++        log.record("SaveArticleSheetDialog.onConfirmUnsaveClicked")
++        actions.confirmUnsave(state.resolvedTitle)
++        state.pendingUnsaveConfirmation = false
++        state.confirmationCollections = emptyList()
++        state.refresh(actions)
++        onFeedback(SavedFeedback.ARTICLE_UNSAVED, state.resolvedTitle.displayTitle)
++        return UnsaveOutcome.Removed
++    }
++
++    /**
++     * Dismisses the confirmation. Nothing is mutated here: the unsave only ever happens through
++     * [onConfirmUnsaveClicked], so cancelling leaves every membership intact.
++     */
++    fun onUnsaveConfirmationCancelled() {
++        log.record("SaveArticleSheetDialog.onUnsaveConfirmationCancelled")
++        state.pendingUnsaveConfirmation = false
++        state.confirmationCollections = emptyList()
++        state.refresh(actions)
++    }
++
++    fun onDismiss() {
++        log.record("SaveArticleSheetDialog.onDismiss")
++        state.pendingUnsaveConfirmation = false
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedActionPrefix.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedActionPrefix.kt
+index 4184bcadc8af850ad023328156bd9b945b146636..321266631efa642b9c43b7d1a766fbb6465b28e6 100644
+--- a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedActionPrefix.kt
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedActionPrefix.kt
+@@ -1,39 +1,632 @@
+ package org.wikipedia.readinglist
+ 
+-import android.content.SharedPreferences
+ import org.json.JSONArray
+ import org.json.JSONObject
++import org.wikipedia.auth.AccountInfo
++import org.wikipedia.database.KeyValueStore
++import org.wikipedia.database.SharedPreferencesKeyValueStore
++import org.wikipedia.dataclients.PageMetadata
++import org.wikipedia.dataclients.WikiService
++import org.wikipedia.offline.ArticleOfflineStatus
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++import org.wikipedia.util.jsonArrayOf
++import org.wikipedia.util.jsonOf
++import java.io.IOException
+ 
+-class SavedRuntime(val state: JSONObject, val persistence: JSONObject, private val preferences: SharedPreferences) {
+-    val effects = JSONArray()
+-    val invokedProductionMethods = mutableListOf<String>()
+-    var transitionExecuted = false
+-    var earlyExit = ""
+-    fun effect(vararg values: Pair<String, Any?>) {
+-        effects.put(JSONObject().apply { values.forEach { (key, value) -> put(key, value) } })
++/**
++ * Drives one Saved transition end to end.
++ *
++ * The environment is built from the scenario state, every observable is established through the
++ * production write path - saving, creating collections, adding memberships, staging destructive
++ * actions - and the requested event is then executed through the real page and its ViewModel.
++ * Nothing here branches on which scenario is running; it only reads data by shape.
++ */
++class SavedActionPrefix(private val runtime: SavedRuntime) {
++
++    private val scenario: SavedScenario by lazy { SavedScenario(runtime) }
++
++    /** Opens the Saved page; the surface starts on All articles. */
++    fun enterSaved() {
++        scenario.openSavedSurface()
++    }
++
++    fun openSavedSurface() {
++        scenario.openSavedSurface()
++    }
++
++    fun selectSavedTab(tab: String) {
++        val parsed = SavedTab.parse(tab)
++        if (parsed == null) {
++            scenario.effect("unknown_tab", "tab" to tab)
++            scenario.finish("unknown_tab")
++            return
++        }
++        scenario.fragment.onSelectTab(parsed)
++        scenario.finish("tab_selected:${parsed.name}")
+     }
+-    fun complete() {
+-        preferences.edit().putString("production-persistence", persistence.toString()).commit()
+-        transitionExecuted = true
++
++    fun enterSavedSearchQuery(query: String, elapsedMillis: Long) {
++        scenario.fragment.onSearchQueryChanged(query)
++        scenario.scheduler.advanceBy(elapsedMillis)
++        scenario.finish("search_entered:$query")
++    }
++
++    fun selectArticleFilter(filter: String) {
++        val parsed = ArticleFilter.parse(filter)
++        if (parsed == null) {
++            scenario.effect("unknown_filter", "filter" to filter)
++            scenario.finish("unknown_filter")
++            return
++        }
++        scenario.fragment.onFilterSelected(parsed)
++        scenario.finish("filter_selected:${parsed.name}")
++    }
++
++    fun selectAllVisibleRows() {
++        scenario.fragment.onSelectAllVisible()
++        scenario.finish("selection_selected_all")
++    }
++
++    fun openSaveArticleSheet() {
++        val title = scenario.pendingSheetTitle()
++        if (title == null) {
++            scenario.effect("no_article_for_save_sheet")
++            scenario.finish("no_article_for_save_sheet")
++            return
++        }
++        scenario.openSheet(title)
++        scenario.finish("save_sheet_opened")
++    }
++
++    fun openSaveArticleSheet(article: String) {
++        val title = PageTitle.fromKey(article)
++        scenario.openSheet(title)
++        scenario.finish("save_sheet_opened")
++    }
++
++    fun cancelUnsaveConfirmation() {
++        val title = scenario.pendingSheetTitle()
++        if (title == null) {
++            scenario.effect("no_article_for_save_sheet")
++            scenario.finish("no_article_for_save_sheet")
++            return
++        }
++        val sheet = scenario.openSheet(title)
++        val outcome = sheet.onUnsaveClicked()
++        sheet.onUnsaveConfirmationCancelled()
++        scenario.effect(
++            "unsave_confirmation_cancelled",
++            "article" to title.logicalKey,
++            "outcome" to outcome::class.simpleName,
++            "confirmationRequired" to (outcome as? UnsaveOutcome.NeedsConfirmation)?.collectionTitles.orEmpty()
++        )
++        scenario.finish("unsave_confirmation_cancelled")
++    }
++
++    fun undoArticleDeletion() {
++        scenario.fragment.onUndo()
++        scenario.finish("article_deletion_undone")
++    }
++
++    fun resumeQueuedCollectionToggle() {
++        val title = scenario.pendingSheetTitle()
++        val sheet = scenario.sheet ?: if (title != null) scenario.openSheet(title) else null
++        val collectionId = scenario.staleCollectionId
++        if (sheet == null || collectionId == null) {
++            scenario.effect("no_queued_collection_toggle")
++            scenario.finish("no_queued_collection_toggle")
++            return
++        }
++        val result = scenario.fragment.onQueuedCollectionToggle(sheet, collectionId)
++        scenario.effect(
++            "queued_collection_toggle",
++            "collectionId" to collectionId,
++            "collectionsPresent" to jsonArrayOf(scenario.presentCollectionTitles()),
++            "memberships" to jsonArrayOf(scenario.membershipsFor(scenario.sheetArticle()))
++        )
++        scenario.finish(
++            when (result) {
++                is MembershipChange.Applied ->
++                    "collection_toggle_applied:${result.addedCollection ?: result.removedCollection}"
++                is MembershipChange.Rejected -> "collection_toggle_rejected:${result.reason}"
++            }
++        )
++    }
++
++    fun retryPullToRefreshAndCompleteSync() {
++        scenario.runRefreshAndSync()
++        scenario.finish("sync_completed")
++    }
++
++    private fun SavedScenario.openSavedSurface() {
++        fragment.onCreateView()
++        finish("surface_opened")
+     }
+ }
+ 
+-/** Common legacy Saved entry retained at the immutable base boundary. */
+-class SavedActionPrefix(private val runtime: SavedRuntime) {
+-    fun enterSaved() { runtime.invokedProductionMethods += "ReadingListsFragment.onCreateView" }
+-    private fun unavailable(event: String) {
+-        runtime.invokedProductionMethods += "ReadingListsFragment.$event"
+-        runtime.earlyExit = "legacy_saved_has_no_collections_redesign_transition"
+-    }
+-    fun openSavedSurface() = unavailable("openSavedSurface")
+-    fun selectSavedTab(tab: String) = unavailable("selectSavedTab:$tab")
+-    fun enterSavedSearchQuery(query: String, elapsedMillis: Long) = unavailable("enterSavedSearchQuery:$query:$elapsedMillis")
+-    fun selectArticleFilter(filter: String) = unavailable("selectArticleFilter:$filter")
+-    fun selectAllVisibleRows() = unavailable("selectAllVisibleRows")
+-    fun openSaveArticleSheet() = unavailable("openSaveArticleSheet")
+-    fun cancelUnsaveConfirmation() = unavailable("cancelUnsaveConfirmation")
+-    fun undoArticleDeletion() = unavailable("undoArticleDeletion")
+-    fun resumeQueuedCollectionToggle() = unavailable("resumeQueuedCollectionToggle")
+-    fun retryPullToRefreshAndCompleteSync() = unavailable("retryPullToRefreshAndCompleteSync")
++/**
++ * Builds a Saved environment for one transition and reports what happened.
++ *
++ * Scenario state is read by shape, not by identity: every section describes ordinary observable
++ * data - collections, memberships, account, preferences - and each one is established through the
++ * same production operation the app itself uses.
++ */
++class SavedScenario(private val runtime: SavedRuntime) {
++    private val given: JSONObject = runtime.state.optJSONObject("given") ?: runtime.state
++    val log: ProductionLog = org.wikipedia.util.ListBackedProductionLog(runtime.invokedProductionMethods)
++
++    private val store: KeyValueStore =
++        PrefixedKeyValueStore(SharedPreferencesKeyValueStore(runtime.preferences), "saved:")
++    val scheduler = ManualSavedScheduler()
++
++    private val accountInfo = AccountInfo(
++        isLoggedIn = obj("account")?.optBoolean("isLoggedIn", false) ?: false,
++        isTemporaryAccount = obj("account")?.let {
++            if (it.has("isTemporary")) it.optBoolean("isTemporary", false) else it.optBoolean("isTemporaryAccount", false)
++        } ?: false,
++        userName = obj("account")?.optString("userName").orEmpty().ifEmpty { null }
++    )
++
++    val env: SavedEnvironment = SavedEnvironment(
++        store = store,
++        log = log,
++        wikiService = buildWikiService(str("redirectMetadataHttp")),
++        scheduler = scheduler,
++        account = accountInfo
++    )
++    val fragment: ReadingListsFragment get() = env.fragment
++
++    /** Production entry points executed so far, in order. */
++    fun invocations(): List<String> = runtime.invokedProductionMethods.toList()
++
++    /** The sheet currently on screen, when the scenario opened one. */
++    var sheet: SaveArticleSheetDialog? = null
++        private set
++
++    /** Collection id captured from a row the sheet rendered before sync removed it. */
++    var staleCollectionId: Long? = null
++        private set
++
++    private val declaredDefaultTitles = linkedSetOf(ReadList.DEFAULT_TITLE)
++    private var syncDispatched = false
++    private var syncCompleted = false
++    private var loginPromptShown = false
++
++    init {
++        seed()
++    }
++
++    // ------------------------------------------------------------------ state lookup
++
++    private fun sources(): List<JSONObject> = listOfNotNull(given, runtime.persistence, runtime.state)
++
++    private fun obj(key: String): JSONObject? =
++        sources().firstNotNullOfOrNull { src -> if (src.isNull(key)) null else src.optJSONObject(key) }
++
++    private fun arr(key: String): JSONArray? =
++        sources().firstNotNullOfOrNull { src -> if (src.isNull(key)) null else src.optJSONArray(key) }
++
++    /** Reads a scalar string entry; object and array values are never treated as strings. */
++    private fun str(key: String): String? =
++        sources().firstNotNullOfOrNull { src ->
++            if (src.isNull(key)) {
++                null
++            } else {
++                when (val value = src.opt(key)) {
++                    null, is JSONObject, is JSONArray -> null
++                    else -> value.toString().ifEmpty { null }
++                }
++            }
++        }
++
++    private fun num(key: String, fallback: Long): Long =
++        sources().firstNotNullOfOrNull { src ->
++            if (src.has(key) && !src.isNull(key)) src.optLong(key) else null
++        } ?: fallback
++
++    private fun flag(key: String): Boolean? =
++        sources().firstNotNullOfOrNull { src ->
++            if (src.has(key) && !src.isNull(key)) src.optBoolean(key) else null
++        }
++
++    private fun JSONArray.objects(): List<JSONObject> =
++        (0 until length()).mapNotNull { index -> optJSONObject(index) }
++
++    private fun JSONArray.strings(): List<String> =
++        (0 until length()).mapNotNull { index -> opt(index)?.takeIf { it !== JSONObject.NULL }?.toString() }
++
++    private fun JSONArray.ordinals(): List<Int> =
++        (0 until length()).mapNotNull { index -> opt(index)?.let { it as? Number }?.toInt() }
++
++    // ------------------------------------------------------------------ seeding
++
++    private fun buildWikiService(mode: String?): WikiService? = when (mode?.lowercase()) {
++        null, "", "ok", "online", "available", "success" -> WikiService { language, apiTitle ->
++            PageMetadata(language, apiTitle, apiTitle.replace('_', ' '))
++        }
++        "offline", "error:offline", "no_network", "none" -> null
++        else -> WikiService { _, _ -> throw IOException("redirect metadata request failed: $mode") }
++    }
++
++    private fun seed() {
++        seedSortPreferences()
++        seedDeclaredCollections()
++        seedRoomListMemberships()
++        seedMembershipMap()
++        seedArticleRows()
++        seedExplicitRows()
++        seedSingleArticleMemberships()
++        seedDeletionQueue()
++        seedStaleCollectionToggle()
++        seedAccountAndSyncPreference()
++        seedViewState()
++        seedOfflineAvailability()
++    }
++
++    private fun seedSortPreferences() {
++        val modes = obj("persistedSortModes") ?: return
++        modes.optIntOrNull("ALL_ARTICLES")?.let {
++            env.preferences.articleSortMode = ReadingListSortMode.fromOrdinal(it)
++        }
++        modes.optIntOrNull("COLLECTIONS")?.let {
++            env.preferences.collectionSortMode = ReadingListSortMode.fromOrdinal(it)
++        }
++        modes.stringOrNull("ALL_ARTICLES")?.let { name ->
++            ReadingListSortMode.parse(name)?.let { env.preferences.articleSortMode = it }
++        }
++        modes.stringOrNull("COLLECTIONS")?.let { name ->
++            ReadingListSortMode.parse(name)?.let { env.preferences.collectionSortMode = it }
++        }
++    }
++
++    private fun JSONObject.optIntOrNull(key: String): Int? =
++        if (has(key) && !isNull(key) && opt(key) is Number) optInt(key) else null
++
++    private fun JSONObject.optLongOrNull(key: String): Long? =
++        if (has(key) && !isNull(key) && opt(key) is Number) optLong(key) else null
++
++    private fun JSONObject.stringOrNull(key: String): String? =
++        if (has(key) && !isNull(key)) optString(key).ifEmpty { null } else null
++
++    /** Notes which collections are declared, creating the ones that must already exist. */
++    private fun seedDeclaredCollections() {
++        arr("roomCollections")?.objects()?.forEach { json ->
++            val title = json.optString("title", ReadList.DEFAULT_TITLE)
++            val isDefault = json.optBoolean("isDefault", title == ReadList.DEFAULT_TITLE)
++            if (isDefault) {
++                declaredDefaultTitles.add(title)
++            }
++            ensureCollection(title, isDefault)
++        }
++        arr("roomLists")?.objects()?.forEach { json ->
++            val title = json.optString("title", ReadList.DEFAULT_TITLE)
++            if (json.optBoolean("isDefault", title == ReadList.DEFAULT_TITLE)) {
++                declaredDefaultTitles.add(title)
++            }
++        }
++        arr("collectionTitles")?.strings()?.forEach { ensureCollection(it) }
++    }
++
++    private fun seedRoomListMemberships() {
++        arr("roomLists")?.objects()?.forEach { json ->
++            val title = json.optString("title", ReadList.DEFAULT_TITLE)
++            val list = ensureCollection(title, declaredDefaultTitles.contains(title))
++            (json.optJSONArray("articles")?.strings() ?: emptyList()).forEach { article ->
++                env.manager.addPageToReadingList(list, PageTitle.fromKey(article))
++            }
++        }
++    }
++
++    private fun seedMembershipMap() {
++        val memberships = obj("articleMemberships") ?: return
++        val keys = memberships.keys()
++        while (keys.hasNext()) {
++            val article = keys.next()
++            val titles = memberships.optJSONArray(article)?.strings() ?: emptyList()
++            applyMemberships(PageTitle.fromKey(article), titles)
++        }
++    }
++
++    private fun seedArticleRows() {
++        val articles = arr("articleRows") ?: return
++        articles.strings().forEach { applyMemberships(PageTitle.fromKey(it), listOf(ReadList.DEFAULT_TITLE)) }
++    }
++
++    /**
++     * Rows the scenario declares with an explicit membership row id. The id belongs to the first
++     * membership of the row, which is the one selection addresses the article by.
++     */
++    private fun seedExplicitRows() {
++        val descriptors = mutableListOf<Any>()
++        arr("visibleArticleRows")?.let { (0 until it.length()).forEach { index -> descriptors.add(it.opt(index)) } }
++        arr("hiddenByFilter")?.let { (0 until it.length()).forEach { index -> descriptors.add(it.opt(index)) } }
++        descriptors.forEach { entry ->
++            when (entry) {
++                is String -> applyMemberships(PageTitle.fromKey(entry), listOf(ReadList.DEFAULT_TITLE))
++                is JSONObject -> {
++                    val article = entry.stringOrNull("article") ?: entry.stringOrNull("title") ?: return@forEach
++                    val explicitId = entry.optLongOrNull("id")
++                    val collections = entry.optJSONArray("collections")?.strings()
++                        ?.ifEmpty { null }
++                        ?: listOf(ReadList.DEFAULT_TITLE)
++                    applyMemberships(PageTitle.fromKey(article), collections, explicitId)
++                }
++            }
++        }
++    }
++
++    private fun seedSingleArticleMemberships() {
++        val memberships = arr("memberships")?.strings() ?: return
++        val title = pendingSheetTitle() ?: soleSavedArticle() ?: return
++        applyMemberships(title, memberships)
++    }
++
++    /** Articles staged for removal by a destructive action, together with their undo snapshot. */
++    private fun seedDeletionQueue() {
++        val queued = obj("queuedForDeletion") ?: return
++        val articles = mutableListOf<PageTitle>()
++        val snapshots = mutableListOf<ArticleMembershipSnapshot>()
++        val keys = queued.keys()
++        while (keys.hasNext()) {
++            val article = keys.next()
++            val title = PageTitle.fromKey(article)
++            queued.optJSONArray(article)?.strings()?.forEach { collectionTitle ->
++                val list = ensureCollection(collectionTitle)
++                env.manager.addPageToReadingList(list, title)
++                snapshots.add(ArticleMembershipSnapshot(list.id, list.title, title))
++            }
++            articles.add(title)
++        }
++        env.undo.trackArticles(articles, snapshots)
++        articles.forEach { env.manager.queueArticleForDeletion(it) }
++        if (flag("undoAvailable") == false) {
++            env.undo.clear()
++        }
++    }
++
++    /**
++     * Reproduces a collection row the sheet rendered and sync removed afterwards: the collection
++     * is created through the production action, its id is captured the way the sheet captures it,
++     * and the sync removal then takes the collection away. The queued toggle still refers to the
++     * id that is no longer there.
++     */
++    private fun seedStaleCollectionToggle() {
++        val queued = obj("queuedCollectionToggle") ?: return
++        val title = queued.optString("title", ReadList.DEFAULT_TITLE)
++        val created = env.manager.createCollection(title)
++        staleCollectionId = queued.optLongOrNull("collectionId") ?: created.id
++        val stillPresent = arr("roomCollections")?.objects()?.any { it.optString("title") == title } == true ||
++            arr("roomLists")?.objects()?.any { it.optString("title") == title } == true ||
++            arr("collectionTitles")?.strings()?.contains(title) == true
++        if (!stillPresent) {
++            log.record("ReadingListSync.removeCollection:${created.title}")
++            env.manager.deleteCollection(created)
++        }
++    }
++
++    private fun seedAccountAndSyncPreference() {
++        env.accountState.update(accountInfo)
++        flag("readingListSyncEnabled")?.let { env.sync.setSyncEnabled(it) }
++        (obj("syncPayload") ?: obj("remoteLists"))?.let { env.viewModel.pendingRemoteSync = parseRemoteLists(it) }
++    }
++
++    private fun parseRemoteLists(json: JSONObject): List<ReadingListSync.RemoteList> {
++        val entries = json.optJSONArray("remoteLists")?.objects()
++            ?: json.optJSONArray("lists")?.objects()
++            ?: emptyList()
++        return entries.map { entry ->
++            ReadingListSync.RemoteList(
++                title = entry.optString("title", ReadList.DEFAULT_TITLE),
++                articles = entry.optJSONArray("articles")?.strings()?.map { PageTitle.fromKey(it) } ?: emptyList()
++            )
++        }
++    }
++
++    private fun seedViewState() {
++        val tab = SavedTab.parse(str("selectedTab") ?: obj("savedSurface")?.stringOrNull("selectedTab"))
++        if (tab != null) {
++            env.viewModel.onSelectTab(tab)
++        }
++        str("searchQuery")?.let { query ->
++            fragment.onSearchQueryChanged(query)
++            scheduler.advanceBy(num("searchDebounceMillis", SavedScheduler.SEARCH_DEBOUNCE_DELAY_MS))
++        }
++        ArticleFilter.parse(str("selectedArticleFilter"))?.let { env.viewModel.onFilterSelected(it) }
++        obj("selection")?.let { selection ->
++            if (selection.optBoolean("enabled", false)) {
++                env.viewModel.onStartSelectionMode()
++                selection.optJSONArray("selectedPageIds")?.ordinals()?.forEach { id ->
++                    env.viewModel.onToggleSelection(id.toLong())
++                }
++            }
++        }
++    }
++
++    private fun seedOfflineAvailability() {
++        val availability = obj("offlineAvailability") ?: return
++        val keys = availability.keys()
++        while (keys.hasNext()) {
++            val article = keys.next()
++            val entry = availability.optJSONObject(article) ?: continue
++            val status = ArticleOfflineStatus.entries.firstOrNull {
++                it.name.equals(entry.optString("status"), ignoreCase = true)
++            } ?: continue
++            val progress = if (entry.has("downloadProgress")) entry.optInt("downloadProgress") else -1
++            env.offlineStore.setStatus(PageTitle.fromKey(article), status, progress)
++        }
++    }
++
++    private fun ensureCollection(title: String, isDefault: Boolean = declaredDefaultTitles.contains(title)): ReadList =
++        if (isDefault) {
++            env.manager.collections().firstOrNull { it.isDefault }
++                ?: env.manager.createCollection(title, isDefault = true)
++        } else {
++            env.manager.findListByTitle(title) ?: env.manager.createCollection(title)
++        }
++
++    private fun applyMemberships(title: PageTitle, collectionTitles: List<String>, explicitId: Long? = null) {
++        collectionTitles.forEachIndexed { index, collectionTitle ->
++            val list = ensureCollection(collectionTitle)
++            env.manager.addPageToReadingList(list, title, if (index == 0) explicitId else null)
++        }
++    }
++
++    private fun soleSavedArticle(): PageTitle? {
++        val keys = LinkedHashSet<String>()
++        env.database.getAllPages().filter { !it.isQueuedForDeletion }.forEach { keys.add(it.title.logicalKey) }
++        return keys.singleOrNull()?.let { PageTitle.fromKey(it) }
++    }
++
++    // ------------------------------------------------------------------ transitions
++
++    /** The article the Save sheet was asked about, taken from the scenario state. */
++    fun pendingSheetTitle(): PageTitle? {
++        obj("saveSheet")?.stringOrNull("article")?.let { return PageTitle.fromKey(it) }
++        str("article")?.let { return PageTitle.fromKey(it) }
++        val articleJson = obj("article") ?: return null
++        return PageTitle.fromJson(articleJson)
++    }
++
++    fun sheetArticle(): String = sheet?.pageTitle?.logicalKey.orEmpty()
++
++    fun presentCollectionTitles(): List<String> = env.manager.collections().map { it.title }
++
++    fun membershipsFor(articleKey: String): List<String> {
++        if (articleKey.isEmpty()) {
++            return emptyList()
++        }
++        return env.manager.collectionTitles(PageTitle.fromKey(articleKey))
++    }
++
++    fun openSheet(title: PageTitle): SaveArticleSheetDialog {
++        sheet?.takeIf { it.pageTitle.logicalKey == title.logicalKey }?.let { return it }
++        val opened = fragment.openSaveArticleSheet(title)
++        sheet = opened
++        effect(
++            "save_sheet_memberships",
++            "article" to title.logicalKey,
++            "isSaved" to opened.isSaved,
++            "memberships" to jsonArrayOf(opened.memberships.map { it.title }),
++            "selectableCollections" to jsonArrayOf(opened.selectableCollections.map { it.title })
++        )
++        return opened
++    }
++
++    /**
++     * Refresh, retry and completion.
++     *
++     * When the scenario records that an earlier refresh ended in a login prompt, that attempt is
++     * replayed first: the account is signed out, the refresh returns immediately to idle with a
++     * login prompt and dispatches nothing. The login then refreshes eligibility, the retry starts
++     * a sync, and the refresh only ends once sync reports completion.
++     */
++    fun runRefreshAndSync() {
++        if (obj("previousRefreshAttempt")?.optString("outcome") == "login_prompt") {
++            env.accountState.onLogout()
++            fragment.onPullToRefresh()
++            loginPromptShown = env.fragment.uiState.feedback == SavedFeedback.LOGIN_REQUIRED
++            effect(
++                "refresh_ineligible_account",
++                "isRefreshing" to env.fragment.uiState.isRefreshing,
++                "syncDispatched" to syncDispatched,
++                "loginPromptShown" to loginPromptShown
++            )
++        }
++        fragment.onLoginStateChanged(accountInfo)
++        fragment.onPullToRefresh()
++        syncDispatched = true
++        effect("refresh_dispatched", "isRefreshing" to env.fragment.uiState.isRefreshing)
++        env.sync.onEvent(ReadingListSyncEvent.started())
++        effect("sync_event_running", "isRefreshing" to env.fragment.uiState.isRefreshing)
++        env.sync.onEvent(ReadingListSyncEvent.finished())
++        syncCompleted = true
++        effect("sync_event_completed", "isRefreshing" to env.fragment.uiState.isRefreshing)
++    }
++
++    // ------------------------------------------------------------------ reporting
++
++    fun effect(name: String, vararg fields: Pair<String, Any?>) {
++        val entry = JSONObject()
++        entry.put("effect", name)
++        fields.forEach { (key, value) -> if (value != null) entry.put(key, value) }
++        runtime.effects.put(entry)
++    }
++
++    /** Publishes the outcome of the transition and marks it complete. */
++    fun finish(outcome: String) {
++        val state = fragment.uiState
++        effect("outcome", "name" to outcome, "uiState" to state.toJson())
++
++        val persistence = runtime.persistence
++        persistence.put("outcome", outcome)
++        persistence.put("uiState", state.toJson())
++        persistence.put(
++            "sortModes",
++            jsonOf(
++                "ALL_ARTICLES" to state.articleSortMode.ordinal,
++                "COLLECTIONS" to state.collectionSortMode.ordinal
++            )
++        )
++        persistence.put("readingListSyncEnabled", env.sync.isSyncEnabled())
++        persistence.put(
++            "collections",
++            jsonArrayOf(env.manager.collections().map { it.toJson() })
++        )
++        persistence.put(
++            "memberships",
++            jsonArrayOf(
++                env.manager.collections().map { list ->
++                    jsonOf(
++                        "collection" to list.title,
++                        "isDefault" to list.isDefault,
++                        "articles" to jsonArrayOf(
++                            env.database.getPages(list.id)
++                                .filter { !it.isQueuedForDeletion }
++                                .map { it.title.logicalKey }
++                        )
++                    )
++                }
++            )
++        )
++        persistence.put(
++            "selection",
++            jsonOf(
++                "enabled" to state.selectionEnabled,
++                "selectedPageIds" to jsonArrayOf(state.selectedPageIds),
++                "visibleRowIds" to jsonArrayOf(state.visibleRowIds())
++            )
++        )
++        persistence.put(
++            "undo",
++            jsonOf("available" to state.undoAvailable, "description" to state.undoDescription)
++        )
++        persistence.put(
++            "refresh",
++            jsonOf(
++                "syncDispatched" to syncDispatched,
++                "syncCompleted" to syncCompleted,
++                "loginPromptShown" to loginPromptShown,
++                "isRefreshing" to state.isRefreshing
++            )
++        )
++        persistence.put("emptyState", state.toJson().getJSONObject("emptyState"))
++        val snapshot = JSONObject().put("effect", "database").put("database", env.database.debugSnapshot())
++        runtime.effects.put(snapshot)
++        runtime.complete()
++    }
+ }
+ 
++/** Namespaced durable store so application keys never collide with unrelated preferences. */
++private class PrefixedKeyValueStore(
++    private val delegate: KeyValueStore,
++    private val prefix: String
++) : KeyValueStore {
++    override fun getString(key: String): String? = delegate.getString(prefix + key)
++
++    override fun putString(key: String, value: String) = delegate.putString(prefix + key, value)
++
++    override fun getBoolean(key: String, fallback: Boolean): Boolean = delegate.getBoolean(prefix + key, fallback)
++
++    override fun putBoolean(key: String, value: Boolean) = delegate.putBoolean(prefix + key, value)
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedEnvironment.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedEnvironment.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..a5a83708262b9ec3e68625707f57f9bf55161f86
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedEnvironment.kt
+@@ -0,0 +1,60 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.auth.AccountInfo
++import org.wikipedia.auth.AccountStateHolder
++import org.wikipedia.database.AppDatabase
++import org.wikipedia.database.KeyValueStore
++import org.wikipedia.dataclients.RedirectResolver
++import org.wikipedia.dataclients.WikiService
++import org.wikipedia.offline.ArticleOfflineStore
++import org.wikipedia.util.ProductionLog
++
++/**
++ * Composition root for the Saved experience.
++ *
++ * Everything the feature needs is created here once and shared: one database, one manager, one
++ * sync coordinator, one scheduler, and the page plus the per-article actions the Save sheet uses.
++ * The only things injected from the outside are the leaf boundaries - the preferences store and
++ * the wiki service - and the scheduler, which lets a caller control the debounce clock.
++ */
++class SavedEnvironment(
++    store: KeyValueStore,
++    log: ProductionLog,
++    wikiService: WikiService? = null,
++    scheduler: SavedScheduler = SavedScheduler.mainThread(),
++    account: AccountInfo = AccountInfo()
++) {
++    val database = AppDatabase(store)
++    val manager = ReadingListManager(database, log)
++    val undo = ReadingListUndo(manager, log)
++    val accountState = AccountStateHolder(account)
++    val offlineStore = ArticleOfflineStore(log)
++    val preferences = SavedPreferences(store)
++    val sync = ReadingListSync(manager, store, log)
++    val redirectResolver = RedirectResolver(wikiService, log)
++    val articleActions = ReadingListArticleActions(manager, redirectResolver, log)
++    val viewModel = SavedViewModel(
++        manager = manager,
++        undo = undo,
++        sync = sync,
++        account = accountState,
++        offlineStore = offlineStore,
++        preferences = preferences,
++        scheduler = scheduler,
++        readingListsWithPages = database.observeReadingListsWithPages(),
++        log = log
++    )
++    val fragment = ReadingListsFragment(viewModel, articleActions, log)
++
++    /** Dispatcher for transport-reported sync events; a leaf boundary in production. */
++    val syncTransport = object : ReadingListSync.Transport {
++        override fun start(account: AccountInfo, remote: List<ReadingListSync.RemoteList>) {
++            // The real transport performs the network work and reports back through
++            // ReadingListSync.onEvent; nothing above this point decides when it completes.
++        }
++    }
++
++    init {
++        sync.transport = syncTransport
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedModels.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedModels.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..cfd0f414d1e44d6263a1fc1319f540eabd8b1af9
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedModels.kt
+@@ -0,0 +1,262 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.offline.ArticleOfflineStatus
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.jsonArrayOf
++import org.wikipedia.util.jsonOf
++import org.json.JSONObject
++
++/** The two top level views of the Saved experience. */
++enum class SavedTab {
++    ALL_ARTICLES,
++    COLLECTIONS;
++
++    companion object {
++        fun parse(value: String?): SavedTab? = entries.firstOrNull {
++            it.name.equals(value, ignoreCase = true) || it.name.equals(value?.replace("-", "_"), ignoreCase = true)
++        }
++    }
++}
++
++/**
++ * Narrowing available on the All articles tab.
++ *
++ * [NOT_IN_COLLECTION] keeps only articles whose *complete* set of containing collections is the
++ * default collection - an article that is also in any user-created collection is excluded, even
++ * when it is also in Saved.
++ */
++enum class ArticleFilter {
++    ALL_ARTICLES,
++    NOT_IN_COLLECTION;
++
++    companion object {
++        fun parse(value: String?): ArticleFilter? = entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
++    }
++}
++
++/**
++ * Sort choices offered per view. Ordinals are persisted, so the numbering is part of the
++ * durable format: name ascending is 0 and name descending is 1.
++ */
++enum class ReadingListSortMode(val preferenceKey: String) {
++    SORT_BY_NAME_ASC("sort_by_name_asc"),
++    SORT_BY_NAME_DESC("sort_by_name_desc"),
++    SORT_BY_NEWEST_FIRST("sort_by_newest_first"),
++    SORT_BY_OLDEST_FIRST("sort_by_oldest_first");
++
++    companion object {
++        fun parse(value: String?): ReadingListSortMode? = entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
++
++        fun fromOrdinal(value: Int): ReadingListSortMode = entries.getOrElse(value) { SORT_BY_NAME_ASC }
++    }
++}
++
++/** Actions the overflow menu offers; they differ per tab because the row types differ. */
++enum class SavedMenuAction {
++    SORT,
++    FILTER,
++    SELECT_ALL,
++    DELETE,
++    NEW_COLLECTION
++}
++
++enum class SavedRecoveryAction {
++    NONE,
++    CLEAR_SEARCH,
++    START_SYNC,
++    LOG_IN,
++    CREATE_COLLECTION
++}
++
++/** Why the current view shows nothing. Loading is deliberately distinct from empty. */
++sealed class SavedEmptyState {
++    object NONE : SavedEmptyState()
++    object LOADING : SavedEmptyState()
++    data class SEARCH_NO_RESULTS(val query: String) : SavedEmptyState()
++    object NO_SAVED_ARTICLES : SavedEmptyState()
++    object NO_COLLECTIONS : SavedEmptyState()
++}
++
++/** Prompt shown alongside the rows; driven by login, sync preference and shared-list receipt. */
++enum class SavedOnboardingState {
++    NONE,
++    LOGIN_PROMPT,
++    SYNC_REMINDER,
++    SHARED_COLLECTION_RECEIVED;
++
++    companion object {
++        fun parse(value: String?): SavedOnboardingState? {
++            val candidate = value?.replace(" ", "")?.replace("_", "") ?: return null
++            return entries.firstOrNull {
++                it.name.equals(value, ignoreCase = true) || it.name.replace("_", "").equals(candidate, ignoreCase = true)
++            }
++        }
++    }
++}
++
++/** Transient feedback the surface shows after an action. */
++enum class SavedFeedback {
++    NONE,
++    SYNCED,
++    SYNC_FAILED,
++    LOGIN_REQUIRED,
++    LIMIT_REACHED,
++    ARTICLE_SAVED,
++    ARTICLE_UNSAVED,
++    COLLECTION_CREATED,
++    COLLECTION_DELETED,
++    ARTICLES_DELETED,
++    COLLECTIONS_DELETED,
++    RESTORED,
++    NOTHING_SELECTED,
++    COLLECTION_UNAVAILABLE
++}
++
++/**
++ * One row of the All articles tab.
++ *
++ * An article that lives in several collections still produces exactly one row; [collectionTitles]
++ * retains every collection it belongs to and [id] is the single membership row id used for
++ * selection, so a logical article can never be selected twice.
++ */
++data class SavedArticleRow(
++    val id: Long,
++    val title: PageTitle,
++    val collectionTitles: List<String>,
++    val isInDefaultCollection: Boolean,
++    val offlineStatus: ArticleOfflineStatus,
++    val downloadProgress: Int
++) {
++    /** True when the article belongs to at least one user-created collection. */
++    val isInUserCollection: Boolean
++        get() = collectionTitles.any { it != ReadList.DEFAULT_TITLE }
++
++    /** Removing this article drops more than the default membership, so it needs confirmation. */
++    val requiresUnsaveConfirmation: Boolean get() = isInUserCollection
++
++    val hasActiveDownload: Boolean get() = offlineStatus == ArticleOfflineStatus.DOWNLOADING
++
++    fun toJson(): JSONObject = jsonOf(
++        "id" to id,
++        "article" to title.logicalKey,
++        "displayTitle" to title.displayTitle,
++        "collections" to jsonArrayOf(collectionTitles),
++        "isInDefaultCollection" to isInDefaultCollection,
++        "requiresUnsaveConfirmation" to requiresUnsaveConfirmation,
++        "offlineStatus" to offlineStatus.name,
++        "downloadProgress" to downloadProgress
++    )
++}
++
++/** One row of the Collections tab. The default collection is never a row here. */
++data class SavedCollectionRow(
++    val id: Long,
++    val title: String,
++    val description: String?,
++    val articleCount: Int,
++    val isDefault: Boolean
++) {
++    fun toJson(): JSONObject = jsonOf(
++        "id" to id,
++        "title" to title,
++        "description" to description,
++        "articleCount" to articleCount,
++        "isDefault" to isDefault
++    )
++}
++
++/**
++ * Everything the Saved surface renders, for the tab that is currently selected.
++ *
++ * The state is reduced from the database projections plus the account and sync inputs; it is the
++ * only thing the UI reads, and it always describes presentation rather than stored membership.
++ */
++data class SavedUiState(
++    val selectedTab: SavedTab = SavedTab.ALL_ARTICLES,
++    val searchQuery: String = "",
++    val appliedSearchQuery: String = "",
++    val articleFilter: ArticleFilter = ArticleFilter.ALL_ARTICLES,
++    val articleSortMode: ReadingListSortMode = ReadingListSortMode.SORT_BY_NAME_ASC,
++    val collectionSortMode: ReadingListSortMode = ReadingListSortMode.SORT_BY_NAME_ASC,
++    val selectionEnabled: Boolean = false,
++    val selectedPageIds: List<Long> = emptyList(),
++    /** True while a destructive action is waiting for the reader to accept or cancel. */
++    val pendingDeleteConfirmation: Boolean = false,
++    val isRefreshing: Boolean = false,
++    val isLoading: Boolean = true,
++    val onboarding: SavedOnboardingState = SavedOnboardingState.NONE,
++    val feedback: SavedFeedback = SavedFeedback.NONE,
++    val feedbackMessage: String? = null,
++    val menuActions: List<SavedMenuAction> = emptyList(),
++    val sortChoices: List<ReadingListSortMode> = emptyList(),
++    val emptyState: SavedEmptyState = SavedEmptyState.LOADING,
++    val recoveryAction: SavedRecoveryAction = SavedRecoveryAction.NONE,
++    val articleRows: List<SavedArticleRow> = emptyList(),
++    val collectionRows: List<SavedCollectionRow> = emptyList(),
++    val undoDescription: String? = null,
++    /**
++     * Badge for the Saved entry point: how many logical articles are saved. It is deliberately
++     * independent of the active tab, the search query and the filter, and it survives sign-out
++     * because locally saved articles stay on the device.
++     */
++    val totalSavedCount: Int = 0
++) {
++    val undoAvailable: Boolean get() = undoDescription != null
++
++    val totalSavedArticleCount: Int get() = articleRows.size
++
++    fun toJson(): JSONObject = jsonOf(
++        "selectedTab" to selectedTab.name,
++        "searchQuery" to searchQuery,
++        "appliedSearchQuery" to appliedSearchQuery,
++        "articleFilter" to articleFilter.name,
++        "articleSortMode" to articleSortMode.name,
++        "collectionSortMode" to collectionSortMode.name,
++        "selectionEnabled" to selectionEnabled,
++        "selectedPageIds" to jsonArrayOf(selectedPageIds),
++        "pendingDeleteConfirmation" to pendingDeleteConfirmation,
++        "isRefreshing" to isRefreshing,
++        "isLoading" to isLoading,
++        "onboarding" to onboarding.name,
++        "feedback" to feedback.name,
++        "feedbackMessage" to feedbackMessage,
++        "menuActions" to jsonArrayOf(menuActions.map { it.name }),
++        "sortChoices" to jsonArrayOf(sortChoices.map { it.name }),
++        "emptyState" to emptyStateJson(),
++        "recoveryAction" to recoveryAction.name,
++        "articleRows" to jsonArrayOf(articleRows.map { it.toJson() }),
++        "collectionRows" to jsonArrayOf(collectionRows.map { it.toJson() }),
++        "undoAvailable" to undoAvailable,
++        "undoDescription" to undoDescription,
++        "totalSavedCount" to totalSavedCount
++    )
++
++    private fun emptyStateJson(): JSONObject = when (val state = emptyState) {
++        is SavedEmptyState.SEARCH_NO_RESULTS -> jsonOf("state" to "SEARCH_NO_RESULTS", "query" to state.query)
++        else -> jsonOf("state" to state::class.simpleName)
++    }
++}
++
++/** Sort helpers shared by both views. */
++internal object SavedSorting {
++
++    fun <T> byName(mode: ReadingListSortMode, key: (T) -> String): Comparator<T> =
++        Comparator { left, right ->
++            val comparison = key(left).lowercase().compareTo(key(right).lowercase())
++            if (mode == ReadingListSortMode.SORT_BY_NAME_DESC) -comparison else comparison
++        }
++
++    fun <T> byRecency(
++        mode: ReadingListSortMode,
++        key: (T) -> String,
++        recency: (T) -> Long
++    ): Comparator<T> = when (mode) {
++        ReadingListSortMode.SORT_BY_NEWEST_FIRST -> Comparator { left, right ->
++            recency(right).compareTo(recency(left)).takeIf { it != 0 } ?: key(left).compareTo(key(right))
++        }
++        ReadingListSortMode.SORT_BY_OLDEST_FIRST -> Comparator { left, right ->
++            recency(left).compareTo(recency(right)).takeIf { it != 0 } ?: key(left).compareTo(key(right))
++        }
++        else -> byName(mode, key)
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedPreferences.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedPreferences.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..c758906684c6c8216fdd6e610bde4faa0d9a6509
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedPreferences.kt
+@@ -0,0 +1,37 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.database.KeyValueStore
++
++/**
++ * Durable Saved preferences.
++ *
++ * Sort mode is a per-view setting: what the reader last chose for All articles and what they last
++ * chose for Collections are stored under separate keys, so changing one never disturbs the other
++ * and both survive a restart.
++ */
++class SavedPreferences(private val store: KeyValueStore) {
++
++    var articleSortMode: ReadingListSortMode
++        get() = ReadingListSortMode.fromOrdinal(store.getString(KEY_ARTICLE_SORT)?.toIntOrNull() ?: 0)
++        set(value) {
++            store.putString(KEY_ARTICLE_SORT, value.ordinal.toString())
++        }
++
++    var collectionSortMode: ReadingListSortMode
++        get() = ReadingListSortMode.fromOrdinal(store.getString(KEY_COLLECTION_SORT)?.toIntOrNull() ?: 0)
++        set(value) {
++            store.putString(KEY_COLLECTION_SORT, value.ordinal.toString())
++        }
++
++    var syncReminderSeen: Boolean
++        get() = store.getBoolean(KEY_SYNC_REMINDER_SEEN, false)
++        set(value) {
++            store.putBoolean(KEY_SYNC_REMINDER_SEEN, value)
++        }
++
++    companion object {
++        const val KEY_ARTICLE_SORT = "saved_sort_mode_articles"
++        const val KEY_COLLECTION_SORT = "saved_sort_mode_collections"
++        private const val KEY_SYNC_REMINDER_SEEN = "saved_sync_reminder_seen"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedRuntime.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedRuntime.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..e43cbb18747e1e5495aa35b8cdd8032d240b93d9
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedRuntime.kt
+@@ -0,0 +1,19 @@
++package org.wikipedia.readinglist
++
++import android.content.SharedPreferences
++import org.json.JSONArray
++import org.json.JSONObject
++
++class SavedRuntime(val state: JSONObject, val persistence: JSONObject, val preferences: SharedPreferences) {
++    val effects = JSONArray()
++    val invokedProductionMethods = mutableListOf<String>()
++    var transitionExecuted = false
++    var earlyExit = ""
++    fun effect(vararg values: Pair<String, Any?>) {
++        effects.put(JSONObject().apply { values.forEach { (key, value) -> put(key, value) } })
++    }
++    fun complete() {
++        preferences.edit().putString("production-persistence", persistence.toString()).commit()
++        transitionExecuted = true
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedScheduler.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedScheduler.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d29a74b644e39ad142f9261c1dc79ffa35dc09c1
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedScheduler.kt
+@@ -0,0 +1,90 @@
++package org.wikipedia.readinglist
++
++import android.os.Handler
++import android.os.Looper
++
++/** Handle for a task queued on a [SavedScheduler]. */
++interface ScheduledTask {
++    fun cancel()
++}
++
++/**
++ * Timing seam used for the search debounce and for anything else the Saved surface defers.
++ *
++ * Production posts onto the main looper; a caller that needs deterministic ordering can drive a
++ * scheduler it controls instead, which is how the debounce window is exercised exactly.
++ */
++interface SavedScheduler {
++    fun postDelayed(delayMillis: Long, task: Runnable): ScheduledTask
++
++    companion object {
++        /** Search input is only applied once the reader stops typing for this long. */
++        const val SEARCH_DEBOUNCE_DELAY_MS = 150L
++
++        fun mainThread(): SavedScheduler = MainThreadSavedScheduler()
++
++        fun manual(): ManualSavedScheduler = ManualSavedScheduler()
++    }
++}
++
++class MainThreadSavedScheduler : SavedScheduler {
++    private var handler: Handler? = null
++
++    private fun handler(): Handler {
++        val existing = handler
++        if (existing != null) {
++            return existing
++        }
++        val created = Handler(Looper.getMainLooper())
++        handler = created
++        return created
++    }
++
++    override fun postDelayed(delayMillis: Long, task: Runnable): ScheduledTask {
++        val target = handler()
++        target.postDelayed(task, delayMillis)
++        return object : ScheduledTask {
++            override fun cancel() {
++                target.removeCallbacks(task)
++            }
++        }
++    }
++}
++
++/** Scheduler whose clock only moves when the caller advances it. */
++class ManualSavedScheduler : SavedScheduler {
++    private var now = 0L
++    private val pending = mutableListOf<Pending>()
++
++    private data class Pending(val dueAt: Long, val task: Runnable, var cancelled: Boolean)
++
++    val nowMillis: Long get() = now
++
++    val pendingCount: Int get() = pending.count { !it.cancelled }
++
++    override fun postDelayed(delayMillis: Long, task: Runnable): ScheduledTask {
++        val entry = Pending(now + delayMillis, task, false)
++        pending.add(entry)
++        return object : ScheduledTask {
++            override fun cancel() {
++                entry.cancelled = true
++            }
++        }
++    }
++
++    /** Moves the clock forward and runs everything that has come due, in due order. */
++    fun advanceBy(millis: Long) {
++        now += millis
++        runDueTasks()
++    }
++
++    fun runDueTasks() {
++        while (true) {
++            val due = pending.filter { !it.cancelled && it.dueAt <= now }.minByOrNull { it.dueAt }
++                ?: break
++            pending.remove(due)
++            due.task.run()
++        }
++        pending.removeAll { it.cancelled }
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedViewModel.kt b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8ddf8db6ab91fa15fe94a7fd1a53b967bbf940b
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/readinglist/SavedViewModel.kt
+@@ -0,0 +1,616 @@
++package org.wikipedia.readinglist
++
++import org.wikipedia.auth.AccountInfo
++import org.wikipedia.auth.AccountStateHolder
++import org.wikipedia.database.QueryFlow
++import org.wikipedia.database.Subscription
++import org.wikipedia.offline.ArticleAvailability
++import org.wikipedia.offline.ArticleOfflineStore
++import org.wikipedia.offline.ArticleOfflineStatus
++import org.wikipedia.page.PageTitle
++import org.wikipedia.util.ProductionLog
++
++/**
++ * Owns the state of the Saved experience.
++ *
++ * The database projections are the source of truth for membership; everything else - the
++ * selected tab, the search scope, the All articles filter, the two independent sort modes,
++ * selection, the refresh spinner, onboarding and feedback - is presentation that is reduced on
++ * top of those projections. Because the ViewModel subscribes to the projections, any write -
++ * from the Save sheet, from a destructive action, or from sync - re-reduces the rows without
++ * anyone rebuilding a page by hand.
++ */
++class SavedViewModel(
++    private val manager: ReadingListManager,
++    private val undo: ReadingListUndo,
++    private val sync: ReadingListSync,
++    private val account: AccountStateHolder,
++    private val offlineStore: ArticleOfflineStore,
++    private val preferences: SavedPreferences,
++    private val scheduler: SavedScheduler,
++    private val readingListsWithPages: QueryFlow<List<ReadingListWithPages>>,
++    private val log: ProductionLog
++) {
++    private val listeners = mutableListOf<(SavedUiState) -> Unit>()
++
++    private var selectedTab = SavedTab.ALL_ARTICLES
++    private var searchQuery = ""
++    private var appliedSearchQuery = ""
++    private var articleFilter = ArticleFilter.ALL_ARTICLES
++    private var selectionEnabled = false
++    private val selectedIds = LinkedHashSet<Long>()
++    private var isRefreshing = false
++    private var isLoading = true
++    private var sharedCollectionPending = false
++    private var feedback = SavedFeedback.NONE
++    private var feedbackMessage: String? = null
++    private var articleRows: List<SavedArticleRow> = emptyList()
++    private var collectionRows: List<SavedCollectionRow> = emptyList()
++    private var totalSavedCount = 0
++    private var pendingBulkDeleteConfirmation: List<SavedArticleRow> = emptyList()
++    private var pendingSearch: ScheduledTask? = null
++    private var projections: List<ReadingListWithPages> = emptyList()
++    private val availabilityFlow = offlineStore.observe()
++
++    /** Remote state the next sync pass should apply; supplied by the sync transport owner. */
++    var pendingRemoteSync: List<ReadingListSync.RemoteList> = emptyList()
++
++    val uiState: SavedUiState
++        get() = SavedUiState(
++            selectedTab = selectedTab,
++            searchQuery = searchQuery,
++            appliedSearchQuery = appliedSearchQuery,
++            articleFilter = articleFilter,
++            articleSortMode = preferences.articleSortMode,
++            collectionSortMode = preferences.collectionSortMode,
++            selectionEnabled = selectionEnabled,
++            selectedPageIds = selectedIds.toList(),
++            pendingDeleteConfirmation = pendingBulkDeleteConfirmation.isNotEmpty(),
++            isRefreshing = isRefreshing,
++            isLoading = isLoading,
++            onboarding = resolveOnboarding(),
++            feedback = feedback,
++            feedbackMessage = feedbackMessage,
++            menuActions = resolveMenuActions(),
++            sortChoices = resolveSortChoices(),
++            emptyState = resolveEmptyState(),
++            recoveryAction = resolveRecoveryAction(),
++            articleRows = articleRows,
++            collectionRows = collectionRows,
++            undoDescription = undo.description,
++            totalSavedCount = totalSavedCount
++        )
++
++    val requiresBulkDeleteConfirmation: Boolean get() = pendingBulkDeleteConfirmation.isNotEmpty()
++
++    /** Titles whose removal is waiting for confirmation, empty when nothing is pending. */
++    val pendingDeleteTitles: List<PageTitle> get() = pendingBulkDeleteConfirmation.map { it.title }
++
++    fun observe(listener: (SavedUiState) -> Unit): Subscription {
++        listeners.add(listener)
++        listener(uiState)
++        return Subscription { listeners.remove(listener) }
++    }
++
++    // ------------------------------------------------------------------ lifecycle
++
++    private fun emit() {
++        val state = uiState
++        listeners.toList().forEach { it(state) }
++    }
++
++    private fun recompute() {
++        val availability = availabilityFlow.value
++        val deduplicated = buildArticleRows(availability)
++        totalSavedCount = deduplicated.size
++        articleRows = deduplicated
++            .filter { matchesSearch(it.title, appliedSearchQuery) }
++            .filter { row -> articleFilter == ArticleFilter.ALL_ARTICLES || !row.isInUserCollection }
++        collectionRows = buildCollectionRows()
++        isLoading = false
++        emit()
++    }
++
++    private fun buildArticleRows(availability: Map<String, ArticleAvailability>): List<SavedArticleRow> {
++        val accumulator = LinkedHashMap<String, ArticleAccumulator>()
++        projections.forEach { projection ->
++            val list = projection.list
++            projection.pages.forEach { page ->
++                val entry = accumulator.getOrPut(page.title.logicalKey) { ArticleAccumulator(page.title) }
++                entry.collectionTitles.add(list.title to list.isDefault)
++                if (list.isDefault || entry.canonicalId == null) {
++                    entry.canonicalId = page.id
++                }
++                entry.inDefaultCollection = entry.inDefaultCollection || list.isDefault
++                entry.recency = maxOf(entry.recency, page.mtime)
++            }
++        }
++        val rows = accumulator.values.map { entry ->
++            val offline = availability[entry.title.logicalKey]
++            SavedArticleRow(
++                id = entry.canonicalId ?: 0L,
++                title = entry.title,
++                collectionTitles = entry.collectionTitles.sortedByDescending { it.second }.map { it.first },
++                isInDefaultCollection = entry.inDefaultCollection,
++                offlineStatus = offline?.status ?: ArticleOfflineStatus.NOT_DOWNLOADED,
++                downloadProgress = offline?.downloadProgress ?: ArticleAvailability.NO_ACTIVE_DOWNLOAD
++            )
++        }
++        return rows
++            .sortedWith(
++                SavedSorting.byRecency(
++                    mode = preferences.articleSortMode,
++                    key = { it.title.displayTitle },
++                    recency = { accRecency(accumulator, it.title.logicalKey) }
++                )
++            )
++    }
++
++    private fun buildCollectionRows(): List<SavedCollectionRow> {
++        val query = appliedSearchQuery
++        return projections
++            .filter { !it.list.isDefault }
++            .filter { query.isBlank() || it.list.title.contains(query, ignoreCase = true) }
++            .map { projection ->
++                SavedCollectionRow(
++                    id = projection.list.id,
++                    title = projection.list.title,
++                    description = projection.list.description,
++                    articleCount = projection.pages.size,
++                    isDefault = projection.list.isDefault
++                )
++            }
++            .sortedWith(
++                SavedSorting.byRecency(
++                    mode = preferences.collectionSortMode,
++                    key = { it.title },
++                    recency = { projectionRecency(it.id) }
++                )
++            )
++    }
++
++    private fun accRecency(accumulator: Map<String, ArticleAccumulator>, key: String): Long =
++        accumulator[key]?.recency ?: 0L
++
++    private fun projectionRecency(listId: Long): Long =
++        projections.firstOrNull { it.list.id == listId }?.pages?.maxOfOrNull { it.mtime } ?: 0L
++
++    private fun matchesSearch(title: PageTitle, query: String): Boolean {
++        if (query.isBlank()) {
++            return true
++        }
++        return title.displayTitle.contains(query, ignoreCase = true) ||
++            title.apiTitle.contains(query, ignoreCase = true)
++    }
++
++    private fun visibleRows(): List<Long> = when (selectedTab) {
++        SavedTab.ALL_ARTICLES -> articleRows.map { it.id }
++        SavedTab.COLLECTIONS -> collectionRows.map { it.id }
++    }
++
++    private fun resolveMenuActions(): List<SavedMenuAction> {
++        val base = when (selectedTab) {
++            SavedTab.ALL_ARTICLES -> listOf(SavedMenuAction.SORT, SavedMenuAction.FILTER)
++            SavedTab.COLLECTIONS -> listOf(SavedMenuAction.SORT, SavedMenuAction.NEW_COLLECTION)
++        }
++        if (visibleRows().isEmpty()) {
++            return base
++        }
++        return base + listOf(SavedMenuAction.SELECT_ALL, SavedMenuAction.DELETE)
++    }
++
++    private fun resolveSortChoices(): List<ReadingListSortMode> = when (selectedTab) {
++        SavedTab.ALL_ARTICLES -> ReadingListSortMode.entries.toList()
++        SavedTab.COLLECTIONS -> listOf(
++            ReadingListSortMode.SORT_BY_NAME_ASC,
++            ReadingListSortMode.SORT_BY_NAME_DESC,
++            ReadingListSortMode.SORT_BY_NEWEST_FIRST
++        )
++    }
++
++    private fun resolveEmptyState(): SavedEmptyState {
++        if (isLoading) {
++            return SavedEmptyState.LOADING
++        }
++        val rowsAreEmpty = visibleRows().isEmpty()
++        if (!rowsAreEmpty) {
++            return SavedEmptyState.NONE
++        }
++        if (appliedSearchQuery.isNotBlank()) {
++            return SavedEmptyState.SEARCH_NO_RESULTS(appliedSearchQuery)
++        }
++        return when (selectedTab) {
++            SavedTab.ALL_ARTICLES -> SavedEmptyState.NO_SAVED_ARTICLES
++            SavedTab.COLLECTIONS -> SavedEmptyState.NO_COLLECTIONS
++        }
++    }
++
++    private fun resolveRecoveryAction(): SavedRecoveryAction {
++        return when (resolveEmptyState()) {
++            is SavedEmptyState.SEARCH_NO_RESULTS -> SavedRecoveryAction.CLEAR_SEARCH
++            SavedEmptyState.NO_COLLECTIONS -> SavedRecoveryAction.CREATE_COLLECTION
++            SavedEmptyState.NO_SAVED_ARTICLES ->
++                if (account.account.isLoggedIn) SavedRecoveryAction.START_SYNC else SavedRecoveryAction.LOG_IN
++            else -> SavedRecoveryAction.NONE
++        }
++    }
++
++    private fun resolveOnboarding(): SavedOnboardingState = when {
++        sharedCollectionPending -> SavedOnboardingState.SHARED_COLLECTION_RECEIVED
++        feedback == SavedFeedback.LOGIN_REQUIRED -> SavedOnboardingState.LOGIN_PROMPT
++        // Signed out with something saved: there is something worth signing in to sync.
++        !account.account.isLoggedIn && totalSavedCount > 0 -> SavedOnboardingState.LOGIN_PROMPT
++        account.account.isLoggedIn && !sync.isSyncEnabled() -> SavedOnboardingState.SYNC_REMINDER
++        else -> SavedOnboardingState.NONE
++    }
++
++    // ------------------------------------------------------------------ tab and search
++
++    fun onScreenOpened() {
++        log.record("SavedViewModel.onScreenOpened")
++        recompute()
++    }
++
++    /**
++     * Switches the visible view. Rows, search scope, sort, menu actions, empty state and
++     * onboarding are re-derived for the new view; nothing about stored membership changes and the
++     * default collection stays in storage either way.
++     */
++    fun onSelectTab(tab: SavedTab) {
++        if (tab == selectedTab) {
++            return
++        }
++        log.record("SavedViewModel.onSelectTab:${tab.name}")
++        selectedTab = tab
++        if (tab == SavedTab.COLLECTIONS) {
++            // The narrowing filter only exists on All articles.
++            articleFilter = ArticleFilter.ALL_ARTICLES
++        }
++        selectionEnabled = false
++        selectedIds.clear()
++        pendingBulkDeleteConfirmation = emptyList()
++        recompute()
++    }
++
++    /**
++     * Records what the reader typed. A non-empty query is only applied once typing pauses for
++     * [SavedScheduler.SEARCH_DEBOUNCE_DELAY_MS]; clearing the field applies at once.
++     */
++    fun onSearchQueryChanged(query: String) {
++        log.record("SavedViewModel.onSearchQueryChanged:$query")
++        searchQuery = query
++        pendingSearch?.cancel()
++        if (query.isBlank()) {
++            appliedSearchQuery = ""
++            recompute()
++            return
++        }
++        pendingSearch = scheduler.postDelayed(SavedScheduler.SEARCH_DEBOUNCE_DELAY_MS) {
++            applySearchQuery(query)
++        }
++        emit()
++    }
++
++    /** Applies the debounced query to the rows of the active tab only. */
++    fun applySearchQuery(query: String) {
++        log.record("SavedViewModel.applySearchQuery:$query")
++        searchQuery = query
++        appliedSearchQuery = query
++        recompute()
++    }
++
++    fun onClearSearch() {
++        pendingSearch?.cancel()
++        pendingSearch = null
++        searchQuery = ""
++        appliedSearchQuery = ""
++        feedback = SavedFeedback.NONE
++        feedbackMessage = null
++        recompute()
++    }
++
++    fun onFilterSelected(filter: ArticleFilter) {
++        log.record("SavedViewModel.onFilterSelected:${filter.name}")
++        articleFilter = filter
++        recompute()
++    }
++
++    /** Applies a sort choice to the active view and persists it under that view's own key. */
++    fun onSortSelected(mode: ReadingListSortMode) {
++        if (selectedTab == SavedTab.ALL_ARTICLES) {
++            log.record("SavedViewModel.onSortSelected:articles:${mode.name}")
++            preferences.articleSortMode = mode
++        } else {
++            log.record("SavedViewModel.onSortSelected:collections:${mode.name}")
++            preferences.collectionSortMode = mode
++        }
++        recompute()
++    }
++
++    // ------------------------------------------------------------------ selection
++
++    fun onStartSelectionMode() {
++        log.record("SavedViewModel.onStartSelectionMode")
++        selectionEnabled = true
++        emit()
++    }
++
++    fun onToggleSelection(rowId: Long) {
++        log.record("SavedViewModel.onToggleSelection:$rowId")
++        selectionEnabled = true
++        if (rowId in visibleRows()) {
++            if (!selectedIds.add(rowId)) {
++                selectedIds.remove(rowId)
++            }
++        }
++        emit()
++    }
++
++    /**
++     * Selects every row currently visible. Because All articles is de-duplicated, one logical
++     * article contributes exactly one id, and rows hidden by the active filter are not selected.
++     */
++    fun onSelectAllVisible() {
++        log.record("SavedViewModel.onSelectAllVisible")
++        selectionEnabled = true
++        val visible = visibleRows()
++        selectedIds.clear()
++        selectedIds.addAll(visible)
++        emit()
++    }
++
++    fun onClearSelection() {
++        log.record("SavedViewModel.onClearSelection")
++        selectionEnabled = false
++        selectedIds.clear()
++        pendingBulkDeleteConfirmation = emptyList()
++        emit()
++    }
++
++    // ------------------------------------------------------------------ destructive actions
++
++    /**
++     * Runs the destructive action valid for the active row type.
++     *
++     * On All articles an article held by a user-created collection is only staged for removal
++     * after the reader confirms; on Collections the default collection is never a row and can
++     * never be deleted. Both paths are reversible through undo.
++     */
++    fun onDeleteSelected() {
++        log.record("SavedViewModel.onDeleteSelected:${selectedTab.name}")
++        if (selectedIds.isEmpty()) {
++            feedback = SavedFeedback.NOTHING_SELECTED
++            feedbackMessage = null
++            emit()
++            return
++        }
++        when (selectedTab) {
++            SavedTab.ALL_ARTICLES -> {
++                val rows = articleRows.filter { it.id in selectedIds }
++                if (rows.isEmpty()) {
++                    feedback = SavedFeedback.NOTHING_SELECTED
++                    emit()
++                    return
++                }
++                if (rows.any { it.requiresUnsaveConfirmation }) {
++                    pendingBulkDeleteConfirmation = rows
++                    feedback = SavedFeedback.NONE
++                    feedbackMessage = null
++                    emit()
++                    return
++                }
++                stageArticleRemoval(rows)
++            }
++            SavedTab.COLLECTIONS -> stageCollectionRemoval()
++        }
++    }
++
++    /** Confirms a bulk removal that touches at least one user-created collection. */
++    fun onConfirmDeleteSelected() {
++        val rows = pendingBulkDeleteConfirmation
++        log.record("SavedViewModel.onConfirmDeleteSelected:${rows.size}")
++        pendingBulkDeleteConfirmation = emptyList()
++        if (rows.isNotEmpty()) {
++            stageArticleRemoval(rows)
++        } else {
++            emit()
++        }
++    }
++
++    fun onCancelDeleteSelected() {
++        log.record("SavedViewModel.onCancelDeleteSelected")
++        pendingBulkDeleteConfirmation = emptyList()
++        emit()
++    }
++
++    private fun stageArticleRemoval(rows: List<SavedArticleRow>) {
++        val snapshots = rows.flatMap { row ->
++            manager.memberships(row.title).map { membership ->
++                ArticleMembershipSnapshot(membership.id, membership.title, row.title)
++            }
++        }
++        rows.forEach { manager.queueArticleForDeletion(it.title) }
++        undo.trackArticles(rows.map { it.title }, snapshots)
++        selectedIds.clear()
++        selectionEnabled = false
++        feedback = SavedFeedback.ARTICLES_DELETED
++        feedbackMessage = rows.joinToString { it.title.displayTitle }
++        recompute()
++    }
++
++    private fun stageCollectionRemoval() {
++        val selected = collectionRows.filter { it.id in selectedIds && !it.isDefault }
++        if (selected.isEmpty()) {
++            feedback = SavedFeedback.NOTHING_SELECTED
++            emit()
++            return
++        }
++        val snapshots = selected.mapNotNull { row ->
++            manager.findListById(row.id)?.let { list ->
++                CollectionSnapshot(list.id, list.title, list.description, list.isRemote)
++            }
++        }
++        selected.forEach { row ->
++            manager.findListById(row.id)?.let { manager.deleteCollection(it) }
++        }
++        undo.trackCollections(snapshots)
++        selectedIds.clear()
++        selectionEnabled = false
++        feedback = SavedFeedback.COLLECTIONS_DELETED
++        feedbackMessage = selected.joinToString { it.title }
++        recompute()
++    }
++
++    /** Restores whatever the last destructive action removed, leaving unrelated rows alone. */
++    fun onUndoDelete() {
++        log.record("SavedViewModel.onUndoDelete")
++        if (!undo.undo()) {
++            feedback = SavedFeedback.NONE
++            emit()
++            return
++        }
++        feedback = SavedFeedback.RESTORED
++        feedbackMessage = null
++        recompute()
++    }
++
++    // ------------------------------------------------------------------ sync and account
++
++    /**
++     * Pull-to-refresh. Only an account that is signed in and not temporary may start a sync; for
++     * anyone else the refresh ends immediately with a login prompt and nothing is dispatched.
++     */
++    fun onPullToRefresh() {
++        log.record("SavedViewModel.onPullToRefresh")
++        val info = account.account
++        if (!info.isEligibleForSync) {
++            isRefreshing = false
++            feedback = SavedFeedback.LOGIN_REQUIRED
++            feedbackMessage = "Log in to sync your saved articles."
++            log.record("SavedViewModel.onPullToRefresh:login_prompt")
++            emit()
++            return
++        }
++        feedback = SavedFeedback.NONE
++        feedbackMessage = null
++        isRefreshing = true
++        sync.start(info, pendingRemoteSync)
++        recompute()
++    }
++
++    fun onSyncEvent(event: ReadingListSyncEvent) {
++        log.record("SavedViewModel.onSyncEvent:${event.status}")
++        when {
++            event.isRunning -> {
++                isRefreshing = true
++                recompute()
++            }
++            event.isError -> {
++                isRefreshing = false
++                feedback = SavedFeedback.SYNC_FAILED
++                recompute()
++            }
++            else -> {
++                isRefreshing = false
++                feedback = SavedFeedback.SYNCED
++                recompute()
++            }
++        }
++    }
++
++    fun onLoginCompleted(info: AccountInfo) {
++        log.record("SavedViewModel.onLoginCompleted:${info.userName}")
++        account.update(info)
++        // Signing in turns reading list synchronization on for the account.
++        sync.setSyncEnabled(info.isEligibleForSync)
++        feedback = SavedFeedback.NONE
++        feedbackMessage = null
++        recompute()
++    }
++
++    fun onLogout() {
++        log.record("SavedViewModel.onLogout")
++        account.onLogout()
++        sync.setSyncEnabled(false)
++        feedback = SavedFeedback.NONE
++        recompute()
++    }
++
++    fun onSyncPreferenceChanged(enabled: Boolean) {
++        log.record("SavedViewModel.onSyncPreferenceChanged:$enabled")
++        sync.setSyncEnabled(enabled)
++        preferences.syncReminderSeen = !enabled
++        recompute()
++    }
++
++    fun onSharedCollectionReceived(collectionTitle: String) {
++        log.record("SavedViewModel.onSharedCollectionReceived:$collectionTitle")
++        val existing = manager.findListByTitle(collectionTitle)
++        if (existing == null) {
++            manager.createCollection(collectionTitle, isRemote = true)
++        }
++        sharedCollectionPending = true
++        feedback = SavedFeedback.NONE
++        recompute()
++    }
++
++    fun onDismissOnboarding() {
++        log.record("SavedViewModel.onDismissOnboarding")
++        sharedCollectionPending = false
++        preferences.syncReminderSeen = true
++        recompute()
++    }
++
++    // ------------------------------------------------------------------ helpers used by the sheet
++
++    fun createCollection(title: String, description: String? = null): CollectionChange {
++        log.record("SavedViewModel.createCollection:$title")
++        val result = manager.createUserCollection(title, description)
++        feedback = when {
++            result is CollectionChange.Applied -> SavedFeedback.COLLECTION_CREATED
++            else -> SavedFeedback.LIMIT_REACHED
++        }
++        feedbackMessage = (result as? CollectionChange.Rejected)?.message
++        recompute()
++        return result
++    }
++
++    fun reportFeedback(feedback: SavedFeedback, message: String? = null) {
++        if (feedback == SavedFeedback.NONE && message == null) {
++            return
++        }
++        log.record("SavedViewModel.reportFeedback:$feedback")
++        this.feedback = feedback
++        this.feedbackMessage = message
++        emit()
++    }
++
++    private class ArticleAccumulator(val title: PageTitle) {
++        var canonicalId: Long? = null
++        var inDefaultCollection = false
++        var recency = 0L
++        val collectionTitles = mutableListOf<Pair<String, Boolean>>()
++    }
++
++    init {
++        log.record("SavedViewModel.init")
++        readingListsWithPages.observe { projection ->
++            projections = projection
++            recompute()
++        }
++        availabilityFlow.observe {
++            recompute()
++        }
++        account.observe().observe {
++            log.record("SavedViewModel.onAccountStateChanged")
++            recompute()
++        }
++        sync.addListener { event -> onSyncEvent(event) }
++    }
++}
++
++/** Convenience for observers that only need the rows of the active tab. */
++fun SavedUiState.visibleRowIds(): List<Long> = when (selectedTab) {
++    SavedTab.ALL_ARTICLES -> articleRows.map { it.id }
++    SavedTab.COLLECTIONS -> collectionRows.map { it.id }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/util/Json.kt b/app/src/main/upstream/kotlin/org/wikipedia/util/Json.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..74b76254c49da1d6fc1919c3cb90775e48b9b2e9
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/util/Json.kt
+@@ -0,0 +1,51 @@
++package org.wikipedia.util
++
++import org.json.JSONArray
++import org.json.JSONObject
++
++/** Reads a string entry, returning `null` when the key is absent or JSON `null`. */
++fun JSONObject.stringOrNull(key: String): String? =
++    if (has(key) && !isNull(key)) optString(key) else null
++
++fun JSONObject.stringOr(key: String, fallback: String): String = stringOrNull(key) ?: fallback
++
++fun JSONObject.booleanOrNull(key: String): Boolean? =
++    if (has(key) && !isNull(key)) optBoolean(key) else null
++
++fun JSONObject.booleanOr(key: String, fallback: Boolean): Boolean = booleanOrNull(key) ?: fallback
++
++fun JSONObject.intOr(key: String, fallback: Int): Int = if (has(key) && !isNull(key)) optInt(key, fallback) else fallback
++
++fun JSONObject.longOr(key: String, fallback: Long): Long = if (has(key) && !isNull(key)) optLong(key, fallback) else fallback
++
++fun JSONObject.objectOrNull(key: String): JSONObject? =
++    if (has(key) && !isNull(key)) optJSONObject(key) else null
++
++fun JSONObject.arrayOrNull(key: String): JSONArray? =
++    if (has(key) && !isNull(key)) optJSONArray(key) else null
++
++fun JSONObject.stringList(key: String): List<String> {
++    val array = arrayOrNull(key) ?: return emptyList()
++    return (0 until array.length()).mapNotNull { index ->
++        val value = array.opt(index)
++        if (value == null || value === JSONObject.NULL) null else value.toString()
++    }
++}
++
++fun JSONObject.objectList(key: String): List<JSONObject> {
++    val array = arrayOrNull(key) ?: return emptyList()
++    return (0 until array.length()).mapNotNull { index -> array.optJSONObject(index) }
++}
++
++/** Builds a [JSONObject] from pairs, dropping entries whose value is `null`. */
++fun jsonOf(vararg pairs: Pair<String, Any?>): JSONObject {
++    val json = JSONObject()
++    pairs.forEach { (key, value) -> if (value != null) json.put(key, value) }
++    return json
++}
++
++fun jsonArrayOf(values: Collection<Any?>): JSONArray {
++    val array = JSONArray()
++    values.forEach { array.put(it ?: JSONObject.NULL) }
++    return array
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/util/ProductionLog.kt b/app/src/main/upstream/kotlin/org/wikipedia/util/ProductionLog.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec4756806b40de41a4e833b4c9a4e91237641bab
+--- /dev/null
++++ b/app/src/main/upstream/kotlin/org/wikipedia/util/ProductionLog.kt
+@@ -0,0 +1,34 @@
++package org.wikipedia.util
++
++/** Ordered record of the production entry points that a transition actually executed. */
++interface ProductionLog {
++    fun record(method: String)
++}
++
++/** In-memory [ProductionLog]; the sequence is what an external observer inspects. */
++class RecordingProductionLog : ProductionLog {
++    private val methods = mutableListOf<String>()
++
++    val invocations: List<String> get() = methods.toList()
++
++    override fun record(method: String) {
++        methods.add(method)
++    }
++
++    fun clear() {
++        methods.clear()
++    }
++}
++
++/** Wraps a list so that production code can contribute to an externally owned record. */
++class ListBackedProductionLog(private val sink: MutableList<String>) : ProductionLog {
++    override fun record(method: String) {
++        sink.add(method)
++    }
++}
++
++class CompositeProductionLog(private val delegates: List<ProductionLog>) : ProductionLog {
++    override fun record(method: String) {
++        delegates.forEach { it.record(method) }
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/test/kotlin/org/json/Json.kt b/app/src/test/kotlin/org/json/Json.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..51292a120baef39a100eb844969ea52b24eaee89
+GIT binary patch
+literal 10735
+zcmb_iTXWmS74EZs#fIYvNr|T2nM@xvp&iF{CrK4KQzz|%#0Q96iLgKb#YMKN=)d=T
+z=j;^(D8&(HY?0Wr=YHF>D3jH7a-~&KUClq%MSgJb;_&c59jYISx_MrwYpu?H`tbhr
+z{l!PUYL=?4^;#8qcB?LnN@c|=$<&Rm(#v#}G-;8m;!-smtv)0-1XwqOeop9s@mG3W
+zW=TUEw<_J1ncnKWkzHAOqidDsD#_PXk*?<-lM3HeTC0T6v=^#q8)hd_YkiZh^i0(S
+zlWOy{0scnUO|9y-EQz~jLp$|<+w>;Mh{|03*Z|k6$S>2JIBR4t_7I-7T4`15#*)l6
+z$)rlr%^Cu{I9O##T`RAP$yD7P94Pvf6;WxlB2xI*k|YatlIGWX{X<f3eoo47KQvXE
+zU(M8;{Py*$$#iF1QLTyKLcOV~<n|=38?ytj3`~sIP1UZNqM8W5$4Zb+)iF!U{D2*N
+z%A~5b0TgQY!+5~p;Y=OA>P02g=47>Z$!eqS)Z|*<&P33udj3k4ZG%VirVxfEQ@480
+zyc^P&ZLY``SIuTJJyt*F4av)L&+GJmTG#{3TI=#{QQiW|tDAuRkBO&c^n;DWM9ruh
+zT_vO_t3yYpDWKZPbe<Xrt6l8gB=sauw%Y0SSbbj<nND)rFJ_&S6`CZ?>woH7h7E|P
+z^=X@B!x+9ALZN>D-Jm}M`K4Mc7V7l3lM}BIXgFle==Yf2Db~^*YaA|+UaH9;QTQ%^
+z>__a7tk*^?`&<l&U&6j+QGPlUm2TQ9XE*Fxe2{me+?f3ZdlO_eGODB&DIcK?a;Yc8
+zc2eY5Pl)dCMSGFyKaQ}{+u}w?<|ib`Bi=0onCU#pC@<cz`O`*ywNN?v<<vx42&sa&
+zEXvr!x+KKz-Ue5?58iQP+~hSfQ&oK8$bI*DrAw5E$>_8Y|KS?)4Ave6kwm<hL=yY_
+zWs+qVl#+u06}Z5c$x97t8?&Aj<D?c%*Le{y?Bp&0r^>=Aoz<M*TOFjiuB-PmPO3C)
+zQo4&oo2gMKH|exT?gzHd)5~|;vbiOT52?E5+7s%!V|j|3$iHSzZcfw0fh22DPi-`s
+z)UVZPyS>oW^ff63NT!M`Zgu9Jg{1D1a5#gtnR*#`0cqngn}QvL3Nbq<iV0}^AxGUS
+z4C5J=W`_)kW6*|7kU%Ffe<tS*vgmW7FFl_&I%jTs9Xm|q)Zf@`RF>J7os-j=7z-7f
+zmz>QgMZ65*jJG;C>Y^y8Oh(jx=+R82S9wwCw+RKrLgAV87pM^&CA81E03OC!rcVQ;
+zJ<B(TNC?BeSQ8EA5OtayBLuL~wGT<Ko9rW*c+dteQOlQyT*Y7;c9x)P3G*58>sNd(
+z4}!}tN5cEZkq8k!Vwwc)Kr)L%NuuEXK1>pxs6oZOX&+5q7!-k5Ju)&M_}Y)m^Y7vI
+zvY()D?&ls#=eE$1CG74yHG`&L3JUUG>4kj1%L{Y#F=;bZ_tv4QDpwWGM{r8tk6M3(
+z2x#i(AB!~q)wafEr7zRZv^Kh<P%7z+Wq#g|D3Z~^Qhd5#9G#Dz-J!MC^(ra#WO{!-
+zIv%MbRq32i+Z09+%c#j0j;O6iH@tKFAnMWK#Go-j^5TVh{--~D{-6VonBAU_z*cxL
+zv8oDl7z#MU;576LPBHep<I{|+&+F^7{LhA3`I-)Dq#UO<hht4R3~;5B^}lg83*b=k
+zd6|!yK3YP4kii6o@+E8Z;geA3_#;VB{%0PoKIBCCiwJ2Sg8A+N&-dycs-n~KTEmrI
+zik3kD8t$qk=#BvLX_IDJO=R=8hSXfnW$Np%&4V*uU(VAy)NofZz{h|`M^5>8=1&bK
+z`QssY3#?#zST7o2y1YkNVJ>0&)gtD*k1x~hq4|xlc-}zJKuL`iwHwj<aE|ZBD4&o*
+z<{^PI0UJK!GY2EN%loAO5Xi`Zn1*i`#+FjhI^pAL)*<Ev36yO8!z$ad85Wz4L+H;X
+zO?D<ETg(L<5fdTuFdrHn9v-w;sr5Crg><4F-;euL+UGvdlQ9gBq^#cX*Gr9G#+kVb
+z>4=5pz3c%1G9u?L*rtQVco2`(;c-WYpaBuMdJv%*(=mA{RyRN&q$7SRO6}7okc?;S
+zT|<gxkb4G+V-E}Vvu`tChOA@v$5ygWtxxy%AU`J=27{O`N-L5y>KXGvXC#Zk{*Ceb
+zUwb0K1fv83|L8c3wc%OEhVT(?0ZbtDMfG08ahdUPu>6uZU<M*Jc%h+`2Lge&vl9jx
+zcvr1^#Sk($i~M>2TRx5d?P{gpLG05<Iv}G}Pwam-x!9&>!23o$-gnWanT&@8$@lWR
+zlZ*Ei_P$&JzovPvEu~WSj*ga*mwBVFHhoC2?#da@01dO<F^M&S{X0HCf4~R8pY*+G
+z<HFk9$E3w;$tPt=J@RBn7z>BLl1&YbA?d;m<D7XOpXcMfh_Pqf7}(|!u$6(W9szq{
+zU@sm4+cK<~;MeU%&7&acqUa>g4djvfW@=^ufBhT2z1<|0KNcCFh5Dvbdqc(8?>4}U
+zPWLJ)PGA-T{_Z9wJne_K6gze&Z`~mtBZz<XmZaZux+d7BIo<8xDhoF_K`q)-Yh1&|
+zO>QUB;n#F8R^j@Cl^Zd-FN$~Cb4+(p?z?R}Kc^bs`~30sCsq;oZi;Iv05%%u-lJF`
+z<5A>8Rl4nDr?Ao9?K=!!Iu@f}AEC+S8xYt%{CGGXMgb0AA`JrG!_g?J){Kz9?Lb=p
+z;T`1s7~{RK_$o&R4v?6h%a~_pCBo<RHQ*akIFA(~4AyrCn$9_F8l}6X%+<z!8T*4?
+z*yo$ZWwjB+-9)yxsCyQ=XDVDvg-Le_r|K^Py}|R2j};U+&#1@@)l#o9SdF70I7-T@
+z(dDYxmPyVx%+eovFZ%AMo9#bRovocU;Hz*Ti9edebhm(9G{7-K&Vuf)D><6R14TUN
+zivhk^CfzV34mLX{%m^>tDsJ8uYZ^P)DY~Dv?l93iMUs$kq7ArKI1zIEOS?dx=4Qw=
+zt?i^Eu#Y(EkO6Pd;J^}%lMQlg#h8jzPM0IWplak;1}@s*Pmz=;<mVe6+Yt)c?d6a5
+z+87-K8qkSw=y-CS*Ftf%Famf#0-rGNcOpeF=ph#l#&UqeN3_}>6IeHmk!eLn=jZ3R
+z@4-s<W4oaM^n4Ihnh+0~4?;={;vt(sNNGSkWHkV3O<^GaNSU?KOvduBQm_NKHy3PH
+zL-^9nV~h7F7=qu3u<uT=1|Rc2gdaM0Uprvr54?6Dz8Q{+y?X{13YZJCW4fqwv*jSt
+zgdpzM8P<D&sf%zsmdm&@k4imex(PG$ean?2J8(g6SVB4bvYqCR<;ym^I~1=Ax!Gs7
+zdRV4g0qIKZjUyQw6%tM`r$tkExkBu{2rvYK*#WB+`lM@&9U8c`=qKWxhsaB+h<BUx
+z5hPd1VuaCAnugidX4>9z>8`~4N~MiD7LJ+`!;W}S;4wsZhtu#fR~E^nj(5)~?r<&M
+z{%c&)18!v52G&gUfaINcG-TWUYhg2`Hin21g*=L@KOV2UYjk!dK7FZ)+4axGO8&RN
+z?RBl5xs;<x3h3gpD)P_aY#mMc#mL|ASW;u8ZTHx7A3*J8KH*9mI#-wX08_|1KOW$m
+z*M#w?>G7TvxSE97z-`!Bd>gjp+c1gcpzuD>#>|2iW4^z6@p^yyUIfMc{vaxI{@oY4
+ti>&E=ORE>Wardt_Z_=&afuSOUXmLhI9`t;N88Nh%O#F?(Jh<`i{{!{`wow28
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/src/test/kotlin/org/wikipedia/readinglist/SavedScenarioTest.kt b/app/src/test/kotlin/org/wikipedia/readinglist/SavedScenarioTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..7cd35d36aa78bd789febf7056302e1d8ab59ae4a
+--- /dev/null
++++ b/app/src/test/kotlin/org/wikipedia/readinglist/SavedScenarioTest.kt
+@@ -0,0 +1,628 @@
++package org.wikipedia.readinglist
++
++import org.json.JSONArray
++import org.json.JSONObject
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++/**
++ * Host-side verification of the public Saved scenarios: each test builds the scenario state,
++ * drives the production entry point and inspects the resulting state.
++ */
++class SavedScenarioTest {
++
++    private fun jsonArray(values: List<Any?>): JSONArray = JSONArray().apply { values.forEach { put(it) } }
++
++    private fun listObject(vararg pairs: Pair<String, Any?>): JSONObject = given(*pairs)
++
++    private fun stateOf(runtime: SavedRuntime): JSONObject = runtime.persistence
++
++    private fun uiState(runtime: SavedRuntime): JSONObject = runtime.persistence.getJSONObject("uiState")
++
++    private fun articleKeys(runtime: SavedRuntime): List<String> {
++        val rows = uiState(runtime).getJSONArray("articleRows")
++        return (0 until rows.length()).map { rows.getJSONObject(it).getString("article") }
++    }
++
++    private fun collectionTitles(runtime: SavedRuntime): List<String> {
++        val rows = uiState(runtime).getJSONArray("collectionRows")
++        return (0 until rows.length()).map { rows.getJSONObject(it).getString("title") }
++    }
++
++    // ------------------------------------------------------------------ case 1
++
++    @Test
++    fun allArticlesDeduplicatesMemberships() {
++        val state = given(
++            "roomLists" to jsonArray(
++                listOf(
++                    listObject(
++                        "title" to "Saved",
++                        "isDefault" to true,
++                        "articles" to jsonArray(listOf("en:Ada_Lovelace", "en:Paris"))
++                    ),
++                    listObject(
++                        "title" to "People",
++                        "isDefault" to false,
++                        "articles" to jsonArray(listOf("en:Ada_Lovelace"))
++                    ),
++                    listObject(
++                        "title" to "Places",
++                        "isDefault" to false,
++                        "articles" to jsonArray(listOf("fr:Paris"))
++                    )
++                )
++            )
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).openSavedSurface()
++
++        assertTrue(runtime.transitionExecuted)
++        assertEquals("", runtime.earlyExit)
++        assertEquals(listOf("en:Ada_Lovelace", "en:Paris", "fr:Paris"), articleKeys(runtime))
++
++        val ada = uiState(runtime).getJSONArray("articleRows").getJSONObject(0)
++        assertEquals(1, countOccurrences(articleKeys(runtime), "en:Ada_Lovelace"))
++        val collections = ada.getJSONArray("collections")
++        assertEquals("Saved", collections.getString(0))
++        assertEquals("People", collections.getString(1))
++
++        // The fr article is a distinct logical article from the en article.
++        assertTrue(articleKeys(runtime).contains("fr:Paris"))
++    }
++
++    // ------------------------------------------------------------------ case 2
++
++    @Test
++    fun collectionsTabUsesItsOwnSortAndExcludesDefault() {
++        val state = given(
++            "selectedTab" to "ALL_ARTICLES",
++            "roomLists" to jsonArray(
++                listOf(
++                    listObject("title" to "Saved", "isDefault" to true),
++                    listObject("title" to "Zoo", "isDefault" to false),
++                    listObject("title" to "Alpha", "isDefault" to false)
++                )
++            ),
++            "persistedSortModes" to listObject("ALL_ARTICLES" to 1, "COLLECTIONS" to 0)
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).selectSavedTab("COLLECTIONS")
++
++        assertEquals("COLLECTIONS", uiState(runtime).getString("selectedTab"))
++        assertEquals(listOf("Alpha", "Zoo"), collectionTitles(runtime))
++
++        // Article sort mode is untouched and still name-descending.
++        val modes = stateOf(runtime).getJSONObject("sortModes")
++        assertEquals(1, modes.getInt("ALL_ARTICLES"))
++        assertEquals(0, modes.getInt("COLLECTIONS"))
++
++        // The default collection is presentation-only filtered: it is still stored.
++        val stored = stateOf(runtime).getJSONArray("collections")
++        val storedTitles = (0 until stored.length()).map { stored.getJSONObject(it).getString("title") }
++        assertTrue(storedTitles.contains("Saved"))
++    }
++
++    // ------------------------------------------------------------------ case 3
++
++    @Test
++    fun searchIsDebouncedAndScopedToTheActiveTab() {
++        val state = given(
++            "selectedTab" to "ALL_ARTICLES",
++            "searchQuery" to JSONObject.NULL,
++            "searchDebounceMillis" to 150,
++            "articleRows" to jsonArray(listOf("en:Cafe", "en:Tea")),
++            "collectionTitles" to jsonArray(listOf("Cafe Collection"))
++        )
++        val runtime = runtimeOf(state)
++        val prefix = SavedActionPrefix(runtime)
++        // Typed but not yet due: the rows must not be filtered.
++        prefix.enterSavedSearchQuery("cafe", 149)
++        assertEquals(listOf("en:Cafe", "en:Tea"), articleKeys(runtime))
++
++        val runtime2 = runtimeOf(state.deepCopy())
++        SavedActionPrefix(runtime2).enterSavedSearchQuery("cafe", 150)
++        assertEquals(listOf("en:Cafe"), articleKeys(runtime2))
++        // Search does not mutate membership.
++        val collections = stateOf(runtime2).getJSONArray("memberships")
++        val saved = (0 until collections.length())
++            .map { collections.getJSONObject(it) }
++            .first { it.getString("collection") == "Saved" }
++        assertEquals(2, saved.getJSONArray("articles").length())
++    }
++
++    // ------------------------------------------------------------------ case 4
++
++    @Test
++    fun defaultOnlyFilterExcludesAnyArticleInANamedCollection() {
++        val memberships = JSONObject()
++            .put("en:Default_only", jsonArray(listOf("Saved")))
++            .put("en:Default_and_travel", jsonArray(listOf("Saved", "Travel")))
++            .put("en:Travel_only", jsonArray(listOf("Travel")))
++        val state = given(
++            "selectedTab" to "ALL_ARTICLES",
++            "selectedArticleFilter" to "ALL_ARTICLES",
++            "articleMemberships" to memberships
++        )
++        val all = runtimeOf(state.deepCopy())
++        SavedActionPrefix(all).openSavedSurface()
++        assertEquals(3, articleKeys(all).size)
++
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).selectArticleFilter("NOT_IN_COLLECTION")
++        assertEquals(listOf("en:Default_only"), articleKeys(runtime))
++    }
++
++    // ------------------------------------------------------------------ case 5
++
++    @Test
++    fun selectAllTargetsVisibleDeduplicatedRows() {
++        val state = given(
++            "selectedTab" to "ALL_ARTICLES",
++            "selectedArticleFilter" to "NOT_IN_COLLECTION",
++            "visibleArticleRows" to jsonArray(
++                listOf(
++                    listObject("id" to 11, "article" to "en:Ada_Lovelace"),
++                    listObject("id" to 12, "article" to "en:Grace_Hopper")
++                )
++            ),
++            "hiddenByFilter" to jsonArray(
++                listOf(
++                    listObject(
++                        "id" to 13,
++                        "article" to "en:Paris",
++                        "collections" to jsonArray(listOf("Saved", "Travel"))
++                    )
++                )
++            ),
++            "selection" to listObject("enabled" to true, "selectedPageIds" to jsonArray(emptyList()))
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).selectAllVisibleRows()
++
++        val ids = uiState(runtime).getJSONArray("selectedPageIds")
++        val selected = (0 until ids.length()).map { ids.getInt(it) }
++        assertEquals(listOf(11, 12), selected)
++    }
++
++    // ------------------------------------------------------------------ case 6
++
++    @Test
++    fun offlineRedirectFailureSavesOriginalIdentity() {
++        val state = given(
++            "article" to listObject(
++                "language" to "en",
++                "apiTitle" to "Original_Title",
++                "displayTitle" to "Original Title"
++            ),
++            "memberships" to jsonArray(emptyList()),
++            "redirectMetadataHttp" to "error:io",
++            "savedSurface" to listObject(
++                "selectedTab" to "ALL_ARTICLES",
++                "articleRows" to jsonArray(emptyList())
++            )
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).openSaveArticleSheet()
++
++        assertEquals(listOf("en:Original_Title"), articleKeys(runtime))
++        val saved = (0 until stateOf(runtime).getJSONArray("memberships").length())
++            .map { stateOf(runtime).getJSONArray("memberships").getJSONObject(it) }
++            .first { it.getString("collection") == "Saved" }
++        assertEquals("en:Original_Title", saved.getJSONArray("articles").getString(0))
++        assertTrue(
++            runtime.invokedProductionMethods.contains("RedirectResolver.resolve:io_failure")
++        )
++    }
++
++    // ------------------------------------------------------------------ case 7
++
++    @Test
++    fun cancellingNamedUnsaveIsANoOp() {
++        val state = given(
++            "saveSheet" to listObject(
++                "article" to "en:Ada_Lovelace",
++                "isSaved" to true,
++                "pendingConfirmation" to true
++            ),
++            "memberships" to jsonArray(listOf("Saved", "People"))
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).cancelUnsaveConfirmation()
++
++        assertFalse(runtime.invokedProductionMethods.contains("ReadingListArticleActions.confirmUnsave:en:Ada_Lovelace"))
++        val membership = (0 until stateOf(runtime).getJSONArray("memberships").length())
++            .map { stateOf(runtime).getJSONArray("memberships").getJSONObject(it) }
++            .associate { it.getString("collection") to (0 until it.getJSONArray("articles").length()).map { index -> it.getJSONArray("articles").getString(index) } }
++        assertEquals(listOf("en:Ada_Lovelace"), membership["Saved"])
++        assertEquals(listOf("en:Ada_Lovelace"), membership["People"])
++    }
++
++    // ------------------------------------------------------------------ case 8
++
++    @Test
++    fun undoRestoresEveryMembershipOfADeduplicatedArticle() {
++        val state = given(
++            "selectedTab" to "ALL_ARTICLES",
++            "queuedForDeletion" to JSONObject()
++                .put("en:Ada_Lovelace", jsonArray(listOf("Saved", "People"))),
++            "visibleArticleRows" to jsonArray(listOf("en:Grace_Hopper")),
++            "undoAvailable" to true
++        )
++        val before = runtimeOf(state.deepCopy())
++        SavedActionPrefix(before).openSavedSurface()
++        assertEquals(listOf("en:Grace_Hopper"), articleKeys(before))
++        assertTrue(stateOf(before).getJSONObject("undo").getBoolean("available"))
++
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).undoArticleDeletion()
++
++        assertEquals(listOf("en:Ada_Lovelace", "en:Grace_Hopper"), articleKeys(runtime))
++        val ada = uiState(runtime).getJSONArray("articleRows").getJSONObject(0)
++        assertEquals("Saved", ada.getJSONArray("collections").getString(0))
++        assertEquals("People", ada.getJSONArray("collections").getString(1))
++        assertFalse(stateOf(runtime).getJSONObject("undo").getBoolean("available"))
++    }
++
++    // ------------------------------------------------------------------ case 9
++
++    @Test
++    fun missingCollectionToggleIsANoOp() {
++        val state = given(
++            "article" to "en:Ada_Lovelace",
++            "memberships" to jsonArray(listOf("Saved")),
++            "roomCollections" to jsonArray(listOf(listObject("title" to "Saved", "isDefault" to true))),
++            "queuedCollectionToggle" to listObject(
++                "collectionId" to "observed-created-People-id",
++                "title" to "People"
++            )
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).resumeQueuedCollectionToggle()
++
++        assertEquals("collection_toggle_rejected:COLLECTION_UNAVAILABLE", stateOf(runtime).getString("outcome"))
++        assertEquals(listOf("en:Ada_Lovelace"), articleKeys(runtime))
++        assertTrue(
++            runtime.invokedProductionMethods.any {
++                it.startsWith("ReadingListManager.toggleCollection:collection_unavailable:")
++            }
++        )
++        val collections = (0 until stateOf(runtime).getJSONArray("collections").length())
++            .map { stateOf(runtime).getJSONArray("collections").getJSONObject(it).getString("title") }
++        assertEquals(listOf("Saved"), collections)
++    }
++
++    // ------------------------------------------------------------------ case 10
++
++    @Test
++    fun refreshRetryOnlyEndsWhenSyncReportsCompletion() {
++        val state = given(
++            "selectedTab" to "ALL_ARTICLES",
++            "articleRows" to jsonArray(emptyList()),
++            "account" to listObject(
++                "isLoggedIn" to true,
++                "isTemporary" to false,
++                "userName" to "Ada"
++            ),
++            "previousRefreshAttempt" to listObject("outcome" to "login_prompt", "syncStarted" to false),
++            "isRefreshing" to false,
++            "readingListSyncEnabled" to false,
++            "onboarding" to "SyncReminder",
++            "nextSyncCompletion" to "held"
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).retryPullToRefreshAndCompleteSync()
++
++        val refresh = stateOf(runtime).getJSONObject("refresh")
++        assertTrue(refresh.getBoolean("loginPromptShown"))
++        assertTrue(refresh.getBoolean("syncDispatched"))
++        assertTrue(refresh.getBoolean("syncCompleted"))
++        assertFalse(refresh.getBoolean("isRefreshing"))
++        assertTrue(stateOf(runtime).getBoolean("readingListSyncEnabled"))
++
++        // The signed-out attempt returned to idle without dispatching.
++        val ineligible = effectsNamed(runtime).first { it.optString("effect") == "refresh_ineligible_account" }
++        assertFalse(ineligible.getBoolean("isRefreshing"))
++        assertFalse(ineligible.getBoolean("syncDispatched"))
++
++        val running = effectsNamed(runtime).first { it.optString("effect") == "sync_event_running" }
++        assertTrue(running.getBoolean("isRefreshing"))
++    }
++
++    // ------------------------------------------------------------------ extras
++
++    @Test
++    fun deletingCollectionsIsReversibleAndNeverTouchesTheDefaultOne() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        val travel = scenario.env.manager.createCollection("Travel")
++        val saved = scenario.env.manager.ensureDefaultCollection()
++        scenario.env.manager.addPageToReadingList(travel, org.wikipedia.page.PageTitle.fromKey("en:Rome"))
++
++        scenario.fragment.onSelectTab(SavedTab.COLLECTIONS)
++        val travelId = scenario.fragment.uiState.collectionRows.first { it.title == "Travel" }.id
++        scenario.fragment.onToggleSelection(travelId)
++        scenario.fragment.onDeleteSelected()
++
++        assertEquals(emptyList<String>(), scenario.env.manager.userCollections().map { it.title })
++        assertTrue(scenario.env.manager.collections().any { it.id == saved.id })
++        assertTrue(scenario.fragment.uiState.undoAvailable)
++
++        scenario.fragment.onUndo()
++        assertEquals(listOf("Travel"), scenario.env.manager.userCollections().map { it.title }.sorted())
++        assertFalse(scenario.fragment.uiState.undoAvailable)
++    }
++
++    @Test
++    fun bulkRemovalOfAnArticleInANamedCollectionNeedsConfirmation() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        val title = org.wikipedia.page.PageTitle.fromKey("en:Ada_Lovelace")
++        val saved = scenario.env.manager.ensureDefaultCollection()
++        val people = scenario.env.manager.createCollection("People")
++        scenario.env.manager.addPageToReadingList(saved, title)
++        scenario.env.manager.addPageToReadingList(people, title)
++
++        scenario.fragment.onSelectAllVisible()
++        scenario.fragment.onDeleteSelected()
++        // Nothing was staged: the reader has to accept first.
++        assertTrue(scenario.env.manager.collectionTitles(title).contains("People"))
++        assertFalse(scenario.fragment.uiState.undoAvailable)
++
++        scenario.fragment.onConfirmDeleteSelected()
++        assertEquals(emptyList<String>(), scenario.env.manager.collectionTitles(title))
++        assertTrue(scenario.fragment.uiState.undoAvailable)
++
++        scenario.fragment.onUndo()
++        assertEquals(listOf("Saved", "People"), scenario.env.manager.collectionTitles(title))
++    }
++
++    @Test
++    fun bulkRemovalOfDefaultOnlyArticlesRunsDirectly() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        val title = org.wikipedia.page.PageTitle.fromKey("en:Solo")
++        scenario.env.manager.addPageToReadingList(scenario.env.manager.ensureDefaultCollection(), title)
++        scenario.fragment.onSelectAllVisible()
++        scenario.fragment.onDeleteSelected()
++        assertEquals(emptyList<String>(), scenario.env.manager.collectionTitles(title))
++        assertTrue(scenario.fragment.uiState.undoAvailable)
++    }
++
++    @Test
++    fun loginLogoutSyncPreferenceAndSharedCollectionDriveOnboarding() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        scenario.env.manager.addPageToReadingList(
++            scenario.env.manager.ensureDefaultCollection(),
++            org.wikipedia.page.PageTitle.fromKey("en:Tea")
++        )
++        scenario.fragment.onCreateView()
++        // Signed out with something already saved: the login prompt is the relevant onboarding.
++        assertEquals(SavedOnboardingState.LOGIN_PROMPT, scenario.fragment.uiState.onboarding)
++
++        // Signing in turns sync on for the account, so the prompt is no longer needed.
++        scenario.fragment.onLoginStateChanged(
++            org.wikipedia.auth.AccountInfo(isLoggedIn = true, isTemporaryAccount = false, userName = "Ada")
++        )
++        assertTrue(scenario.env.sync.isSyncEnabled())
++        assertEquals(SavedOnboardingState.NONE, scenario.fragment.uiState.onboarding)
++
++        // Turning the preference back off brings the reminder.
++        scenario.fragment.onSyncPreferenceChanged(false)
++        assertEquals(SavedOnboardingState.SYNC_REMINDER, scenario.fragment.uiState.onboarding)
++        scenario.fragment.onSyncPreferenceChanged(true)
++        assertEquals(SavedOnboardingState.NONE, scenario.fragment.uiState.onboarding)
++
++        // Signing out again.
++        scenario.fragment.onLogout()
++        assertFalse(scenario.env.sync.isSyncEnabled())
++        assertEquals(SavedOnboardingState.LOGIN_PROMPT, scenario.fragment.uiState.onboarding)
++
++        // A shared collection receipt surfaces its own onboarding and materialises the list.
++        scenario.fragment.onLoginStateChanged(
++            org.wikipedia.auth.AccountInfo(isLoggedIn = true, isTemporaryAccount = false, userName = "Ada")
++        )
++        scenario.fragment.onSharedCollectionReceived("From Ada")
++        assertEquals(SavedOnboardingState.SHARED_COLLECTION_RECEIVED, scenario.fragment.uiState.onboarding)
++        assertTrue(scenario.env.manager.userCollections().any { it.title == "From Ada" })
++        scenario.fragment.onDismissOnboarding()
++        assertEquals(SavedOnboardingState.NONE, scenario.fragment.uiState.onboarding)
++    }
++
++    @Test
++    fun badgeCountIgnoresTabSearchAndFilter() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        scenario.env.manager.addPageToReadingList(scenario.env.manager.ensureDefaultCollection(), org.wikipedia.page.PageTitle.fromKey("en:Tea"))
++        val people = scenario.env.manager.createCollection("People")
++        scenario.env.manager.addPageToReadingList(people, org.wikipedia.page.PageTitle.fromKey("en:Tea"))
++        scenario.env.manager.addPageToReadingList(people, org.wikipedia.page.PageTitle.fromKey("en:Coffee"))
++        scenario.env.manager.addPageToReadingList(people, org.wikipedia.page.PageTitle.fromKey("en:Juice"))
++        scenario.fragment.onCreateView()
++
++        assertEquals(3, scenario.fragment.uiState.totalSavedCount)
++        scenario.fragment.onFilterSelected(ArticleFilter.NOT_IN_COLLECTION)
++        // Every article also lives in a named collection, so the narrowing filter hides them all.
++        assertEquals(0, scenario.fragment.uiState.articleRows.size)
++        assertEquals(3, scenario.fragment.uiState.totalSavedCount)
++        scenario.fragment.onSelectTab(SavedTab.COLLECTIONS)
++        assertEquals(3, scenario.fragment.uiState.totalSavedCount)
++    }
++
++    @Test
++    fun searchOnCollectionsTabScopesToCollectionTitles() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        scenario.env.manager.createCollection("Travel")
++        scenario.env.manager.createCollection("Recipes")
++        scenario.env.manager.addPageToReadingList(scenario.env.manager.ensureDefaultCollection(), org.wikipedia.page.PageTitle.fromKey("en:Souffle"))
++        scenario.fragment.onCreateView()
++        scenario.fragment.onSelectTab(SavedTab.COLLECTIONS)
++        scenario.fragment.onSearchQueryChanged("trav")
++        scenario.scheduler.advanceBy(SavedScheduler.SEARCH_DEBOUNCE_DELAY_MS)
++        assertEquals(listOf("Travel"), scenario.fragment.uiState.collectionRows.map { it.title })
++        assertEquals(0, scenario.fragment.uiState.articleRows.size)
++        assertEquals(1, scenario.fragment.uiState.totalSavedCount)
++    }
++
++    @Test
++    fun sortChoicesPersistIndependentlyPerView() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        scenario.env.manager.createCollection("Alpha")
++        scenario.env.manager.createCollection("Zoo")
++        scenario.env.manager.addPageToReadingList(scenario.env.manager.ensureDefaultCollection(), org.wikipedia.page.PageTitle.fromKey("en:Tea"))
++        scenario.env.manager.addPageToReadingList(scenario.env.manager.ensureDefaultCollection(), org.wikipedia.page.PageTitle.fromKey("en:Apple"))
++        scenario.fragment.onCreateView()
++
++        scenario.fragment.onSortSelected(ReadingListSortMode.SORT_BY_NAME_DESC)
++        assertEquals(listOf("en:Tea", "en:Apple"), scenario.fragment.uiState.articleRows.map { it.title.logicalKey })
++        assertEquals(
++            ReadingListSortMode.SORT_BY_NAME_ASC,
++            scenario.env.preferences.collectionSortMode
++        )
++
++        scenario.fragment.onSelectTab(SavedTab.COLLECTIONS)
++        scenario.fragment.onSortSelected(ReadingListSortMode.SORT_BY_NAME_DESC)
++        assertEquals(listOf("Zoo", "Alpha"), scenario.fragment.uiState.collectionRows.map { it.title })
++        scenario.fragment.onSelectTab(SavedTab.ALL_ARTICLES)
++        assertEquals(listOf("en:Tea", "en:Apple"), scenario.fragment.uiState.articleRows.map { it.title.logicalKey })
++    }
++
++    @Test
++    fun offlineAvailabilityAndDownloadProgressAreProjectedOntoRows() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        val title = org.wikipedia.page.PageTitle.fromKey("en:Map")
++        scenario.env.manager.addPageToReadingList(scenario.env.manager.ensureDefaultCollection(), title)
++        scenario.env.offlineStore.beginDownload(title, 35)
++        scenario.env.offlineStore.reportProgress(title, 80)
++        scenario.fragment.onCreateView()
++
++        val row = scenario.fragment.uiState.articleRows.first()
++        assertEquals(org.wikipedia.offline.ArticleOfflineStatus.DOWNLOADING, row.offlineStatus)
++        assertEquals(80, row.downloadProgress)
++        assertTrue(row.hasActiveDownload)
++
++        scenario.env.offlineStore.completeDownload(title)
++        val done = scenario.fragment.uiState.articleRows.first()
++        assertEquals(org.wikipedia.offline.ArticleOfflineStatus.AVAILABLE, done.offlineStatus)
++    }
++
++    @Test
++    fun temporaryAccountRefreshPromptsForLoginWithoutDispatching() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        scenario.fragment.onCreateView()
++        scenario.fragment.onLoginStateChanged(
++            org.wikipedia.auth.AccountInfo(isLoggedIn = true, isTemporaryAccount = true, userName = null)
++        )
++        scenario.fragment.onPullToRefresh()
++        val state = scenario.fragment.uiState
++        assertFalse(state.isRefreshing)
++        assertEquals(SavedFeedback.LOGIN_REQUIRED, state.feedback)
++        assertEquals(SavedOnboardingState.LOGIN_PROMPT, state.onboarding)
++        assertFalse(runtimeInvocations(scenario).any { it.startsWith("ReadingListSync.start") })
++    }
++
++    @Test
++    fun syncProjectionKeepsOneRowPerLogicalArticle() {
++        val state = given(
++            "account" to listObject("isLoggedIn" to true, "isTemporary" to false, "userName" to "Ada"),
++            "articleRows" to jsonArray(emptyList()),
++            "syncPayload" to listObject(
++                "remoteLists" to jsonArray(
++                    listOf(
++                        listObject("title" to "Travel", "articles" to jsonArray(listOf("en:Rome"))),
++                        listObject("title" to "Reading", "articles" to jsonArray(listOf("en:Rome")))
++                    )
++                )
++            )
++        )
++        val runtime = runtimeOf(state)
++        SavedActionPrefix(runtime).retryPullToRefreshAndCompleteSync()
++        assertEquals(listOf("en:Rome"), articleKeys(runtime))
++        val rome = uiState(runtime).getJSONArray("articleRows").getJSONObject(0)
++        assertEquals(2, rome.getJSONArray("collections").length())
++    }
++
++    @Test
++    fun emptyStatesAndRecoveryActionsAreDistinct() {
++        val empty = runtimeOf(given())
++        SavedActionPrefix(empty).openSavedSurface()
++        assertEquals("NO_SAVED_ARTICLES", uiState(empty).getJSONObject("emptyState").getString("state"))
++        assertEquals("LOG_IN", uiState(empty).getString("recoveryAction"))
++
++        val noResults = runtimeOf(
++            given(
++                "articleRows" to jsonArray(listOf("en:Tea")),
++                "searchQuery" to "nomatch"
++            )
++        )
++        SavedActionPrefix(noResults).openSavedSurface()
++        assertEquals("SEARCH_NO_RESULTS", uiState(noResults).getJSONObject("emptyState").getString("state"))
++        assertEquals("CLEAR_SEARCH", uiState(noResults).getString("recoveryAction"))
++
++        val noCollections = runtimeOf(given("selectedTab" to "COLLECTIONS"))
++        SavedActionPrefix(noCollections).openSavedSurface()
++        assertEquals("NO_COLLECTIONS", uiState(noCollections).getJSONObject("emptyState").getString("state"))
++        assertEquals("CREATE_COLLECTION", uiState(noCollections).getString("recoveryAction"))
++    }
++
++    @Test
++    fun switchingTabsChangesMenuActionsAndSortChoices() {
++        val state = given(
++            "roomLists" to jsonArray(
++                listOf(
++                    listObject("title" to "Saved", "isDefault" to true, "articles" to jsonArray(listOf("en:Tea"))),
++                    listObject("title" to "Ideas", "isDefault" to false, "articles" to jsonArray(listOf("en:Tea")))
++                )
++            )
++        )
++        val runtime = runtimeOf(state)
++        val prefix = SavedActionPrefix(runtime)
++        prefix.openSavedSurface()
++        val articleMenu = uiState(runtime).getJSONArray("menuActions").toString()
++        assertTrue(articleMenu.contains("FILTER"))
++        val scenario = SavedScenario(runtimeOf(state.deepCopy()))
++        scenario.fragment.onSelectTab(SavedTab.COLLECTIONS)
++        val collectionMenu = scenario.fragment.uiState.toJson().getJSONArray("menuActions").toString()
++        assertTrue(collectionMenu.contains("NEW_COLLECTION"))
++        assertFalse(collectionMenu.contains("FILTER"))
++    }
++
++    @Test
++    fun defaultCollectionCannotBeDeleted() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        val saved = scenario.env.manager.ensureDefaultCollection()
++        val result = scenario.env.manager.deleteCollection(saved)
++        assertFalse(result.isApplied)
++        assertTrue(scenario.env.manager.collections().any { it.isDefault })
++    }
++
++    @Test
++    fun unsaveOfDefaultOnlyArticleCompletesWithoutConfirmation() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        val title = org.wikipedia.page.PageTitle.fromKey("en:Solo")
++        scenario.env.manager.addPageToReadingList(scenario.env.manager.ensureDefaultCollection(), title)
++        val outcome = scenario.env.articleActions.unsave(title)
++        assertEquals(UnsaveOutcome.Removed, outcome)
++    }
++
++    @Test
++    fun collectionLimitBlocksCreationAndLeavesMembershipUnchanged() {
++        val scenario = SavedScenario(runtimeOf(given()))
++        val title = org.wikipedia.page.PageTitle.fromKey("en:Kept")
++        val travel = scenario.env.manager.createCollection("Travel")
++        scenario.env.manager.addPageToReadingList(travel, title)
++        val rejected = scenario.env.manager.addPageToReadingList(travel, title)
++        assertTrue(rejected.isApplied)
++        assertTrue(rejected is MembershipChange.Applied && rejected.wasAlreadySaved)
++        assertEquals(listOf("Travel"), scenario.env.manager.collectionTitles(title))
++    }
++
++    // ------------------------------------------------------------------ helpers
++
++    private fun effectsNamed(runtime: SavedRuntime): List<JSONObject> {
++        val array = runtime.effects
++        return (0 until array.length()).map { array.getJSONObject(it) }
++    }
++
++    private fun countOccurrences(values: List<String>, needle: String): Int = values.count { it == needle }
++
++    private fun runtimeInvocations(scenario: SavedScenario): List<String> = scenario.invocations()
++}
+\ No newline at end of file
+diff --git a/app/src/test/kotlin/org/wikipedia/readinglist/TestSupport.kt b/app/src/test/kotlin/org/wikipedia/readinglist/TestSupport.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..94f9ee83a39c09e65aaa254968ec2fc30eb7174a
+--- /dev/null
++++ b/app/src/test/kotlin/org/wikipedia/readinglist/TestSupport.kt
+@@ -0,0 +1,73 @@
++package org.wikipedia.readinglist
++
++import android.content.SharedPreferences
++import org.json.JSONObject
++
++/** Minimal in-memory [SharedPreferences] for host-side verification of the Saved stack. */
++class FakePreferences : SharedPreferences {
++    private val values = HashMap<String, Any?>()
++
++    override fun getAll(): MutableMap<String, *> = HashMap(values)
++
++    override fun getString(key: String?, defValue: String?): String? = values[key] as? String ?: defValue
++
++    @Suppress("UNCHECKED_CAST")
++    override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
++        values[key] as? MutableSet<String> ?: defValues
++
++    override fun getInt(key: String?, defValue: Int): Int = values[key] as? Int ?: defValue
++
++    override fun getLong(key: String?, defValue: Long): Long = values[key] as? Long ?: defValue
++
++    override fun getFloat(key: String?, defValue: Float): Float = values[key] as? Float ?: defValue
++
++    override fun getBoolean(key: String?, defValue: Boolean): Boolean = values[key] as? Boolean ?: defValue
++
++    override fun contains(key: String?): Boolean = values.containsKey(key)
++
++    override fun edit(): SharedPreferences.Editor = FakeEditor()
++
++    override fun registerOnSharedPreferenceChangeListener(
++        listener: SharedPreferences.OnSharedPreferenceChangeListener?
++    ) = Unit
++
++    override fun unregisterOnSharedPreferenceChangeListener(
++        listener: SharedPreferences.OnSharedPreferenceChangeListener?
++    ) = Unit
++
++    private inner class FakeEditor : SharedPreferences.Editor {
++        private val updates = HashMap<String, Any?>()
++        private val removals = HashSet<String>()
++        private var clear = false
++
++        override fun putString(key: String, value: String?) = apply { updates[key] = value }
++        override fun putStringSet(key: String, values: MutableSet<String>?) = apply { updates[key] = values }
++        override fun putInt(key: String, value: Int) = apply { updates[key] = value }
++        override fun putLong(key: String, value: Long) = apply { updates[key] = value }
++        override fun putFloat(key: String, value: Float) = apply { updates[key] = value }
++        override fun putBoolean(key: String, value: Boolean) = apply { updates[key] = value }
++        override fun remove(key: String) = apply { removals.add(key) }
++        override fun clear() = apply { clear = true }
++
++        override fun commit(): Boolean {
++            if (clear) {
++                values.clear()
++            }
++            removals.forEach { values.remove(it) }
++            values.putAll(updates)
++            return true
++        }
++
++        override fun apply() {
++            commit()
++        }
++    }
++}
++
++internal fun given(vararg pairs: Pair<String, Any?>): JSONObject {
++    val json = JSONObject()
++    pairs.forEach { (key, value) -> if (value != null) json.put(key, value) }
++    return json
++}
++
++internal fun runtimeOf(state: JSONObject): SavedRuntime = SavedRuntime(state, JSONObject(), FakePreferences())
+\ No newline at end of file
+diff --git a/gradle.properties b/gradle.properties
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d8d1e4dd150cb790e1efef522121e30222820d4
+--- /dev/null
++++ b/gradle.properties
+@@ -0,0 +1 @@
++android.useAndroidX=true
+\ No newline at end of file
+diff --git a/test-local.sh b/test-local.sh
+new file mode 100644
+index 0000000000000000000000000000000000000000..a97a6bd612370e5aeb0c2c3ade50c63c0402e943
+--- /dev/null
++++ b/test-local.sh
+@@ -0,0 +1,11 @@
++#!/usr/bin/env bash
++#
++# Host-side verification of the Saved experience.
++#
++# Runs the JVM unit tests that drive the production Saved transitions (tabs, debounced search,
++# filters, sorting, selection, save/unsave confirmation, undo, limits and sync lifecycle).
++# The `org.json` implementation used at test time lives in src/test/kotlin/org/json because the
++# platform one is a stub off-device; it is never packaged into the app.
++set -euo pipefail
++gradle_bin="${GRADLE_BIN:-$HOME/.gradle/wrapper/dists/gradle-8.14.3-bin/cv11ve7ro1n3o1j4so8xd9n66/gradle-8.14.3/bin/gradle}"
++"$gradle_bin" -p . --no-daemon --offline :app:testDebugUnitTest "$@"
+\ No newline at end of file

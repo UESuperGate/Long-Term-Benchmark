@@ -1,0 +1,701 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_new_stats",
+  "platform": "android",
+  "role": "agent",
+  "observationMode": "runtime_state_transition",
+  "runtime": "candidate production methods on Android API37 ART",
+  "device": {
+    "serial": "emulator-5554",
+    "apiLevel": 37
+  },
+  "semantic": {
+    "cases": [
+      {
+        "caseId": "ns_state_001_metric_replot_persist",
+        "key": "metric_replot_persist",
+        "traceDigest": "1522c651999fc17096134feb1834e3435bd2ae6c78ea157f434030e6ac45d253",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the persisted semantic choice remains visitors across restoration",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "chart header and series represent the same selected metric",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "switching metrics does not reload data already present in the period response",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_002_hourly_fallback_restore",
+        "key": "hourly_fallback_restore",
+        "traceDigest": "501c3b634de4d4328ae055d2d019011ca60356d974224cc8d79bb370441d712d",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the hourly views fallback never overwrites the user's visitors preference",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "returning to a multi-day period restores the compatible preference",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "the bottom row and chart retain one coherent period",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_003_explicit_hourly_unavailable",
+        "key": "explicit_hourly_unavailable",
+        "traceDigest": "8beaec26096c356b0beb0a2cb265630545f6279553d25b3690f856ee5cdee7fb",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "an explicit unsupported hourly metric receives an unavailable answer instead of appearing inert",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "the independent bottom-stats row remains usable",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "the explicit choice is retained for a compatible period",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_004_bar_soft_select",
+        "key": "bar_soft_select",
+        "traceDigest": "c93f51fdcd9f3957d3d0d969dc3c591ae137995e4b1dc774004676824dd817c4",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "soft selection freezes the Views chart on its committed period",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "header, bottom row, highlight, top range, and other cards refer to the same selected bucket",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "a bar tap reuses loaded per-bucket data",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_005_bar_drill_commit",
+        "key": "bar_drill_commit",
+        "traceDigest": "91925dd950eec13d58eec29b9c4452a0d5bce53f306bdc873767ace8abdfcdfd",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the given soft selection is established through the real bar-tap path",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "committing clears the transient selection before the destination finishes loading",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "every visible stats surface receives the committed day",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_006_future_bucket_noop",
+        "key": "future_bucket_noop",
+        "traceDigest": "109ab91bcdbcc2bbf24ab7b35740cf02572a6da4ab8f0b7ed698a726f759c2b8",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "future placeholders occupy chart slots but cannot be selected",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "future placeholders are excluded from the elapsed-bucket average",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "the chart and all other cards remain on the committed period",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_007_period_origin_restore",
+        "key": "period_origin_restore",
+        "traceDigest": "4c1ad4e6227da833a0d630534b89dc1c39cd294d7d1468aafa798a410e2ec749",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the persisted configuration is read through the production repository after recreation",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "a paged rolling window remains rolling even when its concrete dates form a calendar month",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "forward navigation cannot pass the present edge",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_008_cached_revalidation_recovery",
+        "key": "cached_revalidation_recovery",
+        "traceDigest": "1d70ddc6b3c281f5d9a87ea0ff07f61d92e3af829eea9035a9a7ab3354d74990",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the failed-revalidation precondition is established through the real screen-entry and refresh path",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "request identity includes surface, site, current day, period, and variant",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "only a complete successful retry replaces the cached value and marks it revalidated",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_009_pull_refresh_inflight_isolation",
+        "key": "pull_refresh_inflight_isolation",
+        "traceDigest": "d678bcd294ff0139a27f8495e251ecef1663101282f6376909c47d018638cb5b",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "cache invalidation happens synchronously before visible cards dispatch refreshes",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "a result that started before invalidation cannot repopulate refreshed cached state",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "the refresh indicator stops even when competing work completes later",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      },
+      {
+        "caseId": "ns_state_010_plan_gate_presentation",
+        "key": "plan_gate_presentation",
+        "traceDigest": "d06d9928ca38030c984674bc971f22f1b3f438c66f55b7cf26dfe4c215f30953",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+            "bytes": 2723,
+            "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+            "bytes": 3501,
+            "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+          },
+          {
+            "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+            "bytes": 34556,
+            "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+          }
+        ],
+        "productionBodies": [
+          "ViewsStatsViewModel.onChartTypeChanged",
+          "StatsCardsConfigurationRepository.saveConfiguration"
+        ],
+        "checkpoints": [
+          {
+            "label": "given/before",
+            "state": {}
+          },
+          {
+            "label": "event/after",
+            "state": {
+              "activityClass": "evaluator.newstatsbase.NewStatsBaseOwnerActivity",
+              "commonAction": "ViewsStatsViewModel.onChartTypeChanged",
+              "selectedPeriod": "last_7_days",
+              "targetActionsReachable": false
+            }
+          }
+        ],
+        "observed": null,
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "unauthorized is plan-gated only when the endpoint is gate-eligible and the user already has view-stats capability",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "plan-gated and auth-error flags are mutually exclusive",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          },
+          {
+            "invariant": "loading the gated surface does not discard the already loaded unrestricted surface",
+            "passed": null,
+            "status": "unobserved_after_missing_action_prefix"
+          }
+        ],
+        "actionPrefix": {
+          "reachedCommonEntry": true,
+          "targetActionReachable": false
+        }
+      }
+    ],
+    "summary": {
+      "passed": 0,
+      "failed": 10,
+      "notScored": 0,
+      "total": 10
+    }
+  },
+  "provenance": {
+    "contractSha256": "04fabc5c0bf472cb7f950fd6bd9969d37a8dd51d7acefc6cda3e5f8be77161f2",
+    "productionSources": [
+      {
+        "path": "src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+        "bytes": 2723,
+        "sha256": "9cbd6ebf8182eec8617f97db5669a3bfea09db2cd780fbcf3d1082985f3aaf95"
+      },
+      {
+        "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCardUiState.kt",
+        "bytes": 3501,
+        "sha256": "eaaedf69861a3b72a0a1a74e31378632f083c44c81b421095aae46780ec70a10"
+      },
+      {
+        "path": "src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+        "bytes": 34556,
+        "sha256": "7af894454dc23d99d2063b49046ec73d023aeead01eb2db3b3eb4dfe0c3db1b7"
+      }
+    ]
+  },
+  "diagnostics": {
+    "adapter": "ready",
+    "transport": "adb_instrumentation",
+    "bindingErrors": [],
+    "installErrors": [],
+    "sourcePatternScoring": false,
+    "roleMarkerUsedForVerdict": false,
+    "arbitraryCandidateDirectory": true
+  }
+}

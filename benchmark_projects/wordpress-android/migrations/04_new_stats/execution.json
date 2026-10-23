@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_new_stats",
+  "android": {
+    "environment": {
+      "compileSdk": 37,
+      "targetSdk": 37,
+      "runtimeApi": 37,
+      "jdk": 21,
+      "JAVA_HOME": "/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home"
+    },
+    "materializeCommand": [
+      "python3",
+      "../tools/materialize_new_android_runtime.py",
+      "04_new_stats"
+    ],
+    "baseProject": "android/focused-runtime/base",
+    "finalProject": "android/focused-runtime/final",
+    "buildCommand": [
+      "bash",
+      "build.sh"
+    ],
+    "semanticCommand": [
+      "python3",
+      "android/focused-runtime/evaluator/run_semantic.py",
+      "--project",
+      "{project}",
+      "--role",
+      "{role}",
+      "--contract",
+      "canonical/transitions.json",
+      "--output",
+      "{output}"
+    ],
+    "candidatePolicy": "The scorer accepts any standalone candidate directory preserving the focused-runtime project contract. It derives package identities from that candidate, verifies immutable and compiled production bytes, and reports not_scored when source, APK, API37 device, installation, instrumentation, or runtime payload binding is unavailable.",
+    "deviceLock": "/tmp/long-term-benchmark-android-device.lock",
+    "buildLock": "/tmp/long-term-benchmark-android-full-build.lock"
+  },
+  "resultPolicy": "Formal Android API37 and OpenHarmony API23 scoring use runtime state transitions only. Base/no-change are 0/10, final/known-final are 10/10, and binding/runtime errors remain not_scored.",
+  "arkts": {
+    "environment": {
+      "sdk": "OpenHarmony API23",
+      "runtime": "ArkVM",
+      "deviceTarget": "127.0.0.1:10178"
+    },
+    "materializeCommand": [
+      "python3",
+      "../tools/materialize_new_arkts_runtime.py",
+      "--task",
+      "04_new_stats"
+    ],
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": [
+      "bash",
+      "build.sh"
+    ],
+    "semanticCommand": [
+      "python3",
+      "arkts/evaluator/run_device_semantic.py",
+      "--project",
+      "{project}",
+      "--role",
+      "{role}",
+      "--output",
+      "{output}"
+    ],
+    "candidatePolicy": "Any standalone candidate directory is accepted. Missing source, HAP, API23 target, install, page owner, Preferences reopening, or runtime payload fails closed as not_scored with nonzero exit.",
+    "deviceLocks": [
+      "/tmp/long-term-benchmark-arkts-device.lock",
+      "/tmp/ltb-arkts-device-73ccdb837c3b8a06"
+    ],
+    "diskSafetyLineBytes": 8589934592
+  }
+}

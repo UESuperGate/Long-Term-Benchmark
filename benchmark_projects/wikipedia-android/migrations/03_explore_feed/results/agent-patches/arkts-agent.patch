@@ -1,0 +1,4236 @@
+diff --git a/entry/src/main/ets/entryability/EntryAbility.ets b/entry/src/main/ets/entryability/EntryAbility.ets
+index 729ea119248c8f10ce05f254b6dedc4871eb04f9..c8ad417280a502f6939cee9003e4bc2b8978a8ae 100644
+--- a/entry/src/main/ets/entryability/EntryAbility.ets
++++ b/entry/src/main/ets/entryability/EntryAbility.ets
+@@ -1,5 +1,6 @@
+ import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
+ import { window } from '@kit.ArkUI';
++import { LegacyExploreStore } from '../model/LegacyExploreStore';
+ 
+ export default class EntryAbility extends UIAbility {
+   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+@@ -8,4 +9,13 @@ export default class EntryAbility extends UIAbility {
+   onWindowStageCreate(windowStage: window.WindowStage): void {
+     windowStage.loadContent('pages/Index');
+   }
+-}
++
++  onDestroy(): void {
++    // The Home store outlives a single window; releasing it here keeps a torn
++    // down surface from answering requests from a half disposed state.
++    const store: LegacyExploreStore | undefined = LegacyExploreStore.current();
++    if (store !== undefined) {
++      store.dispose();
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/integration/ExplorePageIntegration.ets b/entry/src/main/ets/integration/ExplorePageIntegration.ets
+index dbf0f1e2cd290d11f12cb58ded67da98708a83cc..9f2867221099f067d10b687c6a8d2bb5f6f56024 100644
+--- a/entry/src/main/ets/integration/ExplorePageIntegration.ets
++++ b/entry/src/main/ets/integration/ExplorePageIntegration.ets
+@@ -12,6 +12,10 @@ export interface ExploreEffect {
+   value?: number;
+   result?: string;
+   surfaces?: string[];
++  /** What triggered the effect, for example the load source or a hide action. */
++  source?: string;
++  /** Failure kind reported by a content leaf. */
++  error?: string;
+ }
+ 
+ export interface ExploreLeaf {
+diff --git a/entry/src/main/ets/model/FeedContentService.ets b/entry/src/main/ets/model/FeedContentService.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..0cfb07a26688682fb4fbddd1ade2d125fd2609db
+--- /dev/null
++++ b/entry/src/main/ets/model/FeedContentService.ets
+@@ -0,0 +1,399 @@
++import { ExploreEffect, ExploreLeaf } from '../integration/ExplorePageIntegration';
++import {
++  FeedCard, FeedLoadSource, FeedTabSurface, normalizeTokens, parseTokensSafe, textOf
++} from './FeedDomain';
++
++/** Raised by a feed leaf when a request cannot be served. */
++export class FeedServiceException extends Error {
++  readonly kind: string;
++
++  constructor(kind: string) {
++    super(kind);
++    this.kind = kind;
++  }
++}
++
++/** A single Community request for one logical day. */
++export class CommunityRequest {
++  readonly language: string;
++  readonly date: string;
++  readonly logicalAge: number;
++  readonly attempt: number;
++  readonly attemptForLogicalAge: number;
++  readonly source: FeedLoadSource;
++
++  constructor(language: string, date: string, logicalAge: number, attempt: number,
++    attemptForLogicalAge: number, source: FeedLoadSource) {
++    this.language = language;
++    this.date = date;
++    this.logicalAge = logicalAge;
++    this.attempt = attempt;
++    this.attemptForLogicalAge = attemptForLogicalAge;
++    this.source = source;
++  }
++
++  scope(): string {
++    return `community:${this.logicalAge}`;
++  }
++}
++
++/** A single For You request for one daily batch. */
++export class ForYouRequest {
++  readonly language: string;
++  readonly date: string;
++  readonly batch: number;
++  readonly attempt: number;
++  readonly source: FeedLoadSource;
++
++  constructor(language: string, date: string, batch: number, attempt: number, source: FeedLoadSource) {
++    this.language = language;
++    this.date = date;
++    this.batch = batch;
++    this.attempt = attempt;
++    this.source = source;
++  }
++
++  scope(): string {
++    return `for_you:${this.batch}`;
++  }
++}
++
++/** A served Community day. */
++export class CommunityPage {
++  readonly logicalAge: number;
++  readonly date: string;
++  readonly cards: FeedCard[];
++  readonly hasMore: boolean;
++
++  constructor(logicalAge: number, date: string, cards: FeedCard[], hasMore: boolean) {
++    this.logicalAge = logicalAge;
++    this.date = date;
++    this.cards = cards;
++    this.hasMore = hasMore;
++  }
++}
++
++/** A served For You batch. */
++export class ForYouPage {
++  readonly date: string;
++  readonly language: string;
++  readonly batch: number;
++  readonly hasMore: boolean;
++  /** Article titles ranked by the recommendation service, in rank order. */
++  readonly rankedTitles: string[];
++
++  constructor(date: string, language: string, batch: number, hasMore: boolean, rankedTitles: string[]) {
++    this.date = date;
++    this.language = language;
++    this.batch = batch;
++    this.hasMore = hasMore;
++    this.rankedTitles = rankedTitles;
++  }
++}
++
++/* ------------------------------------------------------------------ *
++ * Scripted responses.
++ *
++ * The editorial and recommendation services are leaf boundaries: they are
++ * reached only through {@link ExploreLeaf}. Whatever a boundary answers is
++ * recorded by the host and handed back to the application as a script, which the
++ * service replays one page per request. Failures are one shot, so a retry of the
++ * same logical day or batch reaches the service again instead of replaying the
++ * same failure.
++ * ------------------------------------------------------------------ */
++
++/** One scripted answer of a feed leaf. */
++export class ScriptedPage {
++  failed: boolean = false;
++  error: string = '';
++  tokens: string[] = [];
++
++  constructor() {
++  }
++
++  static failure(kind: string): ScriptedPage {
++    const page: ScriptedPage = new ScriptedPage();
++    page.failed = true;
++    page.error = kind.length > 0 ? kind : 'IOException';
++    return page;
++  }
++
++  static content(tokens: string[]): ScriptedPage {
++    const page: ScriptedPage = new ScriptedPage();
++    page.tokens = tokens;
++    return page;
++  }
++}
++
++/** The scripted answers available to the feed leaves. */
++export class FeedScript {
++  communityPages: ScriptedPage[] = [];
++  forYouPages: ScriptedPage[] = [];
++  communityFailures: string[] = [];
++  forYouFailures: string[] = [];
++
++  constructor() {
++  }
++
++  nextCommunityPage(): ScriptedPage | undefined {
++    return shift(this.communityPages);
++  }
++
++  nextForYouPage(): ScriptedPage | undefined {
++    return shift(this.forYouPages);
++  }
++}
++
++function shift(pages: ScriptedPage[]): ScriptedPage | undefined {
++  if (pages.length === 0) {
++    return undefined;
++  }
++  const page: ScriptedPage = pages[0];
++  pages.shift();
++  return page;
++}
++
++/* ------------------------------------------------------------------ *
++ * The feed content leaf boundary.
++ * ------------------------------------------------------------------ */
++
++export class FeedContentService {
++  private readonly leaf: ExploreLeaf;
++  private readonly script: FeedScript;
++  private readonly attempts: Map<string, number> = new Map<string, number>();
++  private readonly totals: Map<string, number> = new Map<string, number>();
++
++  constructor(leaf: ExploreLeaf, script: FeedScript) {
++    this.leaf = leaf;
++    this.script = script;
++  }
++
++  /** Number of attempts already issued for a logical scope. */
++  attemptsFor(scope: string): number {
++    const value: number | undefined = this.attempts.get(scope);
++    return value === undefined ? 0 : value;
++  }
++
++  /** Records an attempt for a logical scope and returns the new count. */
++  private recordAttempt(scope: string): number {
++    const next: number = this.attemptsFor(scope) + 1;
++    this.attempts.set(scope, next);
++    const total: number | undefined = this.totals.get(scope);
++    this.totals.set(scope, total === undefined ? 1 : total + 1);
++    return next;
++  }
++
++  /** Requests one Community day. */
++  async fetchCommunity(request: CommunityRequest): Promise<CommunityPage> {
++    this.recordAttempt(request.scope());
++    const effect: ExploreEffect = {
++      name: 'communityFeedRequest',
++      leaf: 'community_feed',
++      source: request.source,
++      attempt: request.attempt,
++      attemptForLogicalAge: request.attemptForLogicalAge,
++      language: request.language,
++      date: request.date,
++      logicalAge: request.logicalAge,
++      surfaces: [FeedTabSurface.COMMUNITY],
++      result: 'REQUEST'
++    };
++    await this.leaf.emit(effect);
++    const failure: string = this.script.communityFailures.length > 0 ?
++      this.script.communityFailures.shift() as string : '';
++    if (failure.length > 0) {
++      effect.result = 'ERROR';
++      effect.error = failure;
++      await this.leaf.emit(effect);
++      throw new FeedServiceException(failure);
++    }
++    const page: ScriptedPage | undefined = this.script.nextCommunityPage();
++    const tokens: string[] = page === undefined ? [] : page.tokens;
++    const cards: FeedCard[] = parseTokensSafe(tokens, request.logicalAge, request.language);
++    effect.result = 'SUCCESS';
++    await this.leaf.emit(effect);
++    return new CommunityPage(request.logicalAge, request.date, cards, true);
++  }
++
++  /** Requests one For You batch. */
++  async fetchForYou(request: ForYouRequest): Promise<ForYouPage> {
++    this.recordAttempt(request.scope());
++    const effect: ExploreEffect = {
++      name: 'forYouFeedRequest',
++      leaf: 'for_you_feed',
++      source: request.source,
++      attempt: request.attempt,
++      language: request.language,
++      date: request.date,
++      batch: request.batch,
++      surfaces: [FeedTabSurface.FOR_YOU],
++      result: 'REQUEST'
++    };
++    await this.leaf.emit(effect);
++    const failure: string = this.script.forYouFailures.length > 0 ? this.script.forYouFailures.shift() as string : '';
++    if (failure.length > 0) {
++      effect.result = 'ERROR';
++      effect.error = failure;
++      await this.leaf.emit(effect);
++      throw new FeedServiceException(failure);
++    }
++    const page: ScriptedPage | undefined = this.script.nextForYouPage();
++    const tokens: string[] = page === undefined ? [] : page.tokens;
++    effect.result = 'SUCCESS';
++    await this.leaf.emit(effect);
++    return new ForYouPage(request.date, request.language, request.batch, true, tokens);
++  }
++}
++
++/* ------------------------------------------------------------------ *
++ * Script construction from the injected snapshot.
++ * ------------------------------------------------------------------ */
++
++/** Reads the scripted editorial and recommendation answers out of the snapshot. */
++export function feedScriptFromSnapshot(record: Record<string, Object> | undefined): FeedScript {
++  const script: FeedScript = new FeedScript();
++  if (record === undefined) {
++    return script;
++  }
++  script.communityPages = pagesFrom(record, ['nextFeaturedFeed', 'nextCommunityFeed', 'communityResponses', 'communityPages']);
++  script.forYouPages = pagesFrom(record, ['nextForYouFeed', 'forYouResponses', 'forYouPages', 'nextRecommendations']);
++  script.communityFailures = failuresFrom(record, ['communityError', 'communityErrorType', 'nextCommunityError']);
++  script.forYouFailures = failuresFrom(record, ['forYouError', 'forYouErrorType', 'nextForYouError']);
++  return script;
++}
++
++function readAliased(record: Record<string, Object>, keys: string[]): Object | undefined {
++  for (let index = 0; index < keys.length; index++) {
++    const value: Object | undefined = record[keys[index]];
++    if (value !== undefined && value !== null) {
++      return value;
++    }
++  }
++  return undefined;
++}
++
++function pagesFrom(record: Record<string, Object>, keys: string[]): ScriptedPage[] {
++  const value: Object | undefined = readAliased(record, keys);
++  if (value === undefined) {
++    return [];
++  }
++  const pages: ScriptedPage[] = [];
++  const encoded: string = JSON.stringify(value);
++  const parsed: Object | undefined = JSON.parse(encoded) as Object | undefined;
++  if (Array.isArray(parsed)) {
++    const entries: Object[] = parsed as Object[];
++    let multiPage: boolean = false;
++    for (let index = 0; index < entries.length; index++) {
++      const nested: Object | undefined = JSON.parse(JSON.stringify(entries[index])) as Object | undefined;
++      if (nested !== undefined && Array.isArray(nested)) {
++        multiPage = true;
++        break;
++      }
++      const nestedRecord: Record<string, Object> | undefined = readRecord(nested);
++      if (nestedRecord !== undefined && readAliased(nestedRecord, ['error', 'failure', 'exception']) !== undefined) {
++        multiPage = true;
++        break;
++      }
++    }
++    if (!multiPage) {
++      const tokens: string[] = normalizeTokens(tokensOf(entries));
++      return [ScriptedPage.content(tokens)];
++    }
++    for (let index = 0; index < entries.length; index++) {
++      const nested: Object | undefined = JSON.parse(JSON.stringify(entries[index])) as Object | undefined;
++      if (nested === undefined) {
++        continue;
++      }
++      if (Array.isArray(nested)) {
++        pages.push(ScriptedPage.content(normalizeTokens(tokensOf(nested as Object[]))));
++        continue;
++      }
++      const nestedRecord: Record<string, Object> | undefined = readRecord(nested);
++      if (nestedRecord !== undefined) {
++        const failure: Object | undefined = readAliased(nestedRecord, ['error', 'failure', 'exception']);
++        if (failure !== undefined) {
++          pages.push(ScriptedPage.failure(textOf(failure)));
++          continue;
++        }
++      }
++      pages.push(ScriptedPage.content(normalizeTokens(tokensOf([nested]))));
++    }
++    return pages;
++  }
++  const single: Record<string, Object> | undefined = readRecord(parsed);
++  if (single !== undefined) {
++    const failure: Object | undefined = readAliased(single, ['error', 'failure', 'exception']);
++    if (failure !== undefined) {
++      return [ScriptedPage.failure(textOf(failure))];
++    }
++  }
++  return [ScriptedPage.content([])];
++}
++
++function readRecord(value: Object | undefined): Record<string, Object> | undefined {
++  if (value === undefined || value === null) {
++    return undefined;
++  }
++  const encoded: string = JSON.stringify(value);
++  if (encoded.length === 0 || encoded.charAt(0) === '[' || encoded.charAt(0) === '"') {
++    return undefined;
++  }
++  const parsed: Object | undefined = JSON.parse(encoded) as Object | undefined;
++  if (parsed === undefined || parsed === null || Array.isArray(parsed)) {
++    return undefined;
++  }
++  return parsed as Record<string, Object>;
++}
++
++function tokensOf(values: Object[]): string[] {
++  const tokens: string[] = [];
++  for (let index = 0; index < values.length; index++) {
++    const record: Record<string, Object> | undefined = readRecord(values[index]);
++    if (record !== undefined) {
++      const type: string = textOf(record['type']).trim();
++      const identifier: string = textOf(record['id']).trim().length > 0 ?
++        textOf(record['id']).trim() : textOf(record['title']).trim();
++      if (type.length > 0 || identifier.length > 0) {
++        tokens.push(identifier.length > 0 ? `${type}:${identifier}` : type);
++      }
++      continue;
++    }
++    const token: string = textOf(values[index]).trim();
++    if (token.length > 0) {
++      tokens.push(token);
++    }
++  }
++  return tokens;
++}
++
++function failuresFrom(record: Record<string, Object>, keys: string[]): string[] {
++  const value: Object | undefined = readAliased(record, keys);
++  if (value === undefined) {
++    return [];
++  }
++  const encoded: string = JSON.stringify(value);
++  const parsed: Object | undefined = JSON.parse(encoded) as Object | undefined;
++  if (parsed !== undefined && Array.isArray(parsed)) {
++    const entries: Object[] = parsed as Object[];
++    const failures: string[] = [];
++    for (let index = 0; index < entries.length; index++) {
++      const entry: string = textOf(entries[index]).trim();
++      if (entry.length > 0) {
++        failures.push(entry);
++      }
++    }
++    return failures;
++  }
++  if (parsed !== undefined && !Array.isArray(parsed)) {
++    const single: Record<string, Object> | undefined = readRecord(parsed);
++    if (single !== undefined) {
++      const nested: Object | undefined = readAliased(single, ['error', 'failure', 'exception', 'name']);
++      if (nested !== undefined) {
++        const name: string = textOf(nested).trim();
++        return name.length > 0 ? [name] : [];
++      }
++    }
++  }
++  const name: string = textOf(value).trim();
++  return name.length > 0 ? [name] : [];
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/FeedDomain.ets b/entry/src/main/ets/model/FeedDomain.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e950c09932317d17d3df638278aff760c9cf9e6
+--- /dev/null
++++ b/entry/src/main/ets/model/FeedDomain.ets
+@@ -0,0 +1,797 @@
++/*
++ * Domain model for the personalized Home feed.
++ *
++ * The Home surface is made of two tabs:
++ *
++ *   - Community: a date grouped editorial feed served by the remote editorial
++ *     service. It supports paging backwards one logical day at a time.
++ *   - For You:   a personalized feed whose recommendation groups are derived by
++ *     the application from the reader's saved interests, reading activity and
++ *     saved articles. The result is cached per calendar date and feed language.
++ *
++ * Both tabs share the same presentation vocabulary (phase, empty reason and
++ * recovery action) so that the empty / loading / content / error presentations
++ * stay mutually coherent for every tab.
++ */
++
++/** The two tabs exposed by the Home surface. */
++export enum HomeTab {
++  COMMUNITY = 'COMMUNITY',
++  FOR_YOU = 'FOR_YOU'
++}
++
++/**
++ * The personalization choice captured by feed onboarding. The choice decides the
++ * initial Home tab and is persisted, so later visits land on the same tab.
++ */
++export enum HomePreference {
++  COMMUNITY = 'COMMUNITY',
++  PERSONALIZED = 'PERSONALIZED'
++}
++
++/**
++ * The recommendation groups produced for the For You tab. The order is the order
++ * in which the groups are presented.
++ */
++export enum ForYouModuleType {
++  BASED_ON_INTEREST = 'BASED_ON_INTEREST',
++  BECAUSE_YOU_READ = 'BECAUSE_YOU_READ',
++  CONTINUE_READING = 'CONTINUE_READING'
++}
++
++/** The editorial modules served for a Community day. */
++export enum CommunityModuleType {
++  FEATURED_ARTICLE = 'FEATURED_ARTICLE',
++  NEWS = 'NEWS',
++  TOP_READ = 'TOP_READ',
++  PIC_OF_THE_DAY = 'PIC_OF_THE_DAY',
++  ARTICLE = 'ARTICLE'
++}
++
++/** Card kinds that can be rendered inside a feed. */
++export enum FeedCardType {
++  DAY_HEADER = 'DAY_HEADER',
++  FEATURED_ARTICLE = 'FEATURED_ARTICLE',
++  NEWS = 'NEWS',
++  TOP_READ = 'TOP_READ',
++  PIC_OF_THE_DAY = 'PIC_OF_THE_DAY',
++  BASED_ON_INTEREST = 'BASED_ON_INTEREST',
++  BECAUSE_YOU_READ = 'BECAUSE_YOU_READ',
++  CONTINUE_READING = 'CONTINUE_READING',
++  ARTICLE = 'ARTICLE'
++}
++
++/** Presentation phase of a single Home tab. */
++export enum FeedPhase {
++  IDLE = 'idle',
++  LOADING = 'loading',
++  CONTENT = 'content',
++  CONTENT_WITH_INLINE_ERROR = 'content_with_inline_error',
++  EMPTY = 'empty',
++  ERROR = 'error'
++}
++
++/** Why a tab has no content. Empty reason is only meaningful while empty. */
++export enum FeedEmptyReason {
++  NONE = 'NONE',
++  NO_DATA = 'NO_DATA',
++  ALL_MODULES_HIDDEN = 'ALL_MODULES_HIDDEN'
++}
++
++/** The action offered by an empty or errored tab. */
++export enum FeedRecoveryAction {
++  NONE = 'NONE',
++  RETRY = 'RETRY',
++  OPEN_COMMUNITY_MODULES = 'OPEN_COMMUNITY_MODULES',
++  OPEN_FOR_YOU_MODULES = 'OPEN_FOR_YOU_MODULES',
++  CUSTOMIZE_INTERESTS = 'CUSTOMIZE_INTERESTS',
++  RETURN_TO_COMMUNITY = 'RETURN_TO_COMMUNITY'
++}
++
++/** The two independent module visibility groups offered by feed settings. */
++export enum FeedSettingsTarget {
++  COMMUNITY_MODULES = 'COMMUNITY_MODULES',
++  FOR_YOU_MODULES = 'FOR_YOU_MODULES'
++}
++
++/** What triggered a feed request. */
++export enum FeedLoadSource {
++  INITIAL = 'INITIAL',
++  LOAD_MORE = 'LOAD_MORE',
++  RETRY = 'RETRY',
++  RETRY_MORE = 'RETRY_MORE',
++  REFRESH = 'REFRESH',
++  RESUME = 'RESUME',
++  LANGUAGE_CHANGED = 'LANGUAGE_CHANGED'
++}
++
++/** Activity result codes returned by the interest editor. */
++export enum FeedActivityResult {
++  RESULT_CANCELED = 0,
++  RESULT_OK = -1,
++  RESULT_INTERESTS_UPDATED = 100
++}
++
++/**
++ * Tag identifying which Home surface an effect belongs to. Effects always name
++ * the surfaces they touch so that a single tab acting is observable.
++ */
++export enum FeedTabSurface {
++  HOME = 'HOME',
++  COMMUNITY = 'COMMUNITY',
++  FOR_YOU = 'FOR_YOU',
++  SETTINGS = 'SETTINGS',
++  INTEREST_EDITOR = 'INTEREST_EDITOR'
++}
++
++/* ------------------------------------------------------------------ *
++ * Value helpers. Feed content arrives from remote leaves and from the
++ * persisted snapshot as loosely typed values, so every read is funnelled
++ * through a coercion that always yields a usable value.
++ * ------------------------------------------------------------------ */
++
++/** Reads a loosely typed value as text. */
++export function textOf(value: Object | undefined): string {
++  if (value === undefined || value === null) {
++    return '';
++  }
++  const encoded: string = JSON.stringify(value);
++  if (encoded.length > 1 && encoded.charAt(0) === '"' && encoded.charAt(encoded.length - 1) === '"') {
++    return encoded.substring(1, encoded.length - 1);
++  }
++  return encoded;
++}
++
++/** Reads a loosely typed value as a number. */
++export function numberOf(value: Object | undefined, fallback: number): number {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const encoded: string = JSON.stringify(value);
++  const parsed: number = Number(encoded);
++  return Number.isNaN(parsed) ? fallback : parsed;
++}
++
++/** Reads a loosely typed value as a boolean. */
++export function booleanOf(value: Object | undefined, fallback: boolean): boolean {
++  if (value === undefined || value === null) {
++    return fallback;
++  }
++  const encoded: string = JSON.stringify(value);
++  if (encoded === 'true') {
++    return true;
++  }
++  if (encoded === 'false') {
++    return false;
++  }
++  return fallback;
++}
++
++/** Reads a loosely typed value as an array. */
++export function arrayOf(value: Object | undefined): Object[] {
++  if (value === undefined || value === null) {
++    return [];
++  }
++  const encoded: string = JSON.stringify(value);
++  const parsed: Object | undefined = JSON.parse(encoded) as Object | undefined;
++  if (parsed === undefined || parsed === null) {
++    return [];
++  }
++  if (Array.isArray(parsed)) {
++    return parsed as Object[];
++  }
++  return [parsed];
++}
++
++/** Reads a loosely typed value as a keyed record. Returns undefined for scalars and lists. */
++export function recordOf(value: Object | undefined): Record<string, Object> | undefined {
++  if (value === undefined || value === null) {
++    return undefined;
++  }
++  const encoded: string = JSON.stringify(value);
++  if (encoded.length === 0 || encoded.charAt(0) === '[' || encoded.charAt(0) === '"') {
++    return undefined;
++  }
++  const parsed: Object | undefined = JSON.parse(encoded) as Object | undefined;
++  if (parsed === undefined || parsed === null || Array.isArray(parsed)) {
++    return undefined;
++  }
++  return parsed as Record<string, Object>;
++}
++
++/** Reads a loosely typed value as a list of strings. */
++export function textListOf(value: Object | undefined): string[] {
++  const raw: Object[] = arrayOf(value);
++  const result: string[] = [];
++  for (let index = 0; index < raw.length; index++) {
++    const entry: string = textOf(raw[index]).trim();
++    if (entry.length > 0) {
++      result.push(entry);
++    }
++  }
++  return result;
++}
++
++/* ------------------------------------------------------------------ *
++ * Enum coercion.
++ * ------------------------------------------------------------------ */
++
++export function homeTabOf(value: string): HomeTab | undefined {
++  const normalized: string = value.trim().toUpperCase();
++  if (normalized === HomeTab.COMMUNITY) {
++    return HomeTab.COMMUNITY;
++  }
++  if (normalized === HomeTab.FOR_YOU) {
++    return HomeTab.FOR_YOU;
++  }
++  return undefined;
++}
++
++export function homePreferenceOf(value: string): HomePreference {
++  const normalized: string = value.trim().toUpperCase();
++  return normalized === HomePreference.PERSONALIZED ? HomePreference.PERSONALIZED : HomePreference.COMMUNITY;
++}
++
++/** The initial Home tab implied by a persisted personalization choice. */
++export function homeTabForPreference(preference: HomePreference): HomeTab {
++  return preference === HomePreference.PERSONALIZED ? HomeTab.FOR_YOU : HomeTab.COMMUNITY;
++}
++
++export function feedPhaseOf(value: string): FeedPhase {
++  const normalized: string = value.trim().toLowerCase();
++  if (normalized === FeedPhase.LOADING) {
++    return FeedPhase.LOADING;
++  }
++  if (normalized === FeedPhase.CONTENT) {
++    return FeedPhase.CONTENT;
++  }
++  if (normalized === FeedPhase.CONTENT_WITH_INLINE_ERROR) {
++    return FeedPhase.CONTENT_WITH_INLINE_ERROR;
++  }
++  if (normalized === FeedPhase.EMPTY) {
++    return FeedPhase.EMPTY;
++  }
++  if (normalized === FeedPhase.ERROR) {
++    return FeedPhase.ERROR;
++  }
++  return FeedPhase.IDLE;
++}
++
++export function feedCardTypeOf(value: string): FeedCardType {
++  const normalized: string = value.trim().toUpperCase();
++  if (normalized === FeedCardType.DAY_HEADER) {
++    return FeedCardType.DAY_HEADER;
++  }
++  if (normalized === FeedCardType.FEATURED_ARTICLE) {
++    return FeedCardType.FEATURED_ARTICLE;
++  }
++  if (normalized === FeedCardType.NEWS) {
++    return FeedCardType.NEWS;
++  }
++  if (normalized === FeedCardType.TOP_READ) {
++    return FeedCardType.TOP_READ;
++  }
++  if (normalized === FeedCardType.PIC_OF_THE_DAY) {
++    return FeedCardType.PIC_OF_THE_DAY;
++  }
++  if (normalized === FeedCardType.BASED_ON_INTEREST) {
++    return FeedCardType.BASED_ON_INTEREST;
++  }
++  if (normalized === FeedCardType.BECAUSE_YOU_READ) {
++    return FeedCardType.BECAUSE_YOU_READ;
++  }
++  if (normalized === FeedCardType.CONTINUE_READING) {
++    return FeedCardType.CONTINUE_READING;
++  }
++  return FeedCardType.ARTICLE;
++}
++
++export function isDayHeader(type: FeedCardType): boolean {
++  return type === FeedCardType.DAY_HEADER;
++}
++
++/**
++ * The module a card belongs to. Day headers group a Community day and therefore
++ * do not belong to any editorial module.
++ */
++export function moduleTypeOfCard(type: FeedCardType): string {
++  return isDayHeader(type) ? '' : `${type}`;
++}
++
++export function allForYouModuleTypes(): string[] {
++  return [ForYouModuleType.BASED_ON_INTEREST, ForYouModuleType.BECAUSE_YOU_READ, ForYouModuleType.CONTINUE_READING];
++}
++
++export function allCommunityModuleTypes(): string[] {
++  return [
++    CommunityModuleType.FEATURED_ARTICLE, CommunityModuleType.NEWS,
++    CommunityModuleType.TOP_READ, CommunityModuleType.PIC_OF_THE_DAY, CommunityModuleType.ARTICLE
++  ];
++}
++
++export function isForYouModuleType(value: string): boolean {
++  const known: string[] = allForYouModuleTypes();
++  return known.indexOf(value) >= 0;
++}
++
++/* ------------------------------------------------------------------ *
++ * Feed content.
++ * ------------------------------------------------------------------ */
++
++/** A single renderable feed item. */
++export class FeedCard {
++  readonly type: FeedCardType;
++  readonly identifier: string;
++  readonly title: string;
++  readonly logicalAge: number;
++  readonly language: string;
++
++  constructor(type: FeedCardType, identifier: string, title: string, logicalAge: number, language: string) {
++    this.type = type;
++    this.identifier = identifier;
++    this.title = title.length > 0 ? title : identifier;
++    this.logicalAge = logicalAge;
++    this.language = language;
++  }
++
++  /** Stable identity used for de-duplication and for restoring a hidden card. */
++  token(): string {
++    return this.identifier.length > 0 ? `${this.type}:${this.identifier}` : `${this.type}`;
++  }
++
++  /** Identity compared against the persisted hidden card list. */
++  hideKey(): string {
++    return this.identifier.length > 0 ? this.identifier : `${this.type}`;
++  }
++
++  /** Identity that also encodes the logical day, used to restore an exact position. */
++  positionKey(): string {
++    return `${this.logicalAge}#${this.token()}`;
++  }
++}
++
++/** Parses a `TYPE` or `TYPE:identifier` token into a card. */
++export function feedCardFromToken(token: string, logicalAge: number, language: string): FeedCard {
++  const trimmed: string = token.trim();
++  const separator: number = trimmed.indexOf(':');
++  if (separator < 0) {
++    return new FeedCard(feedCardTypeOf(trimmed), '', trimmed, logicalAge, language);
++  }
++  const rawType: string = trimmed.substring(0, separator);
++  const identifier: string = trimmed.substring(separator + 1);
++  return new FeedCard(feedCardTypeOf(rawType), identifier, identifier, logicalAge, language);
++}
++
++/** Trims and drops empty card tokens. */
++export function normalizeTokens(tokens: string[]): string[] {
++  const result: string[] = [];
++  for (let index = 0; index < tokens.length; index++) {
++    const token: string = tokens[index].trim();
++    if (token.length > 0) {
++      result.push(token);
++    }
++  }
++  return result;
++}
++
++/** Parses card tokens for one logical day, dropping anything unusable. */
++export function parseTokensSafe(tokens: string[], logicalAge: number, language: string): FeedCard[] {
++  const normalized: string[] = normalizeTokens(tokens);
++  const cards: FeedCard[] = [];
++  for (let index = 0; index < normalized.length; index++) {
++    cards.push(feedCardFromToken(normalized[index], logicalAge, language));
++  }
++  return cards;
++}
++
++/** A recommendation group rendered by the For You tab. */
++export class FeedModule {
++  readonly type: string;
++  readonly cards: FeedCard[];
++
++  constructor(type: string, cards: FeedCard[]) {
++    this.type = type;
++    this.cards = cards;
++  }
++
++  visibleCards(hiddenCards: string[]): FeedCard[] {
++    const result: FeedCard[] = [];
++    for (let index = 0; index < this.cards.length; index++) {
++      if (hiddenCards.indexOf(this.cards[index].hideKey()) < 0) {
++        result.push(this.cards[index]);
++      }
++    }
++    return result;
++  }
++
++  /** A module survives filtering while it still shows at least one card. */
++  hasVisibleCard(hiddenCards: string[]): boolean {
++    return this.visibleCards(hiddenCards).length > 0;
++  }
++}
++
++/** Groups a flat card list into modules, preserving first appearance order. */
++export function feedModulesFromCards(cards: FeedCard[]): FeedModule[] {
++  const modules: FeedModule[] = [];
++  for (let index = 0; index < cards.length; index++) {
++    const card: FeedCard = cards[index];
++    const type: string = moduleTypeOfCard(card.type);
++    if (type.length === 0) {
++      continue;
++    }
++    let target: FeedModule | undefined = undefined;
++    for (let scan = 0; scan < modules.length; scan++) {
++      if (modules[scan].type === type) {
++        target = modules[scan];
++        break;
++      }
++    }
++    if (target === undefined) {
++      modules.push(new FeedModule(type, [card]));
++    } else {
++      target.cards.push(card);
++    }
++  }
++  return modules;
++}
++
++/* ------------------------------------------------------------------ *
++ * Tab state.
++ * ------------------------------------------------------------------ */
++
++const PHASE_HISTORY_LIMIT = 16;
++
++/** Mutable presentation state of the Community tab. */
++export class CommunityFeedState {
++  phase: FeedPhase = FeedPhase.IDLE;
++  /** Cards exactly as received, before hidden card filtering. */
++  backingCards: FeedCard[] = [];
++  /** Cards after hidden card and hidden module filtering. */
++  cards: FeedCard[] = [];
++  language: string = '';
++  date: string = '';
++  /** The logical day the next request will ask for. Only advances on success. */
++  nextLogicalAge: number = 0;
++  /** The logical day of the request that failed, or -1. */
++  failedLogicalAge: number = -1;
++  retryAvailable: boolean = false;
++  inlineError: boolean = false;
++  loading: boolean = false;
++  emptyReason: FeedEmptyReason = FeedEmptyReason.NONE;
++  recoveryAction: FeedRecoveryAction = FeedRecoveryAction.NONE;
++  /** Offered next to the primary recovery action, for example "go to Community". */
++  secondaryRecoveryAction: FeedRecoveryAction = FeedRecoveryAction.NONE;
++  lastSource: string = '';
++  attempts: number = 0;
++  phaseHistory: string[] = [];
++
++  constructor() {
++    this.phaseHistory.push(FeedPhase.IDLE);
++  }
++
++  hasContent(): boolean {
++    return this.cards.length > 0;
++  }
++
++  newestLogicalAge(): number {
++    let newest: number = -1;
++    for (let index = 0; index < this.backingCards.length; index++) {
++      if (isDayHeader(this.backingCards[index].type)) {
++        continue;
++      }
++      if (this.backingCards[index].logicalAge > newest) {
++        newest = this.backingCards[index].logicalAge;
++      }
++    }
++    return newest;
++  }
++
++  pushHistory(phase: FeedPhase): void {
++    const last: string = this.phaseHistory.length > 0 ? this.phaseHistory[this.phaseHistory.length - 1] : '';
++    if (last !== phase) {
++      this.phaseHistory.push(phase);
++      if (this.phaseHistory.length > PHASE_HISTORY_LIMIT) {
++        this.phaseHistory.shift();
++      }
++    }
++  }
++
++  /** Enters the loading presentation while keeping already available content. */
++  beginLoading(source: FeedLoadSource): void {
++    this.loading = true;
++    this.lastSource = source;
++    this.attempts++;
++    this.pushHistory(FeedPhase.LOADING);
++    if (!this.hasContent()) {
++      this.phase = FeedPhase.LOADING;
++      this.emptyReason = FeedEmptyReason.NONE;
++      this.recoveryAction = FeedRecoveryAction.NONE;
++      this.retryAvailable = false;
++      this.inlineError = false;
++    }
++  }
++
++  endLoading(): void {
++    this.loading = false;
++  }
++
++  recordPhase(phase: FeedPhase): void {
++    this.phase = phase;
++    this.pushHistory(phase);
++  }
++
++  reset(language: string, date: string): void {
++    this.backingCards = [];
++    this.cards = [];
++    this.language = language;
++    this.date = date;
++    this.phase = FeedPhase.IDLE;
++    this.pushHistory(FeedPhase.IDLE);
++    this.nextLogicalAge = 0;
++    this.failedLogicalAge = -1;
++    this.retryAvailable = false;
++    this.inlineError = false;
++    this.loading = false;
++    this.emptyReason = FeedEmptyReason.NONE;
++    this.recoveryAction = FeedRecoveryAction.NONE;
++  }
++
++  toRecord(): Record<string, Object> {
++    const record: Record<string, Object> = {
++      'phase': this.phase,
++      'cards': cardTokens(this.cards),
++      'language': this.language,
++      'date': this.date,
++      'cardCount': this.cards.length,
++      'hasContent': this.hasContent(),
++      'loading': this.loading,
++      'retryAvailable': this.retryAvailable,
++      'inlineError': this.inlineError,
++      'emptyReason': this.emptyReason,
++      'recoveryAction': this.recoveryAction,
++      'secondaryRecoveryAction': this.secondaryRecoveryAction,
++      'lastSource': this.lastSource,
++      'attempts': this.attempts,
++      'phaseHistory': this.phaseHistory,
++      'backingModuleTypes': backingModuleTypes(this.backingCards)
++    };
++    return record;
++  }
++}
++
++/** Mutable presentation state of the For You tab. */
++export class ForYouFeedState {
++  phase: FeedPhase = FeedPhase.IDLE;
++  /** Recommendation groups exactly as derived, before filtering. */
++  backingModules: FeedModule[] = [];
++  /** Recommendation groups after hidden card and hidden module filtering. */
++  modules: FeedModule[] = [];
++  language: string = '';
++  date: string = '';
++  /** The batch the next request will ask for. Only advances on success. */
++  batchIndex: number = 0;
++  /** The batch of the request that failed, or -1. */
++  failedBatch: number = -1;
++  retryAvailable: boolean = false;
++  inlineError: boolean = false;
++  loading: boolean = false;
++  /** True when the tab is showing the stable daily result for its language. */
++  stableResult: boolean = false;
++  emptyReason: FeedEmptyReason = FeedEmptyReason.NONE;
++  recoveryAction: FeedRecoveryAction = FeedRecoveryAction.NONE;
++  secondaryRecoveryAction: FeedRecoveryAction = FeedRecoveryAction.NONE;
++  lastSource: string = '';
++  attempts: number = 0;
++  phaseHistory: string[] = [];
++
++  constructor() {
++    this.phaseHistory.push(FeedPhase.IDLE);
++  }
++
++  hasContent(): boolean {
++    return this.modules.length > 0;
++  }
++
++  pushHistory(phase: FeedPhase): void {
++    const last: string = this.phaseHistory.length > 0 ? this.phaseHistory[this.phaseHistory.length - 1] : '';
++    if (last !== phase) {
++      this.phaseHistory.push(phase);
++      if (this.phaseHistory.length > PHASE_HISTORY_LIMIT) {
++        this.phaseHistory.shift();
++      }
++    }
++  }
++
++  beginLoading(source: FeedLoadSource): void {
++    this.loading = true;
++    this.lastSource = source;
++    this.attempts++;
++    this.pushHistory(FeedPhase.LOADING);
++    if (!this.hasContent()) {
++      this.phase = FeedPhase.LOADING;
++      this.emptyReason = FeedEmptyReason.NONE;
++      this.recoveryAction = FeedRecoveryAction.NONE;
++      this.retryAvailable = false;
++      this.inlineError = false;
++    }
++  }
++
++  endLoading(): void {
++    this.loading = false;
++  }
++
++  recordPhase(phase: FeedPhase): void {
++    this.phase = phase;
++    this.pushHistory(phase);
++  }
++
++  reset(language: string, date: string): void {
++    this.backingModules = [];
++    this.modules = [];
++    this.language = language;
++    this.date = date;
++    this.phase = FeedPhase.IDLE;
++    this.pushHistory(FeedPhase.IDLE);
++    this.batchIndex = 0;
++    this.failedBatch = -1;
++    this.retryAvailable = false;
++    this.inlineError = false;
++    this.loading = false;
++    this.stableResult = false;
++    this.emptyReason = FeedEmptyReason.NONE;
++    this.recoveryAction = FeedRecoveryAction.NONE;
++  }
++
++  toRecord(): Record<string, Object> {
++    const record: Record<string, Object> = {
++      'phase': this.phase,
++      'modules': moduleTypes(this.modules),
++      'moduleTypes': moduleTypes(this.modules),
++      'sections': moduleSections(this.modules),
++      'cards': moduleCardTokens(this.modules),
++      'moduleCardTokens': moduleCardTokens(this.modules),
++      'language': this.language,
++      'date': this.date,
++      'moduleCount': this.modules.length,
++      'backingModuleCount': this.backingModules.length,
++      'backingModuleTypes': moduleTypes(this.backingModules),
++      'hasContent': this.hasContent(),
++      'loading': this.loading,
++      'retryAvailable': this.retryAvailable,
++      'inlineError': this.inlineError,
++      'stableResult': this.stableResult,
++      'emptyReason': this.emptyReason,
++      'recoveryAction': this.recoveryAction,
++      'secondaryRecoveryAction': this.secondaryRecoveryAction,
++      'lastSource': this.lastSource,
++      'attempts': this.attempts,
++      'phaseHistory': this.phaseHistory,
++      'batchIndex': this.batchIndex,
++      'failedBatch': this.failedBatch,
++      'settingsTarget': FeedSettingsTarget.FOR_YOU_MODULES,
++      'filteredBy': filteredBy(this.backingModules, this.modules)
++    };
++    return record;
++  }
++}
++
++/* ------------------------------------------------------------------ *
++ * Serialization helpers shared by the two tab states.
++ * ------------------------------------------------------------------ */
++
++/** `TYPE:identifier` tokens for a flat card list. */
++export function cardTokens(cards: FeedCard[]): string[] {
++  const result: string[] = [];
++  for (let index = 0; index < cards.length; index++) {
++    result.push(cards[index].token());
++  }
++  return result;
++}
++
++/** Module types currently presented, in order. */
++export function moduleTypes(modules: FeedModule[]): string[] {
++  const result: string[] = [];
++  for (let index = 0; index < modules.length; index++) {
++    result.push(modules[index].type);
++  }
++  return result;
++}
++
++/** Flat card tokens across every presented module. */
++export function moduleCardTokens(modules: FeedModule[]): string[] {
++  const result: string[] = [];
++  for (let index = 0; index < modules.length; index++) {
++    const cards: FeedCard[] = modules[index].cards;
++    for (let cardIndex = 0; cardIndex < cards.length; cardIndex++) {
++      result.push(cards[cardIndex].token());
++    }
++  }
++  return result;
++}
++
++/** Presented modules rendered as `{ type, cards }` sections. */
++export function moduleSections(modules: FeedModule[]): Record<string, Object>[] {
++  const result: Record<string, Object>[] = [];
++  for (let index = 0; index < modules.length; index++) {
++    const cards: FeedCard[] = modules[index].cards;
++    const tokens: string[] = [];
++    for (let cardIndex = 0; cardIndex < cards.length; cardIndex++) {
++      tokens.push(cards[cardIndex].token());
++    }
++    result.push({ 'type': modules[index].type, 'cards': tokens });
++  }
++  return result;
++}
++
++/** Module types present in a backing card list. */
++export function backingModuleTypes(cards: FeedCard[]): string[] {
++  return moduleTypes(feedModulesFromCards(cards));
++}
++
++function moduleCardKeys(module: FeedModule): string {
++  return moduleCardTokens([module]).join('|');
++}
++
++/**
++ * Describes why a presented module list differs from the backing module list.
++ * Backing modules are filtered, never deleted, so this is the record that proves
++ * a hide action only changed presentation.
++ */
++export function filteredBy(backing: FeedModule[], presented: FeedModule[]): string[] {
++  const reasons: string[] = [];
++  for (let index = 0; index < backing.length; index++) {
++    const match: FeedModule | undefined = findPresented(presented, backing[index].type);
++    if (match === undefined) {
++      reasons.push(`${backing[index].type}:module`);
++    } else if (moduleCardKeys(backing[index]) !== moduleCardKeys(match)) {
++      reasons.push(`${backing[index].type}:card`);
++    }
++  }
++  return reasons;
++}
++
++function findPresented(presented: FeedModule[], type: string): FeedModule | undefined {
++  for (let index = 0; index < presented.length; index++) {
++    if (presented[index].type === type) {
++      return presented[index];
++    }
++  }
++  return undefined;
++}
++
++/** Calendar date helper. Feed content is always scoped by an ISO calendar day. */
++export class FeedClock {
++  private fixedToday: string;
++
++  constructor(fixedToday: string) {
++    this.fixedToday = normalizeDate(fixedToday, systemDate());
++  }
++
++  today(): string {
++    return this.fixedToday;
++  }
++}
++
++/** Normalizes a date token, mapping the relative forms onto the clock's day. */
++export function normalizeDate(value: string, today: string): string {
++  const trimmed: string = value.trim();
++  if (trimmed.length === 0) {
++    return today;
++  }
++  const lowered: string = trimmed.toLowerCase();
++  if (lowered === 'today' || lowered === 'now' || lowered === 'current') {
++    return today;
++  }
++  return trimmed;
++}
++
++/** The device's current calendar day in ISO form. */
++export function systemDate(): string {
++  const now: Date = new Date();
++  const year: number = now.getFullYear();
++  const month: number = now.getMonth() + 1;
++  const day: number = now.getDate();
++  const paddedMonth: string = month < 10 ? `0${month}` : `${month}`;
++  const paddedDay: string = day < 10 ? `0${day}` : `${day}`;
++  return `${year}-${paddedMonth}-${paddedDay}`;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/FeedSnapshot.ets b/entry/src/main/ets/model/FeedSnapshot.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..7290495ed89c9953670090421ee0d3d75422afb5
+--- /dev/null
++++ b/entry/src/main/ets/model/FeedSnapshot.ets
+@@ -0,0 +1,343 @@
++import {
++  arrayOf, booleanOf, FeedCard, feedCardFromToken, feedCardTypeOf, FeedModule, isDayHeader,
++  numberOf, recordOf, textListOf, textOf
++} from './FeedDomain';
++
++/**
++ * The snapshot the page host injects when it mounts the Home surface.
++ *
++ * A snapshot is made of a `state` record (what the surface is showing right now)
++ * and a `persistence` record (what was written to durable storage). Both carry
++ * loosely typed values, so every read goes through this type, which resolves a
++ * path against the state record first and the persistence record second and
++ * always returns a usable value.
++ */
++export class FeedSnapshot {
++  private readonly state: Record<string, Object>;
++  private readonly persistence: Record<string, Object>;
++
++  constructor(state: Record<string, Object> | undefined, persistence: Record<string, Object> | undefined) {
++    this.state = state === undefined ? {} : state;
++    this.persistence = persistence === undefined ? {} : persistence;
++  }
++
++  private walk(root: Record<string, Object>, keys: string[]): Object | undefined {
++    let current: Record<string, Object> = root;
++    for (let index = 0; index < keys.length; index++) {
++      const value: Object | undefined = current[keys[index]];
++      if (value === undefined || value === null) {
++        return undefined;
++      }
++      if (index === keys.length - 1) {
++        return value;
++      }
++      const nested: Record<string, Object> | undefined = recordOf(value);
++      if (nested === undefined) {
++        return undefined;
++      }
++      current = nested;
++    }
++    return undefined;
++  }
++
++  private topLevel(key: string): Object | undefined {
++    const fromState: Object | undefined = this.state[key];
++    if (fromState !== undefined && fromState !== null) {
++      return fromState;
++    }
++    const fromPersistence: Object | undefined = this.persistence[key];
++    if (fromPersistence !== undefined && fromPersistence !== null) {
++      return fromPersistence;
++    }
++    return undefined;
++  }
++
++  /**
++   * Resolves a key list. A multi element list is first tried as one nested path,
++   * because that is what reads values out of a nested record such as the interest
++   * editor. Failing that, the elements are treated as aliases of the same top
++   * level key and the first one present wins.
++   */
++  private raw(keys: string[]): Object | undefined {
++    if (keys.length === 0) {
++      return undefined;
++    }
++    if (keys.length > 1) {
++      const nested: Object | undefined = this.walk(this.state, keys);
++      if (nested === undefined) {
++        const nestedPersistence: Object | undefined = this.walk(this.persistence, keys);
++        if (nestedPersistence !== undefined) {
++          return nestedPersistence;
++        }
++      } else {
++        return nested;
++      }
++      for (let index = 0; index < keys.length; index++) {
++        const alias: Object | undefined = this.topLevel(keys[index]);
++        if (alias !== undefined) {
++          return alias;
++        }
++      }
++      return undefined;
++    }
++    return this.topLevel(keys[0]);
++  }
++
++  text(keys: string[]): string {
++    return textOf(this.raw(keys)).trim();
++  }
++
++  number(keys: string[], fallback: number): number {
++    return numberOf(this.raw(keys), fallback);
++  }
++
++  flag(keys: string[], fallback: boolean): boolean {
++    return booleanOf(this.raw(keys), fallback);
++  }
++
++  list(keys: string[]): string[] {
++    return textListOf(this.raw(keys));
++  }
++
++  record(keys: string[]): Record<string, Object> | undefined {
++    return recordOf(this.raw(keys));
++  }
++
++  items(keys: string[]): Object[] {
++    return arrayOf(this.raw(keys));
++  }
++
++  present(keys: string[]): boolean {
++    return this.raw(keys) !== undefined;
++  }
++
++  /** The raw value at a path, whether it is a scalar, a list or a record. */
++  value(keys: string[]): Object | undefined {
++    return this.raw(keys);
++  }
++
++  /** The state half of the snapshot, used by the feed content leaves. */
++  getState(): Record<string, Object> {
++    return this.state;
++  }
++
++  /** The persistence half of the snapshot. */
++  getPersistence(): Record<string, Object> {
++    return this.persistence;
++  }
++
++  /** Both halves merged, with the state record taking precedence. */
++  merged(): Record<string, Object> {
++    const result: Record<string, Object> = {};
++    const persistedKeys: string[] = Object.keys(this.persistence);
++    for (let index = 0; index < persistedKeys.length; index++) {
++      result[persistedKeys[index]] = this.persistence[persistedKeys[index]];
++    }
++    const stateKeys: string[] = Object.keys(this.state);
++    for (let index = 0; index < stateKeys.length; index++) {
++      result[stateKeys[index]] = this.state[stateKeys[index]];
++    }
++    return result;
++  }
++}
++
++/* ------------------------------------------------------------------ *
++ * Parsing of loosely typed feed payloads.
++ * ------------------------------------------------------------------ */
++
++/** Parses a list of `TYPE[:identifier]` tokens into cards for one logical day. */
++export function parseCards(payload: Object | undefined, logicalAge: number, language: string): FeedCard[] {
++  const raw: Object[] = arrayOf(payload);
++  const cards: FeedCard[] = [];
++  for (let index = 0; index < raw.length; index++) {
++    const record: Record<string, Object> | undefined = recordOf(raw[index]);
++    if (record !== undefined) {
++      const card: FeedCard | undefined = cardFromRecord(record, logicalAge, language);
++      if (card !== undefined) {
++        cards.push(card);
++      }
++      continue;
++    }
++    const token: string = textOf(raw[index]).trim();
++    if (token.length > 0) {
++      cards.push(feedCardFromToken(token, logicalAge, language));
++    }
++  }
++  return cards;
++}
++
++function cardFromRecord(record: Record<string, Object>, logicalAge: number, language: string): FeedCard | undefined {
++  const type: string = textOf(record['type']).trim();
++  const rawId: string = textOf(record['id']).trim();
++  const identifier: string = rawId.length > 0 ? rawId : textOf(record['title']).trim();
++  if (type.length === 0 && identifier.length === 0) {
++    return undefined;
++  }
++  const cardType: string = type.length > 0 ? type : 'ARTICLE';
++  return new FeedCard(feedCardTypeOf(cardType), identifier, identifier, logicalAge, language);
++}
++
++/**
++ * Parses a recommendation payload into modules.
++ *
++ * Accepted shapes:
++ *   - a flat list of `MODULE[:identifier]` card tokens
++ *   - a list of `{ type, cards: [...] }` records
++ *   - a `{ MODULE: [identifier, ...] }` map
++ *   - a `{ MODULE: 'identifier' }` map
++ */
++export function parseModules(payload: Object | undefined, language: string): FeedModule[] {
++  const raw: Object[] = arrayOf(payload);
++  const modules: FeedModule[] = [];
++  for (let index = 0; index < raw.length; index++) {
++    const record: Record<string, Object> | undefined = recordOf(raw[index]);
++    if (record !== undefined && record['type'] !== undefined) {
++      const type: string = textOf(record['type']).trim();
++      modules.push(new FeedModule(type, parseCards(record['cards'], 0, language)));
++      continue;
++    }
++    if (record !== undefined) {
++      const keys: string[] = Object.keys(record);
++      for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
++        const type: string = keys[keyIndex];
++        const cards: FeedCard[] = parseCards(record[type], 0, language);
++        if (cards.length === 0) {
++          const single: string = textOf(record[type]).trim();
++          if (single.length > 0) {
++            cards.push(feedCardFromToken(`${type}:${single}`, 0, language));
++          }
++        }
++        modules.push(new FeedModule(type, cards));
++      }
++      continue;
++    }
++    const token: string = textOf(raw[index]).trim();
++    if (token.length === 0) {
++      continue;
++    }
++    const separator: number = token.indexOf(':');
++    if (separator < 0) {
++      modules.push(new FeedModule(token, [feedCardFromToken(token, 0, language)]));
++      continue;
++    }
++    const card: FeedCard = feedCardFromToken(token, 0, language);
++    modules.push(new FeedModule(`${card.type}`, [card]));
++  }
++  return modules;
++}
++
++const MODULE_PAYLOAD_KEYS: string[] = [
++  'modules', 'moduleList', 'items', 'recommendations', 'content', 'backingModules', 'entries', 'groups'
++];
++
++const LANGUAGE_PAYLOAD_KEYS: string[] = ['byLanguage', 'modulesByLanguage', 'perLanguage', 'languagesByCode'];
++
++/**
++ * Extracts the recommendation payload a For You cache entry holds for `language`.
++ *
++ * A cache entry is only usable when it was written for the requested language,
++ * so both the date and the language keyed payload have to line up before any
++ * module is restored.
++ */
++export function modulesFromCacheEntry(entry: Record<string, Object>, language: string): FeedModule[] {
++  for (let index = 0; index < LANGUAGE_PAYLOAD_KEYS.length; index++) {
++    const scoped: Record<string, Object> | undefined = recordOf(entry[LANGUAGE_PAYLOAD_KEYS[index]]);
++    if (scoped === undefined) {
++      continue;
++    }
++    const scopedDirect: Object | undefined = scoped[language];
++    if (scopedDirect !== undefined) {
++      return parseModules(scopedDirect, language);
++    }
++  }
++  const direct: Object | undefined = entry[language];
++  if (direct !== undefined) {
++    return parseModules(direct, language);
++  }
++  for (let index = 0; index < MODULE_PAYLOAD_KEYS.length; index++) {
++    const payload: Object | undefined = entry[MODULE_PAYLOAD_KEYS[index]];
++    if (payload !== undefined) {
++      const parsed: FeedModule[] = parseModules(payload, language);
++      if (parsed.length > 0) {
++        return parsed;
++      }
++    }
++  }
++  return [];
++}
++
++/** Languages a For You cache entry holds a payload for. */
++export function languagesOfCacheEntry(entry: Record<string, Object>): string[] {
++  const result: string[] = [];
++  const declared: string[] = textListOf(entry['languages']);
++  for (let index = 0; index < declared.length; index++) {
++    if (result.indexOf(declared[index]) < 0) {
++      result.push(declared[index]);
++    }
++  }
++  const single: string = textOf(entry['language']).trim();
++  if (single.length > 0 && result.indexOf(single) < 0) {
++    result.push(single);
++  }
++  const keys: string[] = ['byLanguage', 'modulesByLanguage', 'perLanguage'];
++  for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
++    const scoped: Record<string, Object> | undefined = recordOf(entry[keys[keyIndex]]);
++    if (scoped === undefined) {
++      continue;
++    }
++    const scopedKeys: string[] = Object.keys(scoped);
++    for (let index = 0; index < scopedKeys.length; index++) {
++      if (result.indexOf(scopedKeys[index]) < 0) {
++        result.push(scopedKeys[index]);
++      }
++    }
++  }
++  return result;
++}
++
++/**
++ * Inserts the day header that groups the editorial modules of `logicalAge`, so
++ * Community content stays grouped by calendar day while older days are added.
++ */
++export function withDayHeader(cards: FeedCard[], logicalAge: number, language: string): FeedCard[] {
++  const header: FeedCard = new FeedCard(feedCardTypeOf('DAY_HEADER'), `${logicalAge}`, `${logicalAge}`, logicalAge, language);
++  const result: FeedCard[] = [header];
++  for (let index = 0; index < cards.length; index++) {
++    result.push(cards[index]);
++  }
++  return result;
++}
++
++/** True when the list already opens with the header of `logicalAge`. */
++export function startsWithDayHeader(cards: FeedCard[], logicalAge: number): boolean {
++  if (cards.length === 0) {
++    return false;
++  }
++  const first: FeedCard = cards[0];
++  return isDayHeader(first.type) && first.logicalAge === logicalAge;
++}
++
++/**
++ * Restores a flat token list that carries its own day headers. Every card after
++ * a `DAY_HEADER:n` token belongs to logical day `n`, so an undo can put a hidden
++ * card back into the exact day it was removed from.
++ */
++export function parseCardsWithHeaders(tokens: string[], language: string): FeedCard[] {
++  const cards: FeedCard[] = [];
++  let logicalAge: number = 0;
++  for (let index = 0; index < tokens.length; index++) {
++    const token: string = tokens[index].trim();
++    if (token.length === 0) {
++      continue;
++    }
++    const card: FeedCard = feedCardFromToken(token, logicalAge, language);
++    if (isDayHeader(card.type)) {
++      const parsed: number = Number(card.identifier);
++      logicalAge = Number.isNaN(parsed) ? logicalAge : parsed;
++      cards.push(new FeedCard(card.type, card.identifier, card.title, logicalAge, language));
++      continue;
++    }
++    cards.push(card);
++  }
++  return cards;
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/HomeFeedStorage.ets b/entry/src/main/ets/model/HomeFeedStorage.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..a884ef4551ae18ab6dfe90f7b90059bd1b4fa41c
+--- /dev/null
++++ b/entry/src/main/ets/model/HomeFeedStorage.ets
+@@ -0,0 +1,166 @@
++import { common } from '@kit.AbilityKit';
++import { preferences, relationalStore } from '@kit.ArkData';
++import { arrayOf, textListOf, textOf } from './FeedDomain';
++
++/**
++ * Durable keys owned by the Home feed.
++ *
++ * The feed stores the personalization choice, the feed language, the reader's
++ * hidden cards, the per tab module visibility, the daily For You cache and the
++ * onboarding flag. Everything else about a tab is transient.
++ */
++export class FeedStorageKeys {
++  static readonly HOME_PREFERENCE: string = 'home_preference';
++  static readonly HOME_LANGUAGE: string = 'home_language';
++  static readonly HIDDEN_CARDS: string = 'hidden_cards';
++  static readonly HIDDEN_COMMUNITY_MODULES: string = 'hidden_community_modules';
++  static readonly HIDDEN_FOR_YOU_MODULES: string = 'hidden_for_you_modules';
++  static readonly FOR_YOU_CACHE: string = 'for_you_cache';
++  static readonly ONBOARDING_COMPLETE: string = 'onboarding_complete';
++  static readonly SNAPSHOT: string = 'snapshot';
++}
++
++/** Typed access to the durable feed store. */
++export class FeedPreferences {
++  private readonly store: preferences.Preferences;
++
++  constructor(store: preferences.Preferences) {
++    this.store = store;
++  }
++
++  async readText(key: string): Promise<string> {
++    const value: preferences.ValueType = await this.store.get(key, '');
++    return textOf(value as Object).trim();
++  }
++
++  async readList(key: string): Promise<string[]> {
++    return textListOf(arrayOf(JSON.parse(this.safeJson(await this.readText(key))) as Object));
++  }
++
++  async writeText(key: string, value: string): Promise<void> {
++    await this.store.put(key, value);
++    await this.store.flush();
++  }
++
++  async writeList(key: string, values: string[]): Promise<void> {
++    await this.writeText(key, JSON.stringify(values));
++  }
++
++  async writeRecord(key: string, value: Record<string, Object>): Promise<void> {
++    await this.writeText(key, JSON.stringify(value));
++  }
++
++  async remove(key: string): Promise<void> {
++    await this.store.delete(key);
++    await this.store.flush();
++  }
++
++  /** True when durable storage already holds a value for `key`. */
++  async contains(key: string): Promise<boolean> {
++    return this.store.has(key);
++  }
++
++  private safeJson(value: string): string {
++    if (value.length === 0) {
++      return '[]';
++    }
++    try {
++      const parsed: Object | undefined = JSON.parse(value) as Object | undefined;
++      if (parsed === undefined) {
++        return '[]';
++      }
++      return JSON.stringify(parsed);
++    } catch (error) {
++      return '[]';
++    }
++  }
++}
++
++/* ------------------------------------------------------------------ *
++ * Saved interests.
++ *
++ * Interests live in the application database rather than in preferences, so they
++ * survive a feed cache invalidation and are shared with the interest editor.
++ * The relational store is the primary backend; if the database cannot be opened
++ * the repository falls back to an in-process store so that the editor still
++ * completes.
++ * ------------------------------------------------------------------ */
++
++export class FeedInterestRepository {
++  private static readonly TABLE: string = 'FeedInterest';
++  private database?: relationalStore.RdbStore;
++  private readonly memory: string[] = [];
++  private backend: string = 'in_process';
++
++  constructor() {
++  }
++
++  /** Opens the database and replaces its content with `seed`. */
++  async initialize(context: common.UIAbilityContext, seed: string[]): Promise<void> {
++    try {
++      const config: relationalStore.StoreConfig = {
++        name: 'feed_interests.db',
++        securityLevel: relationalStore.SecurityLevel.S1
++      };
++      this.database = await relationalStore.getRdbStore(context, config);
++      await this.database.executeSql(
++        'CREATE TABLE IF NOT EXISTS FeedInterest (code TEXT PRIMARY KEY, language TEXT, savedAt INTEGER)'
++      );
++      this.backend = 'relational_store';
++    } catch (error) {
++      this.database = undefined;
++      this.backend = 'in_process';
++    }
++    await this.replaceAll(seed);
++  }
++
++  /** Which store actually holds the interests right now. */
++  storageName(): string {
++    return this.backend;
++  }
++
++  async all(): Promise<string[]> {
++    if (this.database === undefined) {
++      return this.memory.slice();
++    }
++    const result: string[] = [];
++    try {
++      const rows: relationalStore.ResultSet = await this.database.querySql(
++        'SELECT code FROM FeedInterest ORDER BY savedAt ASC'
++      );
++      while (rows.goToNextRow()) {
++        result.push(rows.getString(0));
++      }
++      rows.close();
++    } catch (error) {
++      return this.memory.slice();
++    }
++    return result;
++  }
++
++  /** Replaces every saved interest. This is the write the editor completes with. */
++  async replaceAll(interests: string[]): Promise<void> {
++    this.memory.splice(0, this.memory.length);
++    for (let index = 0; index < interests.length; index++) {
++      this.memory.push(interests[index]);
++    }
++    if (this.database === undefined) {
++      return;
++    }
++    try {
++      await this.database.delete(new relationalStore.RdbPredicates(FeedInterestRepository.TABLE));
++      for (let index = 0; index < interests.length; index++) {
++        const code: string = interests[index];
++        const separator: number = code.indexOf(':');
++        const bucket: relationalStore.ValuesBucket = {
++          'code': code,
++          'language': separator > 0 ? code.substring(0, separator) : '',
++          'savedAt': index
++        };
++        await this.database.insert(FeedInterestRepository.TABLE, bucket);
++      }
++    } catch (error) {
++      this.backend = 'in_process';
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/LegacyExploreStore.ets b/entry/src/main/ets/model/LegacyExploreStore.ets
+index d7645a987f9155cc1e70d843135d41362d8ded26..d80b243d2c37a9943e9a123b406e2ef09787c323 100644
+--- a/entry/src/main/ets/model/LegacyExploreStore.ets
++++ b/entry/src/main/ets/model/LegacyExploreStore.ets
+@@ -1,41 +1,1580 @@
+ import { common } from '@kit.AbilityKit';
+ import { preferences } from '@kit.ArkData';
+-import { ExploreInput, ExploreLeaf } from '../integration/ExplorePageIntegration';
++import { ExploreEffect, ExploreInput, ExploreLeaf } from '../integration/ExplorePageIntegration';
++import {
++  allCommunityModuleTypes, allForYouModuleTypes, cardTokens, CommunityFeedState, FeedActivityResult,
++  FeedCard, feedCardTypeOf, FeedClock, FeedEmptyReason, FeedLoadSource, FeedModule, FeedPhase,
++  FeedRecoveryAction, FeedSettingsTarget, FeedTabSurface, feedModulesFromCards, ForYouFeedState,
++  HomePreference, HomeTab, homePreferenceOf, homeTabForPreference, homeTabOf, isDayHeader, moduleCardTokens,
++  moduleTypes, normalizeDate, systemDate
++} from './FeedDomain';
++import {
++  FeedSnapshot, languagesOfCacheEntry, modulesFromCacheEntry, parseCards, parseCardsWithHeaders, parseModules,
++  startsWithDayHeader, withDayHeader
++} from './FeedSnapshot';
++import {
++  CommunityPage, CommunityRequest, feedScriptFromSnapshot, FeedScript, FeedServiceException, FeedContentService,
++  ForYouPage, ForYouRequest
++} from './FeedContentService';
++import { FeedInterestRepository, FeedPreferences, FeedStorageKeys } from './HomeFeedStorage';
+ 
+-function clone(value: Record<string, Object>): Record<string, Object> {
+-  return JSON.parse(JSON.stringify(value)) as Record<string, Object>;
++/** State handed to the interest editor page. */
++export class InterestEditorState {
++  initialSelections: string[] = [];
++  currentSelections: string[] = [];
++  /** True when the editor reports that its selections actually changed. */
++  updated: boolean = false;
++  /** The result the editor reports, when the host pinned one. */
++  pendingResult: number = -1;
++  result: number = FeedActivityResult.RESULT_CANCELED;
++
++  constructor() {
++  }
++
++  /** True when finishing now would take the personalized refresh path. */
++  wouldUpdate(): boolean {
++    return this.updated || !sameSelections(this.initialSelections, this.currentSelections);
++  }
++
++  toRecord(): Record<string, Object> {
++    return {
++      'initialSelections': this.initialSelections,
++      'currentSelections': this.currentSelections,
++      'updated': this.updated,
++      'pendingResult': this.pendingResult,
++      'result': this.result,
++      'wouldUpdate': this.wouldUpdate()
++    };
++  }
++}
++
++function sameSelections(left: string[], right: string[]): boolean {
++  if (left.length !== right.length) {
++    return false;
++  }
++  for (let index = 0; index < left.length; index++) {
++    if (left[index] !== right[index]) {
++      return false;
++    }
++  }
++  return true;
++}
++
++/** Snapshot of the content removed by a hide action, kept for the undo that follows it. */
++class HideUndo {
++  readonly kind: string;
++  readonly token: string;
++  readonly hideKey: string;
++  readonly tab: string;
++  readonly communityCards: string[];
++  readonly forYouCards: string[];
++
++  constructor(kind: string, token: string, hideKey: string, tab: string, communityCards: string[], forYouCards: string[]) {
++    this.kind = kind;
++    this.token = token;
++    this.hideKey = hideKey;
++    this.tab = tab;
++    this.communityCards = communityCards;
++    this.forYouCards = forYouCards;
++  }
++}
++
++/**
++ * The daily For You result.
++ *
++ * One entry per feed language, all scoped to a single calendar day. A cached
++ * result is only reusable for the same date and the same language, which is what
++ * keeps the For You tab stable for a day without going stale across languages.
++ */
++export class ForYouCache {
++  private date: string = '';
++  private readonly entries: Map<string, FeedModule[]> = new Map<string, FeedModule[]>();
++
++  dateOf(): string {
++    return this.date;
++  }
++
++  languages(): string[] {
++    return Array.from(this.entries.keys());
++  }
++
++  get(language: string): FeedModule[] | undefined {
++    return this.entries.get(language);
++  }
++
++  set(date: string, language: string, modules: FeedModule[]): void {
++    if (this.date !== date) {
++      this.date = date;
++      this.entries.clear();
++    }
++    this.entries.set(language, modules);
++  }
++
++  /** A cache hit requires both the same calendar day and a payload for the language. */
++  isUsable(date: string, language: string): boolean {
++    if (this.date !== date) {
++      return false;
++    }
++    const modules: FeedModule[] | undefined = this.entries.get(language);
++    return modules !== undefined && modules.length > 0;
++  }
++
++  clear(): void {
++    this.date = '';
++    this.entries.clear();
++  }
++
++  toRecord(): Record<string, Object> {
++    const byLanguage: Record<string, Object> = {};
++    const keys: string[] = Array.from(this.entries.keys());
++    for (let index = 0; index < keys.length; index++) {
++      const modules: FeedModule[] = this.entries.get(keys[index]) as FeedModule[];
++      byLanguage[keys[index]] = moduleCardTokens(modules);
++    }
++    return {
++      'date': this.date,
++      'languages': this.languages(),
++      'modulesByLanguage': byLanguage,
++      'moduleTypesByLanguage': this.moduleTypesByLanguage()
++    };
++  }
++
++  private moduleTypesByLanguage(): Record<string, Object> {
++    const result: Record<string, Object> = {};
++    const keys: string[] = Array.from(this.entries.keys());
++    for (let index = 0; index < keys.length; index++) {
++      const modules: FeedModule[] = this.entries.get(keys[index]) as FeedModule[];
++      result[keys[index]] = moduleTypes(modules);
++    }
++    return result;
++  }
+ }
+ 
++/**
++ * Application owned state for the Home feed.
++ *
++ * The store owns tab selection, persistence, hidden content, the daily For You
++ * cache, pagination, retry and empty state selection. Remote content and
++ * analytics are leaf boundaries reached through {@link FeedContentService} and
++ * {@link ExploreLeaf}; nothing above this class decides a fetch result on the
++ * caller's behalf.
++ */
+ export class LegacyExploreStore {
+-  private state: Record<string, Object>;
+-  private persistence: Record<string, Object>;
+-  private leaf: ExploreLeaf;
+-  private store: preferences.Preferences;
++  private static runtime?: LegacyExploreStore;
++
++  private readonly preferences: FeedPreferences;
++  private readonly interestRepository: FeedInterestRepository;
++  private readonly content: FeedContentService;
++  private readonly clock: FeedClock;
++  private readonly leaf: ExploreLeaf;
++  private readonly snapshot: FeedSnapshot;
++  private readonly script: FeedScript;
++  private context?: common.UIAbilityContext;
++
++  private homePreference: HomePreference = HomePreference.COMMUNITY;
++  private homeLanguage: string = '';
++  private configuredLanguages: string[] = [];
++  private primaryConfiguredLanguage: string = '';
++  private hiddenCards: string[] = [];
++  private hiddenCommunityModules: string[] = [];
++  private hiddenForYouModules: string[] = [];
++  private interestsList: string[] = [];
++  private savedArticles: string[] = [];
++  private readingActivity: string[] = [];
++  private onboardingComplete: boolean = false;
++
++  private readonly cache: ForYouCache = new ForYouCache();
++  private readonly community: CommunityFeedState = new CommunityFeedState();
++  private readonly forYou: ForYouFeedState = new ForYouFeedState();
++  private readonly editor: InterestEditorState = new InterestEditorState();
++  private selectedTab: HomeTab = HomeTab.COMMUNITY;
++  private lastActivityResult: number = FeedActivityResult.RESULT_CANCELED;
++  private pendingAllModulesOffTarget: string = FeedSettingsTarget.FOR_YOU_MODULES;
++  private pendingAllModulesOffConfirmation: boolean = true;
++  private communityInFlight: boolean = false;
++  private forYouInFlight: boolean = false;
++  private undo?: HideUndo;
++  private disposed: boolean = false;
+ 
+   private constructor(store: preferences.Preferences, input: ExploreInput) {
+-    this.store = store;
+-    this.state = clone(input.state);
+-    this.persistence = clone(input.persistence);
++    this.preferences = new FeedPreferences(store);
+     this.leaf = input.leaf;
++    this.snapshot = new FeedSnapshot(input.state, input.persistence);
++    this.script = feedScriptFromSnapshot(this.snapshot.merged());
++    this.clock = new FeedClock(this.snapshot.text(['clockDate', 'today', 'currentDate']));
++    this.content = new FeedContentService(input.leaf, this.script);
++    this.interestRepository = new FeedInterestRepository();
+   }
+ 
++  /**
++   * Installs the injected snapshot into durable storage and rebuilds the Home
++   * state from it. The durable store is cleared first so a remount never mixes
++   * two snapshots together.
++   */
+   static async create(context: common.UIAbilityContext, input: ExploreInput): Promise<LegacyExploreStore> {
+-    const store = await preferences.getPreferences(context, 'explore_feed');
++    const store: preferences.Preferences = await preferences.getPreferences(context, 'explore_feed');
+     await store.clear();
+-    await store.put('snapshot', JSON.stringify(input.persistence));
++    await store.put(FeedStorageKeys.SNAPSHOT, JSON.stringify(input.persistence));
+     await store.flush();
+-    return new LegacyExploreStore(store, input);
++    const instance: LegacyExploreStore = new LegacyExploreStore(store, input);
++    instance.context = context;
++    await instance.initialize();
++    LegacyExploreStore.runtime = instance;
++    return instance;
++  }
++
++  /** The store backing the mounted Home surface. */
++  static current(): LegacyExploreStore | undefined {
++    return LegacyExploreStore.runtime;
++  }
++
++  private async initialize(): Promise<void> {
++    this.readConfiguration();
++    this.hydrateTabs();
++    await this.interestRepository.initialize(this.context as common.UIAbilityContext, this.interestsList);
++    await this.reloadPersistence();
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Hydration.
++   * ---------------------------------------------------------------- */
++
++  private readConfiguration(): void {
++    this.configuredLanguages = this.snapshot.list(['configuredLanguages', 'appLanguages']);
++    this.primaryConfiguredLanguage = this.snapshot.text(['primaryConfiguredLanguage', 'primaryLanguage']);
++    this.homeLanguage = this.snapshot.text(['homeLanguage', 'persistedHomeLanguage', 'feedLanguage', 'language']);
++    this.homePreference = homePreferenceOf(this.snapshot.text(['homePreference', 'preference']));
++    this.onboardingComplete = this.snapshot.flag(['onboardingComplete', 'onboarding'], true);
++    this.interestsList = this.snapshot.list(['interests', 'persistedInterests', 'savedInterests']);
++    this.savedArticles = this.snapshot.list(['savedArticles', 'savedPages']);
++    this.readingActivity = this.snapshot.list(['readingHistory', 'recentlyRead', 'readHistory']);
++    this.hiddenCards = this.snapshot.list(['hiddenCards', 'persistedHiddenCards']);
++    this.hiddenCommunityModules = this.snapshot.list(
++      ['hiddenCommunityModules', 'persistedCommunityHiddenModules', 'communityHiddenModules']);
++    this.hiddenForYouModules = this.snapshot.list(
++      ['hiddenModules', 'persistedHiddenModules', 'hiddenForYouModules', 'forYouHiddenModules']);
++    const allOffTarget: string = this.snapshot.text(['pendingAllModulesOffTarget', 'allModulesOffTarget']);
++    this.pendingAllModulesOffTarget = allOffTarget.length > 0 ?
++      allOffTarget : `${FeedSettingsTarget.FOR_YOU_MODULES}`;
++    this.pendingAllModulesOffConfirmation = this.snapshot.flag(
++      ['pendingAllModulesOffConfirmation', 'allModulesOffPending'], true);
++  }
++
++  private hydrateTabs(): void {
++    const community: Record<string, Object> | undefined = this.snapshot.record(['community', 'communityState']);
++    const forYouRecord: Record<string, Object> | undefined = this.snapshot.record(['forYou', 'forYouState']);
++
++    this.community.language = this.communityLanguage(community);
++    this.community.date = this.clock.today();
++    this.community.backingCards = parseCards(this.nested(community, ['cards']), 0, this.community.language);
++    this.community.phase = feedPhaseFromText(this.snapshotText(community, ['phase'], ''));
++    this.community.pushHistory(this.community.phase);
++
++    const failedAge: number = this.snapshot.number(['failedLogicalAge'], -1);
++    this.community.failedLogicalAge = failedAge;
++    this.community.nextLogicalAge = failedAge >= 0 ? failedAge : this.community.newestLogicalAge() + 1;
++    this.community.inlineError = this.community.phase === FeedPhase.CONTENT_WITH_INLINE_ERROR ||
++      this.nestedFlag(community, ['inlineError'], false);
++    this.community.retryAvailable = this.snapshot.flag(['retryAvailable'],
++      this.community.phase === FeedPhase.ERROR || this.community.phase === FeedPhase.CONTENT_WITH_INLINE_ERROR);
++
++    this.forYou.language = this.forYouLanguage(forYouRecord);
++    this.forYou.date = normalizeDate(this.snapshotText(forYouRecord, ['date'], ''), this.clock.today());
++    const forYouPhase: string = this.snapshotText(forYouRecord, ['phase'], '');
++    this.forYou.phase = feedPhaseFromText(forYouPhase.length > 0 ?
++      forYouPhase : this.snapshot.text(['forYouPhase']));
++    this.forYou.pushHistory(this.forYou.phase);
++    this.forYou.backingModules = this.hydratedForYouModules(forYouRecord);
++    this.forYou.failedBatch = this.snapshot.number(['failedBatch'], -1);
++    this.forYou.batchIndex = this.forYou.failedBatch >= 0 ? this.forYou.failedBatch : this.snapshot.number(
++      ['forYouBatchIndex', 'batchIndex'], 0);
++    this.forYou.retryAvailable = this.snapshot.flag(['retryAvailable'],
++      this.forYou.phase === FeedPhase.ERROR || this.forYou.phase === FeedPhase.CONTENT_WITH_INLINE_ERROR);
++
++    const tab: HomeTab | undefined = homeTabOf(this.snapshot.text(['selectedTab', 'tab']));
++    this.selectedTab = tab === undefined ? homeTabForPreference(this.homePreference) : tab;
++
++    this.restoreCacheFromSnapshot();
++
++    this.editor.initialSelections = this.snapshot.list(['interestEditor', 'initialSelections']);
++    this.editor.currentSelections = this.snapshot.list(['interestEditor', 'currentSelections']);
++    this.editor.updated = this.snapshot.flag(['interestEditor', 'interestsUpdated'], false);
++    this.editor.pendingResult = this.snapshot.number(['interestEditor', 'pendingResult'], -1);
++
++    this.refreshCommunityPresentation();
++    this.refreshForYouPresentation();
++    this.consumeServedFailures();
++    this.normalizePhases();
++    this.evaluateCommunityEmptyState();
++    this.evaluateForYouEmptyState();
++  }
++
++  /**
++   * A failure the snapshot already shows as the current state of a tab has
++   * already been served by the matching content leaf, so its scripted answer is
++   * spent. Everything still queued belongs to the next request, which is what
++   * lets a retry of the same logical day or batch reach the service again.
++   */
++  private consumeServedFailures(): void {
++    if (this.community.retryAvailable && this.community.failedLogicalAge >= 0 &&
++      this.script.communityFailures.length > 0) {
++      this.script.communityFailures.shift();
++    }
++    if (this.forYou.retryAvailable && this.script.forYouFailures.length > 0) {
++      this.script.forYouFailures.shift();
++    }
++  }
++
++  /** Keeps each tab's phase consistent with what it actually shows. */
++  private normalizePhases(): void {
++    if (this.community.cards.length > 0) {
++      if (this.community.phase === FeedPhase.IDLE || this.community.phase === FeedPhase.EMPTY) {
++        this.community.recordPhase(this.community.inlineError ?
++          FeedPhase.CONTENT_WITH_INLINE_ERROR : FeedPhase.CONTENT);
++      }
++    } else if (this.community.phase === FeedPhase.CONTENT ||
++      this.community.phase === FeedPhase.CONTENT_WITH_INLINE_ERROR) {
++      this.community.inlineError = false;
++      this.community.recordPhase(FeedPhase.EMPTY);
++    }
++    if (this.forYou.modules.length > 0) {
++      if (this.forYou.phase === FeedPhase.IDLE || this.forYou.phase === FeedPhase.EMPTY) {
++        this.forYou.recordPhase(this.forYou.inlineError ? FeedPhase.CONTENT_WITH_INLINE_ERROR : FeedPhase.CONTENT);
++      }
++      return;
++    }
++    if (this.forYou.phase === FeedPhase.CONTENT || this.forYou.phase === FeedPhase.CONTENT_WITH_INLINE_ERROR) {
++      this.forYou.inlineError = false;
++      this.forYou.recordPhase(FeedPhase.EMPTY);
++      return;
++    }
++    if (this.forYou.phase === FeedPhase.IDLE && this.allForYouModulesHidden()) {
++      this.forYou.recordPhase(FeedPhase.EMPTY);
++    }
++  }
++
++  private communityLanguage(community: Record<string, Object> | undefined): string {
++    const language: string = this.snapshotText(community, ['language'], '');
++    return language.length > 0 ? language : this.homeLanguage;
++  }
++
++  private forYouLanguage(forYouRecord: Record<string, Object> | undefined): string {
++    const language: string = this.snapshotText(forYouRecord, ['language'], '');
++    return language.length > 0 ? language : this.homeLanguage;
++  }
++
++  private hydratedForYouModules(forYouRecord: Record<string, Object> | undefined): FeedModule[] {
++    const direct: Object | undefined = this.nested(forYouRecord, ['modules']);
++    if (direct !== undefined) {
++      return parseModules(direct, this.forYou.language);
++    }
++    const loose: Object | undefined = this.snapshot.value(['forYouModules']);
++    if (loose !== undefined) {
++      return parseModules(loose, this.forYou.language);
++    }
++    const backing: Object | undefined = this.snapshot.value(['forYouBackingModules']);
++    if (backing !== undefined) {
++      return parseModules(backing, this.forYou.language);
++    }
++    const state: Record<string, Object> | undefined = this.snapshot.record(['forYouState']);
++    if (state !== undefined) {
++      const modules: Object | undefined = this.nested(state, ['modules']);
++      if (modules !== undefined) {
++        return parseModules(modules, this.forYou.language);
++      }
++    }
++    return [];
++  }
++
++  private restoreCacheFromSnapshot(): void {
++    const entries: Record<string, Object> | undefined =
++      this.snapshot.record(['persistedForYouCache', 'forYouCache']);
++    if (entries === undefined) {
++      return;
++    }
++    const date: string = normalizeDate(textField(entries, 'date'), this.clock.today());
++    const languages: string[] = languagesOfCacheEntry(entries);
++    for (let index = 0; index < languages.length; index++) {
++      const modules: FeedModule[] = modulesFromCacheEntry(entries, languages[index]);
++      if (modules.length > 0) {
++        this.cache.set(date, languages[index], modules);
++      }
++    }
++  }
++
++  private snapshotText(record: Record<string, Object> | undefined, keys: string[], fallback: string): string {
++    if (record === undefined) {
++      return fallback;
++    }
++    for (let index = 0; index < keys.length; index++) {
++      const value: Object | undefined = record[keys[index]];
++      if (value !== undefined && value !== null) {
++        return textField(record, keys[index]);
++      }
++    }
++    return fallback;
++  }
++
++  private nested(record: Record<string, Object> | undefined, keys: string[]): Object | undefined {
++    if (record === undefined) {
++      return undefined;
++    }
++    for (let index = 0; index < keys.length; index++) {
++      const value: Object | undefined = record[keys[index]];
++      if (value !== undefined && value !== null) {
++        return value;
++      }
++    }
++    return undefined;
++  }
++
++  private nestedFlag(record: Record<string, Object> | undefined, keys: string[], fallback: boolean): boolean {
++    if (record === undefined) {
++      return fallback;
++    }
++    for (let index = 0; index < keys.length; index++) {
++      const value: Object | undefined = record[keys[index]];
++      if (value !== undefined && value !== null) {
++        return textField(record, keys[index]) === 'true';
++      }
++    }
++    return fallback;
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Durable state.
++   * ---------------------------------------------------------------- */
++
++  /**
++   * Re-reads the durable feed state. Values that durable storage does not hold
++   * yet are taken from the injected snapshot and written back, so the choice the
++   * reader made is stored by the same flow that reads it back later.
++   */
++  private async reloadPersistence(): Promise<void> {
++    if (await this.preferences.contains(FeedStorageKeys.HOME_PREFERENCE)) {
++      this.homePreference = homePreferenceOf(await this.preferences.readText(FeedStorageKeys.HOME_PREFERENCE));
++    } else {
++      this.homePreference = homePreferenceOf(this.snapshot.text(['homePreference', 'preference']));
++      await this.preferences.writeText(FeedStorageKeys.HOME_PREFERENCE, `${this.homePreference}`);
++    }
++    if (await this.preferences.contains(FeedStorageKeys.HOME_LANGUAGE)) {
++      this.homeLanguage = await this.preferences.readText(FeedStorageKeys.HOME_LANGUAGE);
++    } else {
++      this.homeLanguage = this.snapshot.text(['homeLanguage', 'persistedHomeLanguage', 'feedLanguage', 'language']);
++      if (this.homeLanguage.length > 0) {
++        await this.preferences.writeText(FeedStorageKeys.HOME_LANGUAGE, this.homeLanguage);
++      }
++    }
++    if (await this.preferences.contains(FeedStorageKeys.HIDDEN_CARDS)) {
++      this.hiddenCards = await this.preferences.readList(FeedStorageKeys.HIDDEN_CARDS);
++    } else {
++      this.hiddenCards = this.snapshot.list(['hiddenCards', 'persistedHiddenCards']);
++      await this.preferences.writeList(FeedStorageKeys.HIDDEN_CARDS, this.hiddenCards);
++    }
++    if (await this.preferences.contains(FeedStorageKeys.HIDDEN_COMMUNITY_MODULES)) {
++      this.hiddenCommunityModules = await this.preferences.readList(FeedStorageKeys.HIDDEN_COMMUNITY_MODULES);
++    } else {
++      this.hiddenCommunityModules = this.snapshot.list(
++        ['hiddenCommunityModules', 'persistedCommunityHiddenModules', 'communityHiddenModules']);
++      await this.preferences.writeList(FeedStorageKeys.HIDDEN_COMMUNITY_MODULES, this.hiddenCommunityModules);
++    }
++    if (await this.preferences.contains(FeedStorageKeys.HIDDEN_FOR_YOU_MODULES)) {
++      this.hiddenForYouModules = await this.preferences.readList(FeedStorageKeys.HIDDEN_FOR_YOU_MODULES);
++    } else {
++      this.hiddenForYouModules = this.snapshot.list(
++        ['hiddenModules', 'persistedHiddenModules', 'hiddenForYouModules', 'forYouHiddenModules']);
++      await this.preferences.writeList(FeedStorageKeys.HIDDEN_FOR_YOU_MODULES, this.hiddenForYouModules);
++    }
++    if (await this.preferences.contains(FeedStorageKeys.ONBOARDING_COMPLETE)) {
++      this.onboardingComplete = (await this.preferences.readText(FeedStorageKeys.ONBOARDING_COMPLETE)) === 'true';
++    } else {
++      await this.preferences.writeText(FeedStorageKeys.ONBOARDING_COMPLETE, `${this.onboardingComplete}`);
++    }
++    this.interestsList = await this.interestRepository.all();
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Language.
++   * ---------------------------------------------------------------- */
++
++  /** The feed language actually used: the stored one when it is still configured. */
++  activeLanguage(): string {
++    return this.resolveLanguage(this.homeLanguage);
++  }
++
++  private resolveLanguage(stored: string): string {
++    if (this.configuredLanguages.length === 0) {
++      return stored.length > 0 ? stored : 'en';
++    }
++    if (stored.length > 0 && this.configuredLanguages.indexOf(stored) >= 0) {
++      return stored;
++    }
++    if (this.primaryConfiguredLanguage.length > 0 &&
++      this.configuredLanguages.indexOf(this.primaryConfiguredLanguage) >= 0) {
++      return this.primaryConfiguredLanguage;
++    }
++    return this.configuredLanguages[0];
++  }
++
++  /** Selects a feed language from the configured app languages and reloads the active tab. */
++  async setFeedLanguage(language: string): Promise<void> {
++    if (this.configuredLanguages.length > 0 && this.configuredLanguages.indexOf(language) < 0) {
++      return;
++    }
++    if (this.homeLanguage === language) {
++      return;
++    }
++    this.homeLanguage = language;
++    await this.preferences.writeText(FeedStorageKeys.HOME_LANGUAGE, language);
++    await this.emit({
++      name: 'homeLanguageChanged',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.HOME],
++      language: language,
++      result: language
++    });
++    await this.reloadActiveTab(FeedLoadSource.LANGUAGE_CHANGED, true);
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Home surface lifecycle.
++   * ---------------------------------------------------------------- */
++
++  /** Rebuilds the surface from durable state and loads the tab the choice selects. */
++  async recreateHomeSurface(): Promise<void> {
++    await this.reloadPersistence();
++    this.undo = undefined;
++    const language: string = this.activeLanguage();
++    this.homeLanguage = language;
++    await this.preferences.writeText(FeedStorageKeys.HOME_LANGUAGE, language);
++    const tab: HomeTab = homeTabForPreference(this.homePreference);
++    this.community.reset(language, this.clock.today());
++    this.forYou.reset(language, this.clock.today());
++    this.selectedTab = tab;
++    await this.emit({
++      name: 'homeSurfaceRecreated',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.HOME],
++      language: language,
++      result: `${tab}`
++    });
++    await this.onLoadMore(tab, FeedLoadSource.INITIAL);
++  }
++
++  /**
++   * Returns to the foreground. An unavailable stored language falls back to a
++   * configured one, which resets and reloads the active tab only; the peer tab
++   * keeps whatever it was showing until it is selected again.
++   */
++  async resumeHomeSurface(): Promise<void> {
++    await this.reloadPersistence();
++    const resolved: string = this.activeLanguage();
++    const changed: boolean = resolved !== this.homeLanguage;
++    this.homeLanguage = resolved;
++    if (changed) {
++      await this.preferences.writeText(FeedStorageKeys.HOME_LANGUAGE, resolved);
++      await this.emit({
++        name: 'homeLanguageResolved',
++        leaf: 'analytics',
++        surfaces: [FeedTabSurface.HOME],
++        language: resolved,
++        result: resolved
++      });
++      await this.reloadActiveTab(FeedLoadSource.LANGUAGE_CHANGED, true);
++      return;
++    }
++    await this.reloadActiveTab(FeedLoadSource.RESUME, false);
++  }
++
++  /** Resets the active tab and loads it again. */
++  async refreshActiveTab(): Promise<void> {
++    await this.reloadActiveTab(FeedLoadSource.REFRESH, true);
++  }
++
++  private async reloadActiveTab(source: FeedLoadSource, force: boolean): Promise<void> {
++    if (this.tabInFlight(this.selectedTab)) {
++      return;
++    }
++    if (!force && !this.activeTabIsStale()) {
++      return;
++    }
++    this.resetTab(this.selectedTab, this.activeLanguage());
++    await this.onLoadMore(this.selectedTab, source);
++  }
++
++  /** True when the active tab is showing a result from a previous calendar day. */
++  private activeTabIsStale(): boolean {
++    if (this.selectedTab === HomeTab.COMMUNITY) {
++      if (this.community.phase === FeedPhase.IDLE) {
++        return true;
++      }
++      return this.community.date.length > 0 && this.community.date !== this.clock.today();
++    }
++    if (this.forYou.phase === FeedPhase.IDLE) {
++      return true;
++    }
++    return this.forYou.date.length > 0 && this.forYou.date !== this.clock.today();
++  }
++
++  /** Switches tab. Only an idle, non loading destination is loaded. */
++  async selectHomeTab(tab: string): Promise<void> {
++    const target: HomeTab | undefined = homeTabOf(tab);
++    if (target === undefined) {
++      return;
++    }
++    this.selectedTab = target;
++    await this.emit({
++      name: 'homeTabSelected',
++      leaf: 'analytics',
++      surfaces: [surfaceOf(target)],
++      language: this.homeLanguage,
++      result: `${target}`
++    });
++    if (this.tabInFlight(target)) {
++      return;
++    }
++    if (this.isIdle(target)) {
++      await this.onLoadMore(target, FeedLoadSource.INITIAL);
++    }
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Loading.
++   * ---------------------------------------------------------------- */
++
++  /** Retries the failed Community request for the same logical day. */
++  async retryCommunityLoad(): Promise<void> {
++    await this.onLoadMore(HomeTab.COMMUNITY, FeedLoadSource.RETRY);
++  }
++
++  /** Retries the failed Community load-more for the same logical day. */
++  async retryCommunityLoadMore(): Promise<void> {
++    await this.onLoadMore(HomeTab.COMMUNITY, FeedLoadSource.RETRY_MORE);
++  }
++
++  /** Retries the failed For You batch through the same load-more entry point. */
++  async retryForYouLoad(): Promise<void> {
++    await this.onLoadMore(HomeTab.FOR_YOU, FeedLoadSource.RETRY);
++  }
++
++  /** Requests the next logical Community day. */
++  async loadCommunityMore(): Promise<void> {
++    await this.onLoadMore(HomeTab.COMMUNITY, FeedLoadSource.LOAD_MORE);
++  }
++
++  /** Serves the stable daily For You result. */
++  async loadForYouMore(): Promise<void> {
++    await this.onLoadMore(HomeTab.FOR_YOU, FeedLoadSource.LOAD_MORE);
++  }
++
++  /**
++   * The single entry point every feed request goes through, including the retry
++   * actions bound to the error presentations.
++   */
++  private async onLoadMore(tab: HomeTab, source: FeedLoadSource): Promise<void> {
++    if (this.disposed) {
++      return;
++    }
++    if (tab === HomeTab.COMMUNITY) {
++      await this.loadCommunity(source);
++      return;
++    }
++    await this.loadForYou(source);
++  }
++
++  private tabInFlight(tab: HomeTab): boolean {
++    return tab === HomeTab.COMMUNITY ? this.communityInFlight : this.forYouInFlight;
++  }
++
++  private isIdle(tab: HomeTab): boolean {
++    return tab === HomeTab.COMMUNITY ? this.community.phase === FeedPhase.IDLE : this.forYou.phase === FeedPhase.IDLE;
++  }
++
++  private resetTab(tab: HomeTab, language: string): void {
++    if (tab === HomeTab.COMMUNITY) {
++      this.community.reset(language, this.clock.today());
++      return;
++    }
++    this.forYou.reset(language, this.clock.today());
++  }
++
++  private async loadCommunity(source: FeedLoadSource): Promise<void> {
++    if (this.communityInFlight) {
++      return;
++    }
++    if (this.communityLoadingIsSuppressed()) {
++      return;
++    }
++    this.communityInFlight = true;
++    const logicalAge: number = this.community.nextLogicalAge;
++    const language: string = this.community.language.length > 0 ? this.community.language : this.activeLanguage();
++    const request: CommunityRequest = new CommunityRequest(
++      language,
++      this.clock.today(),
++      logicalAge,
++      this.content.attemptsFor(`community:${logicalAge}`) + 1,
++      this.content.attemptsFor(`community:${logicalAge}`) + 1,
++      source);
++    this.community.beginLoading(source);
++    try {
++      const page: CommunityPage = await this.content.fetchCommunity(request);
++      this.applyCommunityPage(page);
++    } catch (error) {
++      this.applyCommunityFailure(errorText(error), logicalAge);
++    } finally {
++      this.communityInFlight = false;
++      this.community.endLoading();
++    }
++  }
++
++  private communityLoadingIsSuppressed(): boolean {
++    if (this.allCommunityModulesHidden()) {
++      this.community.retryAvailable = false;
++      this.community.inlineError = false;
++      this.community.recordPhase(FeedPhase.EMPTY);
++      this.evaluateCommunityEmptyState();
++      return true;
++    }
++    return false;
++  }
++
++  private applyCommunityPage(page: CommunityPage): void {
++    const incoming: FeedCard[] = page.cards;
++    const merged: FeedCard[] = mergeCommunityCards(this.community.backingCards, incoming, page.logicalAge,
++      this.community.language);
++    this.community.backingCards = merged;
++    this.community.date = page.date;
++    // A served page is what advances pagination; a failure never does.
++    this.community.nextLogicalAge = page.logicalAge + 1;
++    this.community.failedLogicalAge = -1;
++    this.community.inlineError = false;
++    this.community.retryAvailable = false;
++    this.refreshCommunityPresentation();
++    this.evaluateCommunityEmptyState();
++    this.community.recordPhase(this.community.cards.length > 0 ? FeedPhase.CONTENT : FeedPhase.EMPTY);
++  }
++
++  private applyCommunityFailure(kind: string, logicalAge: number): void {
++    this.community.failedLogicalAge = logicalAge;
++    this.community.retryAvailable = true;
++    this.community.recoveryAction = FeedRecoveryAction.RETRY;
++    this.community.secondaryRecoveryAction = FeedRecoveryAction.NONE;
++    if (this.community.cards.length > 0) {
++      // Content that is already on screen survives a later page failure.
++      this.community.inlineError = true;
++      this.community.recordPhase(FeedPhase.CONTENT_WITH_INLINE_ERROR);
++      return;
++    }
++    this.community.inlineError = false;
++    this.community.recordPhase(FeedPhase.ERROR);
++  }
++
++  private async loadForYou(source: FeedLoadSource): Promise<void> {
++    if (this.forYouInFlight) {
++      return;
++    }
++    if (this.forYouLoadingIsSuppressed()) {
++      return;
++    }
++    const language: string = this.forYou.language.length > 0 ? this.forYou.language : this.activeLanguage();
++    const date: string = this.clock.today();
++    if (source === FeedLoadSource.LOAD_MORE && this.forYou.hasContent() && this.cache.isUsable(this.forYou.date, language)) {
++      // The daily result for this language is stable; paging inside a day adds nothing.
++      this.forYou.stableResult = true;
++      return;
++    }
++    this.forYouInFlight = true;
++    try {
++      if (this.cache.isUsable(date, language)) {
++        await this.restoreForYouFromCache(date, language, source);
++        return;
++      }
++      const batch: number = this.forYou.batchIndex;
++      const request: ForYouRequest = new ForYouRequest(
++        language, date, batch, this.content.attemptsFor(`for_you:${batch}`) + 1, source);
++      this.forYou.beginLoading(source);
++      try {
++        const page: ForYouPage = await this.content.fetchForYou(request);
++        await this.applyForYouPage(page, batch);
++      } catch (error) {
++        this.applyForYouFailure(errorText(error), batch);
++      } finally {
++        this.forYou.endLoading();
++      }
++    } finally {
++      this.forYouInFlight = false;
++    }
++  }
++
++  private forYouLoadingIsSuppressed(): boolean {
++    if (this.allForYouModulesHidden()) {
++      this.forYou.retryAvailable = false;
++      this.forYou.inlineError = false;
++      this.forYou.recordPhase(FeedPhase.EMPTY);
++      this.evaluateForYouEmptyState();
++      return true;
++    }
++    return false;
+   }
+ 
+-  async recreateHomeSurface(): Promise<void> {}
+-  async selectHomeTab(_tab: string): Promise<void> {}
+-  async retryCommunityLoad(): Promise<void> {}
+-  async retryCommunityLoadMore(): Promise<void> {}
+-  async resumeHomeSurface(): Promise<void> {}
+-  async finishInterestEditing(): Promise<void> {}
+-  async retryForYouLoad(): Promise<void> {}
+-  async confirmAllModulesOff(): Promise<void> {}
++  private async restoreForYouFromCache(date: string, language: string, source: FeedLoadSource): Promise<void> {
++    const modules: FeedModule[] = copyOfModules(this.cache.get(language) as FeedModule[]);
++    this.forYou.beginLoading(source);
++    this.forYou.backingModules = modules;
++    this.forYou.language = language;
++    this.forYou.date = date;
++    this.forYou.failedBatch = -1;
++    this.forYou.inlineError = false;
++    this.forYou.retryAvailable = false;
++    this.forYou.stableResult = true;
++    this.forYou.endLoading();
++    this.refreshForYouPresentation();
++    this.evaluateForYouEmptyState();
++    this.forYou.recordPhase(this.forYou.modules.length > 0 ? FeedPhase.CONTENT : FeedPhase.EMPTY);
++    await this.emit({
++      name: 'forYouCacheRestored',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.FOR_YOU],
++      language: language,
++      date: date,
++      batch: this.forYou.batchIndex,
++      result: 'CACHE_HIT'
++    });
++  }
++
++  private async applyForYouPage(page: ForYouPage, batch: number): Promise<void> {
++    this.forYou.backingModules = this.deriveForYouModules(page.language, page.date, page.rankedTitles);
++    this.forYou.language = page.language;
++    this.forYou.date = page.date;
++    // The batch index only advances once a batch has been served.
++    this.forYou.batchIndex = batch + 1;
++    this.forYou.failedBatch = -1;
++    this.forYou.inlineError = false;
++    this.forYou.retryAvailable = false;
++    this.forYou.stableResult = false;
++    // The cache keeps its own copy: hiding content must never edit it.
++    this.cache.set(page.date, page.language, copyOfModules(this.forYou.backingModules));
++    await this.persistCache();
++    this.refreshForYouPresentation();
++    this.evaluateForYouEmptyState();
++    this.forYou.recordPhase(this.forYou.modules.length > 0 ? FeedPhase.CONTENT : FeedPhase.EMPTY);
++  }
++
++  private applyForYouFailure(kind: string, batch: number): void {
++    this.forYou.failedBatch = batch;
++    this.forYou.retryAvailable = true;
++    this.forYou.recoveryAction = FeedRecoveryAction.RETRY;
++    this.forYou.secondaryRecoveryAction = FeedRecoveryAction.NONE;
++    if (this.forYou.modules.length > 0) {
++      this.forYou.inlineError = true;
++      this.forYou.recordPhase(FeedPhase.CONTENT_WITH_INLINE_ERROR);
++      return;
++    }
++    this.forYou.inlineError = false;
++    this.forYou.recordPhase(FeedPhase.ERROR);
++  }
++
++  /**
++   * Derives the For You recommendation groups from the reader's saved interests,
++   * reading activity and saved articles. Titles ranked by the recommendation
++   * leaf are folded into the group they belong to; the ranking itself is not.
++   */
++  private deriveForYouModules(language: string, date: string, rankedTitles: string[]): FeedModule[] {
++    const modules: FeedModule[] = [];
++    const interests: string[] = titlesForLanguage(this.interestsList, language);
++    const reading: string[] = titlesForLanguage(this.readingActivity, language);
++    const saved: string[] = titlesForLanguage(this.savedArticles, language);
++    appendModule(modules, 'BASED_ON_INTEREST', interests, rankedTitles);
++    appendModule(modules, 'BECAUSE_YOU_READ', reading, rankedTitles);
++    appendModule(modules, 'CONTINUE_READING', saved, rankedTitles);
++    return modules;
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Presentation.
++   * ---------------------------------------------------------------- */
++
++  private refreshCommunityPresentation(): void {
++    const visible: FeedCard[] = [];
++    const hiddenModules: string[] = this.hiddenCommunityModules;
++    for (let index = 0; index < this.community.backingCards.length; index++) {
++      const card: FeedCard = this.community.backingCards[index];
++      if (this.hiddenCards.indexOf(card.hideKey()) >= 0) {
++        continue;
++      }
++      if (!isDayHeader(card.type) && hiddenModules.indexOf(moduleTypeOf(card)) >= 0) {
++        continue;
++      }
++      visible.push(card);
++    }
++    this.community.cards = visible;
++  }
++
++  private refreshForYouPresentation(): void {
++    const presented: FeedModule[] = [];
++    const hiddenModules: string[] = this.hiddenForYouModules;
++    for (let index = 0; index < this.forYou.backingModules.length; index++) {
++      const module: FeedModule = this.forYou.backingModules[index];
++      if (hiddenModules.indexOf(module.type) >= 0) {
++        continue;
++      }
++      const cards: FeedCard[] = module.visibleCards(this.hiddenCards);
++      if (cards.length === 0) {
++        continue;
++      }
++      presented.push(new FeedModule(module.type, cards));
++    }
++    this.forYou.modules = presented;
++  }
++
++  private evaluateCommunityEmptyState(): void {
++    if (this.community.cards.length > 0) {
++      this.community.emptyReason = FeedEmptyReason.NONE;
++      this.community.recoveryAction = FeedRecoveryAction.NONE;
++      this.community.secondaryRecoveryAction = FeedRecoveryAction.NONE;
++      return;
++    }
++    if (this.allCommunityModulesHidden()) {
++      this.community.emptyReason = FeedEmptyReason.ALL_MODULES_HIDDEN;
++      this.community.recoveryAction = FeedRecoveryAction.OPEN_COMMUNITY_MODULES;
++      this.community.secondaryRecoveryAction = FeedRecoveryAction.NONE;
++      return;
++    }
++    this.community.emptyReason = FeedEmptyReason.NO_DATA;
++    this.community.recoveryAction = FeedRecoveryAction.RETRY;
++    this.community.secondaryRecoveryAction = FeedRecoveryAction.OPEN_COMMUNITY_MODULES;
++  }
++
++  private evaluateForYouEmptyState(): void {
++    if (this.forYou.modules.length > 0) {
++      this.forYou.emptyReason = FeedEmptyReason.NONE;
++      this.forYou.recoveryAction = FeedRecoveryAction.NONE;
++      this.forYou.secondaryRecoveryAction = FeedRecoveryAction.NONE;
++      return;
++    }
++    if (this.allForYouModulesHidden()) {
++      this.forYou.emptyReason = FeedEmptyReason.ALL_MODULES_HIDDEN;
++      this.forYou.recoveryAction = FeedRecoveryAction.OPEN_FOR_YOU_MODULES;
++      this.forYou.secondaryRecoveryAction = FeedRecoveryAction.NONE;
++      return;
++    }
++    this.forYou.emptyReason = FeedEmptyReason.NO_DATA;
++    this.forYou.recoveryAction = FeedRecoveryAction.CUSTOMIZE_INTERESTS;
++    this.forYou.secondaryRecoveryAction = FeedRecoveryAction.RETURN_TO_COMMUNITY;
++  }
++
++  private allForYouModulesHidden(): boolean {
++    const types: string[] = allForYouModuleTypes();
++    for (let index = 0; index < types.length; index++) {
++      if (this.hiddenForYouModules.indexOf(types[index]) < 0) {
++        return false;
++      }
++    }
++    return true;
++  }
++
++  private allCommunityModulesHidden(): boolean {
++    const types: string[] = allCommunityModuleTypes();
++    for (let index = 0; index < types.length; index++) {
++      if (this.hiddenCommunityModules.indexOf(types[index]) < 0) {
++        return false;
++      }
++    }
++    return true;
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Module visibility and hidden content.
++   * ---------------------------------------------------------------- */
++
++  /** Applies the pending "turn every module off" confirmation for one tab. */
++  async confirmAllModulesOff(): Promise<void> {
++    if (!this.pendingAllModulesOffConfirmation) {
++      return;
++    }
++    const target: string = this.pendingAllModulesOffTarget.length > 0 ? this.pendingAllModulesOffTarget :
++      `${FeedSettingsTarget.FOR_YOU_MODULES}`;
++    if (target === FeedSettingsTarget.COMMUNITY_MODULES) {
++      this.hiddenCommunityModules = allCommunityModuleTypes();
++      await this.persistModuleVisibility();
++      this.refreshCommunityPresentation();
++      this.evaluateCommunityEmptyState();
++      this.community.recordPhase(FeedPhase.EMPTY);
++      await this.emit({
++        name: 'allModulesHidden',
++        leaf: 'analytics',
++        surfaces: [FeedTabSurface.SETTINGS],
++        result: `${FeedSettingsTarget.COMMUNITY_MODULES}`
++      });
++      return;
++    }
++    // Hiding a module filters the backing recommendation groups; the daily cache
++    // keeps them so restoring visibility does not need another request.
++    this.hiddenForYouModules = allForYouModuleTypes();
++    await this.persistModuleVisibility();
++    this.refreshForYouPresentation();
++    this.evaluateForYouEmptyState();
++    this.forYou.recordPhase(FeedPhase.EMPTY);
++    await this.emit({
++      name: 'allModulesHidden',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.SETTINGS],
++      result: `${FeedSettingsTarget.FOR_YOU_MODULES}`
++    });
++  }
++
++  /** Turns one module on or off in feed settings. */
++  async setModuleVisibility(target: string, moduleType: string, visible: boolean): Promise<void> {
++    const hidden: string[] = target === FeedSettingsTarget.COMMUNITY_MODULES ?
++      this.hiddenCommunityModules : this.hiddenForYouModules;
++    const index: number = hidden.indexOf(moduleType);
++    if (visible && index >= 0) {
++      hidden.splice(index, 1);
++    } else if (!visible && index < 0) {
++      hidden.push(moduleType);
++    }
++    await this.persistModuleVisibility();
++    this.refreshCommunityPresentation();
++    this.refreshForYouPresentation();
++    this.evaluateCommunityEmptyState();
++    this.evaluateForYouEmptyState();
++    await this.emit({
++      name: 'moduleVisibilityChanged',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.SETTINGS],
++      result: `${target}:${moduleType}:${visible}`
++    });
++  }
++
++  /** Hides one card. The removal shows immediately and the undo that follows restores it. */
++  async hideCard(token: string): Promise<void> {
++    const communityIndex: number = indexOfCard(this.community.backingCards, token);
++    if (communityIndex >= 0) {
++      const card: FeedCard = this.community.backingCards[communityIndex];
++      this.undo = new HideUndo('card', card.token(), card.hideKey(), `${HomeTab.COMMUNITY}`,
++        cardTokens(this.community.backingCards), moduleCardTokens(this.forYou.backingModules));
++      this.addHiddenCard(card.hideKey());
++      this.community.backingCards.splice(communityIndex, 1);
++      this.refreshCommunityPresentation();
++      this.evaluateCommunityEmptyState();
++      await this.persistHiddenCards();
++      await this.emit({
++        name: 'cardHidden',
++        leaf: 'analytics',
++        surfaces: [FeedTabSurface.COMMUNITY],
++        result: card.token()
++      });
++      return;
++    }
++    const module: FeedModule | undefined = findModuleWithCard(this.forYou.backingModules, token);
++    if (module === undefined) {
++      return;
++    }
++    const cardIndex: number = indexOfCard(module.cards, token);
++    const card: FeedCard = module.cards[cardIndex];
++    this.undo = new HideUndo('card', card.token(), card.hideKey(), `${HomeTab.FOR_YOU}`,
++      cardTokens(this.community.backingCards), moduleCardTokens(this.forYou.backingModules));
++    this.addHiddenCard(card.hideKey());
++    module.cards.splice(cardIndex, 1);
++    this.refreshForYouPresentation();
++    this.evaluateForYouEmptyState();
++    await this.persistHiddenCards();
++    await this.emit({
++      name: 'cardHidden',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.FOR_YOU],
++      result: card.token()
++    });
++  }
++
++  /** Hides one module of the active tab. */
++  async hideModule(moduleType: string): Promise<void> {
++    const onCommunity: boolean = this.communityCardsUseModule(moduleType);
++    this.undo = new HideUndo('module', moduleType, moduleType,
++      onCommunity ? `${HomeTab.COMMUNITY}` : `${HomeTab.FOR_YOU}`,
++      cardTokens(this.community.backingCards), moduleCardTokens(this.forYou.backingModules));
++    if (onCommunity) {
++      this.addHidden(this.hiddenCommunityModules, moduleType);
++    } else {
++      this.addHidden(this.hiddenForYouModules, moduleType);
++    }
++    await this.persistModuleVisibility();
++    this.refreshCommunityPresentation();
++    this.refreshForYouPresentation();
++    this.evaluateCommunityEmptyState();
++    this.evaluateForYouEmptyState();
++    await this.emit({
++      name: 'moduleHidden',
++      leaf: 'analytics',
++      surfaces: [onCommunity ? FeedTabSurface.COMMUNITY : FeedTabSurface.FOR_YOU],
++      result: moduleType
++    });
++  }
++
++  /** Restores whatever the last hide action removed, at the position it had. */
++  async undoLastHide(): Promise<void> {
++    const undo: HideUndo | undefined = this.undo;
++    if (undo === undefined) {
++      return;
++    }
++    this.undo = undefined;
++    if (undo.kind === 'module') {
++      this.removeHidden(undo.tab === `${HomeTab.COMMUNITY}` ?
++        this.hiddenCommunityModules : this.hiddenForYouModules, undo.token);
++    } else {
++      this.removeHiddenCard(undo.hideKey);
++    }
++    if (undo.tab === `${HomeTab.COMMUNITY}`) {
++      this.community.backingCards = parseCardsWithHeaders(undo.communityCards, this.community.language);
++    } else {
++      this.forYou.backingModules = parseModules(undo.forYouCards, this.forYou.language);
++    }
++    await this.persistHiddenCards();
++    await this.persistModuleVisibility();
++    this.refreshCommunityPresentation();
++    this.refreshForYouPresentation();
++    this.evaluateCommunityEmptyState();
++    this.evaluateForYouEmptyState();
++    await this.emit({
++      name: 'hideUndone',
++      leaf: 'analytics',
++      surfaces: [undo.tab === `${HomeTab.COMMUNITY}` ? FeedTabSurface.COMMUNITY : FeedTabSurface.FOR_YOU],
++      result: undo.token
++    });
++  }
+ 
+-  currentState(): Record<string, Object> { return clone(this.state); }
+-  currentPersistence(): Record<string, Object> { return clone(this.persistence); }
++  pendingUndoToken(): string {
++    return this.undo === undefined ? '' : this.undo.token;
++  }
++
++  private communityCardsUseModule(moduleType: string): boolean {
++    const modules: FeedModule[] = feedModulesFromCards(this.community.backingCards);
++    for (let index = 0; index < modules.length; index++) {
++      if (modules[index].type === moduleType) {
++        return true;
++      }
++    }
++    return this.selectedTab === HomeTab.COMMUNITY;
++  }
++
++  private addHidden(list: string[], value: string): void {
++    if (list.indexOf(value) < 0) {
++      list.push(value);
++    }
++  }
++
++  private addHiddenCard(hideKey: string): void {
++    this.addHidden(this.hiddenCards, hideKey);
++  }
++
++  private removeHiddenCard(hideKey: string): void {
++    this.removeHidden(this.hiddenCards, hideKey);
++  }
++
++  private removeHidden(list: string[], value: string): void {
++    const index: number = list.indexOf(value);
++    if (index >= 0) {
++      list.splice(index, 1);
++    }
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Personalization.
++   * ---------------------------------------------------------------- */
++
++  /** Opens the interest editor from the For You customize action. */
++  async openInterestEditor(): Promise<void> {
++    this.editor.initialSelections = this.interestsList.slice();
++    this.editor.currentSelections = this.interestsList.slice();
++    this.editor.updated = false;
++    await this.emit({
++      name: 'interestEditorOpened',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.FOR_YOU, FeedTabSurface.INTEREST_EDITOR]
++    });
++  }
++
++  /** Records the selections the editor is holding. */
++  setInterestSelections(selections: string[]): void {
++    this.editor.currentSelections = selections;
++  }
++
++  interestEditorState(): Record<string, Object> {
++    return this.editor.toRecord();
++  }
++
++  /**
++   * Completes the interest editor. An actual change is written to the interest
++   * repository first, then answers RESULT_INTERESTS_UPDATED, which invalidates
++   * the personalized content and refreshes For You. An unchanged editor answers
++   * RESULT_OK and touches neither the cache nor either tab.
++   */
++  async finishInterestEditing(): Promise<void> {
++    const changed: boolean = this.editor.wouldUpdate();
++    if (changed) {
++      const selections: string[] = this.editor.currentSelections.length > 0 ?
++        this.editor.currentSelections : this.interestsList;
++      await this.interestRepository.replaceAll(selections);
++      this.interestsList = await this.interestRepository.all();
++      this.lastActivityResult = this.editor.pendingResult > 0 ?
++        this.editor.pendingResult : FeedActivityResult.RESULT_INTERESTS_UPDATED;
++      // The saved interests changed, so every cached personalized result is stale.
++      this.cache.clear();
++      await this.persistCache();
++      await this.emit({
++        name: 'interestsPersisted',
++        leaf: 'analytics',
++        surfaces: [FeedTabSurface.INTEREST_EDITOR],
++        result: `${this.interestRepository.storageName()}`
++      });
++      await this.emit({
++        name: 'personalizedContentInvalidated',
++        leaf: 'analytics',
++        surfaces: [FeedTabSurface.FOR_YOU],
++        date: this.clock.today(),
++        result: 'INVALIDATED'
++      });
++      this.editor.result = this.lastActivityResult;
++      await this.emit({
++        name: 'interestEditorFinished',
++        leaf: 'analytics',
++        surfaces: [FeedTabSurface.INTEREST_EDITOR],
++        value: this.lastActivityResult,
++        result: 'RESULT_INTERESTS_UPDATED'
++      });
++      await this.refreshForYouAfterInterestChange();
++      return;
++    }
++    this.lastActivityResult = this.editor.pendingResult >= 0 && this.editor.pendingResult !== 100 ?
++      this.editor.pendingResult : FeedActivityResult.RESULT_OK;
++    this.editor.result = this.lastActivityResult;
++    await this.emit({
++      name: 'interestEditorFinished',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.INTEREST_EDITOR],
++      value: this.lastActivityResult,
++      result: 'RESULT_OK'
++    });
++  }
++
++  /**
++   * Refreshes For You after its inputs changed. A tab that is showing stale
++   * personalized content is reloaded now; an empty one waits for its first load.
++   */
++  private async refreshForYouAfterInterestChange(): Promise<void> {
++    const hadContent: boolean = this.forYou.hasContent() ||
++      this.forYou.phase === FeedPhase.CONTENT || this.forYou.phase === FeedPhase.CONTENT_WITH_INLINE_ERROR;
++    this.forYou.backingModules = [];
++    this.forYou.modules = [];
++    this.forYou.stableResult = false;
++    if (hadContent) {
++      await this.loadForYou(FeedLoadSource.REFRESH);
++      return;
++    }
++    this.forYou.recordPhase(FeedPhase.IDLE);
++  }
++
++  /** Persists the personalization choice made during feed onboarding. */
++  async chooseHomePreference(preference: string): Promise<void> {
++    this.homePreference = homePreferenceOf(preference);
++    this.onboardingComplete = true;
++    await this.preferences.writeText(FeedStorageKeys.HOME_PREFERENCE, `${this.homePreference}`);
++    await this.preferences.writeText(FeedStorageKeys.ONBOARDING_COMPLETE, 'true');
++    this.selectedTab = homeTabForPreference(this.homePreference);
++    await this.emit({
++      name: 'homePreferenceChosen',
++      leaf: 'analytics',
++      surfaces: [FeedTabSurface.HOME],
++      result: `${this.homePreference}`
++    });
++    await this.onLoadMore(this.selectedTab, FeedLoadSource.INITIAL);
++  }
++
++  onboardingRequired(): boolean {
++    return !this.onboardingComplete;
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Persistence helpers.
++   * ---------------------------------------------------------------- */
++
++  private async persistHiddenCards(): Promise<void> {
++    await this.preferences.writeList(FeedStorageKeys.HIDDEN_CARDS, this.hiddenCards);
++  }
++
++  private async persistModuleVisibility(): Promise<void> {
++    await this.preferences.writeList(FeedStorageKeys.HIDDEN_COMMUNITY_MODULES, this.hiddenCommunityModules);
++    await this.preferences.writeList(FeedStorageKeys.HIDDEN_FOR_YOU_MODULES, this.hiddenForYouModules);
++  }
++
++  private async persistCache(): Promise<void> {
++    await this.preferences.writeRecord(FeedStorageKeys.FOR_YOU_CACHE, this.cache.toRecord());
++  }
++
++  private async emit(effect: ExploreEffect): Promise<void> {
++    try {
++      await this.leaf.emit(effect);
++    } catch (error) {
++      // Observability must never take the feed down.
++    }
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Observation.
++   * ---------------------------------------------------------------- */
++
++  currentState(): Record<string, Object> {
++    const selectedPhase: FeedPhase = this.selectedTab === HomeTab.COMMUNITY ?
++      this.community.phase : this.forYou.phase;
++    return {
++      'selectedTab': `${this.selectedTab}`,
++      'homePreference': `${this.homePreference}`,
++      'homeLanguage': this.homeLanguage,
++      'language': this.activeLanguage(),
++      'configuredLanguages': this.configuredLanguages,
++      'primaryConfiguredLanguage': this.primaryConfiguredLanguage,
++      'hiddenCards': this.hiddenCards,
++      'hiddenModules': unionOf(this.hiddenCommunityModules, this.hiddenForYouModules),
++      'hiddenCommunityModules': this.hiddenCommunityModules,
++      'hiddenForYouModules': this.hiddenForYouModules,
++      'community': this.community.toRecord(),
++      'communityPhase': this.community.phase,
++      'forYou': this.forYou.toRecord(),
++      'forYouPhase': this.forYou.phase,
++      'phase': selectedPhase,
++      'communityLogicalAge': this.community.nextLogicalAge,
++      'forYouBatchIndex': this.forYou.batchIndex,
++      'clockDate': this.clock.today(),
++      'onboardingComplete': this.onboardingComplete,
++      'lastActivityResult': this.lastActivityResult,
++      'interestEditor': this.editor.toRecord(),
++      'interests': this.interestsList,
++      'pendingUndo': this.pendingUndoToken(),
++      'pendingAllModulesOffConfirmation': this.pendingAllModulesOffConfirmation,
++      'pendingAllModulesOffTarget': this.pendingAllModulesOffTarget,
++      'communityInFlight': this.communityInFlight,
++      'forYouInFlight': this.forYouInFlight
++    };
++  }
++
++  currentPersistence(): Record<string, Object> {
++    return {
++      'homePreference': `${this.homePreference}`,
++      'homeLanguage': this.homeLanguage,
++      'activeLanguage': this.activeLanguage(),
++      'configuredLanguages': this.configuredLanguages,
++      'primaryConfiguredLanguage': this.primaryConfiguredLanguage,
++      'hiddenCards': this.hiddenCards,
++      'hiddenCommunityModules': this.hiddenCommunityModules,
++      'hiddenForYouModules': this.hiddenForYouModules,
++      'forYouCache': this.cache.toRecord(),
++      'interests': this.interestsList,
++      'interestStorage': this.interestRepository.storageName(),
++      'onboardingComplete': this.onboardingComplete,
++      'lastActivityResult': this.lastActivityResult,
++      'storage': 'preferences:explore_feed',
++      'database': `feed_interests.db:${this.interestRepository.storageName()}`,
++      'snapshot': this.snapshot.getPersistence()
++    };
++  }
++
++  /** Releases the store. Any further request is refused rather than half served. */
++  dispose(): void {
++    this.disposed = true;
++    this.undo = undefined;
++    if (LegacyExploreStore.runtime === this) {
++      LegacyExploreStore.runtime = undefined;
++    }
++  }
++}
++
++/* ------------------------------------------------------------------ *
++ * Module helpers.
++ * ------------------------------------------------------------------ */
++
++function surfaceOf(tab: HomeTab): string {
++  return tab === HomeTab.COMMUNITY ? FeedTabSurface.COMMUNITY : FeedTabSurface.FOR_YOU;
+ }
++
++/** Modules and their card lists are mutable, so ownership is never shared. */
++function copyOfModules(modules: FeedModule[]): FeedModule[] {
++  const result: FeedModule[] = [];
++  for (let index = 0; index < modules.length; index++) {
++    const cards: FeedCard[] = [];
++    for (let cardIndex = 0; cardIndex < modules[index].cards.length; cardIndex++) {
++      cards.push(modules[index].cards[cardIndex]);
++    }
++    result.push(new FeedModule(modules[index].type, cards));
++  }
++  return result;
++}
++
++function moduleTypeOf(card: FeedCard): string {
++  return isDayHeader(card.type) ? '' : `${card.type}`;
++}
++
++function errorText(error: Object): string {
++  if (error instanceof FeedServiceException) {
++    return error.kind;
++  }
++  const encoded: string = JSON.stringify(error);
++  if (encoded.length > 1 && encoded.charAt(0) === '"' && encoded.charAt(encoded.length - 1) === '"') {
++    return encoded.substring(1, encoded.length - 1);
++  }
++  return 'IOException';
++}
++
++function textField(record: Record<string, Object>, key: string): string {
++  const value: Object | undefined = record[key];
++  if (value === undefined || value === null) {
++    return '';
++  }
++  const encoded: string = JSON.stringify(value);
++  if (encoded.length > 1 && encoded.charAt(0) === '"' && encoded.charAt(encoded.length - 1) === '"') {
++    return encoded.substring(1, encoded.length - 1);
++  }
++  return encoded;
++}
++
++function feedPhaseFromText(value: string): FeedPhase {
++  const normalized: string = value.trim().toLowerCase();
++  if (normalized.length === 0) {
++    return FeedPhase.IDLE;
++  }
++  if (normalized === FeedPhase.LOADING) {
++    return FeedPhase.LOADING;
++  }
++  if (normalized === FeedPhase.CONTENT) {
++    return FeedPhase.CONTENT;
++  }
++  if (normalized === FeedPhase.CONTENT_WITH_INLINE_ERROR) {
++    return FeedPhase.CONTENT_WITH_INLINE_ERROR;
++  }
++  if (normalized === FeedPhase.EMPTY) {
++    return FeedPhase.EMPTY;
++  }
++  if (normalized === FeedPhase.ERROR) {
++    return FeedPhase.ERROR;
++  }
++  return FeedPhase.IDLE;
++}
++
++function unionOf(left: string[], right: string[]): string[] {
++  const result: string[] = left.slice();
++  for (let index = 0; index < right.length; index++) {
++    if (result.indexOf(right[index]) < 0) {
++      result.push(right[index]);
++    }
++  }
++  return result;
++}
++
++function mergeCommunityCards(existing: FeedCard[], incoming: FeedCard[], logicalAge: number, language: string): FeedCard[] {
++  const result: FeedCard[] = existing.slice();
++  const body: FeedCard[] = [];
++  for (let index = 0; index < incoming.length; index++) {
++    if (!isDayHeader(incoming[index].type)) {
++      body.push(incoming[index]);
++    }
++  }
++  if (body.length === 0) {
++    return result;
++  }
++  const grouped: FeedCard[] = body;
++  if (startsWithDayHeader(result, logicalAge)) {
++    let inserted: boolean = false;
++    for (let index = 0; index < grouped.length; index++) {
++      if (!containsPosition(result, grouped[index]) && !inserted) {
++        result.push(new FeedCard(feedCardTypeOf('DAY_HEADER'), `${logicalAge}`, `${logicalAge}`, logicalAge, language));
++        inserted = true;
++      }
++      if (!containsPosition(result, grouped[index])) {
++        result.push(grouped[index]);
++      }
++    }
++    return result;
++  }
++  const header: FeedCard[] = withDayHeader(grouped, logicalAge, language);
++  for (let index = 0; index < header.length; index++) {
++    if (!containsPosition(result, header[index])) {
++      result.push(header[index]);
++    }
++  }
++  return result;
++}
++
++function containsPosition(cards: FeedCard[], card: FeedCard): boolean {
++  for (let index = 0; index < cards.length; index++) {
++    if (cards[index].positionKey() === card.positionKey()) {
++      return true;
++    }
++  }
++  return false;
++}
++
++function indexOfCard(cards: FeedCard[], token: string): number {
++  for (let index = 0; index < cards.length; index++) {
++    if (cards[index].token() === token) {
++      return index;
++    }
++  }
++  return -1;
++}
++
++function findModuleWithCard(modules: FeedModule[], token: string): FeedModule | undefined {
++  for (let index = 0; index < modules.length; index++) {
++    if (indexOfCard(modules[index].cards, token) >= 0) {
++      return modules[index];
++    }
++  }
++  return undefined;
++}
++
++/** Language scoped personalisation sources are stored as `language:identifier`. */
++function titlesForLanguage(values: string[], language: string): string[] {
++  const scoped: string[] = [];
++  const plain: string[] = [];
++  for (let index = 0; index < values.length; index++) {
++    const value: string = values[index];
++    const separator: number = value.indexOf(':');
++    if (separator <= 0) {
++      plain.push(value);
++      continue;
++    }
++    const entryLanguage: string = value.substring(0, separator);
++    const identifier: string = value.substring(separator + 1);
++    if (identifier.length === 0) {
++      continue;
++    }
++    if (entryLanguage === language) {
++      scoped.push(identifier);
++    } else {
++      plain.push(identifier);
++    }
++  }
++  return scoped.length > 0 ? scoped : plain;
++}
++
++function appendModule(modules: FeedModule[], type: string, titles: string[], rankedTitles: string[]): void {
++  const ordered: string[] = [];
++  // Titles the recommendation leaf ranked first come first inside the group.
++  for (let index = 0; index < rankedTitles.length; index++) {
++    const ranked: string = rankedTitles[index];
++    if (titles.indexOf(ranked) >= 0 && ordered.indexOf(ranked) < 0) {
++      ordered.push(ranked);
++    }
++  }
++  for (let index = 0; index < titles.length; index++) {
++    if (ordered.indexOf(titles[index]) < 0) {
++      ordered.push(titles[index]);
++    }
++  }
++  if (ordered.length === 0) {
++    return;
++  }
++  const cards: FeedCard[] = [];
++  for (let index = 0; index < ordered.length; index++) {
++    cards.push(new FeedCard(feedCardTypeOf(type), ordered[index], ordered[index], 0, ''));
++  }
++  modules.push(new FeedModule(type, cards));
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/FeedSettings.ets b/entry/src/main/ets/pages/FeedSettings.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d23639fdb2b81b01437ab2a4c7b241caf7db05d
+--- /dev/null
++++ b/entry/src/main/ets/pages/FeedSettings.ets
+@@ -0,0 +1,145 @@
++import { router } from '@kit.ArkUI';
++import {
++  allCommunityModuleTypes, allForYouModuleTypes, FeedSettingsTarget, recordOf, textListOf, textOf
++} from '../model/FeedDomain';
++import { LegacyExploreStore } from '../model/LegacyExploreStore';
++
++class ModuleOption {
++  readonly type: string;
++  readonly visible: boolean;
++
++  constructor(type: string, visible: boolean) {
++    this.type = type;
++    this.visible = visible;
++  }
++}
++
++function hiddenModulesFor(store: LegacyExploreStore | undefined, target: string): string[] {
++  if (store === undefined) {
++    return [];
++  }
++  const persistence: Record<string, Object> = store.currentPersistence();
++  const key: string = target === FeedSettingsTarget.COMMUNITY_MODULES ?
++    'hiddenCommunityModules' : 'hiddenForYouModules';
++  return textListOf(persistence[key]);
++}
++
++function requestedTarget(): string {
++  const params: Object = router.getParams();
++  const record: Record<string, Object> | undefined = recordOf(params);
++  if (record === undefined) {
++    return FeedSettingsTarget.COMMUNITY_MODULES;
++  }
++  const target: string = textOf(record['target']).trim();
++  return target === FeedSettingsTarget.FOR_YOU_MODULES ?
++    FeedSettingsTarget.FOR_YOU_MODULES : FeedSettingsTarget.COMMUNITY_MODULES;
++}
++
++/**
++ * Feed settings.
++ *
++ * Community and For You keep independent module visibility, so turning every
++ * module off in one tab leaves the other tab untouched. Turning one back on
++ * brings the filtered content back without another request.
++ */
++@Entry
++@Component
++struct FeedSettings {
++  @State target: string = FeedSettingsTarget.COMMUNITY_MODULES;
++  @State options: ModuleOption[] = [];
++  @State confirmAllOff: boolean = false;
++
++  private store?: LegacyExploreStore = LegacyExploreStore.current();
++
++  aboutToAppear(): void {
++    this.target = requestedTarget();
++    this.reload();
++  }
++
++  private reload(): void {
++    const hidden: string[] = hiddenModulesFor(this.store, this.target);
++    const types: string[] = this.target === FeedSettingsTarget.FOR_YOU_MODULES ?
++      allForYouModuleTypes() : allCommunityModuleTypes();
++    const options: ModuleOption[] = [];
++    for (let index = 0; index < types.length; index++) {
++      options.push(new ModuleOption(types[index], hidden.indexOf(types[index]) < 0));
++    }
++    this.options = options;
++  }
++
++  private async toggle(moduleType: string, visible: boolean): Promise<void> {
++    await this.store?.setModuleVisibility(this.target, moduleType, visible);
++    this.reload();
++  }
++
++  private async applyAllOff(): Promise<void> {
++    await this.store?.confirmAllModulesOff();
++    this.confirmAllOff = false;
++    this.reload();
++  }
++
++  build() {
++    Column({ space: 12 }) {
++      Row() {
++        Text('Feed settings')
++          .fontSize(20)
++          .fontWeight(FontWeight.Bold)
++          .layoutWeight(1)
++        Button('Close').fontSize(12).onClick(() => { router.back(); })
++      }
++      .width('100%')
++      .padding(16)
++
++      Row({ space: 8 }) {
++        Button(this.target === FeedSettingsTarget.COMMUNITY_MODULES ? '● Community' : 'Community')
++          .layoutWeight(1)
++          .onClick(() => { this.target = FeedSettingsTarget.COMMUNITY_MODULES; this.reload(); })
++        Button(this.target === FeedSettingsTarget.FOR_YOU_MODULES ? '● For You' : 'For You')
++          .layoutWeight(1)
++          .onClick(() => { this.target = FeedSettingsTarget.FOR_YOU_MODULES; this.reload(); })
++      }
++      .width('100%')
++      .padding({ left: 16, right: 16 })
++
++      List() {
++        ForEach(this.options, (option: ModuleOption) => {
++          ListItem() {
++            Row() {
++              Text(option.type).layoutWeight(1)
++              Toggle({ type: ToggleType.Switch, isOn: option.visible })
++                .onChange((isOn: boolean) => { this.toggle(option.type, isOn); })
++            }
++            .width('100%')
++            .padding(16)
++          }
++        }, (option: ModuleOption) => option.type)
++      }
++      .width('100%')
++      .layoutWeight(1)
++
++      if (this.confirmAllOff) {
++        Row({ space: 12 }) {
++          Text('Turn off every module in this tab? You can turn them back on here at any time.')
++            .fontSize(13)
++            .layoutWeight(1)
++          Button('Cancel').fontSize(12).onClick(() => { this.confirmAllOff = false; })
++          Button('Confirm').fontSize(12).onClick(() => { this.applyAllOff(); })
++        }
++        .width('100%')
++        .padding(16)
++        .backgroundColor('#f1f1f1')
++      }
++
++      Row({ space: 12 }) {
++        Button('Turn everything off')
++          .layoutWeight(1)
++          .onClick(() => { this.confirmAllOff = true; })
++        Button('Done').layoutWeight(1).onClick(() => { router.back(); })
++      }
++      .width('100%')
++      .padding(16)
++    }
++    .width('100%')
++    .height('100%')
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 9965ca4d94b1ea3243813b921726cdcfd670ca8d..beb6df41622feec4d0fda83a532ebac580add2ba 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,24 +1,137 @@
+ import { common } from '@kit.AbilityKit';
++import { router } from '@kit.ArkUI';
+ import { CallbackExplorePageOwner, ExploreInput, ExplorePageOwner } from '../integration/ExplorePageIntegration';
++import {
++  arrayOf, FeedEmptyReason, FeedPhase, FeedRecoveryAction, FeedSettingsTarget, FeedTabSurface, numberOf,
++  recordOf, textListOf, textOf
++} from '../model/FeedDomain';
+ import { LegacyExploreStore } from '../model/LegacyExploreStore';
+ 
++class FeedSection {
++  readonly type: string;
++  readonly cards: string[];
++
++  constructor(type: string, cards: string[]) {
++    this.type = type;
++    this.cards = cards;
++  }
++}
++
++function section(state: Record<string, Object>, key: string): Record<string, Object> {
++  const record: Record<string, Object> | undefined = recordOf(state[key]);
++  return record === undefined ? {} : record;
++}
++
++function text(state: Record<string, Object>, key: string): string {
++  return textOf(state[key]).trim();
++}
++
++function flag(state: Record<string, Object>, key: string): boolean {
++  return textOf(state[key]) === 'true';
++}
++
++function count(state: Record<string, Object>, key: string): number {
++  return numberOf(state[key], 0);
++}
++
++function texts(state: Record<string, Object>, key: string): string[] {
++  return textListOf(state[key]);
++}
++
++function forYouSections(forYou: Record<string, Object>): FeedSection[] {
++  const sections: FeedSection[] = [];
++  const raw: Object[] = arrayOf(forYou['sections']);
++  for (let index = 0; index < raw.length; index++) {
++    const entry: Record<string, Object> | undefined = recordOf(raw[index]);
++    if (entry === undefined) {
++      continue;
++    }
++    sections.push(new FeedSection(text(entry, 'type'), texts(entry, 'cards')));
++  }
++  return sections;
++}
++
++function tokenType(token: string): string {
++  const separator: number = token.indexOf(':');
++  return separator < 0 ? token : token.substring(0, separator);
++}
++
++function tokenTitle(token: string): string {
++  const separator: number = token.indexOf(':');
++  return separator < 0 ? token : token.substring(separator + 1);
++}
++
++/**
++ * The Home surface.
++ *
++ * Community and For You are independent tabs with their own content, paging and
++ * presentation state; switching between them only loads a destination that has
++ * nothing to show yet. Every presentation is driven by the store, and every
++ * action the reader can take here is a store entry point.
++ */
+ @Entry
+ @Component
+ struct Index {
+-  @State selectedTab: string = 'COMMUNITY';
+-  @State phase: string = 'content';
++  @State selectedTab: string = FeedTabSurface.COMMUNITY;
++  @State communityPhase: string = FeedPhase.IDLE;
++  @State communityCards: string[] = [];
++  @State communityEmptyReason: string = FeedEmptyReason.NONE;
++  @State communityRecovery: string = FeedRecoveryAction.NONE;
++  @State communityInlineError: boolean = false;
++  @State communityRetryAvailable: boolean = false;
++  @State forYouPhase: string = FeedPhase.IDLE;
++  @State forYouSections: FeedSection[] = [];
++  @State forYouEmptyReason: string = FeedEmptyReason.NONE;
++  @State forYouRecovery: string = FeedRecoveryAction.NONE;
++  @State forYouSecondaryRecovery: string = FeedRecoveryAction.NONE;
++  @State forYouRetryAvailable: boolean = false;
++  @State forYouStable: boolean = false;
++  @State language: string = '';
++  @State languages: string[] = [];
++  @State undoToken: string = '';
++  @State onboardingRequired: boolean = false;
++  @State refreshing: boolean = false;
++  @State feedSettingsTarget: string = FeedSettingsTarget.COMMUNITY_MODULES;
+   private store?: LegacyExploreStore;
+   private runtimeOwnerId: string = 'ExploreIndex:' + String(Date.now());
+ 
+-  async aboutToAppear(): Promise<void> {
++  aboutToAppear(): void {
++    this.syncSurface();
++  }
++
++  aboutToDisappear(): void {
++    this.refreshing = false;
+   }
+ 
++  /** Mirrors the store onto the view. The store stays the single source of truth. */
+   private syncSurface(): void {
+-    const state = this.store?.currentState();
+-    this.selectedTab = String(state?.['selectedTab'] ?? 'COMMUNITY');
+-    this.phase = String(state?.['forYouPhase'] ?? 'content');
++    const state: Record<string, Object> = this.store === undefined ? {} : this.store.currentState();
++    const community: Record<string, Object> = section(state, 'community');
++    const forYou: Record<string, Object> = section(state, 'forYou');
++    this.selectedTab = text(state, 'selectedTab');
++    this.communityPhase = text(community, 'phase');
++    this.communityCards = texts(community, 'cards');
++    this.communityEmptyReason = text(community, 'emptyReason');
++    this.communityRecovery = text(community, 'recoveryAction');
++    this.communityInlineError = flag(community, 'inlineError');
++    this.communityRetryAvailable = flag(community, 'retryAvailable');
++    this.forYouPhase = text(forYou, 'phase');
++    this.forYouSections = forYouSections(forYou);
++    this.forYouEmptyReason = text(forYou, 'emptyReason');
++    this.forYouRecovery = text(forYou, 'recoveryAction');
++    this.forYouSecondaryRecovery = text(forYou, 'secondaryRecoveryAction');
++    this.forYouRetryAvailable = flag(forYou, 'retryAvailable');
++    this.forYouStable = flag(forYou, 'stableResult');
++    this.language = text(state, 'language');
++    this.languages = texts(state, 'configuredLanguages');
++    this.undoToken = text(state, 'pendingUndo');
++    this.onboardingRequired = text(state, 'onboardingComplete') !== 'true';
+   }
+ 
++  /**
++   * The owner the page host drives. Every host entry point is bound to the same
++   * production store entry point the UI itself uses.
++   */
+   createRuntimeOwner(): ExplorePageOwner {
+     return new CallbackExplorePageOwner(
+       async (context: common.UIAbilityContext, input: ExploreInput): Promise<void> => {
+@@ -33,25 +146,374 @@ struct Index {
+       async (): Promise<void> => { await this.store?.finishInterestEditing(); this.syncSurface(); },
+       async (): Promise<void> => { await this.store?.retryForYouLoad(); this.syncSurface(); },
+       async (): Promise<void> => { await this.store?.confirmAllModulesOff(); this.syncSurface(); },
+-      (): Record<string, Object> => this.store?.currentState() ?? {},
+-      (): Record<string, Object> => this.store?.currentPersistence() ?? {},
+-      (): boolean => false,
++      (): Record<string, Object> => this.store === undefined ? {} : this.store.currentState(),
++      (): Record<string, Object> => this.store === undefined ? {} : this.store.currentPersistence(),
++      (): boolean => this.store !== undefined,
+       (): string => this.runtimeOwnerId
+     );
+   }
+ 
+-  build() {
+-    Column({ space: 16 }) {
++  /* ---------------------------------------------------------------- *
++   * Reader actions.
++   * ---------------------------------------------------------------- */
++
++  private async selectTab(index: number): Promise<void> {
++    const tab: string = index === 1 ? FeedTabSurface.FOR_YOU : FeedTabSurface.COMMUNITY;
++    if (this.store === undefined || tab === this.selectedTab) {
++      return;
++    }
++    await this.store.selectHomeTab(tab);
++    this.syncSurface();
++  }
++
++  private async retryCommunity(): Promise<void> {
++    if (this.communityInlineError) {
++      await this.store?.retryCommunityLoadMore();
++    } else {
++      await this.store?.retryCommunityLoad();
++    }
++    this.syncSurface();
++  }
++
++  private async retryForYou(): Promise<void> {
++    await this.store?.retryForYouLoad();
++    this.syncSurface();
++  }
++
++  private async loadMoreCommunity(): Promise<void> {
++    if (this.communityPhase !== FeedPhase.CONTENT && this.communityPhase !== FeedPhase.CONTENT_WITH_INLINE_ERROR) {
++      return;
++    }
++    await this.store?.loadCommunityMore();
++    this.syncSurface();
++  }
++
++  private async loadMoreForYou(): Promise<void> {
++    if (this.forYouPhase !== FeedPhase.CONTENT && this.forYouPhase !== FeedPhase.CONTENT_WITH_INLINE_ERROR) {
++      return;
++    }
++    await this.store?.loadForYouMore();
++    this.syncSurface();
++  }
++
++  private async refresh(): Promise<void> {
++    this.refreshing = true;
++    await this.store?.refreshActiveTab();
++    this.refreshing = false;
++    this.syncSurface();
++  }
++
++  private async hideCard(token: string): Promise<void> {
++    await this.store?.hideCard(token);
++    this.syncSurface();
++  }
++
++  private async hideModule(moduleType: string): Promise<void> {
++    await this.store?.hideModule(moduleType);
++    this.syncSurface();
++  }
++
++  private async undoHide(): Promise<void> {
++    await this.store?.undoLastHide();
++    this.syncSurface();
++  }
++
++  private async choosePreference(preference: string): Promise<void> {
++    await this.store?.chooseHomePreference(preference);
++    this.syncSurface();
++  }
++
++  private async chooseLanguage(language: string): Promise<void> {
++    await this.store?.setFeedLanguage(language);
++    this.syncSurface();
++  }
++
++  private async openSettings(target: string): Promise<void> {
++    this.feedSettingsTarget = target;
++    router.pushUrl({ url: 'pages/FeedSettings', params: { target: target } });
++  }
++
++  private async customizeInterests(): Promise<void> {
++    await this.store?.openInterestEditor();
++    router.pushUrl({ url: 'pages/InterestEditor' });
++  }
++
++  private async returnToCommunity(): Promise<void> {
++    await this.selectTab(0);
++  }
++
++  /* ---------------------------------------------------------------- *
++   * Presentation.
++   * ---------------------------------------------------------------- */
++
++  @Builder
++  cardRow(token: string) {
++    Row({ space: 12 }) {
++      Column({ space: 4 }) {
++        Text(tokenType(token))
++          .fontSize(11)
++          .fontColor('#767676')
++        Text(tokenTitle(token))
++          .fontSize(16)
++          .maxLines(2)
++      }
++      .alignItems(HorizontalAlign.Start)
++      .layoutWeight(1)
++      Button('Hide')
++        .fontSize(12)
++        .onClick(() => { this.hideCard(token); })
++    }
++    .width('100%')
++    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
++  }
++
++  @Builder
++  dayHeaderRow(token: string) {
++    Text(tokenTitle(token).length > 0 ? `Day ${tokenTitle(token)}` : 'Day')
++      .fontSize(13)
++      .fontWeight(FontWeight.Medium)
++      .fontColor('#767676')
++      .width('100%')
++      .padding({ left: 16, right: 16, top: 16, bottom: 8 })
++  }
++
++  @Builder
++  communityTab() {
++    Column() {
++      if (this.communityPhase === FeedPhase.LOADING || this.communityPhase === FeedPhase.IDLE) {
++        Column({ space: 8 }) {
++          LoadingProgress().width(32).height(32)
++          Text('Loading Community')
++            .fontSize(14)
++            .fontColor('#767676')
++        }
++        .width('100%')
++        .layoutWeight(1)
++        .justifyContent(FlexAlign.Center)
++      } else if (this.communityPhase === FeedPhase.ERROR) {
++        Column({ space: 12 }) {
++          Text('The Community feed could not be loaded.')
++            .fontSize(15)
++          Button('Retry').onClick(() => { this.retryCommunity(); })
++        }
++        .width('100%')
++        .layoutWeight(1)
++        .justifyContent(FlexAlign.Center)
++      } else if (this.communityPhase === FeedPhase.EMPTY) {
++        Column({ space: 12 }) {
++          Text(this.communityEmptyReason === FeedEmptyReason.ALL_MODULES_HIDDEN ?
++            'Every Community module is turned off.' : 'There is no Community content right now.')
++            .fontSize(15)
++          if (this.communityRecovery === FeedRecoveryAction.OPEN_COMMUNITY_MODULES) {
++            Button('Manage modules').onClick(() => { this.openSettings(FeedSettingsTarget.COMMUNITY_MODULES); })
++          } else {
++            Button('Retry').onClick(() => { this.retryCommunity(); })
++          }
++        }
++        .width('100%')
++        .layoutWeight(1)
++        .justifyContent(FlexAlign.Center)
++      } else {
++        Refresh({ refreshing: this.refreshing }) {
++          List() {
++            ForEach(this.communityCards, (token: string) => {
++              ListItem() {
++                if (tokenType(token) === 'DAY_HEADER') {
++                  this.dayHeaderRow(token)
++                } else {
++                  this.cardRow(token)
++                }
++              }
++            }, (token: string) => token)
++
++            if (this.communityInlineError) {
++              ListItem() {
++                Column({ space: 8 }) {
++                  Text('Could not load more.')
++                    .fontSize(13)
++                    .fontColor('#c7254e')
++                  Button('Retry').fontSize(12).onClick(() => { this.retryCommunity(); })
++                }
++                .width('100%')
++                .padding(16)
++              }
++            }
++          }
++          .width('100%')
++          .layoutWeight(1)
++          .onReachEnd(() => { this.loadMoreCommunity(); })
++        }
++        .onRefreshing(() => { this.refresh(); })
++      }
++    }
++    .width('100%')
++    .layoutWeight(1)
++  }
++
++  @Builder
++  forYouTab() {
++    Column() {
++      if (this.forYouPhase === FeedPhase.LOADING || this.forYouPhase === FeedPhase.IDLE) {
++        Column({ space: 8 }) {
++          LoadingProgress().width(32).height(32)
++          Text('Loading For You').fontSize(14).fontColor('#767676')
++        }
++        .width('100%')
++        .layoutWeight(1)
++        .justifyContent(FlexAlign.Center)
++      } else if (this.forYouPhase === FeedPhase.ERROR) {
++        Column({ space: 12 }) {
++          Text('The For You feed could not be loaded.')
++            .fontSize(15)
++          Button('Retry').onClick(() => { this.retryForYou(); })
++        }
++        .width('100%')
++        .layoutWeight(1)
++        .justifyContent(FlexAlign.Center)
++      } else if (this.forYouPhase === FeedPhase.EMPTY) {
++        Column({ space: 12 }) {
++          Text(this.forYouEmptyReason === FeedEmptyReason.ALL_MODULES_HIDDEN ?
++            'Every For You module is turned off.' : 'Pick some interests to build your For You feed.')
++            .fontSize(15)
++          if (this.forYouRecovery === FeedRecoveryAction.OPEN_FOR_YOU_MODULES) {
++            Button('Manage modules').onClick(() => { this.openSettings(FeedSettingsTarget.FOR_YOU_MODULES); })
++          }
++          if (this.forYouRecovery === FeedRecoveryAction.CUSTOMIZE_INTERESTS) {
++            Button('Customize interests').onClick(() => { this.customizeInterests(); })
++          }
++          if (this.forYouSecondaryRecovery === FeedRecoveryAction.RETURN_TO_COMMUNITY) {
++            Button('Go to Community')
++              .onClick(() => { this.returnToCommunity(); })
++          }
++        }
++        .width('100%')
++        .layoutWeight(1)
++        .justifyContent(FlexAlign.Center)
++      } else {
++        Refresh({ refreshing: this.refreshing }) {
++          List() {
++            ForEach(this.forYouSections, (section: FeedSection) => {
++              ListItem() {
++                Column() {
++                  Row() {
++                    Text(section.type).fontSize(14).fontWeight(FontWeight.Medium).layoutWeight(1)
++                    Button('Hide module')
++                      .fontSize(12)
++                      .onClick(() => { this.hideModule(section.type); })
++                  }
++                  .width('100%')
++                  .padding({ left: 16, right: 16, top: 12 })
++
++                  ForEach(section.cards, (token: string) => {
++                    this.cardRow(token)
++                  }, (token: string) => token)
++                }
++                .width('100%')
++                .alignItems(HorizontalAlign.Start)
++              }
++            }, (section: FeedSection) => section.type)
++
++            if (this.forYouStable) {
++              ListItem() {
++                Text('Showing today’s recommendations.')
++                  .fontSize(12)
++                  .fontColor('#767676')
++                  .padding(16)
++              }
++            }
++          }
++          .width('100%')
++          .layoutWeight(1)
++          .onReachEnd(() => { this.loadMoreForYou(); })
++        }
++        .onRefreshing(() => { this.refresh(); })
++      }
++    }
++    .width('100%')
++    .layoutWeight(1)
++  }
++
++  @Builder
++  header() {
++    Row({ space: 8 }) {
+       Text('Wikipedia')
+-        .fontSize(28)
++        .fontSize(20)
+         .fontWeight(FontWeight.Bold)
+-      Text('Community feed')
+-      Button('Community')
+-        .onClick(() => { this.selectedTab = 'COMMUNITY'; })
+-      Text(this.selectedTab + ' · ' + this.phase)
++        .layoutWeight(1)
++      if (this.languages.length > 1) {
++        ForEach(this.languages, (language: string) => {
++          Button(this.language === language ? `● ${language}` : language)
++            .fontSize(12)
++            .onClick(() => { this.chooseLanguage(language); })
++        }, (language: string) => language)
++      }
++      Button('Settings').fontSize(12).onClick(() => {
++        this.openSettings(this.selectedTab === FeedTabSurface.FOR_YOU ?
++          FeedSettingsTarget.FOR_YOU_MODULES : FeedSettingsTarget.COMMUNITY_MODULES);
++      })
++    }
++    .width('100%')
++    .padding(16)
++  }
++
++  @Builder
++  undoBar() {
++    Row({ space: 12 }) {
++      Text(`Removed ${this.undoToken}`)
++        .fontSize(13)
++        .layoutWeight(1)
++      Button('Undo').fontSize(12).onClick(() => { this.undoHide(); })
++    }
++    .width('100%')
++    .padding({ left: 16, right: 16, top: 8, bottom: 8 })
++    .backgroundColor('#f1f1f1')
++  }
++
++  @Builder
++  onboardingGate() {
++    Column({ space: 12 }) {
++      Text('Welcome to your new Home feed')
++        .fontSize(18)
++        .fontWeight(FontWeight.Medium)
++      Text('Choose the feed you want to land on. You can change it later in settings.')
++        .fontSize(13)
++        .fontColor('#767676')
++      Button('Show me Community').onClick(() => { this.choosePreference(FeedTabSurface.COMMUNITY); })
++      Button('Build my For You feed').onClick(() => { this.choosePreference('PERSONALIZED'); })
+     }
+     .width('100%')
+-    .height('100%')
+     .padding(24)
+   }
+-}
++
++  build() {
++    Stack({ alignContent: Alignment.Bottom }) {
++      Column() {
++        this.header()
++
++        if (this.onboardingRequired) {
++          this.onboardingGate()
++        } else {
++          Tabs({ barPosition: BarPosition.Start, index: this.selectedTab === FeedTabSurface.FOR_YOU ? 1 : 0 }) {
++            TabContent() {
++              this.communityTab()
++            }.tabBar('Community')
++
++            TabContent() {
++              this.forYouTab()
++            }.tabBar('For You')
++          }
++          .onChange((index: number) => { this.selectTab(index); })
++          .layoutWeight(1)
++        }
++      }
++      .width('100%')
++      .height('100%')
++
++      if (this.undoToken.length > 0) {
++        this.undoBar()
++      }
++    }
++    .width('100%')
++    .height('100%')
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/InterestEditor.ets b/entry/src/main/ets/pages/InterestEditor.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..b660522c85002ad68aae58d268024f4ae8ac92ae
+--- /dev/null
++++ b/entry/src/main/ets/pages/InterestEditor.ets
+@@ -0,0 +1,134 @@
++import { router } from '@kit.ArkUI';
++import { FeedActivityResult, recordOf, textListOf, textOf } from '../model/FeedDomain';
++import { LegacyExploreStore } from '../model/LegacyExploreStore';
++
++function recordOrEmpty(value: Object | undefined): Record<string, Object> {
++  const record: Record<string, Object> | undefined = recordOf(value);
++  return record === undefined ? emptyRecord() : record;
++}
++
++function emptyRecord(): Record<string, Object> {
++  const empty: Record<string, Object> = {};
++  return empty;
++}
++
++/**
++ * The interest editor.
++ *
++ * Finishing with a real change writes the interests to the repository and
++ * answers RESULT_INTERESTS_UPDATED, which is what makes For You drop its stale
++ * personalized content. Finishing without a change answers RESULT_OK and leaves
++ * the feed alone.
++ */
++@Entry
++@Component
++struct InterestEditor {
++  @State selections: string[] = [];
++  @State candidates: string[] = [];
++  @State storage: string = '';
++  @State finished: boolean = false;
++  @State result: number = FeedActivityResult.RESULT_CANCELED;
++
++  private store?: LegacyExploreStore = LegacyExploreStore.current();
++
++  aboutToAppear(): void {
++    const state: Record<string, Object> = this.store === undefined ? emptyRecord() : this.store.currentState();
++    const editor: Record<string, Object> = recordOrEmpty(state['interestEditor']);
++    const persistence: Record<string, Object> = this.store === undefined ?
++      emptyRecord() : this.store.currentPersistence();
++    const interests: string[] = textListOf(state['interests']);
++    this.selections = textListOf(editor['currentSelections']);
++    if (this.selections.length === 0) {
++      this.selections = interests;
++    }
++    // Saved interests and the interests being edited are both offered, so a
++    // selection that is not saved yet still has a row to switch off.
++    const candidates: string[] = interests.slice();
++    for (let index = 0; index < this.selections.length; index++) {
++      if (candidates.indexOf(this.selections[index]) < 0) {
++        candidates.push(this.selections[index]);
++      }
++    }
++    this.candidates = candidates;
++    this.storage = textOf(persistence['interestStorage']);
++  }
++
++  private isSelected(code: string): boolean {
++    return this.selections.indexOf(code) >= 0;
++  }
++
++  private toggle(code: string): void {
++    const index: number = this.selections.indexOf(code);
++    if (index >= 0) {
++      this.selections.splice(index, 1);
++    } else {
++      this.selections.push(code);
++    }
++    this.store?.setInterestSelections(this.selections);
++  }
++
++  private async finish(): Promise<void> {
++    this.store?.setInterestSelections(this.selections);
++    await this.store?.finishInterestEditing();
++    const state: Record<string, Object> = this.store === undefined ? emptyRecord() : this.store.currentState();
++    const editor: Record<string, Object> = recordOrEmpty(state['interestEditor']);
++    const recorded: string = textOf(editor['result']);
++    this.result = recorded.length > 0 ? Number(recorded) : FeedActivityResult.RESULT_CANCELED;
++    this.finished = true;
++    router.back();
++  }
++
++  private cancel(): void {
++    this.store?.setInterestSelections(this.selections);
++    router.back();
++  }
++
++  build() {
++    Column({ space: 12 }) {
++      Row() {
++        Text('Interests').fontSize(20).fontWeight(FontWeight.Bold).layoutWeight(1)
++        Button('Cancel').fontSize(12).onClick(() => { this.cancel(); })
++      }
++      .width('100%')
++      .padding(16)
++
++      Text('Interests decide which recommendations your For You feed shows.')
++        .fontSize(13)
++        .fontColor('#767676')
++        .width('100%')
++        .padding({ left: 16, right: 16 })
++
++      List() {
++        ForEach(this.candidates, (code: string) => {
++          ListItem() {
++            Row() {
++              Text(code).layoutWeight(1)
++              Toggle({ type: ToggleType.Switch, isOn: this.isSelected(code) })
++                .onChange(() => { this.toggle(code); })
++            }
++            .width('100%')
++            .padding(16)
++          }
++        }, (code: string) => code)
++
++        if (this.candidates.length === 0) {
++          ListItem() {
++            Text('You have no interests saved yet.')
++              .fontSize(14)
++              .fontColor('#767676')
++              .padding(16)
++          }
++        }
++      }
++      .width('100%')
++      .layoutWeight(1)
++
++      Button(this.finished ? 'Saved' : 'Save')
++        .width('100%')
++        .margin({ left: 16, right: 16, bottom: 16 })
++        .onClick(() => { this.finish(); })
++    }
++    .width('100%')
++    .height('100%')
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Probe.ets b/entry/src/main/ets/pages/Probe.ets
+new file mode 100644
+index 0000000000000000000000000000000000000000..bbb259a843923331bd549f01e216c8e7045ea832
+--- /dev/null
++++ b/entry/src/main/ets/pages/Probe.ets
+@@ -0,0 +1,5 @@
++// Intentionally empty.
++//
++// This placeholder exists because the scaffold probe page could not be removed
++// from the workspace with the restricted shell available to this agent. It holds
++// no declarations, is not registered in main_pages.json and is never imported.
+\ No newline at end of file
+diff --git a/entry/src/main/resources/base/profile/main_pages.json b/entry/src/main/resources/base/profile/main_pages.json
+index 9140e03d03c87243b0c01f17e713a63f7a73460f..98d004b7ed470b001851a793d34c5e46b6deb3b1 100644
+--- a/entry/src/main/resources/base/profile/main_pages.json
++++ b/entry/src/main/resources/base/profile/main_pages.json
+@@ -1,3 +1,3 @@
+ {
+-  "src": ["pages/Index"]
+-}
++  "src": ["pages/Index", "pages/FeedSettings", "pages/InterestEditor"]
++}
+\ No newline at end of file

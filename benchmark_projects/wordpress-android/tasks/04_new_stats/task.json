@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wordpress-android",
+  "taskId": "04_new_stats",
+  "title": "Interactive and resilient New Stats exploration",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "baseRef": "27.1",
+    "baseCommit": "52d78ca3a60d3ae77fce80a304416eae65f68523",
+    "finalRef": "27.6",
+    "finalCommit": "e6dbc793f2256380cd7ab3c9210aae0cdd07710b",
+    "ancestry": {
+      "isAncestor": true,
+      "mergeBase": "52d78ca3a60d3ae77fce80a304416eae65f68523",
+      "aheadCommitCount": 135,
+      "releaseBranchException": null
+    }
+  },
+  "releaseNotes": [
+    {
+      "version": "27.2",
+      "url": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/27.2",
+      "summary": "Adds selectable chart metrics, interactive bar selection, and revised period presets to New Stats."
+    },
+    {
+      "version": "27.4",
+      "url": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/27.4",
+      "summary": "Preserves the chosen period semantics while navigating backward and forward."
+    },
+    {
+      "version": "27.5",
+      "url": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/27.5",
+      "summary": "Charts complete calendar periods rather than truncating the current period."
+    },
+    {
+      "version": "27.6",
+      "url": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/27.6",
+      "summary": "Adds hourly metric fallback, plan-gated presentation, period caching, and aligned date windows."
+    }
+  ],
+  "functionalAreas": [
+    "chart metric selection",
+    "chart point interaction",
+    "period presets and navigation",
+    "cached data and refresh",
+    "offline, error, and plan-gated states"
+  ],
+  "stateSurfaces": [
+    "selected metric",
+    "selected chart bucket",
+    "selected period and date window",
+    "fresh, cached, stale, loading, and failed data",
+    "available, unavailable, and plan-gated content"
+  ],
+  "eventEntrypoints": [
+    "select a metric",
+    "tap, clear, or drill into a chart bucket",
+    "choose a period or page through time",
+    "revisit a previously viewed period",
+    "pull to refresh",
+    "retry a failed load",
+    "switch between gated and ungated stats"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsActivity.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/NewStatsViewModel.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/StatsPeriod.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsCard.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModel.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsRepository.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/repository/StatsResultCache.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/datasource/StatsApiError.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/datasource/StatsDataSourceImpl.kt",
+      "WordPress/src/main/java/org/wordpress/android/ui/newstats/components/StatsCardCommon.kt"
+    ],
+    "testPaths": [
+      "WordPress/src/test/java/org/wordpress/android/ui/newstats/viewsstats/ViewsStatsViewModelTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsRepositoryTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsRepositoryCacheTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/newstats/repository/StatsResultCacheTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/newstats/datasource/StatsApiErrorTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/newstats/NewStatsViewModelTest.kt"
+    ],
+    "pullRequests": [
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23234",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23278",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23287",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23337",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23362",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23389",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23393",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23394",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23395",
+      "https://github.com/wordpress-mobile/WordPress-Android/pull/23400"
+    ],
+    "commits": [
+      "ab5cd2de23db9f263fda1e91fc5eac7d3061de08",
+      "e315b629d077b4e85c9d0823110120f999fab477",
+      "37789cdd1683e7615049f373ac2c96624220f1df",
+      "b8157ff5e0d8aed84bdbead24c6f99b64c83d19a",
+      "13c4975ddf2f2545c514fe5f4f800a81bfc1078f",
+      "e90ed99d80a553fcb551c04097136cdf9da202df",
+      "612014c46d863cb581d939af7f19452ad657bcd2",
+      "6f7b943b8b78a5c4dc6a44ce6ba031bccc870076",
+      "faa12df5df4ed2245ffcc8f4ae39b4f93d908ebd",
+      "7855e1190fe2e3136ee7b3a3e72e0d23b3a6adab",
+      "66902e3d4734eb7f5e0f1b1579724aa6c455310b",
+      "5142261b122a3db86f004801343078341dba6fd8"
+    ]
+  },
+  "nonGoals": [
+    "Require the Latest Post Summary or per-post detail work that also landed in the release interval.",
+    "Score analytics event payloads or internal telemetry wiring.",
+    "Require a particular cache type, cache size, storage API, chart library, or view-model structure."
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawReleaseEvidence": "raw_release_evidence.json"
+  }
+}

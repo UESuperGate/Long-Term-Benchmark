@@ -1,0 +1,281 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_media_editor",
+  "description": "Public scenarios only; expected observations and evaluator bindings remain hidden.",
+  "cases": [
+    {
+      "caseId": "me_state_001_mute_control_eligibility",
+      "functionalArea": "per_video_audio_removal",
+      "given": {
+        "audioRemovalAvailable": true,
+        "items": [
+          {
+            "id": "video-1",
+            "kind": "video",
+            "isVideoGif": false
+          },
+          {
+            "id": "gif-video",
+            "kind": "video",
+            "isVideoGif": true
+          },
+          {
+            "id": "image-1",
+            "kind": "image",
+            "isVideoGif": false
+          }
+        ],
+        "focusedItemId": "video-1"
+      },
+      "event": {
+        "name": "renderEditorThenFocusEachItem"
+      },
+      "invariants": [
+        "audio removal is exposed only for an ordinary editable video",
+        "rendering eligibility does not mutate any item"
+      ]
+    },
+    {
+      "caseId": "me_state_002_mute_focused_video",
+      "functionalArea": "per_video_audio_removal",
+      "given": {
+        "selectedItemIds": [
+          "video-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": false
+          }
+        },
+        "preUpload": {
+          "video-1": "uploaded"
+        }
+      },
+      "event": {
+        "name": "toggleVideoMuted"
+      },
+      "invariants": [
+        "the selected media membership is unchanged",
+        "the stale pre-upload for the edited item is invalidated exactly once"
+      ]
+    },
+    {
+      "caseId": "me_state_003_unmute_focused_video",
+      "functionalArea": "per_video_audio_removal",
+      "given": {
+        "selectedItemIds": [
+          "video-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          }
+        },
+        "preUpload": {
+          "video-1": "uploaded"
+        }
+      },
+      "event": {
+        "name": "toggleVideoMuted"
+      },
+      "invariants": [
+        "toggling again restores audio for the same item",
+        "no other editor state is removed"
+      ]
+    },
+    {
+      "caseId": "me_state_004_focus_preserves_per_item_edits",
+      "functionalArea": "selection_and_focus_state",
+      "given": {
+        "selectedItemIds": [
+          "video-1",
+          "video-2"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          },
+          "video-2": {
+            "kind": "video_trim",
+            "isMuted": false
+          }
+        }
+      },
+      "event": {
+        "name": "setFocusedItem",
+        "itemId": "video-2"
+      },
+      "invariants": [
+        "editor state is keyed by media identity rather than pager position",
+        "changing focus does not transfer mute state"
+      ]
+    },
+    {
+      "caseId": "me_state_005_reorder_preserves_per_item_edits",
+      "functionalArea": "selection_and_focus_state",
+      "given": {
+        "selectedItemIds": [
+          "video-1",
+          "video-2",
+          "image-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          },
+          "video-2": {
+            "kind": "video_trim",
+            "isMuted": false
+          }
+        }
+      },
+      "event": {
+        "name": "reorderSelectedMedia",
+        "fromIndex": 0,
+        "toIndex": 2
+      },
+      "invariants": [
+        "reordering changes no media membership",
+        "mute state remains attached to media identity"
+      ]
+    },
+    {
+      "caseId": "me_state_006_restore_editor_state",
+      "functionalArea": "attachment_transform_persistence",
+      "given": {
+        "savedFlowState": {
+          "selectedItemIds": [
+            "video-1",
+            "video-2"
+          ],
+          "focusedItemId": "video-2",
+          "editorStateByItem": {
+            "video-1": {
+              "kind": "video_trim",
+              "isMuted": true,
+              "startTimeUs": 100,
+              "endTimeUs": 900
+            },
+            "video-2": {
+              "kind": "video_trim",
+              "isMuted": false,
+              "startTimeUs": 0,
+              "endTimeUs": 1000
+            }
+          }
+        }
+      },
+      "event": {
+        "name": "recreateMediaSendFlow"
+      },
+      "invariants": [
+        "recreation restores selection, focus, trim, and mute state together",
+        "restoration does not synthesize an edit or upload cancellation"
+      ]
+    },
+    {
+      "caseId": "me_state_007_cancel_discard_preserves_edits",
+      "functionalArea": "discard_cancellation",
+      "given": {
+        "selectedItemIds": [
+          "video-1"
+        ],
+        "focusedItemId": "video-1",
+        "editorStateByItem": {
+          "video-1": {
+            "kind": "video_trim",
+            "isMuted": true
+          }
+        },
+        "screen": "media_editor"
+      },
+      "event": {
+        "name": "requestCloseThenCancelDiscard"
+      },
+      "invariants": [
+        "canceling discard abandons neither media nor edits",
+        "no send or upload effect is produced"
+      ]
+    },
+    {
+      "caseId": "me_state_008_legacy_transform_defaults_unmuted",
+      "functionalArea": "attachment_transform_persistence",
+      "given": {
+        "storedTransformJson": {
+          "skipTransform": false,
+          "videoTrim": false,
+          "videoTrimStartTimeUs": 0,
+          "videoTrimEndTimeUs": 0,
+          "sentMediaQuality": 0,
+          "mp4Faststart": false,
+          "videoEdited": false
+        }
+      },
+      "event": {
+        "name": "restoreStoredTransform"
+      },
+      "invariants": [
+        "payloads stored before audio removal remain readable",
+        "missing audio-removal data never mutes a video"
+      ]
+    },
+    {
+      "caseId": "me_state_009_prepare_muted_transform",
+      "functionalArea": "attachment_transform_persistence",
+      "given": {
+        "media": {
+          "id": "video-1",
+          "kind": "video",
+          "transformProperties": null
+        },
+        "editorState": {
+          "kind": "video_trim",
+          "isDurationEdited": false,
+          "startTimeUs": 0,
+          "endTimeUs": 1000000,
+          "isMuted": true
+        }
+      },
+      "event": {
+        "name": "prepareEditedVideoForSend"
+      },
+      "invariants": [
+        "muting alone marks the attachment as edited",
+        "the video identity and video track remain present"
+      ]
+    },
+    {
+      "caseId": "me_state_010_transcode_omits_audio",
+      "functionalArea": "video_transcoding",
+      "given": {
+        "preparedVideo": {
+          "id": "video-1",
+          "videoTrack": true,
+          "audioTrack": true,
+          "transformProperties": {
+            "videoMuted": true,
+            "videoEdited": true
+          }
+        },
+        "transcoder": {
+          "allowAudioRemux": true
+        }
+      },
+      "event": {
+        "name": "transcodePreparedVideo"
+      },
+      "invariants": [
+        "audio removal forces a transform even when the source otherwise meets size and codec constraints",
+        "the video track is retained"
+      ]
+    }
+  ]
+}

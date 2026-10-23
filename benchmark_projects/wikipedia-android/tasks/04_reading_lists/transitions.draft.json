@@ -1,0 +1,1248 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_reading_lists",
+  "owner": "evaluator",
+  "description": "Platform-neutral Saved and collections transitions. Because no targeted upstream test changed in the boundary, every case requires a production runtime trace through the real Room-backed state and UI entry path.",
+  "cases": [
+    {
+      "caseId": "rl_all_articles_deduplicates_memberships",
+      "key": "all_articles_deduplicates_memberships",
+      "traceSchemaVersion": 2,
+      "functionalArea": "reactive_saved_content",
+      "setup": [
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Ada_Lovelace",
+          "collections": [
+            "Saved",
+            "People"
+          ]
+        },
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Paris",
+          "collections": [
+            "Saved"
+          ]
+        },
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "fr:Paris",
+          "collections": [
+            "Places"
+          ]
+        }
+      ],
+      "given": {
+        "roomLists": [
+          {
+            "title": "Saved",
+            "isDefault": true,
+            "articles": [
+              "en:Ada_Lovelace",
+              "en:Paris"
+            ]
+          },
+          {
+            "title": "People",
+            "isDefault": false,
+            "articles": [
+              "en:Ada_Lovelace"
+            ]
+          },
+          {
+            "title": "Places",
+            "isDefault": false,
+            "articles": [
+              "fr:Paris"
+            ]
+          }
+        ]
+      },
+      "event": {
+        "name": "openSavedSurface"
+      },
+      "expected": {
+        "state": {
+          "selectedTab": "ALL_ARTICLES",
+          "phase": "content",
+          "articleRows": [
+            {
+              "article": "en:Ada_Lovelace",
+              "containingCollections": [
+                "Saved",
+                "People"
+              ]
+            },
+            {
+              "article": "en:Paris",
+              "containingCollections": [
+                "Saved"
+              ]
+            },
+            {
+              "article": "fr:Paris",
+              "containingCollections": [
+                "Places"
+              ]
+            }
+          ],
+          "hasSavedArticles": true
+        },
+        "persistence": {
+          "roomMembershipsUnchanged": true
+        },
+        "effects": [
+          {
+          "name": "collectListsWithPagesFlow"
+          }
+        ],
+        "absentEffects": [
+          "duplicate_en_Ada_Lovelace_row",
+          "merge_en_Paris_with_fr_Paris",
+          "collection_row_in_all_articles",
+          "database_write"
+        ]
+      },
+      "invariants": [
+        "logical article identity is the pair of wiki language and API title",
+        "one All articles row retains every containing collection",
+        "the given memberships are established through production save and collection actions"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base opens a legacy list-of-lists surface and has no default ALL_ARTICLES projection that deduplicates across collections."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#selectedTab",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#buildArticleRows",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#ReadingListRow.PageRow"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "Unchanged in the boundary; it enters individual legacy lists and has a TODO search helper, so it does not cover the All articles projection."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "ReadingListsFragment -> ReadingListsViewModel.uiState -> ReadingListsScreen",
+          "checkpoints": [
+            "Room memberships before opening Saved",
+            "production uiState after the first nonloading Room emission",
+            "rendered row types and containing-collection chips"
+          ],
+          "assertions": [
+            "three logical rows",
+            "Ada appears once with two containing collections",
+            "the two Paris rows remain separate by language",
+            "no Room mutation while opening"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_collections_tab_uses_own_sort_and_excludes_default",
+      "key": "collections_tab_uses_own_sort_and_excludes_default",
+      "traceSchemaVersion": 2,
+      "functionalArea": "collections",
+      "setup": [
+        {
+          "name": "createCollection",
+          "title": "Zoo"
+        },
+        {
+          "name": "createCollection",
+          "title": "Alpha"
+        },
+        {
+          "name": "setSavedSort",
+          "tab": "ALL_ARTICLES",
+          "sortMode": 1
+        },
+        {
+          "name": "setSavedSort",
+          "tab": "COLLECTIONS",
+          "sortMode": 0
+        },
+        {
+          "name": "recreateSavedSurface"
+        }
+      ],
+      "given": {
+        "selectedTab": "ALL_ARTICLES",
+        "roomLists": [
+          {
+            "title": "Saved",
+            "isDefault": true
+          },
+          {
+            "title": "Zoo",
+            "isDefault": false
+          },
+          {
+            "title": "Alpha",
+            "isDefault": false
+          }
+        ],
+        "persistedSortModes": {
+          "ALL_ARTICLES": 1,
+          "COLLECTIONS": 0
+        }
+      },
+      "event": {
+        "name": "selectSavedTab",
+        "tab": "COLLECTIONS"
+      },
+      "expected": {
+        "state": {
+          "selectedTab": "COLLECTIONS",
+          "sortMode": 0,
+          "collectionRows": [
+            "Alpha",
+            "Zoo"
+          ],
+          "defaultCollectionVisible": false
+        },
+        "persistence": {
+          "articleSortMode": 1,
+          "collectionSortMode": 0,
+          "roomListsUnchanged": true
+        },
+        "effects": [
+          {
+            "name": "reduceRowsForTab",
+            "tab": "COLLECTIONS"
+          }
+        ],
+        "absentEffects": [
+          "Saved_default_collection_row",
+          "article_row",
+          "database_write",
+          "article_sort_preference_overwrite"
+        ]
+      },
+      "invariants": [
+        "SORT_BY_NAME_ASC is 0 and SORT_BY_NAME_DESC is 1 in final production",
+        "article and collection sort preferences persist independently",
+        "switching tabs changes only presentation and does not remove the default collection from Room"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no ALL_ARTICLES/COLLECTIONS tab transition or Collections projection that excludes the default list while preserving independent tab sort state."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#setSelectedTab",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#setSortMode",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#buildCollectionsRows",
+          "app/src/main/java/org/wikipedia/readinglist/database/ReadingList.kt#SORT_BY_NAME_ASC",
+          "app/src/main/java/org/wikipedia/readinglist/database/ReadingList.kt#SORT_BY_NAME_DESC"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "The unchanged legacy test does not select the new tabs or verify independent sort persistence."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "ReadingListsScreen.onSelectTab -> ReadingListsFragment.onSelectTab -> ReadingListsViewModel",
+          "checkpoints": [
+            "both production preference values after setting them through each tab's sort dialog",
+            "uiState before and after selecting Collections",
+            "Room list rows before and after"
+          ],
+          "assertions": [
+            "Alpha precedes Zoo",
+            "Saved is absent only from rendered collection rows",
+            "sort preferences remain 1 and 0",
+            "no membership mutation"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_all_articles_search_is_debounced_and_scoped",
+      "key": "all_articles_search_is_debounced_and_scoped",
+      "traceSchemaVersion": 2,
+      "functionalArea": "search_filter_sort",
+      "setup": [
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Cafe",
+          "displayTitle": "Caf\u00e9"
+        },
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Tea"
+        },
+        {
+          "name": "createCollection",
+          "title": "Cafe Collection"
+        },
+        {
+          "name": "openSavedSurface"
+        },
+        {
+          "name": "activateSavedSearch"
+        }
+      ],
+      "given": {
+        "selectedTab": "ALL_ARTICLES",
+        "searchQuery": null,
+        "searchDebounceMillis": 150,
+        "articleRows": [
+          "en:Cafe",
+          "en:Tea"
+        ],
+        "collectionTitles": [
+          "Cafe Collection"
+        ]
+      },
+      "event": {
+        "name": "enterSavedSearchQuery",
+        "query": "cafe",
+        "observeAfterMillis": 150
+      },
+      "expected": {
+        "state": {
+          "selectedTab": "ALL_ARTICLES",
+          "searchActive": true,
+          "searchQuery": "cafe",
+          "rows": [
+            {
+              "type": "article",
+              "article": "en:Cafe",
+              "displayTitle": "Caf\u00e9"
+            }
+          ]
+        },
+        "persistence": {
+          "roomMembershipsUnchanged": true
+        },
+        "effects": [
+          {
+            "name": "debouncedContentReduction",
+            "delayMillis": 150,
+            "accentInsensitive": true
+          }
+        ],
+        "absentEffects": [
+          "collection_row_Cafe_Collection",
+          "article_row_en_Tea",
+          "database_write",
+          "cross_tab_search_result"
+        ]
+      },
+      "invariants": [
+        "the query is entered through the production search callback",
+        "a nonempty query waits for the exact 150 millisecond production debounce",
+        "All articles search returns article rows only and does not mutate membership"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base legacy search mixes list and page matches and has no active-tab ALL_ARTICLES search reducer."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsFragment.kt#searchActionModeCallback",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#SEARCH_DEBOUNCE_MILLIS",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#buildSearchRows",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#buildArticleRows"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt#search",
+          "assessment": "The helper is explicitly TODO and performs no search steps; it is not acceptance evidence."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "SearchActionModeCallback.onQueryChange -> ReadingListsViewModel.setSearchQuery -> uiState",
+          "controlledClock": true,
+          "checkpoints": [
+            "rows before query",
+            "rows at 149 milliseconds",
+            "rows and query at 150 milliseconds",
+            "Room memberships after reduction"
+          ],
+          "assertions": [
+            "no reduced emission before 150 milliseconds",
+            "accent-insensitive Cafe match at 150 milliseconds",
+            "matching collection title is excluded on ALL_ARTICLES"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_default_only_filter_uses_all_memberships",
+      "key": "default_only_filter_uses_all_memberships",
+      "traceSchemaVersion": 2,
+      "functionalArea": "search_filter_sort",
+      "setup": [
+        {
+          "name": "addArticleMemberships",
+          "article": "en:Default_only",
+          "collections": [
+            "Saved"
+          ],
+          "entryPoint": "production_reading_list_actions"
+        },
+        {
+          "name": "addArticleMemberships",
+          "article": "en:Default_and_travel",
+          "collections": [
+            "Saved",
+            "Travel"
+          ],
+          "entryPoint": "production_reading_list_actions"
+        },
+        {
+          "name": "addArticleMemberships",
+          "article": "en:Travel_only",
+          "collections": [
+            "Travel"
+          ],
+          "entryPoint": "production_reading_list_actions"
+        },
+        {
+          "name": "openSavedSurface"
+        }
+      ],
+      "given": {
+        "selectedTab": "ALL_ARTICLES",
+        "selectedArticleFilter": "ALL_ARTICLES",
+        "articleMemberships": {
+          "en:Default_only": [
+            "Saved"
+          ],
+          "en:Default_and_travel": [
+            "Saved",
+            "Travel"
+          ],
+          "en:Travel_only": [
+            "Travel"
+          ]
+        }
+      },
+      "event": {
+        "name": "selectArticleFilter",
+        "filter": "NOT_IN_COLLECTION"
+      },
+      "expected": {
+        "state": {
+          "selectedTab": "ALL_ARTICLES",
+          "selectedArticleFilter": "NOT_IN_COLLECTION",
+          "articleRows": [
+            "en:Default_only"
+          ]
+        },
+        "persistence": {
+          "articleMembershipsUnchanged": true
+        },
+        "effects": [
+          {
+            "name": "reduceArticleRows",
+            "predicate": "all containing collections are default"
+          }
+        ],
+        "absentEffects": [
+          "en:Default_and_travel_row",
+          "en:Travel_only_row",
+          "membership_delete",
+          "collection_delete"
+        ]
+      },
+      "invariants": [
+        "the filter examines the complete containing-collection set of each deduplicated article",
+        "an article in any named collection is excluded even if it is also in Saved",
+        "filtering changes presentation only"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no global All articles row model with a NOT_IN_COLLECTION filter over aggregated memberships."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsFragment.kt#showReadingListsFilterMenu",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#setArticleFilter",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#buildArticleRows"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "The unchanged legacy test has no All articles filter coverage."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "ReadingListsAllArticlesFilterOverflowView -> ReadingListsViewModel.setArticleFilter -> uiState",
+          "checkpoints": [
+            "complete Room memberships before filtering",
+            "deduplicated rows before filtering",
+            "rows and Room memberships after filtering"
+          ],
+          "assertions": [
+            "only Default_only remains",
+            "all three membership sets are byte-for-byte unchanged"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_select_all_targets_visible_deduplicated_rows",
+      "key": "select_all_targets_visible_deduplicated_rows",
+      "traceSchemaVersion": 2,
+      "functionalArea": "multi_selection",
+      "setup": [
+        {
+          "name": "openSavedSurface"
+        },
+        {
+          "name": "selectArticleFilter",
+          "filter": "NOT_IN_COLLECTION"
+        },
+        {
+          "name": "enterArticleSelectionMode"
+        }
+      ],
+      "given": {
+        "selectedTab": "ALL_ARTICLES",
+        "selectedArticleFilter": "NOT_IN_COLLECTION",
+        "visibleArticleRows": [
+          {
+            "id": 11,
+            "article": "en:Ada_Lovelace"
+          },
+          {
+            "id": 12,
+            "article": "en:Grace_Hopper"
+          }
+        ],
+        "hiddenByFilter": [
+          {
+            "id": 13,
+            "article": "en:Paris",
+            "collections": [
+              "Saved",
+              "Travel"
+            ]
+          }
+        ],
+        "selection": {
+          "enabled": true,
+          "selectedPageIds": []
+        }
+      },
+      "event": {
+        "name": "selectAllVisibleRows"
+      },
+      "expected": {
+        "state": {
+          "selection": {
+            "enabled": true,
+            "selectedPageIds": [
+              11,
+              12
+            ]
+          }
+        },
+        "persistence": {
+          "roomMembershipsUnchanged": true
+        },
+        "effects": [
+          {
+            "name": "replaceSelectionWithVisiblePageIds",
+            "count": 2
+          }
+        ],
+        "absentEffects": [
+          "select_hidden_page_id_13",
+          "select_duplicate_occurrence",
+          "database_write",
+          "tab_change"
+        ]
+      },
+      "invariants": [
+        "selection IDs come from the current production uiState rows",
+        "one deduplicated logical row contributes at most one selected ID",
+        "filtered-out rows are not selected"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base can select pages inside an individual list but has no global filtered All articles selection set."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsFragment.kt#articleSelectionCallback",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#selectAllPages",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#ReadingListsSelectionState"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "The unchanged legacy test does not enter the new global article selection mode."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "ReadingListsScreen selection callback -> ReadingListsFragment.articleSelectionCallback -> ReadingListsViewModel.selectAllPages",
+          "checkpoints": [
+            "visible production PageRow IDs after filtering",
+            "selectionState before select-all",
+            "selectionState and Room memberships after"
+          ],
+          "assertions": [
+            "selected IDs equal exactly the visible PageRow IDs",
+            "hidden ID 13 remains unselected",
+            "no persistence side effect"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_offline_redirect_failure_saves_original_and_propagates",
+      "key": "offline_redirect_failure_saves_original_and_propagates",
+      "traceSchemaVersion": 2,
+      "functionalArea": "article_save_unsave",
+      "setup": [
+        {
+          "name": "openSavedSurface"
+        }
+      ],
+      "given": {
+        "article": {
+          "language": "en",
+          "apiTitle": "Original_Title",
+          "displayTitle": "Original Title"
+        },
+        "memberships": [],
+        "redirectMetadataHttp": "error:io",
+        "savedSurface": {
+          "selectedTab": "ALL_ARTICLES",
+          "articleRows": []
+        }
+      },
+      "event": {
+        "name": "openSaveArticleSheet",
+        "article": "en:Original_Title"
+      },
+      "expected": {
+        "state": {
+          "saveSheet": {
+            "article": "en:Original_Title",
+            "isSaved": true,
+            "collections": []
+          },
+          "savedSurface": {
+            "selectedTab": "ALL_ARTICLES",
+            "articleRows": [
+              "en:Original_Title"
+            ]
+          }
+        },
+        "persistence": {
+          "memberships": {
+            "en:Original_Title": [
+              "Saved"
+            ]
+          }
+        },
+        "effects": [
+          {
+            "leaf": "redirect_metadata_http",
+            "status": "failed",
+            "exception": "IOException"
+          },
+          {
+            "name": "addPagesToListIfNotExist",
+            "list": "Saved",
+            "article": "en:Original_Title"
+          },
+          {
+            "name": "roomFlowPropagation",
+            "surfaces": [
+              "save_article_sheet",
+              "all_articles"
+            ]
+          }
+        ],
+        "absentEffects": [
+          "save_redirect_target",
+          "duplicate_default_membership",
+          "dismiss_sheet_on_http_failure",
+          "manual_saved_surface_rebuild"
+        ]
+      },
+      "invariants": [
+        "the PageTitle is supplied through the real SaveArticleSheetDialog argument",
+        "IOException is controlled only at the external HTTP leaf",
+        "the original language and API title remain the persisted identity",
+        "the same Room write updates both visible production surfaces"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "Although the base has legacy save behavior, it lacks the unified sheet plus reactive global All articles propagation required by this complete transition."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetDialog.kt#show",
+          "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt#saveArticle",
+          "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt#resolveRedirect",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#readingListsContentState"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "The unchanged test cannot establish this case: its search helper is TODO and it does not observe the unified sheet or All articles propagation."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "real article save action -> SaveArticleSheetDialog -> SaveArticleSheetViewModel.init -> Room -> both StateFlows",
+          "externalLeaves": [
+            "redirect metadata HTTP throws IOException"
+          ],
+          "checkpoints": [
+            "Room has no occurrence before sheet creation",
+            "original PageTitle received by resolveRedirect",
+            "Room membership after fallback",
+            "sheet uiState and Saved uiState after Room emission"
+          ],
+          "assertions": [
+            "the production resolveRedirect body catches IOException",
+            "exactly one original-title row is persisted",
+            "both surfaces become saved without manual refresh"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_cancel_named_unsave_is_noop",
+      "key": "cancel_named_unsave_is_noop",
+      "traceSchemaVersion": 2,
+      "functionalArea": "article_save_unsave",
+      "setup": [
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Ada_Lovelace",
+          "collections": [
+            "Saved",
+            "People"
+          ]
+        },
+        {
+          "name": "openSaveArticleSheet",
+          "article": "en:Ada_Lovelace"
+        },
+        {
+          "name": "requestUnsaveFromArticleHeader"
+        }
+      ],
+      "given": {
+        "saveSheet": {
+          "article": "en:Ada_Lovelace",
+          "isSaved": true,
+          "pendingConfirmation": true
+        },
+        "memberships": [
+          "Saved",
+          "People"
+        ]
+      },
+      "event": {
+        "name": "cancelUnsaveConfirmation"
+      },
+      "expected": {
+        "state": {
+          "saveSheet": {
+            "article": "en:Ada_Lovelace",
+            "isSaved": true,
+            "pendingConfirmation": false,
+            "dismissed": false
+          }
+        },
+        "persistence": {
+          "memberships": [
+            "Saved",
+            "People"
+          ]
+        },
+        "effects": [
+          {
+            "name": "dismissConfirmationOnly"
+          }
+        ],
+        "absentEffects": [
+          "markPagesForDeletionFromLists",
+          "ArticleRemovedFromAllCollections_event",
+          "sheet_dismiss",
+          "membership_change"
+        ]
+      },
+      "invariants": [
+        "the confirmation is required because at least one containing collection is nondefault",
+        "cancellation invokes no ViewModel confirm method",
+        "every membership and visible row remains intact"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base lacks the unified sheet state and its named-membership unsave confirmation transition."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt#toggleArticleSaved",
+        "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt#SaveArticleSheetEvent.ShowUnsaveConfirmation",
+          "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetDialog.kt#showUnsaveArticleConfirmationDialog"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "The unchanged legacy test removes from individual lists and does not cover cancelling the unified all-memberships confirmation."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "SaveArticleSheetContent header -> toggleArticleSaved -> dialog negative button",
+          "checkpoints": [
+            "Room memberships and sheet state before unsave request",
+            "ShowUnsaveConfirmation payload",
+            "Room write log, sheet state, and Saved rows after cancel"
+          ],
+          "assertions": [
+            "confirmation lists include Saved and People",
+            "zero deletion calls",
+            "sheet remains open and saved"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_delete_deduplicated_article_undo_restores_memberships",
+      "key": "delete_deduplicated_article_undo_restores_memberships",
+      "traceSchemaVersion": 2,
+      "functionalArea": "multi_selection",
+      "setup": [
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Ada_Lovelace",
+          "collections": [
+            "Saved",
+            "People"
+          ]
+        },
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Grace_Hopper",
+          "collections": [
+            "Saved"
+          ]
+        },
+        {
+          "name": "openSavedSurface"
+        },
+        {
+          "name": "selectArticleRow",
+          "article": "en:Ada_Lovelace"
+        },
+        {
+          "name": "deleteSelectedArticlesAndConfirm"
+        }
+      ],
+      "given": {
+        "selectedTab": "ALL_ARTICLES",
+        "queuedForDeletion": {
+          "en:Ada_Lovelace": [
+            "Saved",
+            "People"
+          ]
+        },
+        "visibleArticleRows": [
+          "en:Grace_Hopper"
+        ],
+        "undoAvailable": true
+      },
+      "event": {
+        "name": "undoArticleDeletion"
+      },
+      "expected": {
+        "state": {
+          "selectedTab": "ALL_ARTICLES",
+          "articleRows": [
+            {
+              "article": "en:Ada_Lovelace",
+              "containingCollections": [
+                "Saved",
+                "People"
+              ]
+            },
+            {
+              "article": "en:Grace_Hopper",
+              "containingCollections": [
+                "Saved"
+              ]
+            }
+          ]
+        },
+        "persistence": {
+          "memberships": {
+            "en:Ada_Lovelace": [
+              "Saved",
+              "People"
+            ],
+            "en:Grace_Hopper": [
+              "Saved"
+            ]
+          },
+          "survivesSavedSurfaceRecreation": true
+        },
+        "effects": [
+          {
+            "name": "addPagesToList",
+            "article": "en:Ada_Lovelace",
+            "lists": [
+              "Saved",
+              "People"
+            ],
+            "force": true
+          },
+          {
+            "name": "roomFlowPropagation",
+            "surface": "all_articles"
+          }
+        ],
+        "absentEffects": [
+          "duplicate_Ada_row",
+          "Grace_membership_change",
+          "restore_to_unrelated_collection",
+          "reuse_deleted_database_row_id_requirement"
+        ]
+      },
+      "invariants": [
+        "queued-for-delete rows are absent before undo because ReadingListWithPages filters STATUS_QUEUE_FOR_DELETE",
+        "undo restores logical identity and all prior memberships; database row IDs need not be preserved",
+        "unrelated rows are unchanged"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base has no deduplicated global article row whose one deletion fans out to all containing lists and then restores into the global projection."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#prepareSelectedPagesForDeletion",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsFragment.kt#deleteSelectedPages",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListBehaviorsUtil.kt#deletePagesFromLists",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListBehaviorsUtil.kt#showDeletePagesFromListsUndoSnackbar",
+          "app/src/main/java/org/wikipedia/readinglist/database/ReadingListWithPages.kt#toReadingList"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "The unchanged legacy test deletes a list, not one deduplicated article across all memberships with undo."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "All articles selection -> prepareSelectedPagesForDeletion -> ReadingListBehaviorsUtil -> snackbar undo -> Room flow",
+          "checkpoints": [
+            "two Ada Room occurrences and one Grace occurrence before delete",
+            "prepared deletion payload contains both lists",
+            "queued statuses and rendered rows before undo",
+            "Room memberships and rendered rows after undo and after recreation"
+          ],
+          "assertions": [
+            "Ada disappears while queued",
+            "undo restores Ada to exactly Saved and People",
+            "All articles renders Ada once",
+            "Grace is unchanged"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_missing_collection_toggle_is_noop",
+      "key": "missing_collection_toggle_is_noop",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "setup": [
+        {
+          "name": "saveArticleThroughSheet",
+          "article": "en:Ada_Lovelace",
+          "collections": [
+            "Saved"
+          ]
+        },
+        {
+          "name": "createCollection",
+          "title": "People"
+        },
+        {
+          "name": "openSaveArticleSheet",
+          "article": "en:Ada_Lovelace"
+        },
+        {
+          "name": "tapRenderedCollectionToggle",
+          "collectionRef": "created:People",
+          "callbackDispatch": "held"
+        },
+        {
+          "name": "completeReadingListSyncRemovingCollection",
+          "collectionRef": "created:People",
+          "whileSheetIsVisible": true
+        }
+      ],
+      "given": {
+        "article": "en:Ada_Lovelace",
+        "memberships": [
+          "Saved"
+        ],
+        "roomCollections": [
+          {
+            "title": "Saved",
+            "isDefault": true
+          }
+        ],
+        "queuedCollectionToggle": {
+          "collectionId": "observed-created-People-id",
+          "title": "People"
+        }
+      },
+      "event": {
+        "name": "resumeQueuedCollectionToggle"
+      },
+      "expected": {
+        "state": {
+          "saveSheet": {
+            "article": "en:Ada_Lovelace",
+            "isSaved": true,
+            "collections": []
+          }
+        },
+        "persistence": {
+          "memberships": [
+            "Saved"
+          ],
+          "roomCollections": [
+            {
+              "title": "Saved",
+              "isDefault": true
+            }
+          ]
+        },
+        "effects": [],
+        "absentEffects": [
+          "add_to_collection",
+          "remove_from_collection",
+          "mutate_default_collection",
+          "SaveArticleSheetEvent"
+        ]
+      },
+      "invariants": [
+        "the stale ID originates from a row previously rendered by the production sheet",
+        "the collection is removed by the production reading-list sync while the sheet is visible, leaving a reachable stale row callback until recomposition",
+        "a missing collection never falls back to another collection"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The legacy add-to-list sheet acts on a retained ReadingList object and has no DAO-by-ID toggle guard; it cannot guarantee that a sync-deleted rendered collection becomes a no-op without mutating or targeting stale list state."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt#toggleArticleInCollection",
+          "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt#buildUiState"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "No upstream test covers the missing-collection race or verifies absence of side effects."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "previously rendered SaveCollectionUiModel callback -> SaveArticleSheetViewModel.toggleArticleInCollection -> production DAO lookup",
+        "externalLeaves": [
+          "reading-list sync removes collection 42 from Room while the sheet remains visible"
+        ],
+          "checkpoints": [
+          "People and its generated Room ID rendered in the real sheet before the tap callback is queued",
+          "the generated People ID is absent from Room after production sync",
+            "DAO calls, emitted events, memberships, and remaining collections after stale callback"
+          ],
+          "assertions": [
+          "getListWithPagesById receives the captured generated ID and returns null",
+            "no write method is called",
+            "no event is emitted",
+            "Saved membership remains intact"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "rl_login_then_refresh_retries_sync_to_completion",
+      "key": "login_then_refresh_retries_sync_to_completion",
+      "traceSchemaVersion": 2,
+      "functionalArea": "sync_recovery",
+      "setup": [
+        {
+          "name": "createCollection",
+          "title": "Research"
+        },
+        {
+          "name": "openSavedSurface",
+          "account": "signed_out",
+          "syncReminderEnabled": true,
+          "loginReminderEnabled": true,
+          "remoteSyncDisabled": false
+        },
+        {
+          "name": "pullToRefresh"
+        },
+        {
+          "name": "dismissLoginPrompt"
+        },
+        {
+          "name": "completePermanentAccountLogin",
+          "userName": "Ada"
+        },
+        {
+          "name": "holdNextReadingListSyncCompletion",
+          "incomingMemberships": {
+            "en:Synced_Article": [
+              "Saved",
+              "Research"
+            ]
+          }
+        }
+      ],
+      "given": {
+        "selectedTab": "ALL_ARTICLES",
+        "articleRows": [],
+        "account": {
+          "isLoggedIn": true,
+          "isTemporary": false,
+          "userName": "Ada"
+        },
+        "previousRefreshAttempt": {
+          "outcome": "login_prompt",
+          "syncStarted": false
+        },
+        "isRefreshing": false,
+        "readingListSyncEnabled": false,
+        "onboarding": "SyncReminder",
+        "nextSyncCompletion": "held"
+      },
+      "event": {
+        "name": "retryPullToRefreshAndCompleteSync"
+      },
+      "expected": {
+        "state": {
+          "intermediate": {
+            "isRefreshing": true,
+            "onboarding": "None",
+            "selectedTab": "ALL_ARTICLES",
+            "articleRows": [
+              {
+                "article": "en:Synced_Article",
+                "containingCollections": [
+                  "Saved",
+                  "Research"
+                ]
+              }
+            ]
+          },
+          "final": {
+            "isRefreshing": false,
+            "onboarding": "None",
+            "selectedTab": "ALL_ARTICLES",
+            "articleRows": [
+              {
+                "article": "en:Synced_Article",
+                "containingCollections": [
+                  "Saved",
+                  "Research"
+                ]
+              }
+            ]
+          }
+        },
+        "persistence": {
+          "readingListSyncEnabled": true,
+          "memberships": {
+            "en:Synced_Article": [
+              "Saved",
+              "Research"
+            ]
+          }
+        },
+        "effects": [
+          {
+            "leaf": "reading_list_sync_service",
+            "name": "manualSyncWithForce",
+            "fromRefresh": true,
+            "attempt": 1
+          },
+          {
+            "name": "roomFlowPropagation",
+            "surface": "all_articles",
+            "whileRefreshing": true
+          },
+          {
+            "name": "consumeReadingListSyncEvent",
+            "setsRefreshing": false
+          }
+        ],
+        "absentEffects": [
+          "login_prompt_on_retry",
+          "refresh_cleared_before_sync_event",
+          "duplicate_sync_dispatch",
+          "duplicate_en_Synced_Article_row",
+          "tab_change"
+        ]
+      },
+      "invariants": [
+        "the failed signed-out setup attempt returns immediately to nonrefreshing state without dispatching sync",
+        "account eligibility is refreshed through the production login event before retry",
+        "Room flow projects synchronized memberships while the retry spinner is still active",
+        "one logical article appears once in ALL_ARTICLES even when sync adds it to two collections",
+        "the retry spinner remains active until a production ReadingListSyncEvent arrives"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The legacy entry has a similar login-and-sync retry, but its normal surface is list-of-lists; it cannot keep ALL_ARTICLES selected and reactively expose one deduplicated incoming article with both memberships before the completion event clears refresh."
+      },
+      "evidence": {
+        "androidProduction": [
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsFragment.kt#onRefresh",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsFragment.kt#FlowEventBus ReadingListSyncEvent",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#setRefreshing",
+          "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#refreshAccountState",
+        "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#resolveOnboardingState",
+        "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#readingListsContentState",
+        "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt#buildArticleRows"
+        ],
+        "androidTests": {
+          "status": "upstream_gap",
+          "inventoryPath": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+          "assessment": "The unchanged legacy test dismisses a sync-login prompt once but does not exercise refresh denial, login, retry, held sync, or completion."
+        },
+        "androidRuntimeTrace": {
+          "required": true,
+          "entryPath": "ReadingListsScreen.onRefresh -> ReadingListsFragment.onRefresh -> ReadingListSyncAdapter -> FlowEventBus -> ReadingListsViewModel",
+          "externalLeaves": [
+            "account state transition",
+          "reading-list sync supplies the incoming Saved and Research memberships",
+            "reading-list sync completion event"
+          ],
+          "checkpoints": [
+            "signed-out onboarding and first refresh before/after",
+            "accountState after LoggedInEvent",
+            "isRefreshing and Prefs at retry dispatch",
+            "sync invocation payload",
+          "Room memberships and ALL_ARTICLES rows after the sync write but before ReadingListSyncEvent",
+            "isRefreshing after ReadingListSyncEvent"
+          ],
+          "assertions": [
+            "first attempt starts no sync and clears refresh",
+            "retry calls manualSyncWithForce(fromRefresh=true) exactly once",
+            "sync preference becomes enabled",
+          "Synced_Article appears once with Saved and Research while isRefreshing remains true",
+            "refresh clears only on completion"
+          ]
+        }
+      }
+    }
+  ]
+}

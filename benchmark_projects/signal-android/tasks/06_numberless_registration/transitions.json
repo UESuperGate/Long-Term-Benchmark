@@ -1,0 +1,974 @@
+{
+  "schemaVersion": 1,
+  "taskId": "06_numberless_registration",
+  "owner": "evaluator",
+  "description": "Platform-neutral atomic transitions for the released phone-numberless registration lifecycle between Signal Android v8.26.4 and v8.28.0. Every case executes a final production boundary and has an independently stated semantic failure in the base; no case scores source-file presence.",
+  "boundary": {
+    "baseRef": "v8.26.4",
+    "baseCommit": "15e5d644924352fa03900969ad6de0e648e5e2d0",
+    "finalRef": "v8.28.0",
+    "finalCommit": "c6e21632f6abb16f1e8ccc303201b68d5d700353"
+  },
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_001_purchase_eligibility_service_price",
+      "key": "purchase_eligibility_service_price",
+      "functionalArea": "eligibility_and_anti_abuse_purchase",
+      "given": {
+        "entryRoute": "RegistrationRoute.SignalLoginPayment",
+        "phoneNumberlessRegistrationAvailable": true,
+        "googlePlayServices": "PaymentAvailability.Available",
+        "googlePlayBillingAvailable": true,
+        "serviceLoginConfiguration": {
+          "playProductId": "service-signal-login-product"
+        },
+        "billingProduct": {
+          "productId": "service-signal-login-product",
+          "purchaseOptionId": "nonumber",
+          "formattedPrice": "$1.99"
+        },
+        "ownedUnconsumedPurchase": false
+      },
+      "event": {
+        "name": "initializeSignalLoginPayment"
+      },
+      "expected": {
+        "state": {
+          "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+          "paymentAvailability": "PaymentAvailability.Available",
+          "price": {
+            "type": "SignalLoginPaymentState.Price.Available",
+            "formattedPrice": "$1.99"
+          },
+          "hasUnredeemedPurchase": false,
+          "isPurchaseOptionEnabled": true,
+          "isActionEnabled": true,
+          "showSpinner": false,
+          "dialogs.paymentUnavailable": false
+        },
+        "effects": [
+          {
+            "name": "getLoginConfiguration",
+            "count": 1
+          },
+          {
+            "name": "queryOneTimeProduct",
+            "productId": "service-signal-login-product",
+            "purchaseOptionId": "nonumber",
+            "count": 1
+          },
+          {
+            "name": "queryUnconsumedPurchase",
+            "productId": "service-signal-login-product",
+            "purchaseOptionId": "nonumber",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "launchPurchaseFlow",
+          "chargeUser",
+          "createLoginPurchaseReceiptCredential",
+          "registerAccount"
+        ]
+      },
+      "invariants": [
+        "purchase eligibility is derived from PaymentAvailability and the billing product returned for the service-provided LoginConfiguration.playProductId",
+        "the client does not replace the service-provided product ID or the billing-formatted price with caller input",
+        "initialization may discover eligibility and price but never starts or completes a purchase"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "At the same Signal Login payment entry, v8.26.4 Initialize is a TODO and leaves formattedPrice null; it neither resolves Play eligibility nor queries the service-named product, so the purchase action remains unavailable for semantic reasons."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#getPaymentAvailability",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#getSignalLoginPrice",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#fetchSignalLoginConfiguration",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/PaymentAvailability.kt",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt#Initialize"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#getSignalLoginPrice asks Google Play for the product the service named",
+          "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt#Initialize loads the price from the billing library"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "113062b85810d15a36ceeade5e57949f304bede6f48c4892c8670c371cde5b84"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_002_purchase_launch_holds_completion",
+      "key": "purchase_launch_holds_completion",
+      "functionalArea": "held_purchase_completion",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+        "paymentAvailability": "PaymentAvailability.Available",
+        "price": {
+          "type": "SignalLoginPaymentState.Price.Available",
+          "formattedPrice": "$1.99"
+        },
+        "showSpinner": false,
+        "purchasePreparation": "OneTimePurchasePreparation.Ready"
+      },
+      "event": {
+        "name": "continuePurchase"
+      },
+      "expected": {
+        "state": {
+          "route": "RegistrationRoute.SignalLoginPayment",
+          "showSpinner": true,
+          "purchaseStep": "SignalLoginPurchaseStep.LaunchRequired"
+        },
+        "effects": [
+          {
+            "name": "preparePurchase",
+            "count": 1
+          },
+          {
+            "name": "launchPurchaseFlow",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "completeSignalLoginPurchase",
+          "createLoginPurchaseReceiptCredential",
+          "registerAccount",
+          "emitRegistrationFlowEvent.Registered",
+          "navigateTo.SignalLoginInfo"
+        ]
+      },
+      "invariants": [
+        "the purchase launcher crosses to the UI layer because only that layer owns an activity",
+        "the spinner remains visible while the external purchase sheet is unresolved",
+        "no success, failure, redemption, or navigation is inferred before PurchaseFlowCompleted supplies the held result"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "v8.26.4 handles the same enabled Purchase ContinueClicked action by logging that purchase is not implemented; it emits no launcher, does not enter a held loading state, and cannot await completion."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseStep.kt#LaunchRequired",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#startOrCompleteSignalLoginPurchase",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt#ContinueClicked"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt#ContinueClicked on the purchase option asks the UI layer to launch the sheet"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "63af8a257717eab01faede858f2c5cc60cfded11682b17518ac2813550a9d739"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_003_purchase_cancel_cleanup",
+      "key": "purchase_cancel_cleanup",
+      "functionalArea": "purchase_cancellation",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+        "paymentAvailability": "PaymentAvailability.Available",
+        "price": {
+          "type": "SignalLoginPaymentState.Price.Available",
+          "formattedPrice": "$1.99"
+        },
+        "showSpinner": true,
+        "purchaseSheet": "open",
+        "hasUnredeemedPurchase": false,
+        "dialogs": "SignalLoginPaymentState.Dialogs()"
+      },
+      "event": {
+        "name": "completePurchaseFlow",
+        "result": "OneTimePurchaseResult.UserCancelled"
+      },
+      "expected": {
+        "state": {
+          "route": "RegistrationRoute.SignalLoginPayment",
+          "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+          "showSpinner": false,
+          "hasUnredeemedPurchase": false,
+          "dialogs": "SignalLoginPaymentState.Dialogs()",
+          "result": "SignalLoginPurchaseResult.Cancelled"
+        },
+        "effects": [
+          {
+            "name": "completeSignalLoginPurchase",
+            "input": "OneTimePurchaseResult.UserCancelled",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "chargeUser",
+          "persistSignalLoginPurchase",
+          "createLoginPurchaseReceiptCredential",
+          "registerAccount",
+          "emitRegistrationFlowEvent.Registered",
+          "navigateAway"
+        ]
+      },
+      "invariants": [
+        "cancellation is a settled outcome rather than an error dialog",
+        "the payment screen remains retryable after the held spinner is cleared",
+        "a cancelled sheet produces no receipt request and no account mutation"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "The base purchase action never opens a real purchase sheet or enters held completion, so the equivalent user cancel path cannot clear a pending purchase while preserving a retryable payment state; the semantic prefix is the base ContinueClicked no-op, not a missing-file check."
+      },
+      "evidence": {
+        "androidProduction": [
+          "core/util/src/main/java/org/signal/core/util/billing/OneTimePurchaseResult.kt#UserCancelled",
+          "feature/registration/src/main/java/org/signal/registration/SignalLoginPurchaseResult.kt#Cancelled",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#completeSignalLoginPurchase",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt#PurchaseFlowCompleted"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#a cancelled purchase reports as cancelled",
+          "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt#PurchaseFlowCompleted leaves the state alone when the user cancels the purchase"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "ca5acc2b51edf0ceee67f17732143976926d2418034eade12a751d4f666a53ae"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_004_billing_unavailable_foreground_retry",
+      "key": "billing_unavailable_foreground_retry",
+      "functionalArea": "billing_failure_and_recovery",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+        "paymentAvailability": "PaymentAvailability.ServiceUpdating",
+        "price": "SignalLoginPaymentState.Price.TransientError",
+        "dialogs.paymentUnavailable": true,
+        "showSpinner": false,
+        "nextAvailability": "PaymentAvailability.Available",
+        "nextPrice": "$1.99"
+      },
+      "event": {
+        "name": "foregroundPaymentScreen"
+      },
+      "expected": {
+        "orderedStates": [
+          {
+            "paymentAvailability": "PaymentAvailability.Available",
+            "price": "SignalLoginPaymentState.Price.Loading",
+            "dialogs.paymentUnavailable": false
+          },
+          {
+            "paymentAvailability": "PaymentAvailability.Available",
+            "price": {
+              "type": "SignalLoginPaymentState.Price.Available",
+              "formattedPrice": "$1.99"
+            },
+            "dialogs.paymentUnavailable": false,
+            "isActionEnabled": true
+          }
+        ],
+        "state": {
+          "selectedOption": "SignalLoginPaymentState.Option.Purchase",
+          "paymentAvailability": "PaymentAvailability.Available",
+          "price": {
+            "type": "SignalLoginPaymentState.Price.Available",
+            "formattedPrice": "$1.99"
+          },
+          "dialogs.paymentUnavailable": false,
+          "isActionEnabled": true
+        },
+        "effects": [
+          {
+            "name": "getPaymentAvailability",
+            "count": 1
+          },
+          {
+            "name": "queryOneTimeProduct",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "launchPurchaseFlow",
+          "registerAccount",
+          "navigateAway"
+        ]
+      },
+      "invariants": [
+        "ServiceUpdating is non-terminal and therefore leaves the Purchase option recoverable",
+        "returning from the operating-system remediation rechecks availability rather than trusting stale state",
+        "price loading is observable before the recovered available price"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "v8.26.4 has no PaymentAvailability state or foreground recheck; after the same initially unusable billing condition it cannot transition ServiceUpdating to Available and reload the price."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/PaymentAvailability.kt#ServiceUpdating",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentState.kt#Price",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt#Foregrounded"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt#Foregrounded loads the price once the user has fixed Google Play",
+          "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt#PriceRetryClicked explains the problem again when Google Play still cannot take a payment"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "92571c8763609ff09c92d320e711db2fd63772345bedc1e1e8d8c429cbb185f9"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_005_private_receipt_registration_propagates",
+      "key": "private_receipt_registration_propagates",
+      "functionalArea": "receipt_redemption_privacy_and_registration_propagation",
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "payment.showSpinner": true,
+        "payment.hasUnredeemedPurchase": true,
+        "purchase": {
+          "purchaseToken": "play-token-1",
+          "state": "BillingPurchaseState.PURCHASED"
+        },
+        "receiptCredentialRequestContext": "fresh-valid-context",
+        "serviceReceiptResult": "CreateLoginReceiptCredentialResult.Issued",
+        "receiptVerification": "ReceiptCredentialResult.Success",
+        "registrationResponse": {
+          "aci": "new numberless ACI",
+          "accountEntropyPool": "new account entropy pool",
+          "e164": null,
+          "pni": null,
+          "storageCapable": false,
+          "authCredentialSalt": "present"
+        },
+        "consumePurchaseSucceeds": true,
+        "flowState": {
+          "aci": null,
+          "accountEntropyPool": null,
+          "isPhoneNumberlessAccount": false
+        }
+      },
+      "event": {
+        "name": "completeSuccessfulPurchaseInPaymentSurface",
+        "sourceEvent": "SignalLoginPaymentScreenEvents.PurchaseFlowCompleted",
+        "result": "OneTimePurchaseResult.Success"
+      },
+      "expected": {
+        "orderedStates": [
+          {
+            "payment.showSpinner": true,
+            "flow.aci": null,
+            "flow.isPhoneNumberlessAccount": false,
+            "route": "RegistrationRoute.SignalLoginPayment"
+          },
+          {
+            "payment.showSpinner": false,
+            "payment.hasUnredeemedPurchase": false,
+            "flow.aci": "new numberless ACI",
+            "flow.accountEntropyPool": "new account entropy pool",
+            "flow.storageCapable": false,
+            "flow.isPhoneNumberlessAccount": true,
+            "route": "RegistrationRoute.SignalLoginInfo"
+          }
+        ],
+        "state": {
+          "result": "SignalLoginPurchaseResult.Registered",
+          "payment.showSpinner": false,
+          "payment.hasUnredeemedPurchase": false,
+          "inProgressRegistrationData.signalLoginPurchase": null,
+          "committedAccount.e164": null,
+          "committedAccount.pni": null,
+          "committedAccount.pniRegistrationId": 0,
+          "restoreDecision": "RestoreDecision.NEW_ACCOUNT",
+          "flow.aci": "new numberless ACI",
+          "flow.accountEntropyPool": "new account entropy pool",
+          "flow.storageCapable": false,
+          "flow.isPhoneNumberlessAccount": true,
+          "backStack": [
+            "RegistrationRoute.SignalLoginInfo"
+          ]
+        },
+        "effects": [
+          {
+            "name": "completeSignalLoginPurchase",
+            "input": "OneTimePurchaseResult.Success",
+            "count": 1
+          },
+          {
+            "name": "createLoginPurchaseReceiptCredential",
+            "purchaseIdentifier": "play-token-1",
+            "paymentProvider": "LoginPurchasePaymentProvider.GOOGLE_PLAY_BILLING",
+            "count": 1
+          },
+          {
+            "name": "receiveAndVerifyReceiptCredential",
+            "count": 1
+          },
+          {
+            "name": "registerAccount",
+            "e164": null,
+            "sessionId": null,
+            "recoveryPassword": null,
+            "receiptCredentialPresentation": "present",
+            "pniPreKeys": null,
+            "count": 1
+          },
+          {
+            "name": "consumePurchase",
+            "purchaseToken": "play-token-1",
+            "count": 1,
+            "after": "registerAccount.success"
+          },
+          {
+            "name": "emitRegistrationFlowEvent.Registered",
+            "phoneNumberless": true,
+            "count": 1,
+            "orderAfter": "consumePurchase"
+          },
+          {
+            "name": "navigateTo.SignalLoginInfo",
+            "count": 1,
+            "orderAfter": "emitRegistrationFlowEvent.Registered"
+          }
+        ],
+        "absentEffects": [
+          "sendPurchaseTokenInRegisterAccount",
+          "sendPhoneNumber",
+          "createPhoneVerificationSession",
+          "sendPniPreKeys",
+          "consumePurchaseBeforeRegistrationSuccess",
+          "navigateTo.PhoneNumberEntry",
+          "navigateTo.VerificationCodeEntry",
+          "navigateTo.PinEntry",
+          "navigateTo.PinCreate",
+          "emitRegisteredWithPhoneNumberlessFalse",
+          "retainPreRegistrationBackStack"
+        ]
+      },
+      "invariants": [
+        "the Play purchase identifier is exchanged for a verified receipt credential and is not sent as the registration credential",
+        "fresh receipt-based registration supplies neither phone identity nor PNI key material",
+        "the purchase is consumed and its persisted context cleared only after account registration succeeds",
+        "the Registered event precedes navigation so SignalLoginInfo observes the issued ACI and account entropy pool",
+        "phoneNumberless is derived from the successful registration response having e164 null",
+        "SignalLoginInfo clears the pre-registration back stack and no phone-verification or PIN route is inserted"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "At the common Purchase ContinueClicked prefix, v8.26.4 performs no purchase. Its manual debug-receipt path cannot turn a Play result into a private service-issued receipt, consume it after success, emit the paid Registered state, or propagate that state to SignalLoginInfo."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#redeemSignalLoginPurchaseAndRegister",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#registerAccountWithoutPhoneNumber",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#registerAccount",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#consumeSignalLoginPurchase",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModel.kt#applyPurchaseResult",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationFlowEvent.kt#Registered",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationViewModel.kt#applyEvent",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationViewModel.kt#clearsBackStack",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationFlowState.kt#isPhoneNumberlessAccount"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#startOrCompleteSignalLoginPurchase registers an account and consumes the purchase",
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#a registered account has no phone number",
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#the persisted purchase is cleared once it has been redeemed",
+          "feature/registration/src/test/java/org/signal/registration/screens/signalloginpayment/SignalLoginPaymentViewModelTest.kt#PurchaseFlowCompleted registers the account and navigates on success",
+          "feature/registration/src/test/java/org/signal/registration/RegistrationEndToEndTest.kt#happy path - registering without a phone number by buying a signal login, recording it, and typing it back"
+        ],
+        "runtimeBoundary": {
+          "entryPath": "RegistrationNavigation.SignalLoginPayment -> SignalLoginPaymentViewModel -> RegistrationRepository -> RegistrationViewModel -> RegistrationNavigation.SignalLoginInfo",
+          "controlledExternalLeaves": [
+            "OneTimePurchaseApi purchase result",
+            "RegistrationApiV2 receipt issuance and account registration"
+          ],
+          "requiredOriginalBodies": [
+            "SignalLoginPaymentViewModel.applyEvent",
+            "RegistrationRepository.completeSignalLoginPurchase",
+            "RegistrationRepository.redeemSignalLoginPurchaseAndRegister",
+            "RegistrationViewModel.applyEvent"
+          ]
+        }
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "85093c002baa9b0f68e0c05c65e5903b219298003e0399dab379badaf990612b"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_006_manual_save_mismatch_verification",
+      "key": "manual_save_mismatch_verification",
+      "functionalArea": "manual_credential_save_and_verification",
+      "setup": [
+        {
+          "name": "openManualSaveFromSignalLoginInfo",
+          "event": "SignalLoginInfoScreenEvents.SaveManuallyClicked"
+        },
+        {
+          "name": "confirmCredentialsWereRecorded",
+          "events": [
+            "SignalLoginViewDetailsForManualSaveScreenEvents.ContinueClicked",
+            "SignalLoginViewDetailsForManualSaveScreenEvents.ConfirmSavedContinueClicked"
+          ]
+        },
+        {
+          "name": "enterCompleteButMismatchedLogin",
+          "accountId": "expected account ID",
+          "recoveryKey": "different valid recovery key"
+        }
+      ],
+      "given": {
+        "route": "RegistrationRoute.SignalLoginManualSaveConfirmation",
+        "mode": "SignalLoginCredentialEntryState.Mode.ConfirmSaved",
+        "parentLogin": {
+          "aci": "expected account ID",
+          "accountEntropyPool": "expected recovery key"
+        },
+        "enteredLogin": {
+          "accountId": "expected account ID",
+          "recoveryKey": "different valid recovery key"
+        },
+        "isNextEnabled": true,
+        "areCredentialsIncorrect": false
+      },
+      "event": {
+        "name": "submitManualSaveConfirmation",
+        "sourceEvent": "SignalLoginCredentialEntryScreenEvents.NextClicked"
+      },
+      "expected": {
+        "state": {
+          "route": "RegistrationRoute.SignalLoginManualSaveConfirmation",
+          "mode": "SignalLoginCredentialEntryState.Mode.ConfirmSaved",
+          "areCredentialsIncorrect": true,
+          "isLoggingIn": false
+        },
+        "effects": [],
+        "absentEffects": [
+          "networkLogin",
+          "registerAccount",
+          "navigateTo.AddUsername",
+          "emitRegistrationFlowEvent.RegistrationComplete"
+        ]
+      },
+      "invariants": [
+        "confirmation compares both locally entered credential halves with the ACI and account entropy pool already held by RegistrationFlowState",
+        "a mismatch flags both fields because either half may have been copied incorrectly",
+        "editing either field clears areCredentialsIncorrect and makes a corrected retry reachable without recreating the account"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "From the same SignalLoginInfo SaveManuallyClicked action, v8.26.4 skips directly to AddUsername and never requires the user to record and locally re-enter the issued credentials; it therefore accepts the equivalent mismatched-save path instead of blocking it for correction."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt#SaveManuallyClicked",
+          "feature/registration/src/main/java/org/signal/registration/screens/signalloginmanualsave/SignalLoginViewDetailsForManualSaveViewModel.kt",
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginCredentialEntryState.kt#ConfirmSaved",
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModel.kt#applyNextClicked"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModelTest.kt#NextClicked with a mistyped recovery key flags both fields and stays put",
+          "feature/registration/src/test/java/org/signal/registration/screens/signallogincredentials/SignalLoginManualSaveConfirmationViewModelTest.kt#AccountIdChanged clears the mismatch flag",
+          "feature/registration/src/test/java/org/signal/registration/RegistrationEndToEndTest.kt#typing back a login that is not the one the user was shown is rejected until the real one is entered"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "1737d2a00b98264f4e6f5f810fc39a4ba2d7132550f0b62fbab3a4fd022400e0"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_007_username_skip_requires_confirmation",
+      "key": "username_skip_requires_confirmation",
+      "functionalArea": "username_skip_confirmation",
+      "given": {
+        "route": "RegistrationRoute.AddUsername",
+        "dialogs.confirmSkip": false,
+        "registrationComplete": false,
+        "finalRegistrationCommitted": false
+      },
+      "event": {
+        "name": "requestUsernameSkip",
+        "sourceEvent": "AddUsernameScreenEvents.SkipClicked"
+      },
+      "expected": {
+        "state": {
+          "route": "RegistrationRoute.AddUsername",
+          "dialogs.confirmSkip": true,
+          "registrationComplete": false,
+          "finalRegistrationCommitted": false
+        },
+        "effects": [
+          {
+            "name": "showSkipConfirmation",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "confirmUsername",
+          "emitRegistrationFlowEvent.RegistrationComplete",
+          "commitFinalRegistrationData",
+          "navigateTo.FullyComplete"
+        ]
+      },
+      "invariants": [
+        "SkipClicked is only a request and never completes registration by itself",
+        "dismissing the confirmation leaves the user on AddUsername with registration still incomplete",
+        "only AddUsernameScreenEvents.SkipConfirmed may convert this pending choice into RegistrationComplete"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "v8.26.4 applies SkipClicked immediately as RegistrationComplete. It cannot hold a confirmSkip state or allow dismissal, so it violates the released two-step skip safeguard at the same user action."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameScreenEvents.kt#SkipClicked",
+          "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameScreenEvents.kt#SkipConfirmed",
+          "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt#applySkipConfirmed"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt#SkipClicked shows the confirmation dialog without completing registration",
+          "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt#dismissing the skip confirmation dialog keeps the user on the screen",
+          "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt#SkipConfirmed completes registration"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "1f8db3d7253ea92876a4b829ada9bfa099f6435672a4eca37f3559bf6310f8b5"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_008_username_discriminator_race_recovery",
+      "key": "username_discriminator_race_recovery",
+      "functionalArea": "username_reservation_conflict_and_race",
+      "setup": [
+        {
+          "name": "reserveServiceAssignedUsername",
+          "nickname": "maya",
+          "result": "maya.45"
+        },
+        {
+          "name": "encounterCustomDiscriminatorConflict",
+          "discriminator": "77",
+          "result": "ReserveUsernameError.NotAvailable"
+        },
+        {
+          "name": "recoverWithAnotherCustomDiscriminator",
+          "discriminator": "88",
+          "result": "maya.88"
+        }
+      ],
+      "given": {
+        "route": "RegistrationRoute.AddUsername",
+        "username": "maya",
+        "discriminator": "88",
+        "isDiscriminatorUserSet": true,
+        "reservation": "maya.88",
+        "validationError": null,
+        "isReserving": false,
+        "isSubmittable": true,
+        "discriminatorFieldFocused": true
+      },
+      "event": {
+        "name": "clearUserChosenDiscriminatorAndSettle",
+        "sourceEvent": "AddUsernameScreenEvents.DiscriminatorChanged",
+        "value": "",
+        "settleForMilliseconds": 500
+      },
+      "expected": {
+        "state": {
+          "username": "maya",
+          "discriminator": "",
+          "isDiscriminatorUserSet": false,
+          "reservation": null,
+          "validationError": null,
+          "isReserving": false,
+          "isSubmittable": false,
+          "discriminatorFieldFocused": true
+        },
+        "effects": [],
+        "absentEffects": [
+          "reserveUsername.maya.serviceAssigned",
+          "confirmUsername.maya.88",
+          "emitRegistrationFlowEvent.RegistrationComplete"
+        ]
+      },
+      "invariants": [
+        "the conflicted custom-discriminator path can recover to a valid custom reservation before this event",
+        "clearing a user-chosen discriminator invalidates its exact reservation immediately and cannot confirm the erased pairing",
+        "a fresh service-assigned reservation becomes reachable only after AddUsernameScreenEvents.DiscriminatorFocusLost, preventing the focused-field race"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "After the same recovered custom reservation is cleared, v8.26.4 immediately schedules a service-assigned reservation while the field is still focused; after debounce it can become submittable, whereas the final deliberately waits for focus loss and drops the stale exact reservation."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt#applyDiscriminatorChanged",
+          "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt#applyDiscriminatorFocusLost",
+          "feature/registration/src/main/java/org/signal/registration/screens/addusername/AddUsernameViewModel.kt#applyReservationCompleted"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt#an unavailable user-chosen discriminator points the error at the number",
+          "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt#emptying a user-typed discriminator drops its reservation",
+          "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt#NextClicked cannot confirm a discriminator the user just erased",
+          "feature/registration/src/test/java/org/signal/registration/screens/addusername/AddUsernameViewModelTest.kt#losing focus with an empty discriminator hands it back to the service"
+        ],
+        "boundaryCommits": [
+          "bc9e80a3516fac6644171e0d505bd5b25545c73f",
+          "28c69c8a0a68dc16e7959855c8e72284e4f77aa2"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "c492d5e3a62477c97944a4668ec5dd1a83b9530349c325cf7f2ecefc6e1108a8"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_009_purchase_context_process_restore",
+      "key": "purchase_context_process_restore",
+      "functionalArea": "purchase_persistence_and_restoration",
+      "setup": [
+        {
+          "name": "startOwnedPurchaseThenFailReceiptRequest",
+          "purchaseToken": "play-token-restore",
+          "failure": "RequestResult.RetryableNetworkError"
+        },
+        {
+          "name": "persistThroughProductionStorage",
+          "store": "AppRegistrationStorageController",
+          "backingIo": "AppDependencies.blobs plus SignalStore.registration.inProgressRegistrationDataBlobUri"
+        },
+        {
+          "name": "destroyAndRecreateRegistrationRuntime",
+          "preserveOnly": [
+            "production registration blob",
+            "Google Play unconsumed purchase"
+          ]
+        },
+        {
+          "name": "initializeReopenedPaymentSurface"
+        }
+      ],
+      "given": {
+        "route": "RegistrationRoute.SignalLoginPayment",
+        "runtimeGeneration": 2,
+        "hasUnredeemedPurchase": true,
+        "paymentAvailability": "PaymentAvailability.Available",
+        "persistedSignalLoginPurchase": {
+          "purchaseToken": "play-token-restore",
+          "receiptCredentialRequestContext": "context-A"
+        },
+        "ownedPurchase": {
+          "purchaseToken": "play-token-restore",
+          "state": "BillingPurchaseState.PURCHASED"
+        },
+        "nextReceiptRequestResult": "CreateLoginReceiptCredentialResult.Issued"
+      },
+      "event": {
+        "name": "retryOwnedPurchaseAfterProcessReopen",
+        "sourceEvent": "SignalLoginPaymentScreenEvents.ContinueClicked"
+      },
+      "expected": {
+        "state": {
+          "result": "SignalLoginPurchaseResult.Registered",
+          "hasUnredeemedPurchase": false,
+          "persistedSignalLoginPurchase": null
+        },
+        "effects": [
+          {
+            "name": "readInProgressRegistrationData",
+            "backingIo": "production blob reopened",
+            "countAtLeast": 1
+          },
+          {
+            "name": "createLoginPurchaseReceiptCredential",
+            "purchaseIdentifier": "play-token-restore",
+            "serializedRequestContext": "context-A",
+            "count": 1
+          },
+          {
+            "name": "consumePurchase",
+            "purchaseToken": "play-token-restore",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "launchPurchaseFlow",
+          "chargeUserAgain",
+          "createDifferentReceiptCredentialRequestContext",
+          "createPhoneVerificationSession"
+        ]
+      },
+      "invariants": [
+        "restoration is proven through the application production blob store and a newly created repository, not a retained object or in-memory fake",
+        "the retry reuses the byte-identical receipt credential request context because the service rejects a different request for the same purchase",
+        "an already-owned unconsumed purchase is redeemed without launching or charging a second purchase"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "v8.26.4 has no paid-purchase persistence in RegistrationData and its Purchase ContinueClicked remains unimplemented; after the same runtime restart it cannot surface an unredeemed purchase, reuse its receipt request context, or resume without another charge attempt."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/protowire/Registration.proto#SignalLoginPurchase",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#loadOrCreateReceiptCredentialRequestContext",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#persistSignalLoginPurchase",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationRepository.kt#startOrCompleteSignalLoginPurchase",
+          "app/src/main/java/org/thoughtcrime/securesms/registration/v2/AppRegistrationStorageController.kt#readInProgressRegistrationData",
+          "app/src/main/java/org/thoughtcrime/securesms/registration/v2/AppRegistrationStorageController.kt#updateInProgressRegistrationData"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#a retry reuses the receipt credential request the purchase started with",
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#an unconsumed purchase is reused instead of charging again",
+          "feature/registration/src/test/java/org/signal/registration/SignalLoginPurchaseTest.kt#a purchase pending with Google Play persists its request context and reports as pending",
+          "app/src/test/java/org/thoughtcrime/securesms/registration/v2/AppRegistrationStorageControllerTest.kt#readInProgressRegistrationData - returns persisted data",
+          "app/src/test/java/org/thoughtcrime/securesms/registration/v2/AppRegistrationStorageControllerTest.kt#updateInProgressRegistrationData - applies updater, persists, and deletes previous blob"
+        ]
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "1ededd37a04e1064ac081bdad74feaadd5db626c58af0b1fb586c823c8bcd3fc"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "nr_010_password_manager_save_readback",
+      "key": "password_manager_save_readback",
+      "functionalArea": "password_manager_credential_save_and_verification",
+      "setup": [
+        {
+          "name": "openSignalLoginInfoThroughRegisteredPurchase",
+          "expectedState": {
+            "route": "RegistrationRoute.SignalLoginInfo",
+            "aci": "new numberless ACI",
+            "accountEntropyPool": "new account entropy pool",
+            "isPasswordManagerAvailable": true
+          }
+        },
+        {
+          "name": "requestPasswordManagerSave",
+          "sourceEvent": "SignalLoginInfoScreenEvents.SaveToPasswordManagerClicked",
+          "expectedAction": {
+            "type": "SignalLoginInfoScreenActions.SaveToPasswordManager",
+            "accountId": "uppercase new numberless ACI",
+            "recoveryKey": "display form of new account entropy pool",
+            "count": 1
+          },
+          "expectedState": {
+            "showSpinner": true,
+            "didRetrySave": false
+          }
+        },
+        {
+          "name": "completePasswordManagerSave",
+          "externalResult": "CredentialManagerResult.Success",
+          "sourceEvent": "SignalLoginInfoScreenEvents.SaveToPasswordManagerCompleted",
+          "expectedState": {
+            "showSpinner": false,
+            "showConfirmSavedSheet": true
+          }
+        },
+        {
+          "name": "requestPasswordManagerReadback",
+          "sourceEvent": "SignalLoginInfoScreenEvents.ConfirmSavedContinueClicked",
+          "expectedAction": {
+            "type": "SignalLoginInfoScreenActions.ReadBackFromPasswordManager",
+            "accountId": "uppercase new numberless ACI",
+            "count": 1
+          },
+          "expectedState": {
+            "showConfirmSavedSheet": false,
+            "showSpinner": true
+          }
+        }
+      ],
+      "given": {
+        "route": "RegistrationRoute.SignalLoginInfo",
+        "aci": "new numberless ACI",
+        "accountEntropyPool": "new account entropy pool",
+        "isPasswordManagerAvailable": true,
+        "showSpinner": true,
+        "showConfirmSavedSheet": false,
+        "passwordManagerStoredCredential": {
+          "type": "UsernamePasswordCredential",
+          "username": "uppercase new numberless ACI",
+          "password": "display form of new account entropy pool"
+        },
+        "readbackRequest": "held"
+      },
+      "event": {
+        "name": "completePasswordManagerReadback",
+        "sourceEvent": "SignalLoginInfoScreenEvents.SavedCredentialRetrieved",
+        "credential": "matching UsernamePasswordCredential"
+      },
+      "expected": {
+        "state": {
+          "route": "RegistrationRoute.AddUsername",
+          "showSpinner": false,
+          "showConfirmSavedSheet": false,
+          "dialogs": "SignalLoginInfoState.Dialogs()"
+        },
+        "effects": [
+          {
+            "name": "normalizeAndComparePasswordManagerCredential",
+            "accountId": "new numberless ACI",
+            "accountEntropyPool": "new account entropy pool",
+            "count": 1
+          },
+          {
+            "name": "navigateTo.AddUsername",
+            "count": 1
+          }
+        ],
+        "absentEffects": [
+          "dialogs.saveNotConfirmed",
+          "dialogs.saveFailed",
+          "dialogs.unknownError",
+          "navigateTo.SignalLoginViewDetailsForManualSave",
+          "networkLogin",
+          "registerAccount",
+          "emitRegistrationFlowEvent.RegistrationComplete"
+        ]
+      },
+      "invariants": [
+        "the production navigation collector invokes SignalCredentialManager.saveCredential with the uppercase ACI and displayed account entropy pool, then routes its result back to the owning SignalLoginInfoViewModel",
+        "a successful save is not trusted until the user confirms and SignalCredentialManager.getCredential returns a credential filtered by that same account ID",
+        "the read-back username is normalized to an ACI and the password is parsed as an AccountEntropyPool before comparison",
+        "only an exact two-part match advances to AddUsername; null or mismatched read-back remains on SignalLoginInfo with dialogs.saveNotConfirmed and can recover through another save or manual recording"
+      ],
+      "polarity": {
+        "finalPositive": true,
+        "baseSemanticFail": "At the same SignalLoginInfo SaveToPasswordManagerClicked action, v8.26.4 immediately navigates to AddUsername without invoking the system password manager, showing a confirmation sheet, or reading the credential back. It therefore cannot prove that either credential half was saved before advancing."
+      },
+      "evidence": {
+        "androidProduction": [
+          "feature/registration/src/main/java/org/signal/registration/RegistrationNavigation.kt#SignalLoginInfoScreenActions.SaveToPasswordManager",
+          "feature/registration/src/main/java/org/signal/registration/RegistrationNavigation.kt#SignalLoginInfoScreenActions.ReadBackFromPasswordManager",
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoState.kt#passwordManagerAccountId",
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenActions.kt#SaveToPasswordManager",
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoScreenActions.kt#ReadBackFromPasswordManager",
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt#applySaveToPasswordManagerClicked",
+          "feature/registration/src/main/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModel.kt#applySavedCredentialRetrieved",
+          "lib/password-manager/src/main/java/org/signal/passwordmanager/SignalCredentialManager.kt#saveCredential",
+          "lib/password-manager/src/main/java/org/signal/passwordmanager/SignalCredentialManager.kt#getCredential"
+        ],
+        "androidTests": [
+          "feature/registration/src/test/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModelTest.kt#SaveToPasswordManagerClicked hands the login to the password manager",
+          "feature/registration/src/test/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModelTest.kt#a successful save raises the confirm-you-saved-it sheet",
+          "feature/registration/src/test/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModelTest.kt#ConfirmSavedContinueClicked reads the login back out of the password manager",
+          "feature/registration/src/test/java/org/signal/registration/screens/signallogininfo/SignalLoginInfoViewModelTest.kt#a credential that matches the login advances to the add username screen",
+          "feature/registration/src/test/java/org/signal/registration/RegistrationEndToEndTest.kt#a purchased signal login that the password manager takes and hands back moves the user on to the username step",
+          "feature/registration/src/test/java/org/signal/registration/RegistrationEndToEndTest.kt#a login the password manager cannot hand back is not treated as saved, and can be recorded by hand instead"
+        ],
+        "runtimeBoundary": {
+          "entryPath": "RegistrationNavigation.SignalLoginInfo -> SignalLoginInfoViewModel -> CollectActions -> SignalCredentialManager -> SignalLoginInfoViewModel -> RegistrationViewModel navigation",
+          "controlledExternalLeaf": "AndroidX CredentialManager provider response",
+          "requiredOriginalBodies": [
+            "RegistrationNavigation SignalLoginInfo action collector",
+            "SignalCredentialManager.saveCredential",
+            "SignalCredentialManager.getCredential",
+            "SignalLoginInfoViewModel.applyEvent",
+            "SignalLoginInfoViewModel.applySavedCredentialRetrieved"
+          ]
+        }
+      },
+      "taskId": "06_numberless_registration",
+      "traceDigest": "9f15191d5872522524e6b7da8d97ac91b1db4e0338a283d00faafaef0b376184"
+    }
+  ]
+}

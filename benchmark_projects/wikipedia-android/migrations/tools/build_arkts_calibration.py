@@ -11,6 +11,9 @@ import subprocess
 from pathlib import Path
 
 
+MIN_FREE_BYTES = 8 * 1024 * 1024 * 1024
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=Path, required=True)
@@ -19,6 +22,12 @@ def main() -> int:
     args = parser.parse_args()
     project = args.project.resolve()
     migration = args.migration.resolve()
+    free = shutil.disk_usage(project).free
+    if free < MIN_FREE_BYTES:
+        raise RuntimeError(
+            f"refusing disk-heavy ArkTS build with {free} free bytes; "
+            f"at least {MIN_FREE_BYTES} are required"
+        )
     temporary = project / ".benchmark-calibration-build"
     if temporary.exists():
         shutil.rmtree(temporary)

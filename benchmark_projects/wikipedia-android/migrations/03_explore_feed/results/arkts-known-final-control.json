@@ -1,0 +1,4311 @@
+{
+  "schemaVersion": 1,
+  "taskId": "03_explore_feed",
+  "platform": "arkts",
+  "role": "agent",
+  "observationMode": "runtime_state_transition",
+  "runtime": "api23_entryability_arkui_page_owner",
+  "codeGeneration": {
+    "passed": null,
+    "changedProductionFiles": []
+  },
+  "compile": {
+    "passed": true,
+    "command": [
+      "hvigorw",
+      "--mode",
+      "module",
+      "-p",
+      "product=default",
+      "-p",
+      "module=entry@default",
+      "assembleHap",
+      "--no-daemon"
+    ],
+    "artifacts": [
+      {
+        "path": "entry/build/default/outputs/default/entry-default-unsigned.hap",
+        "sha256": "592ec43ead24c8e0649d46256a1928183fe3a6fef5b922571ad9078bce29591c",
+        "bytes": 144946
+      }
+    ]
+  },
+  "semantic": {
+    "passed": 10,
+    "failed": 0,
+    "notScored": 0,
+    "total": 10,
+    "cases": [
+      {
+        "caseId": "ef_personalized_preference_restored",
+        "key": "personalized_preference_restored",
+        "traceDigest": "b5a4c32a1a8ada2ba09e6c5caed0a0744d22fc518018e6cb5ff2b4c98e47e8ed",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "recreateHomeSurface"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "homePreference": "PERSONALIZED",
+              "forYouCache": null,
+              "configuredLanguages": [
+                "en"
+              ],
+              "homeLanguage": "en"
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729153767",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "configuredLanguages": [
+                  "en"
+                ]
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED"
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "recreateHomeSurface"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729153767",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "configuredLanguages": [
+                  "en"
+                ],
+                "forYouPhase": "loading",
+                "communityPhase": "idle"
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED"
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729153767",
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "configuredLanguages": [
+              "en"
+            ],
+            "forYouPhase": "loading",
+            "communityPhase": "idle"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED"
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED"
+          },
+          "effects": [
+            {
+              "name": "loadForYouContent",
+              "attempt": 1,
+              "language": "en"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "the persisted preference is established through the production personalization flow",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729153767",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en"
+                  ]
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729153767",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "configuredLanguages": [
+                    "en"
+                  ],
+                  "forYouPhase": "loading",
+                  "communityPhase": "idle"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                }
+              },
+              "effects": [
+                {
+                  "name": "loadForYouContent",
+                  "attempt": 1,
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "recreation selects the persisted initial tab rather than a fixture-only presenter value",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729153767",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en"
+                  ]
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729153767",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "configuredLanguages": [
+                    "en"
+                  ],
+                  "forYouPhase": "loading",
+                  "communityPhase": "idle"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                }
+              },
+              "effects": [
+                {
+                  "name": "loadForYouContent",
+                  "attempt": 1,
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "only the selected tab performs its initial load",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729153767",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en"
+                  ]
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729153767",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "configuredLanguages": [
+                    "en"
+                  ],
+                  "forYouPhase": "loading",
+                  "communityPhase": "idle"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED"
+                }
+              },
+              "effects": [
+                {
+                  "name": "loadForYouContent",
+                  "attempt": 1,
+                  "language": "en"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_switch_tab_lazy_load_preserves_community",
+        "key": "switch_tab_lazy_load_preserves_community",
+        "traceDigest": "ba3e5fc561303022d5a9a9350f0b380a401dbb4b9d48ecd863827c6b8bf8b33e",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "selectHomeTab"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "COMMUNITY",
+              "community": {
+                "phase": "content",
+                "language": "en",
+                "cards": [
+                  "DAY_HEADER:0",
+                  "FEATURED_ARTICLE:Ada_Lovelace"
+                ]
+              },
+              "forYou": {
+                "phase": "idle",
+                "modules": []
+              },
+              "forYouCache": null
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729154476",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "community": {
+                  "phase": "content",
+                  "language": "en",
+                  "cards": [
+                    "DAY_HEADER:0",
+                    "FEATURED_ARTICLE:Ada_Lovelace"
+                  ]
+                },
+                "forYou": {
+                  "phase": "idle",
+                  "modules": []
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en"
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "selectHomeTab",
+              "tab": "FOR_YOU"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729154476",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "community": {
+                  "phase": "content",
+                  "language": "en",
+                  "cards": [
+                    "DAY_HEADER:0",
+                    "FEATURED_ARTICLE:Ada_Lovelace"
+                  ]
+                },
+                "forYou": {
+                  "phase": "idle",
+                  "modules": []
+                },
+                "forYouPhase": "loading"
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "communityContentUnchanged": true
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "communityContentUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729154476",
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "community": {
+              "phase": "content",
+              "language": "en",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ]
+            },
+            "forYou": {
+              "phase": "idle",
+              "modules": []
+            },
+            "forYouPhase": "loading"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "communityContentUnchanged": true
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "communityContentUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "loadForYouContent",
+              "attempt": 1,
+              "language": "en"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "Community and For You retain independent content states",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729154476",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ]
+                  },
+                  "forYou": {
+                    "phase": "idle",
+                    "modules": []
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729154476",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ]
+                  },
+                  "forYou": {
+                    "phase": "idle",
+                    "modules": []
+                  },
+                  "forYouPhase": "loading"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "communityContentUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "communityContentUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "loadForYouContent",
+                  "attempt": 1,
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "switching tabs loads only an empty nonloading destination tab",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729154476",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ]
+                  },
+                  "forYou": {
+                    "phase": "idle",
+                    "modules": []
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729154476",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ]
+                  },
+                  "forYou": {
+                    "phase": "idle",
+                    "modules": []
+                  },
+                  "forYouPhase": "loading"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "communityContentUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "communityContentUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "loadForYouContent",
+                  "attempt": 1,
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "already available Community cards remain available when returning",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729154476",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ]
+                  },
+                  "forYou": {
+                    "phase": "idle",
+                    "modules": []
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729154476",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ]
+                  },
+                  "forYou": {
+                    "phase": "idle",
+                    "modules": []
+                  },
+                  "forYouPhase": "loading"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "communityContentUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "communityContentUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "loadForYouContent",
+                  "attempt": 1,
+                  "language": "en"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_community_initial_retry_same_day",
+        "key": "community_initial_retry_same_day",
+        "traceDigest": "0acf4558cb6a34dbc51ab07d4e31602c20f2a1e3386866e6e850eeafa1d013cf",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "retryCommunityLoad"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "clockDate": "2026-05-28",
+              "selectedTab": "COMMUNITY",
+              "community": {
+                "phase": "error",
+                "cards": [],
+                "retryAvailable": true
+              },
+              "nextFeaturedFeed": [
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ]
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729155247",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "community": {
+                  "phase": "error",
+                  "cards": [],
+                  "retryAvailable": true
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en"
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "retryCommunityLoad"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729155247",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "community": {
+                  "phase": "content",
+                  "language": "en",
+                  "cards": [
+                    "DAY_HEADER:0",
+                    "FEATURED_ARTICLE:Ada_Lovelace"
+                  ],
+                  "error": null
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "hiddenCardsUnchanged": true
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "hiddenCardsUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729155247",
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content",
+              "language": "en",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace"
+              ],
+              "error": null
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "hiddenCardsUnchanged": true
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "hiddenCardsUnchanged": true
+          },
+          "effects": [
+            {
+              "leaf": "featured_feed_http",
+              "attempt": 2,
+              "date": "2026-05-28",
+              "language": "en"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "a failed initial request does not advance the logical Community day",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729155247",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "error",
+                    "cards": [],
+                    "retryAvailable": true
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729155247",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ],
+                    "error": null
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenCardsUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenCardsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "featured_feed_http",
+                  "attempt": 2,
+                  "date": "2026-05-28",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "retry returns through loading before content",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729155247",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "error",
+                    "cards": [],
+                    "retryAvailable": true
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729155247",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ],
+                    "error": null
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenCardsUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenCardsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "featured_feed_http",
+                  "attempt": 2,
+                  "date": "2026-05-28",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "empty, loading, content, and error presentations remain mutually coherent",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729155247",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "error",
+                    "cards": [],
+                    "retryAvailable": true
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729155247",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "language": "en",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ],
+                    "error": null
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenCardsUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenCardsUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "featured_feed_http",
+                  "attempt": 2,
+                  "date": "2026-05-28",
+                  "language": "en"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_community_inline_retry_preserves_content",
+        "key": "community_inline_retry_preserves_content",
+        "traceDigest": "c441c68eb0b78cb60ba7a2fd6deb7167b321cf7cc2a1d94a93f4ab37519eafa2",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "retryCommunityLoadMore"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "clockDate": "2026-05-28",
+              "selectedTab": "COMMUNITY",
+              "community": {
+                "phase": "content_with_inline_error",
+                "cards": [
+                  "DAY_HEADER:0",
+                  "FEATURED_ARTICLE:Ada_Lovelace"
+                ],
+                "failedLogicalAge": 1,
+                "retryAvailable": true
+              },
+              "nextFeaturedFeed": [
+                "NEWS:Recovery"
+              ]
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729156007",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "community": {
+                  "phase": "content_with_inline_error",
+                  "cards": [
+                    "DAY_HEADER:0",
+                    "FEATURED_ARTICLE:Ada_Lovelace"
+                  ],
+                  "failedLogicalAge": 1,
+                  "retryAvailable": true
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en"
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "retryCommunityLoadMore"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729156007",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "community": {
+                  "phase": "content",
+                  "cards": [
+                    "DAY_HEADER:0",
+                    "FEATURED_ARTICLE:Ada_Lovelace",
+                    "DAY_HEADER:1",
+                    "NEWS:Recovery"
+                  ],
+                  "error": null
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "existingDayZeroContentUnchanged": true
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "existingDayZeroContentUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729156007",
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "community": {
+              "phase": "content",
+              "cards": [
+                "DAY_HEADER:0",
+                "FEATURED_ARTICLE:Ada_Lovelace",
+                "DAY_HEADER:1",
+                "NEWS:Recovery"
+              ],
+              "error": null
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "existingDayZeroContentUnchanged": true
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "existingDayZeroContentUnchanged": true
+          },
+          "effects": [
+            {
+              "leaf": "featured_feed_http",
+              "attemptForLogicalAge": 2,
+              "logicalAge": 1,
+              "date": "2026-05-27"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "partial Community content survives a later-page failure",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156007",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content_with_inline_error",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ],
+                    "failedLogicalAge": 1,
+                    "retryAvailable": true
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156007",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace",
+                      "DAY_HEADER:1",
+                      "NEWS:Recovery"
+                    ],
+                    "error": null
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "existingDayZeroContentUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "existingDayZeroContentUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "featured_feed_http",
+                  "attemptForLogicalAge": 2,
+                  "logicalAge": 1,
+                  "date": "2026-05-27"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "failed work does not advance pagination",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156007",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content_with_inline_error",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ],
+                    "failedLogicalAge": 1,
+                    "retryAvailable": true
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156007",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace",
+                      "DAY_HEADER:1",
+                      "NEWS:Recovery"
+                    ],
+                    "error": null
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "existingDayZeroContentUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "existingDayZeroContentUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "featured_feed_http",
+                  "attemptForLogicalAge": 2,
+                  "logicalAge": 1,
+                  "date": "2026-05-27"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "one load-more operation owns the retry completion",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156007",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content_with_inline_error",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace"
+                    ],
+                    "failedLogicalAge": 1,
+                    "retryAvailable": true
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156007",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "community": {
+                    "phase": "content",
+                    "cards": [
+                      "DAY_HEADER:0",
+                      "FEATURED_ARTICLE:Ada_Lovelace",
+                      "DAY_HEADER:1",
+                      "NEWS:Recovery"
+                    ],
+                    "error": null
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "existingDayZeroContentUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "existingDayZeroContentUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "leaf": "featured_feed_http",
+                  "attemptForLogicalAge": 2,
+                  "logicalAge": 1,
+                  "date": "2026-05-27"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_unavailable_language_falls_back",
+        "key": "unavailable_language_falls_back",
+        "traceDigest": "e4a65fe97ca7f6e414cb4578e050980c79c5d4b1d88da106acb99279c3a48507",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "resumeHomeSurface"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "COMMUNITY",
+              "persistedHomeLanguage": "fr",
+              "configuredLanguages": [
+                "en",
+                "de"
+              ],
+              "primaryConfiguredLanguage": "en",
+              "community": {
+                "phase": "content",
+                "language": "fr"
+              },
+              "forYou": {
+                "phase": "content",
+                "language": "fr",
+                "modules": [
+                  "CONTINUE_READING"
+                ]
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729156849",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "configuredLanguages": [
+                  "en",
+                  "de"
+                ],
+                "community": {
+                  "phase": "content",
+                  "language": "fr"
+                },
+                "forYou": {
+                  "phase": "content",
+                  "language": "fr",
+                  "modules": [
+                    "CONTINUE_READING"
+                  ]
+                }
+              },
+              "persistence": {
+                "homeLanguage": "fr"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "fr"
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "resumeHomeSurface"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729156849",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "configuredLanguages": [
+                  "en",
+                  "de"
+                ],
+                "community": {
+                  "phase": "loading",
+                  "language": "en",
+                  "cards": []
+                },
+                "forYou": {
+                  "phase": "content",
+                  "language": "fr",
+                  "modules": [
+                    "CONTINUE_READING"
+                  ]
+                },
+                "activeLanguage": "en"
+              },
+              "persistence": {
+                "homeLanguage": "en"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en"
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729156849",
+          "state": {
+            "selectedTab": "COMMUNITY",
+            "configuredLanguages": [
+              "en",
+              "de"
+            ],
+            "community": {
+              "phase": "loading",
+              "language": "en",
+              "cards": []
+            },
+            "forYou": {
+              "phase": "content",
+              "language": "fr",
+              "modules": [
+                "CONTINUE_READING"
+              ]
+            },
+            "activeLanguage": "en"
+          },
+          "persistence": {
+            "homeLanguage": "en"
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en"
+          },
+          "effects": [
+            {
+              "name": "refreshCommunityContent",
+              "language": "en",
+              "logicalAge": 0
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "the fallback language is an actual configured app language",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156849",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en",
+                    "de"
+                  ],
+                  "community": {
+                    "phase": "content",
+                    "language": "fr"
+                  },
+                  "forYou": {
+                    "phase": "content",
+                    "language": "fr",
+                    "modules": [
+                      "CONTINUE_READING"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "fr"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "fr"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156849",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en",
+                    "de"
+                  ],
+                  "community": {
+                    "phase": "loading",
+                    "language": "en",
+                    "cards": []
+                  },
+                  "forYou": {
+                    "phase": "content",
+                    "language": "fr",
+                    "modules": [
+                      "CONTINUE_READING"
+                    ]
+                  },
+                  "activeLanguage": "en"
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "effects": [
+                {
+                  "name": "refreshCommunityContent",
+                  "language": "en",
+                  "logicalAge": 0
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the selected tab alone is reset and reloaded",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156849",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en",
+                    "de"
+                  ],
+                  "community": {
+                    "phase": "content",
+                    "language": "fr"
+                  },
+                  "forYou": {
+                    "phase": "content",
+                    "language": "fr",
+                    "modules": [
+                      "CONTINUE_READING"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "fr"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "fr"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156849",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en",
+                    "de"
+                  ],
+                  "community": {
+                    "phase": "loading",
+                    "language": "en",
+                    "cards": []
+                  },
+                  "forYou": {
+                    "phase": "content",
+                    "language": "fr",
+                    "modules": [
+                      "CONTINUE_READING"
+                    ]
+                  },
+                  "activeLanguage": "en"
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "effects": [
+                {
+                  "name": "refreshCommunityContent",
+                  "language": "en",
+                  "logicalAge": 0
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the peer tab retains its prior state until selected",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156849",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en",
+                    "de"
+                  ],
+                  "community": {
+                    "phase": "content",
+                    "language": "fr"
+                  },
+                  "forYou": {
+                    "phase": "content",
+                    "language": "fr",
+                    "modules": [
+                      "CONTINUE_READING"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "fr"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "fr"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729156849",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "configuredLanguages": [
+                    "en",
+                    "de"
+                  ],
+                  "community": {
+                    "phase": "loading",
+                    "language": "en",
+                    "cards": []
+                  },
+                  "forYou": {
+                    "phase": "content",
+                    "language": "fr",
+                    "modules": [
+                      "CONTINUE_READING"
+                    ]
+                  },
+                  "activeLanguage": "en"
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "effects": [
+                {
+                  "name": "refreshCommunityContent",
+                  "language": "en",
+                  "logicalAge": 0
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_foryou_same_day_cache_restored_and_filtered",
+        "key": "foryou_same_day_cache_restored_and_filtered",
+        "traceDigest": "07b90e2213a711c56b2c310511879b073969b64b778ece2bc62b04a10f4e82f8",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "recreateHomeSurface"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "clockDate": "2026-05-28",
+              "homePreference": "PERSONALIZED",
+              "homeLanguage": "en",
+              "persistedForYouCache": {
+                "date": "2026-05-28",
+                "languages": [
+                  "en"
+                ]
+              },
+              "persistedHiddenCards": [
+                "Ada_Lovelace"
+              ]
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729157678",
+              "state": {
+                "selectedTab": "COMMUNITY"
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED",
+                "forYouCache": {
+                  "date": "2026-05-28",
+                  "languages": [
+                    "en"
+                  ]
+                },
+                "hiddenCards": [
+                  "Ada_Lovelace"
+                ]
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED",
+                "forYouCache": {
+                  "date": "2026-05-28",
+                  "languages": [
+                    "en"
+                  ]
+                },
+                "hiddenCards": [
+                  "Ada_Lovelace"
+                ]
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "recreateHomeSurface"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729157678",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "forYou": {
+                  "phase": "content",
+                  "language": "en",
+                  "modules": [
+                    {
+                      "type": "BASED_ON_INTEREST",
+                      "cards": [
+                        "Grace_Hopper"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED",
+                "forYouCache": {
+                  "date": "2026-05-28",
+                  "languages": [
+                    "en"
+                  ]
+                },
+                "hiddenCards": [
+                  "Ada_Lovelace"
+                ],
+                "cacheDate": "2026-05-28",
+                "cacheLanguage": "en"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "homePreference": "PERSONALIZED",
+                "forYouCache": {
+                  "date": "2026-05-28",
+                  "languages": [
+                    "en"
+                  ]
+                },
+                "hiddenCards": [
+                  "Ada_Lovelace"
+                ],
+                "cacheDate": "2026-05-28",
+                "cacheLanguage": "en"
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729157678",
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "forYou": {
+              "phase": "content",
+              "language": "en",
+              "modules": [
+                {
+                  "type": "BASED_ON_INTEREST",
+                  "cards": [
+                    "Grace_Hopper"
+                  ]
+                }
+              ]
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED",
+            "forYouCache": {
+              "date": "2026-05-28",
+              "languages": [
+                "en"
+              ]
+            },
+            "hiddenCards": [
+              "Ada_Lovelace"
+            ],
+            "cacheDate": "2026-05-28",
+            "cacheLanguage": "en"
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "homePreference": "PERSONALIZED",
+            "forYouCache": {
+              "date": "2026-05-28",
+              "languages": [
+                "en"
+              ]
+            },
+            "hiddenCards": [
+              "Ada_Lovelace"
+            ],
+            "cacheDate": "2026-05-28",
+            "cacheLanguage": "en"
+          },
+          "effects": [
+            {
+              "name": "readForYouCache",
+              "language": "en"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "the cache is reusable only for the same calendar date and language",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729157678",
+                "state": {
+                  "selectedTab": "COMMUNITY"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ]
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ]
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729157678",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYou": {
+                    "phase": "content",
+                    "language": "en",
+                    "modules": [
+                      {
+                        "type": "BASED_ON_INTEREST",
+                        "cards": [
+                          "Grace_Hopper"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ],
+                  "cacheDate": "2026-05-28",
+                  "cacheLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ],
+                  "cacheDate": "2026-05-28",
+                  "cacheLanguage": "en"
+                }
+              },
+              "effects": [
+                {
+                  "name": "readForYouCache",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "persisted hidden-card filtering executes again when cached modules are restored",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729157678",
+                "state": {
+                  "selectedTab": "COMMUNITY"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ]
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ]
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729157678",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYou": {
+                    "phase": "content",
+                    "language": "en",
+                    "modules": [
+                      {
+                        "type": "BASED_ON_INTEREST",
+                        "cards": [
+                          "Grace_Hopper"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ],
+                  "cacheDate": "2026-05-28",
+                  "cacheLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ],
+                  "cacheDate": "2026-05-28",
+                  "cacheLanguage": "en"
+                }
+              },
+              "effects": [
+                {
+                  "name": "readForYouCache",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "a module with at least one visible card remains present",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729157678",
+                "state": {
+                  "selectedTab": "COMMUNITY"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ]
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ]
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729157678",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYou": {
+                    "phase": "content",
+                    "language": "en",
+                    "modules": [
+                      {
+                        "type": "BASED_ON_INTEREST",
+                        "cards": [
+                          "Grace_Hopper"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ],
+                  "cacheDate": "2026-05-28",
+                  "cacheLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "homePreference": "PERSONALIZED",
+                  "forYouCache": {
+                    "date": "2026-05-28",
+                    "languages": [
+                      "en"
+                    ]
+                  },
+                  "hiddenCards": [
+                    "Ada_Lovelace"
+                  ],
+                  "cacheDate": "2026-05-28",
+                  "cacheLanguage": "en"
+                }
+              },
+              "effects": [
+                {
+                  "name": "readForYouCache",
+                  "language": "en"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_interest_edit_refreshes_foryou",
+        "key": "interest_edit_refreshes_foryou",
+        "traceDigest": "98a32960f2f26c9ee072ad6f899e1ad63981d4a8fe725f29e2f6a96ed98924d8",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "finishInterestEditing"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "COMMUNITY",
+              "interestEditor": {
+                "interestsUpdated": true,
+                "pendingResult": 100
+              },
+              "persistedInterests": [
+                "en:Ada_Lovelace"
+              ],
+              "forYouCache": null,
+              "forYouState": {
+                "modules": [
+                  "BASED_ON_INTEREST:old"
+                ]
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729158524",
+              "state": {
+                "selectedTab": "COMMUNITY",
+                "interestEditor": {
+                  "interestsUpdated": true,
+                  "pendingResult": 100
+                },
+                "forYouState": {
+                  "modules": [
+                    "BASED_ON_INTEREST:old"
+                  ]
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en"
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "finishInterestEditing"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729158524",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "interestEditor": {
+                  "interestsUpdated": true,
+                  "pendingResult": 100
+                },
+                "forYouState": {
+                  "modules": [
+                    "BASED_ON_INTEREST:old"
+                  ]
+                },
+                "interestEditorOpen": false,
+                "forYou": {
+                  "phase": "loading",
+                  "modules": []
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "interestArticles": [
+                  "en:Ada_Lovelace"
+                ],
+                "forYouCacheBeforeReload": ""
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "interestArticles": [
+                  "en:Ada_Lovelace"
+                ],
+                "forYouCacheBeforeReload": ""
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729158524",
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "interestEditor": {
+              "interestsUpdated": true,
+              "pendingResult": 100
+            },
+            "forYouState": {
+              "modules": [
+                "BASED_ON_INTEREST:old"
+              ]
+            },
+            "interestEditorOpen": false,
+            "forYou": {
+              "phase": "loading",
+              "modules": []
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "interestArticles": [
+              "en:Ada_Lovelace"
+            ],
+            "forYouCacheBeforeReload": ""
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "interestArticles": [
+              "en:Ada_Lovelace"
+            ],
+            "forYouCacheBeforeReload": ""
+          },
+          "effects": [
+            {
+              "name": "activityResult",
+              "value": 100
+            },
+            {
+              "name": "refreshForYouContent",
+              "language": "en"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "the interest is persisted through the production Room repository before the editor finishes",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729158524",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "interestEditor": {
+                    "interestsUpdated": true,
+                    "pendingResult": 100
+                  },
+                  "forYouState": {
+                    "modules": [
+                      "BASED_ON_INTEREST:old"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729158524",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "interestsUpdated": true,
+                    "pendingResult": 100
+                  },
+                  "forYouState": {
+                    "modules": [
+                      "BASED_ON_INTEREST:old"
+                    ]
+                  },
+                  "interestEditorOpen": false,
+                  "forYou": {
+                    "phase": "loading",
+                    "modules": []
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "interestArticles": [
+                    "en:Ada_Lovelace"
+                  ],
+                  "forYouCacheBeforeReload": ""
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "interestArticles": [
+                    "en:Ada_Lovelace"
+                  ],
+                  "forYouCacheBeforeReload": ""
+                }
+              },
+              "effects": [
+                {
+                  "name": "activityResult",
+                  "value": 100
+                },
+                {
+                  "name": "refreshForYouContent",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "RESULT_INTERESTS_UPDATED is exactly 100",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729158524",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "interestEditor": {
+                    "interestsUpdated": true,
+                    "pendingResult": 100
+                  },
+                  "forYouState": {
+                    "modules": [
+                      "BASED_ON_INTEREST:old"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729158524",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "interestsUpdated": true,
+                    "pendingResult": 100
+                  },
+                  "forYouState": {
+                    "modules": [
+                      "BASED_ON_INTEREST:old"
+                    ]
+                  },
+                  "interestEditorOpen": false,
+                  "forYou": {
+                    "phase": "loading",
+                    "modules": []
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "interestArticles": [
+                    "en:Ada_Lovelace"
+                  ],
+                  "forYouCacheBeforeReload": ""
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "interestArticles": [
+                    "en:Ada_Lovelace"
+                  ],
+                  "forYouCacheBeforeReload": ""
+                }
+              },
+              "effects": [
+                {
+                  "name": "activityResult",
+                  "value": 100
+                },
+                {
+                  "name": "refreshForYouContent",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "finishing an unchanged editor would not take this refresh path",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729158524",
+                "state": {
+                  "selectedTab": "COMMUNITY",
+                  "interestEditor": {
+                    "interestsUpdated": true,
+                    "pendingResult": 100
+                  },
+                  "forYouState": {
+                    "modules": [
+                      "BASED_ON_INTEREST:old"
+                    ]
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729158524",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "interestsUpdated": true,
+                    "pendingResult": 100
+                  },
+                  "forYouState": {
+                    "modules": [
+                      "BASED_ON_INTEREST:old"
+                    ]
+                  },
+                  "interestEditorOpen": false,
+                  "forYou": {
+                    "phase": "loading",
+                    "modules": []
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "interestArticles": [
+                    "en:Ada_Lovelace"
+                  ],
+                  "forYouCacheBeforeReload": ""
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "interestArticles": [
+                    "en:Ada_Lovelace"
+                  ],
+                  "forYouCacheBeforeReload": ""
+                }
+              },
+              "effects": [
+                {
+                  "name": "activityResult",
+                  "value": 100
+                },
+                {
+                  "name": "refreshForYouContent",
+                  "language": "en"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_unchanged_interest_edit_is_noop",
+        "key": "unchanged_interest_edit_is_noop",
+        "traceDigest": "b56b204057d5a7918f52e07a2db89527dbaa2039a18a12e89c6ff2c97b0f296e",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "finishInterestEditing"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "FOR_YOU",
+              "interestEditor": {
+                "initialSelections": [
+                  "topic:technology"
+                ],
+                "currentSelections": [
+                  "topic:technology"
+                ],
+                "interestsUpdated": false
+              },
+              "forYouModules": [
+                "BASED_ON_INTEREST:0"
+              ],
+              "forYouCache": {
+                "date": "today",
+                "language": "en",
+                "present": true
+              }
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729159251",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "interestEditor": {
+                  "initialSelections": [
+                    "topic:technology"
+                  ],
+                  "currentSelections": [
+                    "topic:technology"
+                  ],
+                  "interestsUpdated": false
+                },
+                "forYouModules": [
+                  "BASED_ON_INTEREST:0"
+                ],
+                "forYouPhase": "content"
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "forYouCache": {
+                  "date": "today",
+                  "language": "en",
+                  "present": true
+                }
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "forYouCache": {
+                  "date": "today",
+                  "language": "en",
+                  "present": true
+                }
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "finishInterestEditing"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729159251",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "interestEditor": {
+                  "initialSelections": [
+                    "topic:technology"
+                  ],
+                  "currentSelections": [
+                    "topic:technology"
+                  ],
+                  "interestsUpdated": false
+                },
+                "forYouModules": [
+                  "BASED_ON_INTEREST:0"
+                ],
+                "forYouPhase": "content",
+                "interestEditorOpen": false
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "forYouCache": {
+                  "date": "today",
+                  "language": "en",
+                  "present": true
+                },
+                "interestSelections": [
+                  "topic:technology"
+                ],
+                "forYouCacheUnchanged": true
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "forYouCache": {
+                  "date": "today",
+                  "language": "en",
+                  "present": true
+                },
+                "interestSelections": [
+                  "topic:technology"
+                ],
+                "forYouCacheUnchanged": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729159251",
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "interestEditor": {
+              "initialSelections": [
+                "topic:technology"
+              ],
+              "currentSelections": [
+                "topic:technology"
+              ],
+              "interestsUpdated": false
+            },
+            "forYouModules": [
+              "BASED_ON_INTEREST:0"
+            ],
+            "forYouPhase": "content",
+            "interestEditorOpen": false
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "present": true
+            },
+            "interestSelections": [
+              "topic:technology"
+            ],
+            "forYouCacheUnchanged": true
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "present": true
+            },
+            "interestSelections": [
+              "topic:technology"
+            ],
+            "forYouCacheUnchanged": true
+          },
+          "effects": [
+            {
+              "name": "finishPersonalization",
+              "result": "RESULT_OK"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "the editor is opened from the rendered For You customize-interests action",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729159251",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "initialSelections": [
+                      "topic:technology"
+                    ],
+                    "currentSelections": [
+                      "topic:technology"
+                    ],
+                    "interestsUpdated": false
+                  },
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  }
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  }
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729159251",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "initialSelections": [
+                      "topic:technology"
+                    ],
+                    "currentSelections": [
+                      "topic:technology"
+                    ],
+                    "interestsUpdated": false
+                  },
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content",
+                  "interestEditorOpen": false
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  },
+                  "interestSelections": [
+                    "topic:technology"
+                  ],
+                  "forYouCacheUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  },
+                  "interestSelections": [
+                    "topic:technology"
+                  ],
+                  "forYouCacheUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "finishPersonalization",
+                  "result": "RESULT_OK"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "RESULT_OK is distinct from the production RESULT_INTERESTS_UPDATED value 100",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729159251",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "initialSelections": [
+                      "topic:technology"
+                    ],
+                    "currentSelections": [
+                      "topic:technology"
+                    ],
+                    "interestsUpdated": false
+                  },
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  }
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  }
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729159251",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "initialSelections": [
+                      "topic:technology"
+                    ],
+                    "currentSelections": [
+                      "topic:technology"
+                    ],
+                    "interestsUpdated": false
+                  },
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content",
+                  "interestEditorOpen": false
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  },
+                  "interestSelections": [
+                    "topic:technology"
+                  ],
+                  "forYouCacheUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  },
+                  "interestSelections": [
+                    "topic:technology"
+                  ],
+                  "forYouCacheUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "finishPersonalization",
+                  "result": "RESULT_OK"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "an unchanged editor completion neither invalidates the current-day cache nor reloads either tab",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729159251",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "initialSelections": [
+                      "topic:technology"
+                    ],
+                    "currentSelections": [
+                      "topic:technology"
+                    ],
+                    "interestsUpdated": false
+                  },
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  }
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  }
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729159251",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "interestEditor": {
+                    "initialSelections": [
+                      "topic:technology"
+                    ],
+                    "currentSelections": [
+                      "topic:technology"
+                    ],
+                    "interestsUpdated": false
+                  },
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content",
+                  "interestEditorOpen": false
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  },
+                  "interestSelections": [
+                    "topic:technology"
+                  ],
+                  "forYouCacheUnchanged": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "present": true
+                  },
+                  "interestSelections": [
+                    "topic:technology"
+                  ],
+                  "forYouCacheUnchanged": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "finishPersonalization",
+                  "result": "RESULT_OK"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_foryou_initial_retry_same_batch",
+        "key": "foryou_initial_retry_same_batch",
+        "traceDigest": "6d5b85f36c4139ac795d7ca8136797e2293b3f9640483c8f93813fb8f5f37ad7",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "retryForYouLoad"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "FOR_YOU",
+              "forYouModules": [],
+              "forYouPhase": "error",
+              "forYouError": "IOException",
+              "failedBatch": 0,
+              "retryAvailable": true,
+              "communityPhase": "unchanged"
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729160014",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "forYouModules": [],
+                "forYouPhase": "error",
+                "forYouError": "IOException",
+                "communityPhase": "unchanged"
+              },
+              "persistence": {
+                "homeLanguage": "en"
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en"
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "retryForYouLoad"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729160014",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "forYouModules": [
+                  "BASED_ON_INTEREST:0"
+                ],
+                "forYouPhase": "content",
+                "forYouError": null,
+                "communityPhase": "unchanged"
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "forYouCache": {
+                  "date": "today",
+                  "language": "en",
+                  "modules": [
+                    "BASED_ON_INTEREST:0"
+                  ]
+                }
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "forYouCache": {
+                  "date": "today",
+                  "language": "en",
+                  "modules": [
+                    "BASED_ON_INTEREST:0"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729160014",
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "forYouModules": [
+              "BASED_ON_INTEREST:0"
+            ],
+            "forYouPhase": "content",
+            "forYouError": null,
+            "communityPhase": "unchanged"
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "modules": [
+                "BASED_ON_INTEREST:0"
+              ]
+            }
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "forYouCache": {
+              "date": "today",
+              "language": "en",
+              "modules": [
+                "BASED_ON_INTEREST:0"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "name": "fetchForYouModules",
+              "batch": 0,
+              "attempt": 2
+            },
+            {
+              "name": "writeCurrentDayForYouCache",
+              "language": "en"
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "the error state is produced by an IOException from a real For You external request leaf",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160014",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYouModules": [],
+                  "forYouPhase": "error",
+                  "forYouError": "IOException",
+                  "communityPhase": "unchanged"
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160014",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content",
+                  "forYouError": null,
+                  "communityPhase": "unchanged"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "modules": [
+                      "BASED_ON_INTEREST:0"
+                    ]
+                  }
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "modules": [
+                      "BASED_ON_INTEREST:0"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchForYouModules",
+                  "batch": 0,
+                  "attempt": 2
+                },
+                {
+                  "name": "writeCurrentDayForYouCache",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the ErrorState retry action calls the same production onLoadMore entry point",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160014",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYouModules": [],
+                  "forYouPhase": "error",
+                  "forYouError": "IOException",
+                  "communityPhase": "unchanged"
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160014",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content",
+                  "forYouError": null,
+                  "communityPhase": "unchanged"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "modules": [
+                      "BASED_ON_INTEREST:0"
+                    ]
+                  }
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "modules": [
+                      "BASED_ON_INTEREST:0"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchForYouModules",
+                  "batch": 0,
+                  "attempt": 2
+                },
+                {
+                  "name": "writeCurrentDayForYouCache",
+                  "language": "en"
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "forYouBatchIndex advances only after the successful retry",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160014",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYouModules": [],
+                  "forYouPhase": "error",
+                  "forYouError": "IOException",
+                  "communityPhase": "unchanged"
+                },
+                "persistence": {
+                  "homeLanguage": "en"
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en"
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160014",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "forYouModules": [
+                    "BASED_ON_INTEREST:0"
+                  ],
+                  "forYouPhase": "content",
+                  "forYouError": null,
+                  "communityPhase": "unchanged"
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "modules": [
+                      "BASED_ON_INTEREST:0"
+                    ]
+                  }
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "forYouCache": {
+                    "date": "today",
+                    "language": "en",
+                    "modules": [
+                      "BASED_ON_INTEREST:0"
+                    ]
+                  }
+                }
+              },
+              "effects": [
+                {
+                  "name": "fetchForYouModules",
+                  "batch": 0,
+                  "attempt": 2
+                },
+                {
+                  "name": "writeCurrentDayForYouCache",
+                  "language": "en"
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      },
+      {
+        "caseId": "ef_foryou_all_modules_hidden_propagates",
+        "key": "foryou_all_modules_hidden_propagates",
+        "traceDigest": "e056dab53a3c38883e2ac4a0d594cff2ce1265b2c6f5a81276d0d84bc3bd3d44",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524",
+            "bytes": 351
+          },
+          {
+            "path": "entry/src/main/ets/integration/ExplorePageIntegration.ets",
+            "sha256": "9c7df98c40e019d99635d3abb8b17e03b55fd4ecde9a03aaf68c6ecc8224e2ab",
+            "bytes": 4028
+          },
+          {
+            "path": "entry/src/main/ets/model/ExploreFeedStore.ets",
+            "sha256": "542ed12994bc787d98d3f478f0648841c29d0820b587f00a5090cd65f653ce3d",
+            "bytes": 8245
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "9a763ce72ac0a9789c523f323936039bae37970dc4a10e2ef9db5edc5ced6d6c",
+            "bytes": 2677
+          }
+        ],
+        "invokedProductionMethods": [
+          "mount",
+          "confirmAllModulesOff"
+        ],
+        "checkpoints": [
+          {
+            "label": "given",
+            "state": {
+              "selectedTab": "FOR_YOU",
+              "pendingAllModulesOffConfirmation": true,
+              "hiddenModules": [
+                "BASED_ON_INTEREST",
+                "BECAUSE_YOU_READ",
+                "CONTINUE_READING"
+              ],
+              "forYouBackingModulesPresent": true
+            }
+          },
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729160791",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "pendingAllModulesOffConfirmation": true,
+                "forYouBackingModulesPresent": true
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "hiddenModules": [
+                  "BASED_ON_INTEREST",
+                  "BECAUSE_YOU_READ",
+                  "CONTINUE_READING"
+                ]
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "hiddenModules": [
+                  "BASED_ON_INTEREST",
+                  "BECAUSE_YOU_READ",
+                  "CONTINUE_READING"
+                ]
+              }
+            }
+          },
+          {
+            "label": "event",
+            "state": {
+              "name": "confirmAllModulesOff"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": true,
+              "pageOwnerId": "ExploreIndex:1792729160791",
+              "state": {
+                "selectedTab": "FOR_YOU",
+                "pendingAllModulesOffConfirmation": false,
+                "forYouBackingModulesPresent": true,
+                "forYouVisibleModules": [],
+                "forYouEmptyState": "ALL_MODULES_HIDDEN",
+                "manageModulesActionAvailable": true,
+                "manageModulesDestination": "FOR_YOU_MODULES",
+                "forYouModuleVisibility": {
+                  "BASED_ON_INTEREST": false,
+                  "BECAUSE_YOU_READ": false,
+                  "CONTINUE_READING": false
+                }
+              },
+              "persistence": {
+                "homeLanguage": "en",
+                "hiddenModules": [
+                  "BASED_ON_INTEREST",
+                  "BECAUSE_YOU_READ",
+                  "CONTINUE_READING"
+                ],
+                "survivesHomeRecreation": true
+              },
+              "ownerPersistence": {
+                "homeLanguage": "en",
+                "hiddenModules": [
+                  "BASED_ON_INTEREST",
+                  "BECAUSE_YOU_READ",
+                  "CONTINUE_READING"
+                ],
+                "survivesHomeRecreation": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": true,
+          "pageOwnerId": "ExploreIndex:1792729160791",
+          "state": {
+            "selectedTab": "FOR_YOU",
+            "pendingAllModulesOffConfirmation": false,
+            "forYouBackingModulesPresent": true,
+            "forYouVisibleModules": [],
+            "forYouEmptyState": "ALL_MODULES_HIDDEN",
+            "manageModulesActionAvailable": true,
+            "manageModulesDestination": "FOR_YOU_MODULES",
+            "forYouModuleVisibility": {
+              "BASED_ON_INTEREST": false,
+              "BECAUSE_YOU_READ": false,
+              "CONTINUE_READING": false
+            }
+          },
+          "persistence": {
+            "homeLanguage": "en",
+            "hiddenModules": [
+              "BASED_ON_INTEREST",
+              "BECAUSE_YOU_READ",
+              "CONTINUE_READING"
+            ],
+            "survivesHomeRecreation": true
+          },
+          "ownerPersistence": {
+            "homeLanguage": "en",
+            "hiddenModules": [
+              "BASED_ON_INTEREST",
+              "BECAUSE_YOU_READ",
+              "CONTINUE_READING"
+            ],
+            "survivesHomeRecreation": true
+          },
+          "effects": [
+            {
+              "name": "propagateHiddenModules",
+              "surfaces": [
+                "for_you_module_settings",
+                "for_you_feed"
+              ]
+            }
+          ]
+        },
+        "projectionMatched": true,
+        "invariantChecks": [
+          {
+            "invariant": "the three ForYouModuleType keys are taken from the final production enum",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": true,
+                  "forYouBackingModulesPresent": true
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": false,
+                  "forYouBackingModulesPresent": true,
+                  "forYouVisibleModules": [],
+                  "forYouEmptyState": "ALL_MODULES_HIDDEN",
+                  "manageModulesActionAvailable": true,
+                  "manageModulesDestination": "FOR_YOU_MODULES",
+                  "forYouModuleVisibility": {
+                    "BASED_ON_INTEREST": false,
+                    "BECAUSE_YOU_READ": false,
+                    "CONTINUE_READING": false
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "propagateHiddenModules",
+                  "surfaces": [
+                    "for_you_module_settings",
+                    "for_you_feed"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "For You ALL_MODULES_HIDDEN is distinct from For You NO_DATA",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": true,
+                  "forYouBackingModulesPresent": true
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": false,
+                  "forYouBackingModulesPresent": true,
+                  "forYouVisibleModules": [],
+                  "forYouEmptyState": "ALL_MODULES_HIDDEN",
+                  "manageModulesActionAvailable": true,
+                  "manageModulesDestination": "FOR_YOU_MODULES",
+                  "forYouModuleVisibility": {
+                    "BASED_ON_INTEREST": false,
+                    "BECAUSE_YOU_READ": false,
+                    "CONTINUE_READING": false
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "propagateHiddenModules",
+                  "surfaces": [
+                    "for_you_module_settings",
+                    "for_you_feed"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "the recovery action is bound to FOR_YOU_MODULES rather than Community settings",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": true,
+                  "forYouBackingModulesPresent": true
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": false,
+                  "forYouBackingModulesPresent": true,
+                  "forYouVisibleModules": [],
+                  "forYouEmptyState": "ALL_MODULES_HIDDEN",
+                  "manageModulesActionAvailable": true,
+                  "manageModulesDestination": "FOR_YOU_MODULES",
+                  "forYouModuleVisibility": {
+                    "BASED_ON_INTEREST": false,
+                    "BECAUSE_YOU_READ": false,
+                    "CONTINUE_READING": false
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "propagateHiddenModules",
+                  "surfaces": [
+                    "for_you_module_settings",
+                    "for_you_feed"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "invariant": "backing personalized modules and their cache are filtered rather than deleted",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": true,
+                  "forYouBackingModulesPresent": true
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ]
+                }
+              },
+              "after": {
+                "featureAvailable": true,
+                "pageOwnerId": "ExploreIndex:1792729160791",
+                "state": {
+                  "selectedTab": "FOR_YOU",
+                  "pendingAllModulesOffConfirmation": false,
+                  "forYouBackingModulesPresent": true,
+                  "forYouVisibleModules": [],
+                  "forYouEmptyState": "ALL_MODULES_HIDDEN",
+                  "manageModulesActionAvailable": true,
+                  "manageModulesDestination": "FOR_YOU_MODULES",
+                  "forYouModuleVisibility": {
+                    "BASED_ON_INTEREST": false,
+                    "BECAUSE_YOU_READ": false,
+                    "CONTINUE_READING": false
+                  }
+                },
+                "persistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                },
+                "ownerPersistence": {
+                  "homeLanguage": "en",
+                  "hiddenModules": [
+                    "BASED_ON_INTEREST",
+                    "BECAUSE_YOU_READ",
+                    "CONTINUE_READING"
+                  ],
+                  "survivesHomeRecreation": true
+                }
+              },
+              "effects": [
+                {
+                  "name": "propagateHiddenModules",
+                  "surfaces": [
+                    "for_you_module_settings",
+                    "for_you_feed"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "runtimeBoundaryChecks": [
+          {
+            "check": "canonical given was established by the evaluator input prefix",
+            "passed": true
+          },
+          {
+            "check": "canonical event identity and parameters were dispatched",
+            "passed": true
+          },
+          {
+            "check": "one mounted Index page owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "candidate feature is bound through the page-owned production store",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page owner after the real event",
+            "passed": true
+          },
+          {
+            "check": "Preferences was reopened and agrees with the production owner",
+            "passed": true
+          },
+          {
+            "check": "the canonical event entrypoint is present in the production invocation trace",
+            "passed": true
+          },
+          {
+            "check": "the production path completed without an evaluator early exit",
+            "passed": true
+          }
+        ],
+        "transitionExecuted": true,
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10178",
+          "apiLevel": 23,
+          "softwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI Index page"
+        }
+      }
+    ]
+  },
+  "diagnostics": {
+    "adapter": "ready",
+    "transport": "hdc_entryability_hilog",
+    "bindingVariant": "api23_index_page_owner_v1",
+    "deviceSerial": "127.0.0.1:10178",
+    "deviceApi": 23,
+    "deviceSoftwareVersion": "emulator 6.1.0.115(SP11DEVC00E115R4P11)",
+    "deviceLock": "/tmp/ltb-arkts-device-73ccdb837c3b8a06",
+    "runtimeCompile": {
+      "passed": true
+    },
+    "sourceObserver": false,
+    "roleAffectsVerdict": false,
+    "error": null
+  }
+}

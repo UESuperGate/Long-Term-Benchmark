@@ -1,0 +1,992 @@
+diff --git a/.benchmark-scaffold/main/javax/inject/Inject.kt b/.benchmark-scaffold/main/javax/inject/Inject.kt
+index e7b7e6381af8998315322b0317f340aa5a4024d5..642b66499895a937ad4a794915dd9e4d34c45663 100644
+--- a/.benchmark-scaffold/main/javax/inject/Inject.kt
++++ b/.benchmark-scaffold/main/javax/inject/Inject.kt
+@@ -1,4 +1,3 @@
+-package javax.inject
+-
+-@Target(AnnotationTarget.CONSTRUCTOR, AnnotationTarget.FIELD, AnnotationTarget.VALUE_PARAMETER)
+-annotation class Inject
++// The base runtime declared a reduced javax.inject.Inject here. The final external stubs provide the annotations of
++// the injection framework used by the redesigned picker (@Inject, @Named and @Singleton), so this file intentionally
++// holds no declaration.
+\ No newline at end of file
+diff --git a/.benchmark-scaffold/main/org/wordpress/android/ui/main/SitePickerAdapter.kt b/.benchmark-scaffold/main/org/wordpress/android/ui/main/SitePickerAdapter.kt
+index 24ead10625e826677ca42e06372df75dcdd32200..f960304bdcd60c880affe29e72eeff29d99ce132 100644
+--- a/.benchmark-scaffold/main/org/wordpress/android/ui/main/SitePickerAdapter.kt
++++ b/.benchmark-scaffold/main/org/wordpress/android/ui/main/SitePickerAdapter.kt
+@@ -1,5 +1,4 @@
+-package org.wordpress.android.ui.main
+-
+-class SitePickerAdapter {
+-    data class SiteRecord(val localId: Int)
+-}
++// The base runtime declared a stub of the legacy site picker adapter here. The redesigned picker declares
++// ChooseSiteAdapter, ChooseSiteViewHolder, ActionMode and SiteRecord, and the SitePickerAdapter compatibility shell
++// used by SiteRecord for the blavatar size now comes from the final external stubs, so this file intentionally holds
++// no declaration.
+\ No newline at end of file
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 4c2a8aa12d0feaace5ad72d33915ae1479453a7e..71d06f0ee08b2965fc68e000bf2b830a9574b9c0 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -17,7 +17,7 @@ android {
+     }
+     sourceSets.getByName("main") {
+         manifest.srcFile("src/main/AndroidManifest.xml")
+-        java.srcDirs("src/main/java", ".benchmark-scaffold/main")
++        java.srcDirs("src/main/java", ".benchmark-scaffold/main", ".benchmark-scaffold/final-stubs")
+     }
+     sourceSets.getByName("androidTest") { java.srcDirs(emptyList<String>()) }
+     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+diff --git a/src/main/AndroidManifest.xml b/src/main/AndroidManifest.xml
+index 099264702802e9d67f4233fbe2be516526b347df..221b1a02d181da9a472bc38ec67407090f342ea3 100644
+--- a/src/main/AndroidManifest.xml
++++ b/src/main/AndroidManifest.xml
+@@ -1,4 +1,8 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+-    <application android:label="Site Picker 24.6 Runtime">
+-        <activity android:name="evaluator.sitepickerbase.SitePickerBaseOwnerActivity" android:exported="false" /></application>
++    <application
++        android:name="org.wordpress.android.WordPress"
++        android:label="Site Picker Runtime">
++        <activity android:name="org.wordpress.android.ui.main.SitePickerActivity" android:exported="false" />
++        <activity android:name="evaluator.sitepickerbase.SitePickerBaseOwnerActivity" android:exported="false" />
++    </application>
+ </manifest>
+\ No newline at end of file
+diff --git a/src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt b/src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..901df4ef143f8ef1c051c674fc369ce889c2292e
+--- /dev/null
++++ b/src/main/java/org/wordpress/android/ui/main/ChooseSiteAdapter.kt
+@@ -0,0 +1,124 @@
++package org.wordpress.android.ui.main
++
++import android.view.LayoutInflater
++import android.view.ViewGroup
++import androidx.recyclerview.widget.RecyclerView
++import org.wordpress.android.WordPress
++import org.wordpress.android.databinding.ItemChooseSiteBinding
++import org.wordpress.android.ui.main.utils.SiteRecordUtil
++
++/**
++ * Mode the picker is displayed in.
++ *
++ * [None] is the regular mode in which tapping a site selects it, [Pin] is the pin editing mode in which the only
++ * available interaction is updating the pinned set.
++ */
++sealed class ActionMode(val value: String) {
++    companion object {
++        private const val NONE_VALUE = "none"
++        private const val PIN_VALUE = "pin"
++
++        /**
++         * Restores the mode that was persisted as [ActionMode.value]. Unknown values fall back to [None] so a stale
++         * saved state can never leave the picker in an unusable mode.
++         */
++        fun from(value: String): ActionMode = if (value == PIN_VALUE) Pin else None
++    }
++
++    object None : ActionMode(NONE_VALUE) {
++        override fun toString(): String = value
++
++        override fun hashCode(): Int = value.hashCode()
++
++        override fun equals(other: Any?): Boolean = other === this
++    }
++
++    object Pin : ActionMode(PIN_VALUE) {
++        override fun toString(): String = value
++
++        override fun hashCode(): Int = value.hashCode()
++
++        override fun equals(other: Any?): Boolean = other === this
++    }
++}
++
++/**
++ * Displays the rows prepared by the [SiteViewModel]: either the sites grouped in pinned, recent and remaining sections
++ * or the sites matching the current search query.
++ */
++class ChooseSiteAdapter : RecyclerView.Adapter<ChooseSiteViewHolder>() {
++    /**
++     * Invoked when the list is asked to be loaded again.
++     */
++    var onReload: (() -> Unit)? = null
++
++    /**
++     * Invoked when a site is selected while the picker isn't editing pins.
++     */
++    var onSiteClicked: ((SiteRecord) -> Unit)? = null
++
++    /**
++     * Invoked when a site row is long pressed while the picker isn't editing pins.
++     */
++    var onSiteLongClicked: ((SiteRecord) -> Unit)? = null
++
++    /**
++     * Invoked after the pinned set has been persisted so the rows can be grouped again.
++     */
++    var onSitePinUpdated: ((SiteRecord) -> Unit)? = null
++
++    /**
++     * Local id of the site that is currently active. It stays highlighted in every mode.
++     */
++    var selectedSiteId: Int? = null
++
++    private val siteRecords = mutableListOf<SiteRecord>()
++
++    /**
++     * Current mode of the picker.
++     */
++    var mode: ActionMode = ActionMode.None
++        private set
++
++    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ChooseSiteViewHolder {
++        val binding = ItemChooseSiteBinding.inflate(LayoutInflater.from(parent.context), parent, false)
++        return ChooseSiteViewHolder(binding).also { WordPress.instance.component().inject(it) }
++    }
++
++    override fun getItemCount(): Int = siteRecords.size
++
++    override fun onBindViewHolder(holder: ChooseSiteViewHolder, position: Int) {
++        val siteRecord = siteRecords[position]
++        holder.onPinUpdated = onSitePinUpdated
++        holder.onClicked = onSiteClicked
++        holder.onLongClicked = onSiteLongClicked
++        holder.bind(mode, siteRecord, activeSiteRecord(), selectedSiteId)
++    }
++
++    /**
++     * Replaces the displayed rows. The rows are expected to be already grouped and ordered by the view model.
++     */
++    fun setSites(sites: List<SiteRecord>) {
++        siteRecords.clear()
++        siteRecords.addAll(sites)
++        notifyDataSetChanged()
++    }
++
++    /**
++     * Switches the picker in or out of the pin editing mode without touching the displayed rows.
++     */
++    fun setActionMode(actionMode: ActionMode) {
++        if (mode == actionMode) return
++        mode = actionMode
++        notifyDataSetChanged()
++    }
++
++    /**
++     * Site that is currently active, looked up in the displayed rows.
++     */
++    private fun activeSiteRecord(): SiteRecord? {
++        val localId = selectedSiteId ?: return null
++        if (localId == SiteRecordUtil.HEADER_LOCAL_ID) return null
++        return siteRecords.firstOrNull { it.localId == localId }
++    }
++}
+\ No newline at end of file
+diff --git a/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt b/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..cd41910483e2d3df19b9cc66e4418d3bbc584633
+--- /dev/null
++++ b/src/main/java/org/wordpress/android/ui/main/ChooseSiteViewHolder.kt
+@@ -0,0 +1,199 @@
++package org.wordpress.android.ui.main
++
++import android.content.Context
++import android.content.res.ColorStateList
++import android.graphics.Color
++import android.view.View
++import androidx.core.view.isVisible
++import androidx.recyclerview.widget.RecyclerView
++import org.wordpress.android.R
++import org.wordpress.android.analytics.AnalyticsTracker
++import org.wordpress.android.databinding.ItemChooseSiteBinding
++import org.wordpress.android.ui.main.utils.SiteRecordUtil
++import org.wordpress.android.ui.prefs.AppPrefsWrapper
++import org.wordpress.android.util.extensions.getColorFromAttribute
++import org.wordpress.android.util.extensions.isDarkTheme
++import org.wordpress.android.util.image.ImageManager
++import javax.inject.Inject
++
++/**
++ * Renders a single row of the site picker, which is either a site or the header of a section of the grouped list.
++ */
++class ChooseSiteViewHolder(private val binding: ItemChooseSiteBinding) : RecyclerView.ViewHolder(binding.root) {
++    @Inject
++    lateinit var imageManager: ImageManager
++
++    @Inject
++    lateinit var appPrefs: AppPrefsWrapper
++
++    /**
++     * Invoked after the pinned set has been updated by the pin control.
++     */
++    var onPinUpdated: ((SiteRecord) -> Unit)? = null
++
++    /**
++     * Invoked when the site is selected.
++     */
++    var onClicked: ((SiteRecord) -> Unit)? = null
++
++    /**
++     * Invoked when the site row is long pressed.
++     */
++    var onLongClicked: ((SiteRecord) -> Unit)? = null
++
++    private val siteImageManager: ImageManager
++        get() = if (this::imageManager.isInitialized) imageManager else ImageManager()
++
++    private val sitePrefs: AppPrefsWrapper
++        get() = if (this::appPrefs.isInitialized) appPrefs else AppPrefsWrapper()
++
++    /**
++     * Binds [siteRecord] to the row.
++     *
++     * While [actionMode] is [ActionMode.Pin] the row body can't be used to select or open a site: only the pin control
++     * reacts to user input. [activeSite] is the site that is currently active and [selectedSiteId] the local id that
++     * has to be highlighted.
++     */
++    fun bind(
++        actionMode: ActionMode,
++        siteRecord: SiteRecord,
++        activeSite: SiteRecord?,
++        selectedSiteId: Int?
++    ) {
++        val context = binding.root.context
++        val isHeader = siteRecord.localId == SiteRecordUtil.HEADER_LOCAL_ID
++        val isActive = !isHeader && siteRecord.localId == activeSite?.localId
++        val isSelected = !isHeader && siteRecord.localId == selectedSiteId
++        val isPinMode = actionMode is ActionMode.Pin
++
++        with(binding) {
++            header.isVisible = isHeader
++            layoutContainer.isVisible = !isHeader
++            pin.isVisible = isPinMode && !isHeader
++            if (isHeader) {
++                header.text = siteRecord.blogNameOrHomeURL
++                root.alpha = OPAQUE
++                bindRowInteraction(null, null)
++                return@with
++            }
++
++            textTitle.text = siteRecord.blogNameOrHomeURL
++            textDomain.text = siteRecord.homeURL
++
++            siteImageManager.loadImageWithCorners(
++                avatar,
++                siteRecord.blavatarType,
++                siteRecord.blavatarUrl,
++                BLAVATAR_SZ
++            )
++
++            avatar.strokeColor = if (isActive) {
++                ColorStateList.valueOf(context.getColorFromAttribute(R.attr.wpColorOnSurfaceMedium))
++            } else {
++                null
++            }
++            layoutContainer.setBackgroundColor(activeSiteBackgroundColor(context, isActive))
++            root.alpha = if (isSelected) selectedSiteOpacity(context) else OPAQUE
++
++            pin.setColorFilter(context.getColorFromAttribute(R.attr.wpColorOnSurfaceMedium))
++            bindPin(siteRecord)
++
++            if (isPinMode) {
++                // While the pinned set is being edited the row can't be used to select or to open a site.
++                bindRowInteraction(null, null)
++            } else {
++                bindRowInteraction(
++                    View.OnClickListener { selectSite(siteRecord) },
++                    View.OnLongClickListener {
++                        onLongClicked?.invoke(siteRecord)
++                        true
++                    }
++                )
++            }
++        }
++    }
++
++    /**
++     * Makes the row react to a selection or a long press. The listeners are attached to the row and to the container
++     * holding the site details, so both of them can be used to interact with the site, and are cleared when the row
++     * can't be interacted with.
++     */
++    private fun bindRowInteraction(
++        clickListener: View.OnClickListener?,
++        longClickListener: View.OnLongClickListener?
++    ) {
++        listOf(binding.root, binding.layoutContainer).forEach { row ->
++            row.isClickable = clickListener != null
++            row.isLongClickable = longClickListener != null
++            row.setOnClickListener(clickListener)
++            row.setOnLongClickListener(longClickListener)
++        }
++    }
++
++    /**
++     * Renders the pin control of [siteRecord] and reacts to it being tapped by updating the pinned set.
++     */
++    private fun bindPin(siteRecord: SiteRecord) {
++        binding.pin.setImageResource(pinDrawable(isPinned(siteRecord)))
++        binding.pin.setOnClickListener {
++            val isPinned = updatePin(siteRecord)
++            binding.pin.setImageResource(pinDrawable(isPinned))
++        }
++    }
++
++    private fun pinDrawable(isPinned: Boolean): Int = if (isPinned) R.drawable.pin_filled else R.drawable.pin
++
++    private fun isPinned(siteRecord: SiteRecord): Boolean =
++        sitePrefs.pinnedSiteLocalIds.contains(siteRecord.localId)
++
++    /**
++     * Selects the site: the site is remembered as recently accessed and the host is notified so it can finish the
++     * picker with the selected site.
++     */
++    private fun selectSite(siteRecord: SiteRecord) {
++        sitePrefs.addRecentSiteLocalId(siteRecord.localId)
++        onClicked?.invoke(siteRecord)
++    }
++
++    /**
++     * Toggles the pinned state of [siteRecord], persists it and asks the host to group the rows again. Returns the new
++     * pinned state of the site.
++     */
++    private fun updatePin(siteRecord: SiteRecord): Boolean {
++        val pinnedLocalIds = sitePrefs.pinnedSiteLocalIds
++        val isPinned = if (pinnedLocalIds.contains(siteRecord.localId)) {
++            pinnedLocalIds.remove(siteRecord.localId)
++            false
++        } else {
++            pinnedLocalIds.add(siteRecord.localId)
++            true
++        }
++        sitePrefs.pinnedSiteLocalIds = pinnedLocalIds
++        AnalyticsTracker.track(AnalyticsTracker.Stat.SITE_SWITCHER_PIN_UPDATED)
++        onPinUpdated?.invoke(siteRecord)
++        return isPinned
++    }
++
++    private fun activeSiteBackgroundColor(context: Context, isActive: Boolean): Int {
++        if (!isActive) return Color.TRANSPARENT
++        val color = if (context.resources.configuration.isDarkTheme()) {
++            R.color.white_translucent_10
++        } else {
++            R.color.black_translucent_10
++        }
++        return context.getColor(color)
++    }
++
++    private fun selectedSiteOpacity(context: Context): Float =
++        context.resources.getInteger(R.integer.selected_list_item_opacity) / MAX_ALPHA
++
++    companion object {
++        /**
++         * Size of the blavatar displayed by a site row.
++         */
++        const val BLAVATAR_SZ = SitePickerAdapter.mBlavatarSz
++
++        private const val MAX_ALPHA = 255f
++        private const val OPAQUE = 1f
++    }
++}
+\ No newline at end of file
+diff --git a/src/main/java/org/wordpress/android/ui/main/SitePickerActivity.kt b/src/main/java/org/wordpress/android/ui/main/SitePickerActivity.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..54befb0e1f7f2708e164f45294a2e64b6ae61a6f
+--- /dev/null
++++ b/src/main/java/org/wordpress/android/ui/main/SitePickerActivity.kt
+@@ -0,0 +1,261 @@
++package org.wordpress.android.ui.main
++
++import android.app.Activity
++import android.content.Intent
++import android.os.Bundle
++import android.text.Editable
++import android.text.TextWatcher
++import android.view.Gravity
++import android.view.ViewGroup
++import android.widget.Button
++import android.widget.EditText
++import android.widget.LinearLayout
++import android.widget.ProgressBar
++import android.widget.TextView
++import androidx.activity.ComponentActivity
++import androidx.activity.viewModels
++import androidx.core.view.isVisible
++import androidx.lifecycle.viewmodel.initializer
++import androidx.lifecycle.viewmodel.viewModelFactory
++import androidx.recyclerview.widget.LinearLayoutManager
++import androidx.recyclerview.widget.RecyclerView
++import kotlinx.coroutines.Dispatchers
++import org.wordpress.android.fluxc.store.SiteStore
++import org.wordpress.android.ui.prefs.AppPrefsWrapper
++
++/**
++ * Hosts the site picker.
++ *
++ * The available sites are displayed grouped in pinned, recent and remaining sites. The user can search them, edit the
++ * pinned set and refresh the list, and selects a site by tapping it. Variants of the picker that don't allow managing
++ * sites only allow selecting them.
++ */
++class SitePickerActivity : ComponentActivity() {
++    private val viewModel: SiteViewModel by viewModels {
++        viewModelFactory {
++            initializer {
++                SiteViewModel(Dispatchers.Default, SiteStore(), AppPrefsWrapper())
++            }
++        }
++    }
++
++    private val appPrefs = AppPrefsWrapper()
++
++    private lateinit var searchInput: EditText
++    private lateinit var refreshButton: Button
++    private lateinit var pinModeButton: Button
++    private lateinit var addSiteButton: Button
++    private lateinit var progressBar: ProgressBar
++    private lateinit var statusView: TextView
++
++    private lateinit var siteAdapter: ChooseSiteAdapter
++
++    private var pickerMode: SitePickerMode = SitePickerMode.DEFAULT
++    private var actionMode: ActionMode = ActionMode.None
++    private var searchQuery: String = ""
++    private var sitesLoaded: Boolean = false
++
++    /**
++     * Variants that restrict site management don't expose the pin controls nor the site creation action.
++     */
++    private val canManageSites: Boolean
++        get() = pickerMode == SitePickerMode.DEFAULT
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        pickerMode = sitePickerMode(intent.getStringExtra(KEY_SITE_PICKER_MODE))
++        if (savedInstanceState != null) {
++            searchQuery = savedInstanceState.getString(KEY_SEARCH_QUERY).orEmpty()
++            actionMode = ActionMode.from(savedInstanceState.getString(KEY_ACTION_MODE).orEmpty())
++        }
++        setContentView(buildContentView())
++        observeViewModel()
++        loadSites()
++    }
++
++    override fun onSaveInstanceState(outState: Bundle) {
++        super.onSaveInstanceState(outState)
++        outState.putString(KEY_SEARCH_QUERY, searchQuery)
++        outState.putString(KEY_ACTION_MODE, siteAdapter.mode.value)
++    }
++
++    private fun buildContentView(): ViewGroup {
++        val content = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            layoutParams = ViewGroup.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT,
++                ViewGroup.LayoutParams.MATCH_PARENT
++            )
++        }
++
++        searchInput = EditText(this).apply {
++            hint = SEARCH_HINT
++            isSingleLine = true
++            layoutParams = LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT,
++                ViewGroup.LayoutParams.WRAP_CONTENT
++            )
++        }
++        content.addView(searchInput)
++
++        val actions = LinearLayout(this).apply {
++            orientation = LinearLayout.HORIZONTAL
++            layoutParams = LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT,
++                ViewGroup.LayoutParams.WRAP_CONTENT
++            )
++        }
++        refreshButton = actionButton(REFRESH) { refreshSites() }
++        pinModeButton = actionButton(EDIT_PINS) { togglePinMode() }
++        addSiteButton = actionButton(ADD_SITE) { showStatus(SITE_CREATION_UNAVAILABLE) }
++        actions.addView(refreshButton)
++        actions.addView(pinModeButton)
++        actions.addView(addSiteButton)
++        content.addView(actions)
++
++        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
++            isIndeterminate = true
++            isVisible = false
++            layoutParams = LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT,
++                ViewGroup.LayoutParams.WRAP_CONTENT
++            )
++        }
++        content.addView(progressBar)
++
++        statusView = TextView(this).apply {
++            gravity = Gravity.CENTER
++            isVisible = false
++            layoutParams = LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT,
++                ViewGroup.LayoutParams.WRAP_CONTENT
++            )
++        }
++        content.addView(statusView)
++
++        siteAdapter = ChooseSiteAdapter().apply {
++            onSiteClicked = { siteRecord -> viewModel.onSiteSelected(siteRecord) }
++            onSitePinUpdated = { loadSites() }
++            selectedSiteId = viewModel.activeSiteId.takeIf { it != NO_SITE }
++            setActionMode(actionMode)
++        }
++        val siteList = RecyclerView(this).apply {
++            layoutManager = LinearLayoutManager(this@SitePickerActivity)
++            adapter = siteAdapter
++            layoutParams = LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT,
++                0,
++                LIST_WEIGHT
++            )
++        }
++        content.addView(siteList)
++
++        searchInput.setText(searchQuery)
++        searchInput.addTextChangedListener(object : TextWatcher {
++            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
++
++            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
++
++            override fun afterTextChanged(text: Editable?) {
++                val query = text?.toString().orEmpty()
++                if (query == searchQuery) return
++                searchQuery = query
++                loadSites()
++            }
++        })
++
++        pinModeButton.isVisible = canManageSites
++        addSiteButton.isVisible = canManageSites
++        updatePinModeButton()
++
++        return content
++    }
++
++    private fun actionButton(label: String, onClicked: () -> Unit) = Button(this).apply {
++        text = label
++        layoutParams = LinearLayout.LayoutParams(
++            ViewGroup.LayoutParams.WRAP_CONTENT,
++            ViewGroup.LayoutParams.WRAP_CONTENT
++        )
++        setOnClickListener { onClicked() }
++    }
++
++    private fun observeViewModel() {
++        viewModel.sites.observe(this) { sites ->
++            sitesLoaded = true
++            siteAdapter.setSites(sites.orEmpty())
++            updateStatus()
++        }
++        viewModel.refreshing.observe(this) { refreshing ->
++            progressBar.isVisible = refreshing
++            refreshButton.isEnabled = !refreshing
++        }
++        viewModel.refreshFailed.observe(this) { failed ->
++            if (failed) showStatus(REFRESH_FAILED)
++        }
++        viewModel.selectedSite.observe(this) { siteRecord ->
++            if (siteRecord != null) finishWithSite(siteRecord)
++        }
++    }
++
++    private fun loadSites() {
++        sitesLoaded = false
++        viewModel.loadSites(pickerMode, searchQuery)
++    }
++
++    private fun refreshSites() = loadSites()
++
++    private fun togglePinMode() {
++        siteAdapter.setActionMode(if (siteAdapter.mode is ActionMode.Pin) ActionMode.None else ActionMode.Pin)
++        updatePinModeButton()
++    }
++
++    private fun updatePinModeButton() {
++        pinModeButton.text = if (siteAdapter.mode is ActionMode.Pin) DONE else EDIT_PINS
++    }
++
++    private fun updateStatus() {
++        if (viewModel.sites.value.orEmpty().isNotEmpty() || !sitesLoaded) {
++            statusView.isVisible = false
++            return
++        }
++        statusView.isVisible = true
++        statusView.text = if (searchQuery.isBlank()) NO_SITES else NO_SEARCH_RESULTS
++    }
++
++    private fun showStatus(message: String) {
++        statusView.isVisible = true
++        statusView.text = message
++    }
++
++    private fun finishWithSite(siteRecord: SiteRecord) {
++        appPrefs.setSelectedSite(siteRecord.localId)
++        setResult(Activity.RESULT_OK, Intent().putExtra(KEY_SITE_LOCAL_ID, siteRecord.localId))
++        finish()
++    }
++
++    private fun sitePickerMode(mode: String?): SitePickerMode = SitePickerMode.entries
++        .firstOrNull { it.name.equals(mode, ignoreCase = true) }
++        ?: SitePickerMode.DEFAULT
++
++    companion object {
++        const val KEY_SITE_PICKER_MODE = "site_picker_mode"
++        const val KEY_SITE_LOCAL_ID = "site_local_id"
++
++        private const val KEY_SEARCH_QUERY = "site_picker_search_query"
++        private const val KEY_ACTION_MODE = "site_picker_action_mode"
++
++        private const val SEARCH_HINT = "Search sites"
++        private const val REFRESH = "Refresh"
++        private const val EDIT_PINS = "Edit pins"
++        private const val DONE = "Done"
++        private const val ADD_SITE = "Add site"
++        private const val NO_SITES = "There are no sites to choose from."
++        private const val NO_SEARCH_RESULTS = "No sites match your search."
++        private const val REFRESH_FAILED = "Couldn't refresh sites. Try again."
++        private const val SITE_CREATION_UNAVAILABLE = "Adding a new site isn't available here."
++
++        private const val NO_SITE = -1
++        private const val LIST_WEIGHT = 1f
++    }
++}
+\ No newline at end of file
+diff --git a/src/main/java/org/wordpress/android/ui/main/SiteRecord.kt b/src/main/java/org/wordpress/android/ui/main/SiteRecord.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..41a0fca6e5fcccddd836d75dba6a5b83a0dfd8d1
+--- /dev/null
++++ b/src/main/java/org/wordpress/android/ui/main/SiteRecord.kt
+@@ -0,0 +1,45 @@
++package org.wordpress.android.ui.main
++
++import org.wordpress.android.fluxc.model.SiteModel
++import org.wordpress.android.util.SiteUtils
++import org.wordpress.android.util.image.BlavatarShape
++import org.wordpress.android.util.image.ImageType
++
++/**
++ * Row representation of a site used by the site picker.
++ *
++ * Rows are created from the sites held by the [org.wordpress.android.fluxc.store.SiteStore]. Section headers of the
++ * grouped picker are represented by synthetic records created out of a [SiteModel] that isn't backed by a real site,
++ * see [org.wordpress.android.ui.main.utils.SiteRecordUtil.HEADER_LOCAL_ID].
++ */
++class SiteRecord(site: SiteModel) {
++    private val site: SiteModel = site
++
++    val localId: Int = site.id
++
++    val siteId: Long = site.siteId
++
++    val blogName: String = site.name
++
++    val homeURL: String = site.url
++
++    val blavatarUrl: String = SiteUtils.getSiteIconUrl(site, SitePickerAdapter.mBlavatarSz)
++
++    val blavatarType: ImageType =
++        SiteUtils.getSiteImageType(site.isUsingWpComRestApi, BlavatarShape.SQUARE_WITH_ROUNDED_CORNERES)
++
++    /**
++     * Kept for compatibility with the removed "show/hide sites" feature. The redesigned picker never hides a site, so
++     * this flag is always left untouched.
++     */
++    var hidden: Boolean = false
++
++    /**
++     * True when the site belongs to the "recent sites" section of the picker. Sites that are pinned are never part of
++     * the recent section, so the two flags are mutually exclusive.
++     */
++    var recentPick: Boolean = false
++
++    val blogNameOrHomeURL: String
++        get() = SiteUtils.getSiteNameOrHomeURL(site)
++}
+\ No newline at end of file
+diff --git a/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt b/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..ed5104d85cc0e14cfe46a30dab73931385e25719
+--- /dev/null
++++ b/src/main/java/org/wordpress/android/ui/main/SiteViewModel.kt
+@@ -0,0 +1,189 @@
++package org.wordpress.android.ui.main
++
++import android.os.Looper
++import androidx.annotation.StringRes
++import androidx.lifecycle.LiveData
++import androidx.lifecycle.MutableLiveData
++import dagger.hilt.android.lifecycle.HiltViewModel
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.Job
++import org.wordpress.android.R
++import org.wordpress.android.WordPress
++import org.wordpress.android.fluxc.model.SiteModel
++import org.wordpress.android.fluxc.store.SiteStore
++import org.wordpress.android.modules.BG_THREAD
++import org.wordpress.android.ui.main.utils.SiteRecordUtil
++import org.wordpress.android.ui.prefs.AppPrefsWrapper
++import org.wordpress.android.viewmodel.ScopedViewModel
++import javax.inject.Inject
++import javax.inject.Named
++
++/**
++ * Holds the state of the site picker: the rows that are displayed and the effects of the manual refresh.
++ */
++@HiltViewModel
++class SiteViewModel @Inject constructor(
++    @Named(BG_THREAD) private val dispatcher: CoroutineDispatcher,
++    private val siteStore: SiteStore,
++    private val appPrefs: AppPrefsWrapper
++) : ScopedViewModel(dispatcher) {
++    private val _sites = MutableLiveData<List<SiteRecord>>()
++
++    /**
++     * Rows to be displayed by the picker. They are either grouped in pinned, recent and remaining sections or are the
++     * sites matching the current search query.
++     */
++    val sites: LiveData<List<SiteRecord>> = _sites
++
++    private val _refreshing = MutableLiveData(false)
++
++    /**
++     * True while a refresh is in progress.
++     */
++    val refreshing: LiveData<Boolean> = _refreshing
++
++    private val _refreshFailed = MutableLiveData(false)
++
++    /**
++     * True when the last refresh failed. The sites that were loaded before the failure are still displayed.
++     */
++    val refreshFailed: LiveData<Boolean> = _refreshFailed
++
++    private val _selectedSite = MutableLiveData<SiteRecord?>()
++
++    /**
++     * Site that has just been selected by the user.
++     */
++    val selectedSite: LiveData<SiteRecord?> = _selectedSite
++
++    /**
++     * Local id of the site that is currently active.
++     */
++    val activeSiteId: Int
++        get() = appPrefs.getSelectedSite()
++
++    /**
++     * Loads the sites available for [mode] and displays them, either grouped or filtered by [query].
++     *
++     * A refresh that fails keeps the sites that are already displayed so the user can retry.
++     */
++    fun loadSites(
++        mode: SitePickerMode = SitePickerMode.DEFAULT,
++        query: String = ""
++    ): Job {
++        _refreshFailed.updateValue(false)
++        _refreshing.updateValue(true)
++        return launch {
++            try {
++                val siteRecords = getSites(mode)
++                val rows = if (query.isBlank()) {
++                    groupSites(siteRecords)
++                } else {
++                    SiteRecordUtil.filteredSites(siteRecords, query)
++                }
++                _sites.updateValue(rows)
++            } catch (error: Exception) {
++                // The sites that are already displayed are kept so the user can retry the refresh.
++                _refreshFailed.updateValue(true)
++            } finally {
++                _refreshing.updateValue(false)
++            }
++        }
++    }
++
++    /**
++     * Records [siteRecord] as recently accessed and publishes it as the selected site.
++     */
++    fun onSiteSelected(siteRecord: SiteRecord) {
++        appPrefs.addRecentSiteLocalId(siteRecord.localId)
++        _selectedSite.updateValue(siteRecord)
++    }
++
++    /**
++     * Title of the section of the grouped list at the given [section] index.
++     */
++    fun getSection(section: Int): String = when (section) {
++        PINNED_SECTION -> sectionTitle(R.string.site_picker_pinned_sites, PINNED_SECTION_TITLE)
++        RECENT_SECTION -> sectionTitle(R.string.site_picker_recent_sites, RECENT_SECTION_TITLE)
++        ALL_SECTIONS_SECTION -> sectionTitle(R.string.site_picker_all_sites, ALL_SECTIONS_SECTION_TITLE)
++        else -> ""
++    }
++
++    private fun getSites(mode: SitePickerMode): List<SiteRecord> {
++        val siteModels = when (mode) {
++            SitePickerMode.WPCOM_SITES_ONLY -> siteStore.sitesAccessedViaWPComRest
++            SitePickerMode.DEFAULT, SitePickerMode.SIMPLE -> siteStore.sites
++        }
++        return SiteRecordUtil.createRecords(siteModels)
++    }
++
++    /**
++     * Groups the sites into the pinned, recent and remaining sections. A pinned site is never part of the recent
++     * section and every site appears exactly once.
++     */
++    private fun groupSites(sites: List<SiteRecord>): List<SiteRecord> {
++        val pinnedLocalIds = appPrefs.pinnedSiteLocalIds
++        val recentLocalIds = appPrefs.getRecentSiteLocalIds()
++        val currentSiteId = activeSiteId.toLong()
++        val sitesByLocalId = sites.associateBy { it.localId }
++
++        val pinnedSites = sites.filter { it.localId in pinnedLocalIds }
++        val recentSites = recentLocalIds
++            .mapNotNull { localId -> sitesByLocalId[localId] }
++            .filterNot { it.localId in pinnedLocalIds }
++            .map { it.apply { recentPick = true } }
++        val remainingSites = sites.filter { it.localId !in pinnedLocalIds && it.localId !in recentLocalIds }
++
++        return buildList {
++            addSection(PINNED_SECTION, SiteRecordUtil.sort(sortSites(pinnedSites), currentSiteId))
++            addSection(RECENT_SECTION, recentSites)
++            addSection(ALL_SECTIONS_SECTION, sortSites(remainingSites))
++        }
++    }
++
++    private fun MutableList<SiteRecord>.addSection(section: Int, sites: List<SiteRecord>) {
++        if (sites.isEmpty()) return
++        add(sectionHeader(section))
++        addAll(sites)
++    }
++
++    private fun sectionHeader(section: Int): SiteRecord = SiteRecord(
++        SiteModel().apply {
++            id = SiteRecordUtil.HEADER_LOCAL_ID
++            name = getSection(section)
++        }
++    )
++
++    private fun sortSites(sites: List<SiteRecord>): List<SiteRecord> =
++        sites.sortedBy { it.blogNameOrHomeURL.lowercase() }
++
++    @Suppress("SwallowedException")
++    private fun sectionTitle(@StringRes titleId: Int, fallbackTitle: String): String = try {
++        WordPress.instance.getString(titleId)
++    } catch (error: RuntimeException) {
++        fallbackTitle
++    }
++
++    /**
++     * Live data is updated from the dispatcher the view model was created with, so the value is posted when the
++     * current thread isn't the main one.
++     */
++    private fun <T> MutableLiveData<T>.updateValue(value: T) {
++        val isMainThread = try {
++            Looper.myLooper() == Looper.getMainLooper()
++        } catch (error: RuntimeException) {
++            true
++        }
++        if (isMainThread) setValue(value) else postValue(value)
++    }
++
++    companion object {
++        private const val PINNED_SECTION = 0
++        private const val RECENT_SECTION = 1
++        private const val ALL_SECTIONS_SECTION = 2
++
++        private const val PINNED_SECTION_TITLE = "Pinned sites"
++        private const val RECENT_SECTION_TITLE = "Recent sites"
++        private const val ALL_SECTIONS_SECTION_TITLE = "All sites"
++    }
++}
+\ No newline at end of file
+diff --git a/src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt b/src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..604e333e9d0234be8e208645202e57e446dff09a
+--- /dev/null
++++ b/src/main/java/org/wordpress/android/ui/main/utils/SiteRecordUtil.kt
+@@ -0,0 +1,62 @@
++package org.wordpress.android.ui.main.utils
++
++import org.wordpress.android.fluxc.model.SiteModel
++import org.wordpress.android.ui.main.SiteRecord
++
++/**
++ * Helpers used to order and filter the rows shown by the site picker.
++ */
++object SiteRecordUtil {
++    /**
++     * Local id reserved for the synthetic records that carry the title of a section of the grouped site list. Site local
++     * ids are always positive, so a row with this id is a section header and never a site.
++     */
++    const val HEADER_LOCAL_ID: Int = -1
++
++    /**
++     * Orders [sites] keeping the site matching [activeSiteId] on top. The order of the remaining sites is preserved.
++     */
++    fun sort(sites: List<SiteRecord>, activeSiteId: Long): List<SiteRecord> =
++        sites.sortedBy { if (it.localId.toLong() == activeSiteId) 0 else 1 }
++
++    /**
++     * Orders [sites] keeping the pinned sites on top. The order of the remaining sites is preserved.
++     */
++    fun sort(sites: List<SiteRecord>, pinnedLocalIds: Set<Int>): List<SiteRecord> =
++        sites.sortedBy { if (it.localId in pinnedLocalIds) 0 else 1 }
++
++    /**
++     * Index of the site matching [localId] or -1 when the site isn't part of [sites].
++     */
++    fun indexOf(sites: List<SiteRecord>, localId: Int): Int = sites.indexOfFirst { it.localId == localId }
++
++    /**
++     * Index of [siteRecord] within [sites] or -1 when the site isn't part of the list.
++     */
++    fun indexOf(sites: List<SiteRecord>, siteRecord: SiteRecord): Int = indexOf(sites, siteRecord.localId)
++
++    /**
++     * True when both lists hold the same sites in the same order.
++     */
++    fun isSameList(sites: List<SiteRecord>, otherSites: List<SiteRecord>): Boolean =
++        sites.size == otherSites.size && sites.indices.all { sites[it].localId == otherSites[it].localId }
++
++    /**
++     * Sites matching [query]. Section headers are never matched, so filtering a grouped list always returns sites only.
++     * A blank query matches every site of the list.
++     */
++    fun filteredSites(sites: List<SiteRecord>, query: String): List<SiteRecord> {
++        val siteRecords = sites.filterNot { it.localId == HEADER_LOCAL_ID }
++        val needle = query.trim()
++        if (needle.isEmpty()) return siteRecords
++        return siteRecords.filter { siteRecord ->
++            siteRecord.blogNameOrHomeURL.contains(needle, ignoreCase = true) ||
++                siteRecord.homeURL.contains(needle, ignoreCase = true)
++        }
++    }
++
++    /**
++     * Wraps the given sites into the records displayed by the picker.
++     */
++    fun createRecords(sites: List<SiteModel>): List<SiteRecord> = sites.map { SiteRecord(it) }
++}
+\ No newline at end of file
+diff --git a/src/main/java/org/wordpress/android/viewmodel/main/SitePickerViewModel.kt b/src/main/java/org/wordpress/android/viewmodel/main/SitePickerViewModel.kt
+index 44aa163e863e9f18a0fe519679b59f361cfbf78a..1a7b7c6a850879e2cb6ef181da5e14ec7713ee31 100644
+--- a/src/main/java/org/wordpress/android/viewmodel/main/SitePickerViewModel.kt
++++ b/src/main/java/org/wordpress/android/viewmodel/main/SitePickerViewModel.kt
+@@ -7,7 +7,7 @@ import androidx.lifecycle.viewModelScope
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.launch
+ import org.wordpress.android.ui.jetpackoverlay.individualplugin.WPJetpackIndividualPluginHelper
+-import org.wordpress.android.ui.main.SitePickerAdapter.SiteRecord
++import org.wordpress.android.ui.main.SiteRecord
+ import org.wordpress.android.viewmodel.Event
+ import org.wordpress.android.viewmodel.main.SitePickerViewModel.Action.AskForSiteSelection
+ import org.wordpress.android.viewmodel.main.SitePickerViewModel.Action.ContinueReblogTo

@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "taskId": "04_reading_lists",
+  "baseAbsence": [
+    {
+      "path": "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt",
+      "atCommit": "8b7427f178b619aeb585fbcbb8a02e5ea0f0b68c",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/readinglist/compose/ReadingListsScreen.kt",
+      "atCommit": "8b7427f178b619aeb585fbcbb8a02e5ea0f0b68c",
+      "status": "missing"
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt",
+      "atCommit": "8b7427f178b619aeb585fbcbb8a02e5ea0f0b68c",
+      "status": "missing"
+    }
+  ],
+  "semanticBoundary": "The base has the legacy reading-list screens but lacks the reactive two-tab Saved state model, collection-oriented Compose surface, and unified save/unsave sheet introduced in this interval.",
+  "finalProduction": [
+    {
+      "path": "app/src/main/java/org/wikipedia/readinglist/ReadingListsViewModel.kt",
+      "sha256": "ce7a6dcbd534b6ec956d80284adc8223157499677c83667dc62c95e532bb0b60",
+      "symbols": [
+        "SavedTab",
+        "SavedArticleFilter",
+        "ReadingListsUiState",
+        "buildCollectionsRows",
+        "buildSearchRows",
+        "buildArticleRows",
+        "prepareSelectedPagesForDeletion",
+        "resolveOnboardingState"
+      ],
+      "facts": [
+        "Room relations, tab, debounced query, filter, sort preferences, account state, and recommendation state reduce into one reactive UI state.",
+        "All articles deduplicates pages by language and API title and records every containing list.",
+        "Collections removes the default list before rendering.",
+        "Search is scoped by selected tab, and article filtering can retain only pages whose containing lists are all default.",
+        "Rows queued for deletion are excluded before UI reduction."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/readinglist/ReadingListsFragment.kt",
+      "sha256": "3d0c2c5cf3ac181d2ee88eb42ee05f0bcc7836bc18b5226d6b66c63192f5120c",
+      "symbols": [
+        "onRefresh",
+        "onSelectTab",
+        "onListMenuAction",
+        "deleteSelectedPages",
+        "deleteSelectedLists"
+      ],
+      "facts": [
+        "A sync completion event clears the refresh spinner.",
+        "Signed-out or temporary users receive the login flow and do not remain refreshing.",
+        "Collection and article deletion paths use application behavior helpers with undo feedback.",
+        "Search activation, selection mode, and tab-specific menus are wired to the state holder."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/readinglist/SaveArticleSheetViewModel.kt",
+      "sha256": "aeaae55e2928b38f6d37f7a8673ba459d81f131fcec18579d79157e039cf5782",
+      "symbols": [
+        "saveArticle",
+        "resolveRedirect",
+        "toggleArticleSaved",
+        "confirmUnsaveArticle",
+        "requestNewCollection",
+        "createCollection",
+        "toggleArticleInCollection"
+      ],
+      "facts": [
+        "Opening the sheet saves an absent article to the default list and observes collection membership reactively.",
+        "Redirect lookup IOException falls back to the original title.",
+        "Unsave requests involving non-default collections emit a confirmation event.",
+        "List and per-list article limits emit explicit events before mutation.",
+        "A missing collection exits without mutating another list."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/readinglist/compose/ReadingListsScreen.kt",
+      "sha256": "dfb3212739d43f3d6ac97b1a66824b694c2d2e2ed2bd264f1bfbea938f08fdd1",
+      "symbols": [
+        "ReadingListsScreen"
+      ],
+      "facts": [
+        "The Compose surface renders the two Saved tabs, loading and empty states, onboarding, refresh, row menus, and selection callbacks."
+      ]
+    }
+  ],
+  "finalTests": [
+    {
+      "path": "app/src/androidTest/java/org/wikipedia/tests/ReadingListsTest.kt",
+      "sha256": "a606111db026b2e851cf0f8b0663dbb70c8850394ccbe28d76063bc1aae98c73",
+      "changeStatus": "unchanged_in_boundary",
+      "assessment": "The existing instrumentation test names legacy save, custom-list, unsave, and delete scenarios, but its search helper remains TODO and it was not modified by the feature interval. It is inventory evidence only, not sufficient acceptance evidence for the new two-tab collections workflow."
+    }
+  ],
+  "testGap": {
+    "changedTargetedTests": [],
+    "finding": "No reading-list or collections test path was added or modified between the selected tags or by core commit 20a6392. Behavioral claims are therefore grounded in production state and event paths, and downstream semantic-test generation must add evaluator-owned coverage."
+  },
+  "externalLeaves": [
+    {
+      "name": "redirect metadata HTTP",
+      "policy": "Control success and IOException; execute fallback identity and database save behavior."
+    },
+    {
+      "name": "reading-list sync service",
+      "policy": "Control completion events; execute account gating, refresh state, sync enablement, and recovery behavior."
+    },
+    {
+      "name": "analytics and export transports",
+      "policy": "Controlled leaves after application-owned action mapping and selection logic."
+    }
+  ],
+  "claimSources": [
+    {
+      "claim": "The interval introduces the reactive Compose Saved experience and collection-oriented terminology and interactions.",
+      "sources": [
+        "https://github.com/wikimedia/apps-android-wikipedia/commit/9ed50162f431ccc868bdb4bb961b8894fc208ff5",
+        "https://github.com/wikimedia/apps-android-wikipedia/pull/6792",
+        "https://github.com/wikimedia/apps-android-wikipedia/commit/20a639208f2a4f9d13e8446bd0092ce6c1b4bd88"
+      ]
+    }
+  ]
+}
