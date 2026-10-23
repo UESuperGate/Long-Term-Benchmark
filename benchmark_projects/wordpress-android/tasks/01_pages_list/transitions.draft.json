@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_pages_list",
+  "description": "Platform-neutral transitions for the modern pages list introduced in WordPress Android 26.9",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_001_open_published",
+      "key": "open_published",
+      "functionalArea": "list_loading",
+      "given": {"featureEnabled": true, "siteEligible": true, "selectedTab": "published", "servicePages": [{"id": 1, "title": "About", "status": "published", "featuredMediaId": 301}], "mediaUrls": {"301": "https://media.test/301.jpg"}},
+      "event": {"name": "openPages"},
+      "expected": {"surface": "modern_pages", "tabs": ["published", "drafts", "scheduled", "trashed"], "selectedTab": "published", "rows": [{"id": 1, "thumbnailUrl": "https://media.test/301.jpg"}], "loading": false, "request": {"entity": "pages", "statuses": ["published", "private"], "orderBy": "title", "order": "ascending", "pageSize": 20}, "effects": [{"name": "resolveFeaturedMedia", "mediaIds": [301]}]},
+      "invariants": ["no posts request is dispatched", "thumbnail resolution never removes the page row", "the row opens through the existing editor bridge rather than a replacement editor"],
+      "evidence": {"androidProduction": ["PagesRsListActivity", "PagesRsListViewModel.initTab", "PageRsListTab.PUBLISHED"], "androidTests": ["PagesRsListViewModelTest"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_002_refresh_retry",
+      "key": "refresh_retry",
+      "functionalArea": "failure_recovery",
+      "given": {"surface": "modern_pages", "selectedTab": "published", "rows": [1], "refreshOutcomes": ["network_error", {"pages": [1, 2]}]},
+      "event": {"name": "refreshThenRetry"},
+      "expected": {"surface": "modern_pages", "failure": {"rows": [1], "refreshing": false, "feedback": "network_error", "retryAvailable": true}, "recovery": {"rows": [1, 2], "refreshing": false, "error": null}, "requestCount": 2},
+      "invariants": ["loaded rows remain visible during the failed refresh", "retry executes the application-owned refresh body", "no obsolete collection writes after recovery"],
+      "evidence": {"androidProduction": ["PagesRsListViewModel.refreshTab", "PagesRsListViewModel.clearCollections"], "androidTests": ["PagesRsListViewModelTest.refreshTab triggers init when collection not initialized"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_003_short_search",
+      "key": "short_search",
+      "functionalArea": "search",
+      "given": {"surface": "modern_pages", "selectedTab": "published", "rows": [1], "query": "ab"},
+      "event": {"name": "changeSearchQuery", "elapsedMs": 500},
+      "expected": {"surface": "modern_pages", "searchActive": true, "query": "ab", "rows": [], "searchRequestCount": 0},
+      "invariants": ["queries shorter than three characters never reach the service leaf", "the selected tab is retained"],
+      "evidence": {"androidProduction": ["PagesRsListViewModel.onSearchOpen", "PagesRsListViewModel.MIN_SEARCH_QUERY_LENGTH"], "androidTests": ["PagesRsListViewModelTest.onSearchOpen sets isSearchActive to true"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_004_debounced_search",
+      "key": "debounced_search",
+      "functionalArea": "search",
+      "given": {"surface": "modern_pages", "selectedTab": "drafts", "queryUpdates": [{"value": "hel", "atMs": 0}, {"value": "hello", "atMs": 100}], "servicePages": [{"id": 7, "status": "scheduled"}]},
+      "event": {"name": "advanceSearchClock", "elapsedMs": 350},
+      "expected": {"surface": "modern_pages", "query": "hello", "rows": [{"id": 7, "statusLabel": "scheduled"}], "searchRequestCount": 1, "request": {"statuses": ["published", "private", "draft", "pending", "scheduled", "trashed"], "search": "hello", "debounceMs": 250}},
+      "invariants": ["the superseded hel request is not dispatched", "search results are flat and independent of the selected tab hierarchy"],
+      "evidence": {"androidProduction": ["PagesRsListViewModel.search flow", "PagesRsListViewModel.createCollection"], "androidTests": ["PagesRsListViewModelTest.onSearchQueryChanged updates search query"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_005_close_search",
+      "key": "close_search",
+      "functionalArea": "search",
+      "given": {"surface": "modern_pages", "selectedTab": "drafts", "searchActive": true, "query": "hello", "searchRows": [7], "tabPages": [3]},
+      "event": {"name": "closeSearch"},
+      "expected": {"surface": "modern_pages", "searchActive": false, "query": "", "selectedTab": "drafts", "rows": [3], "reloadDelayMs": 0},
+      "invariants": ["closing search does not switch tabs", "the obsolete search collection is closed before the tab reload"],
+      "evidence": {"androidProduction": ["PagesRsListViewModel.onSearchClose"], "androidTests": ["PagesRsListViewModelTest.onSearchClose clears search query"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_006_author_filter",
+      "key": "author_filter",
+      "functionalArea": "author_filter_persistence",
+      "given": {"surface": "modern_pages", "site": {"multiAuthor": true, "canEditOthersPages": true}, "signedInAuthorId": 42, "selection": "everyone"},
+      "event": {"name": "selectAuthor", "selection": "me"},
+      "expected": {"surface": "modern_pages", "selection": "me", "persistedSelection": "me", "request": {"authorIds": [42]}, "reloadCount": 1},
+      "invariants": ["the author identifier is derived from the signed-in account", "unrelated preferences remain unchanged"],
+      "evidence": {"androidProduction": ["PagesRsListViewModel.isAuthorFilterSupported", "PagesRsListViewModel.onAuthorFilterChanged"], "androidTests": ["PagesRsListViewModelTest.onAuthorFilterChanged persists preference"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_007_hierarchy",
+      "key": "published_hierarchy",
+      "functionalArea": "hierarchy",
+      "given": {"surface": "modern_pages", "selectedTab": "published", "pages": [{"id": 1, "parentId": 0}, {"id": 2, "parentId": 1}, {"id": 3, "parentId": 2}, {"id": 4, "parentId": 3}, {"id": 5, "parentId": 4}, {"id": 9, "parentId": 99}]},
+      "event": {"name": "renderRows"},
+      "expected": {"surface": "modern_pages", "rows": [{"id": 1, "indent": 0}, {"id": 2, "indent": 1}, {"id": 3, "indent": 2}, {"id": 4, "indent": 3}, {"id": 5, "indent": 3}, {"id": 9, "indent": 0}]},
+      "invariants": ["every input page appears exactly once", "missing-parent pages remain visible", "indentation never exceeds three"],
+      "evidence": {"androidProduction": ["PageRsTreeBuilder.flattenToTree"], "androidTests": ["PageRsTreeBuilderTest.single tree is DFS-ordered with depth indents", "PageRsTreeBuilderTest.child with missing parent is promoted to root", "PageRsTreeBuilderTest.indent is capped at MAX_INDENT_LEVEL"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_008_menu_eligibility",
+      "key": "menu_eligibility",
+      "functionalArea": "page_actions",
+      "given": {"surface": "modern_pages", "page": {"id": 11, "status": "published", "isHomepage": true, "isPostsPage": false, "hasPassword": false}, "site": {"canManageHomepage": true, "blazeEligible": true}},
+      "event": {"name": "openPageMenu"},
+      "expected": {"surface": "modern_pages", "actions": ["view", "set_parent", "set_as_posts_page", "duplicate", "share", "copy_url", "blaze"], "excludedActions": ["set_as_homepage", "move_to_draft", "trash"]},
+      "invariants": ["destructive actions are not rendered for the homepage", "action eligibility is derived from page and site state"],
+      "evidence": {"androidProduction": ["computePageMenuActions"], "androidTests": ["PageRsMenuActionsTest.homepage cannot be trashed, drafted, or set as homepage again"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_009_trash_success",
+      "key": "trash_success",
+      "functionalArea": "page_actions",
+      "given": {"surface": "modern_pages", "publishedRows": [12], "page": {"id": 12, "status": "published", "isHomepage": false}, "network": "online", "trashOutcome": "success"},
+      "event": {"name": "chooseTrashAndConfirm"},
+      "expected": {"surface": "modern_pages", "confirmationShown": true, "serviceEffect": {"name": "trashPage", "entity": "pages", "pageId": 12}, "publishedRows": [], "trashedRows": [12], "feedback": "moved_to_trash"},
+      "invariants": ["the service mutation is not called before confirmation", "the application-owned mutation body is invoked exactly once"],
+      "evidence": {"androidProduction": ["PagesRsListViewModel.onPageMenuAction", "PagesRsListViewModel.onConfirmPendingAction", "PagesRsListViewModel.trashPage"], "androidTests": ["PagesRsListViewModelTest.onPageMenuAction TRASH sets Trash confirmation"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "pl_state_010_trash_failure_retry",
+      "key": "trash_failure_retry",
+      "functionalArea": "failure_recovery",
+      "given": {"surface": "modern_pages", "publishedRows": [13], "page": {"id": 13, "status": "published", "isHomepage": false}, "network": "online", "trashOutcomes": ["service_error", "success"]},
+      "event": {"name": "confirmTrashThenRetry"},
+      "expected": {"surface": "modern_pages", "failure": {"publishedRows": [13], "feedback": "status_change_error"}, "recovery": {"publishedRows": [], "trashedRows": [13], "feedback": "moved_to_trash"}, "serviceCallCount": 2},
+      "invariants": ["failure does not optimistically remove the page", "retry uses the same page identity", "only the controlled external leaf supplies outcomes"],
+      "evidence": {"androidProduction": ["PagesRsListViewModel.executePageMutation"], "androidTests": ["PagesRsListViewModelTest.onConfirmPendingAction shows snackbar when offline"]}
+    }
+  ]
+}

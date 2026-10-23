@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_unified_support",
+  "status": "resolved",
+  "device": {
+    "serial": "emulator-5554",
+    "apiLevel": 37
+  },
+  "failingControl": {
+    "runDirectory": "eval_runs/multi_project_no_change_runtime_v2_20261022/wordpress-android/02_unified_support",
+    "reportWasReplacedByResolvedRerun": true,
+    "originalTestApkSha256": "d8a71b44b23ead1afffa83d92eee55a4f4cab824e0f9e6ca3c4698d3daf0057a",
+    "buildEvidence": "compileDebugAndroidTestKotlin NO-SOURCE",
+    "logcatCorrelation": "The Pages control reproduced ART ClassNotFoundException for its declared SemanticInstrumentation; this task had the identical empty androidTest compilation and process-crashed signature.",
+    "originalSummary": {
+      "passed": 0,
+      "failed": 0,
+      "notScored": 10,
+      "total": 10
+    }
+  },
+  "rootCause": "prepare_agent_harness.py copied the hidden instrumentation and case runtime but left the Kotlin androidTest source set pointing at ../evaluator paths outside the clean-room candidate. Gradle therefore produced an empty test APK. A host-only androidx.lifecycle stub was also copied into the device main source root and has been excluded to prevent ART linkage substitution.",
+  "repairs": [
+    "Replace external evaluator source roots with .benchmark-evaluator/main and .benchmark-evaluator/androidTest.",
+    "Exclude android and androidx host stubs from device main.",
+    "Make owner/provider manifest wiring idempotent.",
+    "Reject external evaluator roots, framework stubs, and missing hidden androidTest wiring in the hidden-harness audit.",
+    "Preserve crashes, missing symbols, invalid payloads, and install failures as not_scored."
+  ],
+  "verification": {
+    "cleanRoomTestApkSha256": "e6960db39e77b269221f00b8469fca9672b2ba3cf6649d95d0011f546b6f513b",
+    "cleanRoomSummary": {
+      "passed": 0,
+      "failed": 10,
+      "notScored": 0,
+      "total": 10
+    },
+    "knownFinalSummary": {
+      "passed": 10,
+      "failed": 0,
+      "notScored": 0,
+      "total": 10
+    }
+  }
+}

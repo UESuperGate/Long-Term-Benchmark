@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_reading_challenge",
+  "canonicalContract": "../canonical/transitions.json",
+  "runtime": "native ArkUI page with ReadingChallengeStore",
+  "cases": [
+    {
+      "caseId": "rc_before_start",
+      "traceDigest": "843a688534b65eb6b800dd50ee6994852f4f0761baec2459a4bde4b97bb64315",
+      "fixture": "PreferencesChallengeRepository plus evaluator Clock(2026-05-10)",
+      "eventEntrypoint": "Index.aboutToAppear -> ReadingChallengeStore.refresh",
+      "observations": [
+        "page challengeName",
+        "store state",
+        "preferences snapshot"
+      ]
+    },
+    {
+      "caseId": "rc_start_not_enrolled",
+      "traceDigest": "ba74b92a32e5f3d01d997ecb7557843c425befd000a53503d47a72638901eb81",
+      "fixture": "PreferencesChallengeRepository plus evaluator Clock(2026-05-11)",
+      "eventEntrypoint": "ReadingChallengeStore.refresh",
+      "observations": [
+        "page challengeName",
+        "preferences unchanged"
+      ]
+    },
+    {
+      "caseId": "rc_enroll",
+      "traceDigest": "018d71bd80e6f6e69ec196f67835a3288c6ec3eebb55c5d1ba4b170c5d94a7f2",
+      "fixture": "not-enrolled persisted preferences and evaluator Clock",
+      "eventEntrypoint": "Index Join challenge -> ReadingChallengeStore.enroll",
+      "observations": [
+        "persisted enrolled",
+        "persisted enrollmentDate",
+        "page streak"
+      ]
+    },
+    {
+      "caseId": "rc_first_read",
+      "traceDigest": "96c4b7c8c7aa3b3aadb344e9c661c15aa614d048037c35d52c0757bf6de879ff",
+      "fixture": "enrolled zero-streak preferences and evaluator Clock",
+      "eventEntrypoint": "Index Open article -> ReadingChallengeStore.openArticle",
+      "observations": [
+        "persisted streak",
+        "persisted lastReadDate",
+        "heartbeat leaf",
+        "widget leaf"
+      ]
+    },
+    {
+      "caseId": "rc_duplicate_same_day",
+      "traceDigest": "0dfdb1d4a8aaa1bc39e37677ac328617fc407081ce3d581c6ef37c1e5749957f",
+      "fixture": "same-day persisted read",
+      "eventEntrypoint": "Index Open article -> ReadingChallengeStore.openArticle",
+      "observations": [
+        "unchanged preferences",
+        "no external effects"
+      ]
+    },
+    {
+      "caseId": "rc_next_day_continues",
+      "traceDigest": "c5e38489e2d6afe328e6c75402e76d755887d667caf3300b5d71ca46c1475d80",
+      "fixture": "yesterday read and evaluator Clock",
+      "eventEntrypoint": "ReadingChallengeStore.openArticle",
+      "observations": [
+        "incremented streak",
+        "advanced lastReadDate",
+        "page state"
+      ]
+    },
+    {
+      "caseId": "rc_gap_resets",
+      "traceDigest": "ae1e6e5d90fc94ad639fb60077b6cc24fe60fa2c491c0d7836128b8f923e4dcc",
+      "fixture": "two-day gap persisted input and evaluator Clock",
+      "eventEntrypoint": "ReadingChallengeStore.refresh",
+      "observations": [
+        "persisted zero streak",
+        "enrolled_not_started state"
+      ]
+    },
+    {
+      "caseId": "rc_read_after_reset",
+      "traceDigest": "b2f025a4305c5ae5e251d5c4aeb44d29d23be727d4a1008397186070e82dba38",
+      "fixture": "two-day gap persisted input and evaluator Clock",
+      "eventEntrypoint": "ReadingChallengeStore.openArticle",
+      "observations": [
+        "reset then increment to one",
+        "external effects"
+      ]
+    },
+    {
+      "caseId": "rc_goal_completion",
+      "traceDigest": "03ded454ccb72917e56aa0aaf11b0ee76ec0e05411b6935e894659ae9cc8b7ef",
+      "fixture": "24-day active streak and evaluator Clock",
+      "eventEntrypoint": "ReadingChallengeStore.openArticle",
+      "observations": [
+        "persisted streak 25",
+        "challenge_completed state",
+        "external effects"
+      ]
+    },
+    {
+      "caseId": "rc_post_end_broken_rejected",
+      "traceDigest": "b3896386cd985b4b77a4090685a3d949e1f9df26613382bc57fb5ca15a5da226",
+      "fixture": "broken post-end streak and evaluator Clock",
+      "eventEntrypoint": "ReadingChallengeStore.openArticle",
+      "observations": [
+        "concluded state",
+        "unchanged preferences",
+        "no effects"
+      ]
+    }
+  ]
+}

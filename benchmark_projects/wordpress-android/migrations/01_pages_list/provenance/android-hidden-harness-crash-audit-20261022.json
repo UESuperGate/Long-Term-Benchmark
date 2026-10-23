@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_pages_list",
+  "status": "resolved",
+  "device": {
+    "serial": "emulator-5554",
+    "apiLevel": 37
+  },
+  "failingControl": {
+    "runDirectory": "eval_runs/multi_project_no_change_runtime_v2_20261022/wordpress-android/01_pages_list",
+    "reportWasReplacedByResolvedRerun": true,
+    "originalTestApkSha256": "9ab9ebbbc689bdc675bb09b55a4c4dde829b4894c0105a2e358d9e3e121a73b0",
+    "buildEvidence": "compileDebugAndroidTestKotlin NO-SOURCE",
+    "logcat": "java.lang.ClassNotFoundException: Didn't find class evaluator.pages.instrumentation.SemanticInstrumentation",
+    "originalSummary": {
+      "passed": 0,
+      "failed": 0,
+      "notScored": 10,
+      "total": 10
+    }
+  },
+  "rootCause": "prepare_agent_harness.py copied the hidden instrumentation and case runtime but left the Kotlin androidTest source set pointing at ../evaluator paths outside the clean-room candidate. Gradle therefore produced an empty test APK and ART could not instantiate the declared runner.",
+  "repairs": [
+    "Replace external evaluator source roots with .benchmark-evaluator/main and .benchmark-evaluator/androidTest.",
+    "Make owner manifest wiring idempotent.",
+    "Reject external evaluator roots and missing hidden androidTest wiring in the hidden-harness audit.",
+    "Preserve crashes, missing symbols, invalid payloads, and install failures as not_scored."
+  ],
+  "verification": {
+    "cleanRoomTestApkSha256": "613d532e9c1d1adabffbd03fa44eae077c2c79b90599f70c2cd9b69de0892e18",
+    "cleanRoomSummary": {
+      "passed": 0,
+      "failed": 10,
+      "notScored": 0,
+      "total": 10
+    },
+    "knownFinalSummary": {
+      "passed": 10,
+      "failed": 0,
+      "notScored": 0,
+      "total": 10
+    }
+  }
+}

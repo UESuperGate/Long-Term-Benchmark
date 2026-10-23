@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_sticker_management",
+  "workingDirectory": ".",
+  "android": {
+    "baseProject": "android/base",
+    "finalProject": "android/final",
+    "buildCommand": ["bash", "{migration}/../tools/build_android_harness.sh", "{project}"],
+    "semanticCommand": ["python3", "{migration}/../tools/with_device_lock.py", "--lock", "/tmp/long-term-benchmark-android-device.lock", "--", "node", "{migration}/../tools/run_android_device_semantic.mjs", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "agentPrepareCommand": ["node", "{migration}/../tools/prepare_agent_harness.mjs", "--platform", "android", "--task-id", "02_sticker_management", "--project", "{project}", "--migration", "{migration}"],
+    "agentVisibleBuildCommand": ["bash", "{migration}/../tools/build_android_agent_visible.sh", "{project}"],
+    "agentBuildCommand": ["bash", "{migration}/../tools/build_android_agent_harness.sh", "{project}"],
+    "agentSemanticCommand": ["python3", "{migration}/../tools/with_device_lock.py", "--lock", "/tmp/long-term-benchmark-android-device.lock", "--", "node", "{migration}/../tools/run_android_device_semantic.mjs", "--project", "{project}", "--role", "{role}", "--output", "{output}", "--migration", "{migration}", "--task-id", "02_sticker_management"],
+    "reportRelativePath": "results/android-{role}.json"
+  },
+  "arkts": {
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": ["bash", "{migration}/../tools/build_arkts_api23.sh", "{project}"],
+    "semanticCommand": ["python3", "{migration}/../tools/with_device_lock.py", "--lock", "/tmp/long-term-benchmark-arkts-device.lock", "--", "node", "{migration}/../tools/run_arkts_native_semantic.mjs", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "agentPrepareCommand": ["node", "{migration}/../tools/prepare_agent_harness.mjs", "--platform", "arkts", "--task-id", "02_sticker_management", "--project", "{project}", "--migration", "{migration}"],
+    "agentVisibleBuildCommand": ["bash", "{migration}/../tools/build_arkts_agent_visible.sh", "{project}"],
+    "agentBuildCommand": ["bash", "{migration}/../tools/build_arkts_api23.sh", "{project}"],
+    "agentSemanticCommand": ["python3", "{migration}/../tools/with_device_lock.py", "--lock", "/tmp/long-term-benchmark-arkts-device.lock", "--", "node", "{migration}/../tools/run_arkts_native_semantic.mjs", "--project", "{project}", "--role", "{role}", "--output", "{output}", "--migration", "{migration}"],
+    "reportRelativePath": "results/arkts-{role}.json"
+  },
+  "resultPolicy": "Android requires an API37 app runtime observer and ArkTS requires an API23 ArkVM EntryAbility/page/store observer. Host/JVM results are debug-only and never count; agent roles remain not_scored until the main evaluation run."
+}

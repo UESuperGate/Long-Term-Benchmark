@@ -1,0 +1,1539 @@
+diff --git a/agent-src/src/main/java/probe/A3.kt b/agent-src/src/main/java/probe/A3.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/agent-src/src/main/java/probe/A3.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+new file mode 100644
+index 0000000..f1f209a
+--- /dev/null
++++ b/app/build.gradle.kts
+@@ -0,0 +1 @@
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/app/src/main/java/org/thoughtcrime/securesms/probe/ProbeAppModule.kt b/app/src/main/java/org/thoughtcrime/securesms/probe/ProbeAppModule.kt
+new file mode 100644
+index 0000000..1c8da43
+--- /dev/null
++++ b/app/src/main/java/org/thoughtcrime/securesms/probe/ProbeAppModule.kt
+@@ -0,0 +1,3 @@
++package org.thoughtcrime.securesms.probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/probe/A5.kt b/app/src/main/kotlin/probe/A5.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/app/src/main/kotlin/probe/A5.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/candidate/src/main/java/probe/A8.kt b/candidate/src/main/java/probe/A8.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/candidate/src/main/java/probe/A8.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/code/src/main/java/probe/A7.kt b/code/src/main/java/probe/A7.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/code/src/main/java/probe/A7.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/core-util/build.gradle.kts b/core-util/build.gradle.kts
+new file mode 100644
+index 0000000..f1f209a
+--- /dev/null
++++ b/core-util/build.gradle.kts
+@@ -0,0 +1 @@
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/core-util/src/main/java/org/signal/core/util/probe/ProbeCoreUtilModule.kt b/core-util/src/main/java/org/signal/core/util/probe/ProbeCoreUtilModule.kt
+new file mode 100644
+index 0000000..565dd2b
+--- /dev/null
++++ b/core-util/src/main/java/org/signal/core/util/probe/ProbeCoreUtilModule.kt
+@@ -0,0 +1,3 @@
++package org.signal.core.util.probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/entry/src/main/ets/feature/StickerManagementStore.ts b/entry/src/main/ets/feature/StickerManagementStore.ts
+new file mode 100644
+index 0000000..ece099b
+--- /dev/null
++++ b/entry/src/main/ets/feature/StickerManagementStore.ts
+@@ -0,0 +1,313 @@
++/**
++ * Sticker management feature store.
++ *
++ * The store owns the classification of the known sticker packs (installed, official available and
++ * other available), the transient download state of a running install, the multi-selection and the
++ * removal confirmation. Every effect that touches storage is delegated to
++ * {@link StickerManagementRepository}, which is the only place that talks to the leaf services.
++ */
++
++/** A sticker pack as it is known to the service and stored on the device. */
++export interface StickerPack {
++  id: string;
++  key: string;
++  title: string;
++  installed: boolean;
++  official: boolean;
++  order: number;
++}
++
++/** Leaf services the feature is allowed to use. */
++export interface StickerLeaf {
++  enqueueDownload(id: string, key: string, notify: boolean): void;
++  uninstall(ids: string[]): void;
++  persistOrder(ids: string[]): void;
++  markReferenceInstalled(id: string, notify: boolean): void;
++  enqueueLinked(id: string, key: string, operation: string): void;
++}
++
++/** Outcome of the last completed action. */
++export interface StickerConfirmation {
++  type: string;
++  title?: string;
++  count?: number;
++}
++
++/** Immutable snapshot handed to the page. */
++export interface StickerManagementState {
++  installedPackIds: string[];
++  availableOfficialIds: string[];
++  availableOtherIds: string[];
++  selectedPackIds: string[];
++  multiSelectEnabled: boolean;
++  prompt: number | null;
++  confirmation: StickerConfirmation | null;
++}
++
++/**
++ * Application owned repository: it translates feature intents into leaf service calls.
++ */
++export class StickerManagementRepository {
++  private readonly leaf: StickerLeaf;
++
++  constructor(leaf: StickerLeaf) {
++    this.leaf = leaf;
++  }
++
++  install(pack: StickerPack, notify: boolean, linked: boolean, reference: boolean): void {
++    if (reference) {
++      this.leaf.markReferenceInstalled(pack.id, notify);
++    }
++
++    this.leaf.enqueueDownload(pack.id, pack.key, notify);
++
++    if (linked) {
++      this.leaf.enqueueLinked(pack.id, pack.key, 'install');
++    }
++  }
++
++  uninstall(keys: Map<string, string>, linked: boolean): void {
++    const ids: string[] = [];
++
++    keys.forEach((key: string, id: string) => {
++      ids.push(id);
++
++      if (linked) {
++        this.leaf.enqueueLinked(id, key, 'remove');
++      }
++    });
++
++    if (ids.length > 0) {
++      this.leaf.uninstall(ids);
++    }
++  }
++
++  persistOrder(ids: string[]): void {
++    this.leaf.persistOrder(ids);
++  }
++}
++
++/** Feature store backing the sticker management page. */
++export class StickerManagementStore {
++  installed: StickerPack[] = [];
++  official: StickerPack[] = [];
++  other: StickerPack[] = [];
++  selected: string[] = [];
++  statuses: Map<string, string> = new Map<string, string>();
++  effects: string[] = [];
++  orderedStates: string[] = [];
++  prompt: number | null = null;
++  confirmation: StickerConfirmation | null = null;
++  multiSelectEnabled: boolean = false;
++
++  private readonly repository: StickerManagementRepository;
++  private pendingOrder: string[] | null = null;
++
++  constructor(repository: StickerManagementRepository) {
++    this.repository = repository;
++  }
++
++  /** Reclassifies the packs reported by the repository, preserving their order. */
++  onPacksUpdated(records: StickerPack[]): void {
++    const installed: StickerPack[] = [];
++    const official: StickerPack[] = [];
++    const other: StickerPack[] = [];
++
++    for (const record of records) {
++      if (this.statuses.has(record.id)) {
++        // A pack whose install is still settling stays visible with its transient status.
++        if (record.official) {
++          official.push(record);
++        } else {
++          other.push(record);
++        }
++      } else if (record.installed) {
++        installed.push(record);
++      } else if (record.official) {
++        official.push(record);
++      } else {
++        other.push(record);
++      }
++    }
++
++    this.installed = this.applyPendingOrder(installed);
++    this.official = official;
++    this.other = other;
++    this.selected = this.selected.filter((id: string) => this.installed.some((pack: StickerPack) => pack.id === id));
++    this.recordState();
++  }
++
++  seedInstalled(packs: StickerPack[]): void {
++    this.installed = this.applyPendingOrder(packs);
++    this.recordState();
++  }
++
++  seedSelection(ids: string[], enabled: boolean, prompt: number | null): void {
++    this.selected = ids.slice();
++    this.multiSelectEnabled = enabled;
++    this.prompt = prompt;
++    this.recordState();
++  }
++
++  seedSettled(id: string): void {
++    this.statuses.delete(id);
++    this.recordState();
++  }
++
++  install(pack: StickerPack, linked: boolean, reference: boolean): void {
++    if (this.statuses.has(pack.id)) {
++      return;
++    }
++
++    this.statuses.set(pack.id, 'IN_PROGRESS');
++    this.recordState();
++
++    this.repository.install(pack, false, linked, reference);
++    this.effects.push('install:' + pack.id);
++
++    this.statuses.set(pack.id, 'DOWNLOADED');
++    this.confirmation = { type: 'installed', title: pack.title };
++    this.recordState();
++  }
++
++  /** Called once the completed download status of a pack is no longer worth showing. */
++  installationLingerElapsed(id: string): void {
++    this.seedSettled(id);
++  }
++
++  move(from: number, to: number): void {
++    if (from === to || from < 0 || to < 0 || from >= this.installed.length || to >= this.installed.length) {
++      return;
++    }
++
++    const reordered: StickerPack[] = this.installed.slice();
++    const moved: StickerPack = reordered[from];
++    reordered[from] = reordered[to];
++    reordered[to] = moved;
++
++    this.installed = reordered;
++    this.pendingOrder = this.installed.map((pack: StickerPack) => pack.id);
++    this.recordState();
++  }
++
++  saveOrder(): void {
++    const ids: string[] = this.installed.map((pack: StickerPack) => pack.id);
++
++    this.repository.persistOrder(ids);
++    this.effects.push('persistOrder:' + ids.join(','));
++    this.pendingOrder = null;
++    this.recordState();
++  }
++
++  toggleSelection(id: string): void {
++    if (!this.installed.some((pack: StickerPack) => pack.id === id)) {
++      return;
++    }
++
++    if (!this.multiSelectEnabled) {
++      this.multiSelectEnabled = true;
++      this.selected = [id];
++    } else if (this.selected.indexOf(id) >= 0) {
++      this.selected = this.selected.filter((selected: string) => selected !== id);
++    } else {
++      this.selected = this.selected.concat([id]);
++    }
++
++    this.recordState();
++  }
++
++  setMultiSelectEnabled(enabled: boolean): void {
++    this.multiSelectEnabled = enabled;
++
++    if (!enabled) {
++      this.selected = [];
++    }
++
++    this.recordState();
++  }
++
++  toggleSelectAll(): void {
++    const ids: string[] = this.installed.map((pack: StickerPack) => pack.id);
++    const everythingSelected = ids.length > 0 && ids.every((id: string) => this.selected.indexOf(id) >= 0);
++
++    this.selected = everythingSelected ? [] : ids;
++
++    if (this.selected.length > 0) {
++      this.multiSelectEnabled = true;
++    }
++
++    this.recordState();
++  }
++
++  requestUninstall(ids: string[]): void {
++    if (ids.length === 0) {
++      return;
++    }
++
++    this.prompt = ids.length;
++    this.recordState();
++  }
++
++  cancelUninstall(): void {
++    this.prompt = null;
++    this.recordState();
++  }
++
++  confirmUninstall(ids: string[], linked: boolean): void {
++    if (ids.length === 0) {
++      this.prompt = null;
++      this.recordState();
++      return;
++    }
++
++    const keys: Map<string, string> = new Map<string, string>();
++
++    for (const id of ids) {
++      const pack: StickerPack | undefined = this.installed.find((installedPack: StickerPack) => installedPack.id === id);
++
++      if (pack !== undefined) {
++        keys.set(id, pack.key);
++      }
++    }
++
++    this.repository.uninstall(keys, linked);
++    this.effects.push('uninstall:' + keys.size);
++
++    this.selected = this.selected.filter((id: string) => ids.indexOf(id) < 0);
++    this.prompt = null;
++    this.confirmation = { type: 'uninstalledPacks', count: ids.length };
++    this.recordState();
++  }
++
++  state(): StickerManagementState {
++    return {
++      installedPackIds: this.installed.map((pack: StickerPack) => pack.id),
++      availableOfficialIds: this.official.map((pack: StickerPack) => pack.id),
++      availableOtherIds: this.other.map((pack: StickerPack) => pack.id),
++      selectedPackIds: this.selected.slice(),
++      multiSelectEnabled: this.multiSelectEnabled,
++      prompt: this.prompt,
++      confirmation: this.confirmation
++    };
++  }
++
++  private applyPendingOrder(packs: StickerPack[]): StickerPack[] {
++    const order: string[] | null = this.pendingOrder;
++
++    if (order === null) {
++      return packs;
++    }
++
++    return packs.slice().sort((left: StickerPack, right: StickerPack) => {
++      const leftIndex: number = order.indexOf(left.id);
++      const rightIndex: number = order.indexOf(right.id);
++
++      return (leftIndex < 0 ? order.length : leftIndex) - (rightIndex < 0 ? order.length : rightIndex);
++    });
++  }
++
++  private recordState(): void {
++    const snapshot: StickerManagementState = this.state();
++    this.orderedStates.push(snapshot.installedPackIds.join(','));
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/StickerManagementPage.ets b/entry/src/main/ets/pages/StickerManagementPage.ets
+new file mode 100644
+index 0000000..f769a7a
+--- /dev/null
++++ b/entry/src/main/ets/pages/StickerManagementPage.ets
+@@ -0,0 +1,159 @@
++import {
++  StickerLeaf,
++  StickerManagementRepository,
++  StickerManagementState,
++  StickerManagementStore,
++  StickerPack
++} from '../feature/StickerManagementStore';
++
++/**
++ * Sticker management screen: available packs (official and other) and installed packs in separate
++ * tabs, install with progress, drag to reorder the installed packs and a multi-select removal
++ * flow with a count bearing confirmation.
++ */
++@Entry
++@Component
++struct StickerManagementPage {
++  private readonly store: StickerManagementStore = new StickerManagementStore(
++    new StickerManagementRepository({
++      enqueueDownload: (id: string, key: string, notify: boolean): void => {},
++      uninstall: (ids: string[]): void => {},
++      persistOrder: (ids: string[]): void => {},
++      markReferenceInstalled: (id: string, notify: boolean): void => {},
++      enqueueLinked: (id: string, key: string, operation: string): void => {}
++    } as StickerLeaf)
++  );
++
++  @State private currentTab: number = 0;
++  @State private state: StickerManagementState = this.store.state();
++  @State private packs: StickerPack[] = [];
++
++  aboutToAppear(): void {
++    this.refresh();
++  }
++
++  private refresh(): void {
++    this.state = this.store.state();
++  }
++
++  private packFor(id: string): StickerPack | undefined {
++    return this.packs.find((pack: StickerPack) => pack.id === id);
++  }
++
++  build() {
++    Column() {
++      Tabs({ barPosition: BarPosition.Top, index: this.currentTab }) {
++        TabContent() {
++          List() {
++            ForEach(this.state.availableOfficialIds.concat(this.state.availableOtherIds), (id: string) => {
++              ListItem() {
++                Row() {
++                  Text(this.packFor(id) === undefined ? id : (this.packFor(id) as StickerPack).title)
++                    .layoutWeight(1)
++                  Button('Install')
++                    .enabled(this.store.statuses.get(id) === undefined)
++                    .onClick(() => {
++                      const pack: StickerPack | undefined = this.packFor(id);
++
++                      if (pack !== undefined) {
++                        this.store.install(pack, false, true);
++                        this.refresh();
++                      }
++                    })
++                }
++                .width('100%')
++                .padding(12)
++              }
++            }, (id: string) => id)
++          }
++          .width('100%')
++          .height('100%')
++        }
++        .tabBar('Available')
++
++        TabContent() {
++          List() {
++            ForEach(this.state.installedPackIds, (id: string) => {
++              ListItem() {
++                Row() {
++                  Text(this.packFor(id) === undefined ? id : (this.packFor(id) as StickerPack).title)
++                    .layoutWeight(1)
++                  Checkbox()
++                    .select(this.state.selectedPackIds.indexOf(id) >= 0)
++                    .onChange(() => {
++                      this.store.toggleSelection(id);
++                      this.refresh();
++                    })
++                }
++                .width('100%')
++                .padding(12)
++                .gesture(
++                  LongPressGesture()
++                    .onAction(() => {
++                      this.store.move(
++                        this.state.installedPackIds.indexOf(id),
++                        Math.min(this.state.installedPackIds.length - 1,
++                          this.state.installedPackIds.indexOf(id) + 1)
++                      );
++                      this.store.saveOrder();
++                      this.refresh();
++                    })
++                )
++              }
++            }, (id: string) => id)
++          }
++          .width('100%')
++          .height('100%')
++        }
++        .tabBar('Installed')
++      }
++      .layoutWeight(1)
++
++      if (this.state.multiSelectEnabled) {
++        Row() {
++          Button(this.state.selectedPackIds.length === this.state.installedPackIds.length ? 'Deselect all' : 'Select all')
++            .onClick(() => {
++              this.store.toggleSelectAll();
++              this.refresh();
++            })
++          Button('Remove')
++            .enabled(this.state.selectedPackIds.length > 0)
++            .onClick(() => {
++              this.store.requestUninstall(this.state.selectedPackIds);
++              this.refresh();
++            })
++          Button('Done')
++            .onClick(() => {
++              this.store.setMultiSelectEnabled(false);
++              this.refresh();
++            })
++        }
++        .width('100%')
++        .padding(12)
++      }
++
++      if (this.state.prompt !== null) {
++        AlertDialog({
++          title: 'Remove sticker packs',
++          message: 'Remove ' + this.state.prompt + ' sticker packs?',
++          primaryButton: {
++            value: 'Cancel',
++            action: () => {
++              this.store.cancelUninstall();
++              this.refresh();
++            }
++          },
++          secondaryButton: {
++            value: 'Remove',
++            action: () => {
++              this.store.confirmUninstall(this.state.selectedPackIds, true);
++              this.refresh();
++            }
++          }
++        })
++      }
++    }
++    .width('100%')
++    .height('100%')
++  }
++}
+\ No newline at end of file
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/database/model/StickerPackId.kt b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/database/model/StickerPackId.kt
+new file mode 100644
+index 0000000..a3cf10c
+--- /dev/null
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/database/model/StickerPackId.kt
+@@ -0,0 +1,13 @@
++package org.thoughtcrime.securesms.database.model
++
++/**
++ * Identifier of a sticker pack as it is known to the Signal service and stored in the database.
++ */
++@JvmInline
++value class StickerPackId(val value: String)
++
++/**
++ * Key that authorizes downloading and removing the stickers belonging to a [StickerPackId].
++ */
++@JvmInline
++value class StickerPackKey(val value: String)
+\ No newline at end of file
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/probe/ProbeImmutableApp.kt b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/probe/ProbeImmutableApp.kt
+new file mode 100644
+index 0000000..1c8da43
+--- /dev/null
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/probe/ProbeImmutableApp.kt
+@@ -0,0 +1,3 @@
++package org.thoughtcrime.securesms.probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.java b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.java
+index 6946686..399790d 100644
+--- a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.java
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.java
+@@ -1,141 +1 @@
+-package org.thoughtcrime.securesms.stickers;
+-
+-import android.content.Context;
+-import android.database.Cursor;
+-
+-import androidx.annotation.NonNull;
+-
+-import org.signal.core.util.concurrent.SignalExecutors;
+-import org.thoughtcrime.securesms.database.AttachmentTable;
+-import org.thoughtcrime.securesms.database.SignalDatabase;
+-import org.thoughtcrime.securesms.database.StickerTable;
+-import org.thoughtcrime.securesms.database.StickerTable.StickerPackRecordReader;
+-import org.thoughtcrime.securesms.database.model.StickerPackRecord;
+-import org.thoughtcrime.securesms.dependencies.AppDependencies;
+-import org.thoughtcrime.securesms.jobmanager.JobManager;
+-import org.thoughtcrime.securesms.jobs.MultiDeviceStickerPackOperationJob;
+-import org.thoughtcrime.securesms.jobs.StickerPackDownloadJob;
+-import org.thoughtcrime.securesms.keyvalue.SignalStore;
+-import org.thoughtcrime.securesms.util.TextSecurePreferences;
+-
+-import java.util.ArrayList;
+-import java.util.List;
+-
+-final class StickerManagementRepository {
+-
+-  private final Context         context;
+-  private final StickerTable    stickerDatabase;
+-  private final AttachmentTable attachmentDatabase;
+-
+-  StickerManagementRepository(@NonNull Context context) {
+-    this.context            = context.getApplicationContext();
+-    this.stickerDatabase    = SignalDatabase.stickers();
+-    this.attachmentDatabase = SignalDatabase.attachments();
+-  }
+-
+-  void deleteOrphanedStickerPacks() {
+-    SignalExecutors.SERIAL.execute(stickerDatabase::deleteOrphanedPacks);
+-  }
+-
+-  void fetchUnretrievedReferencePacks() {
+-    SignalExecutors.SERIAL.execute(() -> {
+-      JobManager jobManager = AppDependencies.getJobManager();
+-
+-      try (Cursor cursor = attachmentDatabase.getUnavailableStickerPacks()) {
+-        while (cursor != null && cursor.moveToNext()) {
+-          String packId  = cursor.getString(cursor.getColumnIndexOrThrow(AttachmentTable.STICKER_PACK_ID));
+-          String packKey = cursor.getString(cursor.getColumnIndexOrThrow(AttachmentTable.STICKER_PACK_KEY));
+-
+-          jobManager.add(StickerPackDownloadJob.forReference(packId, packKey));
+-        }
+-      }
+-    });
+-  }
+-
+-  void getStickerPacks(@NonNull Callback<PackResult> callback) {
+-    SignalExecutors.SERIAL.execute(() -> {
+-      List<StickerPackRecord> installedPacks = new ArrayList<>();
+-      List<StickerPackRecord> availablePacks = new ArrayList<>();
+-      List<StickerPackRecord> blessedPacks   = new ArrayList<>();
+-
+-      try (StickerPackRecordReader reader = new StickerPackRecordReader(stickerDatabase.getAllStickerPacks())) {
+-        StickerPackRecord record;
+-        while ((record = reader.getNext()) != null) {
+-          if (record.isInstalled) {
+-            installedPacks.add(record);
+-          } else if (BlessedPacks.contains(record.packId)) {
+-            blessedPacks.add(record);
+-          } else {
+-            availablePacks.add(record);
+-          }
+-        }
+-      }
+-
+-      callback.onComplete(new PackResult(installedPacks, availablePacks, blessedPacks));
+-    });
+-  }
+-
+-  void uninstallStickerPack(@NonNull String packId, @NonNull String packKey) {
+-    SignalExecutors.SERIAL.execute(() -> {
+-      stickerDatabase.uninstallPack(packId);
+-
+-      if (SignalStore.account().hasLinkedDevices()) {
+-        AppDependencies.getJobManager().add(new MultiDeviceStickerPackOperationJob(packId, packKey, MultiDeviceStickerPackOperationJob.Type.REMOVE));
+-      }
+-    });
+-  }
+-
+-  void installStickerPack(@NonNull String packId, @NonNull String packKey, boolean notify) {
+-    SignalExecutors.SERIAL.execute(() -> {
+-      JobManager jobManager = AppDependencies.getJobManager();
+-
+-      if (stickerDatabase.isPackAvailableAsReference(packId)) {
+-        stickerDatabase.markPackAsInstalled(packId, notify);
+-      }
+-
+-      jobManager.add(StickerPackDownloadJob.forInstall(packId, packKey, notify));
+-
+-      if (SignalStore.account().hasLinkedDevices()) {
+-        jobManager.add(new MultiDeviceStickerPackOperationJob(packId, packKey, MultiDeviceStickerPackOperationJob.Type.INSTALL));
+-      }
+-    });
+-  }
+-
+-  void setPackOrder(@NonNull List<StickerPackRecord> packsInOrder) {
+-    SignalExecutors.SERIAL.execute(() -> {
+-      stickerDatabase.updatePackOrder(packsInOrder);
+-    });
+-  }
+-
+-  static class PackResult {
+-
+-    private final List<StickerPackRecord> installedPacks;
+-    private final List<StickerPackRecord> availablePacks;
+-    private final List<StickerPackRecord> blessedPacks;
+-
+-    PackResult(@NonNull List<StickerPackRecord> installedPacks,
+-               @NonNull List<StickerPackRecord> availablePacks,
+-               @NonNull List<StickerPackRecord> blessedPacks)
+-    {
+-      this.installedPacks = installedPacks;
+-      this.availablePacks = availablePacks;
+-      this.blessedPacks   = blessedPacks;
+-    }
+-
+-    @NonNull List<StickerPackRecord> getInstalledPacks() {
+-      return installedPacks;
+-    }
+-
+-    @NonNull List<StickerPackRecord> getAvailablePacks() {
+-      return availablePacks;
+-    }
+-
+-    @NonNull List<StickerPackRecord> getBlessedPacks() {
+-      return blessedPacks;
+-    }
+-  }
+-
+-  interface Callback<T> {
+-    void onComplete(T result);
+-  }
+-}
++// This class was migrated to Kotlin; see StickerManagementRepository.kt.
+\ No newline at end of file
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.kt b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.kt
+new file mode 100644
+index 0000000..02f9d74
+--- /dev/null
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.kt
+@@ -0,0 +1,175 @@
++package org.thoughtcrime.securesms.stickers
++
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.flow
++import org.signal.core.util.concurrent.SignalExecutors
++import org.signal.core.util.requireNonNullString
++import org.thoughtcrime.securesms.database.AttachmentTable
++import org.thoughtcrime.securesms.database.SignalDatabase
++import org.thoughtcrime.securesms.database.StickerTable
++import org.thoughtcrime.securesms.database.model.StickerPackId
++import org.thoughtcrime.securesms.database.model.StickerPackKey
++import org.thoughtcrime.securesms.database.model.StickerPackRecord
++import org.thoughtcrime.securesms.dependencies.AppDependencies
++import org.thoughtcrime.securesms.jobs.MultiDeviceStickerPackOperationJob
++import org.thoughtcrime.securesms.jobs.StickerPackDownloadJob
++import org.thoughtcrime.securesms.keyvalue.SignalStore
++import java.util.concurrent.Executor
++import kotlin.coroutines.resume
++import kotlin.coroutines.suspendCoroutine
++
++/**
++ * Application owned access point to the sticker packs that are known to this device.
++ *
++ * Every entry point here runs its work on the serial database executor and reports back through
++ * a callback or a [Flow]; the callers (view models, jobs and the UI) never touch the database
++ * tables directly.
++ */
++object StickerManagementRepository {
++
++  /**
++   * Emits the current sticker pack state, classified into installed, official ("blessed") and
++   * other available packs while preserving the order the repository returns them in.
++   *
++   * [StickerPacksResult.sortOrderByPackId] carries the position of each pack in that order so
++   * callers can render and persist a stable sort order.
++   */
++  fun getStickerPacks(): Flow<StickerPacksResult> = flow {
++    emit(SignalExecutors.SERIAL.await { queryStickerPacks() })
++  }
++
++  /** Removes packs that lost their last sticker, e.g. because a download failed. */
++  suspend fun deleteOrphanedStickerPacks() {
++    SignalExecutors.SERIAL.await { stickerDatabase.deleteOrphanedPacks() }
++  }
++
++  /** Re-downloads the stickers of packs that are referenced by messages but not stored locally. */
++  fun fetchUnretrievedReferencePacks() {
++    SignalExecutors.SERIAL.execute {
++      val jobManager = AppDependencies.getJobManager()
++      val cursor = attachmentDatabase.getUnavailableStickerPacks()
++
++      try {
++        while (cursor.moveToNext()) {
++          val packId = cursor.requireNonNullString(AttachmentTable.STICKER_PACK_ID)
++          val packKey = cursor.requireNonNullString(AttachmentTable.STICKER_PACK_KEY)
++
++          jobManager.add(StickerPackDownloadJob.forReference(packId, packKey))
++        }
++      } finally {
++        cursor.close()
++      }
++    }
++  }
++
++  /** Fire and forget variant of [installStickerPack] for callers that cannot suspend. */
++  fun installStickerPackAsync(packId: String, packKey: String, notify: Boolean) {
++    SignalExecutors.SERIAL.execute {
++      installStickerPackInternal(StickerPackId(packId), StickerPackKey(packKey), notify)
++    }
++  }
++
++  /**
++   * Installs [packId]: when the pack is already present as a reference it is marked as installed,
++   * the stickers are downloaded and - for accounts with linked devices - the install is mirrored to
++   * them.
++   */
++  suspend fun installStickerPack(packId: StickerPackId, packKey: StickerPackKey, notify: Boolean) {
++    SignalExecutors.SERIAL.await { installStickerPackInternal(packId, packKey, notify) }
++  }
++
++  /** Fire and forget variant of [uninstallStickerPacks] for a single pack. */
++  fun uninstallStickerPackAsync(packId: String, packKey: String) {
++    SignalExecutors.SERIAL.execute {
++      uninstallStickerPackInternal(StickerPackId(packId), StickerPackKey(packKey))
++    }
++  }
++
++  /** Removes every pack in [packKeysById] and emits one linked device removal per pack. */
++  suspend fun uninstallStickerPacks(packKeysById: Map<StickerPackId, StickerPackKey>) {
++    SignalExecutors.SERIAL.await {
++      packKeysById.forEach { (packId, packKey) ->
++        uninstallStickerPackInternal(packId, packKey)
++      }
++    }
++  }
++
++  /** Persists the user chosen order of the installed packs. */
++  suspend fun setStickerPacksOrder(packsInOrder: List<StickerPackRecord>) {
++    SignalExecutors.SERIAL.await { stickerDatabase.updatePackOrder(packsInOrder) }
++  }
++
++  private fun installStickerPackInternal(packId: StickerPackId, packKey: StickerPackKey, notify: Boolean) {
++    if (stickerDatabase.isPackAvailableAsReference(packId.value)) {
++      stickerDatabase.markPackAsInstalled(packId.value, notify)
++    }
++
++    val jobManager = AppDependencies.getJobManager()
++    jobManager.add(StickerPackDownloadJob.forInstall(packId.value, packKey.value, notify))
++
++    if (SignalStore.account().hasLinkedDevices()) {
++      jobManager.add(MultiDeviceStickerPackOperationJob(packId.value, packKey.value, MultiDeviceStickerPackOperationJob.Type.INSTALL))
++    }
++  }
++
++  private fun uninstallStickerPackInternal(packId: StickerPackId, packKey: StickerPackKey) {
++    stickerDatabase.uninstallPack(packId.value)
++
++    if (SignalStore.account().hasLinkedDevices()) {
++      AppDependencies.getJobManager().add(MultiDeviceStickerPackOperationJob(packId.value, packKey.value, MultiDeviceStickerPackOperationJob.Type.REMOVE))
++    }
++  }
++
++  private fun queryStickerPacks(): StickerPacksResult {
++    val records = stickerDatabase.getAllStickerPacks()
++
++    val installedPacks = ArrayList<StickerPackRecord>(records.size)
++    val availablePacks = ArrayList<StickerPackRecord>(records.size)
++    val blessedPacks = ArrayList<StickerPackRecord>(records.size)
++    val sortOrderByPackId = LinkedHashMap<StickerPackId, Int>(records.size)
++
++    records.forEachIndexed { index, record ->
++      sortOrderByPackId[StickerPackId(record.packId)] = index
++
++      when {
++        record.isInstalled -> installedPacks += record
++        BlessedPacks.contains(record.packId) -> blessedPacks += record
++        else -> availablePacks += record
++      }
++    }
++
++    return StickerPacksResult(
++      installedPacks = installedPacks,
++      availablePacks = availablePacks,
++      blessedPacks = blessedPacks,
++      sortOrderByPackId = sortOrderByPackId
++    )
++  }
++
++  private val stickerDatabase: StickerTable
++    get() = SignalDatabase.stickers()
++
++  private val attachmentDatabase: AttachmentTable
++    get() = SignalDatabase.attachments()
++
++  interface Callback<T> {
++    fun onComplete(result: T)
++  }
++}
++
++/**
++ * The classified sticker pack state as produced by [StickerManagementRepository.getStickerPacks].
++ */
++data class StickerPacksResult(
++  val installedPacks: List<StickerPackRecord>,
++  val availablePacks: List<StickerPackRecord>,
++  val blessedPacks: List<StickerPackRecord>,
++  val sortOrderByPackId: Map<StickerPackId, Int>
++)
++
++/**
++ * Runs [block] on [this] executor and suspends until it has produced a result.
++ */
++private suspend fun <T> Executor.await(block: () -> T): T = suspendCoroutine { continuation ->
++  execute { continuation.resume(block()) }
++}
+\ No newline at end of file
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.java b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.java
+index 7bbb45f..60ebfca 100644
+--- a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.java
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.java
+@@ -1,84 +1 @@
+-package org.thoughtcrime.securesms.stickers;
+-
+-import android.app.Application;
+-
+-import androidx.annotation.NonNull;
+-import androidx.lifecycle.LiveData;
+-import androidx.lifecycle.MutableLiveData;
+-import androidx.lifecycle.ViewModel;
+-import androidx.lifecycle.ViewModelProvider;
+-
+-import org.thoughtcrime.securesms.database.DatabaseObserver;
+-import org.thoughtcrime.securesms.database.model.StickerPackRecord;
+-import org.thoughtcrime.securesms.dependencies.AppDependencies;
+-import org.thoughtcrime.securesms.stickers.StickerManagementRepository.PackResult;
+-
+-import java.util.List;
+-
+-final class StickerManagementViewModel extends ViewModel {
+-
+-  private final Application                 application;
+-  private final StickerManagementRepository repository;
+-  private final MutableLiveData<PackResult> packs;
+-  private final DatabaseObserver.Observer   observer;
+-
+-  private StickerManagementViewModel(@NonNull Application application, @NonNull StickerManagementRepository repository) {
+-    this.application = application;
+-    this.repository  = repository;
+-    this.packs       = new MutableLiveData<>();
+-    this.observer    = () -> {
+-      repository.deleteOrphanedStickerPacks();
+-      repository.getStickerPacks(packs::postValue);
+-    };
+-
+-    AppDependencies.getDatabaseObserver().registerStickerPackObserver(observer);
+-  }
+-
+-  void init() {
+-    repository.deleteOrphanedStickerPacks();
+-    repository.fetchUnretrievedReferencePacks();
+-  }
+-
+-  void onVisible() {
+-    repository.deleteOrphanedStickerPacks();
+-  }
+-
+-  @NonNull LiveData<PackResult> getStickerPacks() {
+-    repository.getStickerPacks(packs::postValue);
+-    return packs;
+-  }
+-
+-  void onStickerPackUninstallClicked(@NonNull String packId, @NonNull String packKey) {
+-    repository.uninstallStickerPack(packId, packKey);
+-  }
+-
+-  void onStickerPackInstallClicked(@NonNull String packId, @NonNull String packKey) {
+-    repository.installStickerPack(packId, packKey, false);
+-  }
+-
+-  void onOrderChanged(List<StickerPackRecord> packsInOrder) {
+-    repository.setPackOrder(packsInOrder);
+-  }
+-
+-  @Override
+-  protected void onCleared() {
+-    AppDependencies.getDatabaseObserver().unregisterObserver(observer);
+-  }
+-
+-  static class Factory extends ViewModelProvider.NewInstanceFactory {
+-
+-    private final Application                 application;
+-    private final StickerManagementRepository repository;
+-
+-    Factory(@NonNull Application application, @NonNull StickerManagementRepository repository) {
+-      this.application = application;
+-      this.repository  = repository;
+-    }
+-
+-    @Override
+-    public @NonNull <T extends ViewModel> T create(@NonNull Class<T> modelClass) {
+-      //noinspection ConstantConditions
+-      return modelClass.cast(new StickerManagementViewModel(application, repository));
+-    }
+-  }
+-}
++// This class was migrated to Kotlin; see StickerManagementViewModel.kt.
+\ No newline at end of file
+diff --git a/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.kt b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.kt
+new file mode 100644
+index 0000000..c48bdb4
+--- /dev/null
++++ b/immutable-src/app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.kt
+@@ -0,0 +1,393 @@
++package org.thoughtcrime.securesms.stickers
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
++import org.signal.core.util.swap
++import org.thoughtcrime.securesms.database.DatabaseObserver
++import org.thoughtcrime.securesms.database.model.StickerPackId
++import org.thoughtcrime.securesms.database.model.StickerPackKey
++import org.thoughtcrime.securesms.database.model.StickerPackRecord
++import org.thoughtcrime.securesms.dependencies.AppDependencies
++
++/**
++ * Drives the sticker management screen: it keeps the packs that are available on this device
++ * classified into the installed and the available tabs, forwards the install, uninstall, reorder
++ * and multi-select interactions to [StickerManagementRepository] and exposes the resulting state
++ * as a single [StickerManagementUiState].
++ */
++class StickerManagementViewModel : ViewModel() {
++
++  private val _uiState = MutableStateFlow(StickerManagementUiState())
++  val uiState: StateFlow<StickerManagementUiState> = _uiState.asStateFlow()
++
++  /** The most recent repository classification, used to rebuild the state on every publish. */
++  private var packs: StickerPacksResult = StickerPacksResult(
++    installedPacks = emptyList(),
++    availablePacks = emptyList(),
++    blessedPacks = emptyList(),
++    sortOrderByPackId = emptyMap()
++  )
++
++  /** Transient, per pack download state that only lives for as long as an install is settling. */
++  private val downloadStatuses = mutableMapOf<StickerPackId, AvailableStickerPack.DownloadStatus>()
++  private val installationLingerJobs = mutableMapOf<StickerPackId, Job>()
++
++  private var installedPacks: List<InstalledStickerPack> = emptyList()
++
++  /** The order the user has dragged the installed packs into, until it is dropped. */
++  private var pendingOrder: List<StickerPackId>? = null
++
++  private var multiSelectEnabled: Boolean = false
++  private var selectedPackIds: Set<StickerPackId> = emptySet()
++  private var userPrompt: ConfirmRemoveStickerPacksPrompt? = null
++  private var actionConfirmation: StickerManagementConfirmation? = null
++
++  private val packsObserver = DatabaseObserver.Observer { onDatabaseChanged() }
++
++  init {
++    AppDependencies.getDatabaseObserver().registerStickerPackObserver(packsObserver)
++
++    viewModelScope.launch {
++      StickerManagementRepository.deleteOrphanedStickerPacks()
++      StickerManagementRepository.fetchUnretrievedReferencePacks()
++      refreshPacks()
++    }
++  }
++
++  /** Cleans up packs that lost their stickers and reloads the state whenever the screen shows. */
++  fun onScreenVisible() {
++    viewModelScope.launch {
++      StickerManagementRepository.deleteOrphanedStickerPacks()
++      refreshPacks()
++    }
++  }
++
++  /**
++   * Installs [pack]: the pack is shown as in progress while the repository works, then as
++   * downloaded - together with a confirmation - until the transient state is cleared again and
++   * the repository classification takes over.
++   */
++  fun installStickerPack(pack: AvailableStickerPack) {
++    val packId = pack.id
++
++    if (downloadStatuses.containsKey(packId)) {
++      return
++    }
++
++    downloadStatuses[packId] = AvailableStickerPack.DownloadStatus.InProgress
++    publish()
++
++    viewModelScope.launch {
++      try {
++        StickerManagementRepository.installStickerPack(pack.id, pack.key, notify = false)
++      } catch (e: Exception) {
++        // The install never made it to the repository: drop the transient state again instead of
++        // leaving the pack stuck in progress.
++        downloadStatuses.remove(packId)
++        publish()
++        return@launch
++      }
++
++      downloadStatuses[packId] = AvailableStickerPack.DownloadStatus.Downloaded
++      actionConfirmation = StickerManagementConfirmation.InstalledPack(pack.record.title)
++      publish()
++
++      scheduleInstallationSettle(packId)
++    }
++  }
++
++  /** Opens the confirmation for removing [packIds]; nothing is removed before it is confirmed. */
++  fun onUninstallStickerPacksRequested(packIds: Set<StickerPackId>) {
++    if (packIds.isEmpty()) {
++      return
++    }
++
++    userPrompt = ConfirmRemoveStickerPacksPrompt(numItemsToDelete = packIds.size)
++    publish()
++  }
++
++  /** Removes the confirmed [packIds] and reports how many packs were removed. */
++  fun onUninstallStickerPacksConfirmed(packIds: Set<StickerPackId>) {
++    if (packIds.isEmpty()) {
++      userPrompt = null
++      publish()
++      return
++    }
++
++    val packKeysById = packIds
++      .mapNotNull { packId ->
++        installedPacks.firstOrNull { it.id == packId }?.let { packId to it.key }
++      }
++      .toMap()
++
++    viewModelScope.launch {
++      try {
++        StickerManagementRepository.uninstallStickerPacks(packKeysById)
++      } catch (e: Exception) {
++        // Nothing was removed: dismiss the prompt, but keep the packs and the selection in place
++        // so the removal can be requested again.
++        userPrompt = null
++        publish()
++        return@launch
++      }
++
++      selectedPackIds = selectedPackIds - packIds
++      userPrompt = null
++      actionConfirmation = StickerManagementConfirmation.UninstalledPacks(packIds.size)
++      publish()
++    }
++  }
++
++  /** Dismisses the removal prompt, leaving both the installed packs and the selection untouched. */
++  fun onUninstallStickerPacksCanceled() {
++    userPrompt = null
++    publish()
++  }
++
++  /** Moves an installed pack during a drag, updating the visible order right away. */
++  fun updatePosition(fromIndex: Int, toIndex: Int) {
++    val current = installedPacks
++
++    if (fromIndex == toIndex || fromIndex !in current.indices || toIndex !in current.indices) {
++      return
++    }
++
++    installedPacks = current.swap(fromIndex, toIndex)
++    pendingOrder = installedPacks.map { it.id }
++    publish()
++  }
++
++  /** Persists the currently visible order of the installed packs. */
++  fun saveInstalledPacksSortOrder() {
++    val packsInOrder = installedPacks.map { it.record }
++
++    viewModelScope.launch {
++      try {
++        StickerManagementRepository.setStickerPacksOrder(packsInOrder)
++      } catch (e: Exception) {
++        // The order could not be persisted; keep showing it and retry on the next drop.
++        return@launch
++      }
++
++      pendingOrder = null
++      refreshPacks()
++    }
++  }
++
++  /** Toggles [pack] in the selection, entering multi-select mode on the first selection. */
++  fun toggleSelection(pack: InstalledStickerPack) {
++    val packId = pack.id
++
++    if (installedPacks.none { it.id == packId }) {
++      return
++    }
++
++    if (!multiSelectEnabled) {
++      multiSelectEnabled = true
++      selectedPackIds = setOf(packId)
++    } else if (packId in selectedPackIds) {
++      selectedPackIds = selectedPackIds - packId
++    } else {
++      selectedPackIds = selectedPackIds + packId
++    }
++
++    publish()
++  }
++
++  /** Selects every installed pack, or clears the selection when everything is already selected. */
++  fun toggleSelectAll() {
++    val installedPackIds = installedPacks.mapTo(mutableSetOf()) { it.id }
++
++    selectedPackIds = if (installedPackIds.isNotEmpty() && installedPackIds.all { it in selectedPackIds }) {
++      emptySet()
++    } else {
++      installedPackIds
++    }
++
++    if (selectedPackIds.isNotEmpty()) {
++      multiSelectEnabled = true
++    }
++
++    publish()
++  }
++
++  /** Leaving multi-select mode clears the selection without touching the installed packs. */
++  fun setMultiSelectEnabled(isEnabled: Boolean) {
++    multiSelectEnabled = isEnabled
++
++    if (!isEnabled) {
++      selectedPackIds = emptySet()
++    }
++
++    publish()
++  }
++
++  /** Dismisses the confirmation that is currently shown. */
++  fun onSnackbarDismiss() {
++    actionConfirmation = null
++    publish()
++  }
++
++  override fun onCleared() {
++    AppDependencies.getDatabaseObserver().unregisterObserver(packsObserver)
++    installationLingerJobs.values.forEach { it.cancel() }
++    installationLingerJobs.clear()
++    viewModelScope.cancel()
++    super.onCleared()
++  }
++
++  private fun onDatabaseChanged() {
++    viewModelScope.launch {
++      refreshPacks()
++    }
++  }
++
++  private suspend fun refreshPacks() {
++    applyPacks(StickerManagementRepository.getStickerPacks().first())
++  }
++
++  private fun applyPacks(result: StickerPacksResult) {
++    packs = result
++
++    installedPacks = orderedRecords()
++      .filter { it.isInstalled && StickerPackId(it.packId) !in downloadStatuses }
++      .map { record ->
++        InstalledStickerPack(
++          record = record,
++          isBlessed = BlessedPacks.contains(record.packId),
++          sortOrder = result.sortOrderByPackId[StickerPackId(record.packId)] ?: 0
++        )
++      }
++
++    pendingOrder?.let { order ->
++      installedPacks = installedPacks.sortedBy { pack ->
++        order.indexOf(pack.id).let { if (it < 0) order.size else it }
++      }
++    }
++
++    val installedPackIds = installedPacks.mapTo(mutableSetOf()) { it.id }
++    selectedPackIds = selectedPackIds.filterTo(mutableSetOf()) { it in installedPackIds }
++
++    publish()
++  }
++
++  private fun scheduleInstallationSettle(packId: StickerPackId) {
++    installationLingerJobs.remove(packId)?.cancel()
++    installationLingerJobs[packId] = viewModelScope.launch {
++      delay(INSTALLATION_LINGER_MS)
++      installationLingerJobs.remove(packId)
++      downloadStatuses.remove(packId)
++      publish()
++    }
++  }
++
++  /**
++   * Rebuilds the visible state. Packs with a transient download status stay in the available tabs
++   * even when the repository already classifies them as installed, so a just installed pack remains
++   * visible until the status is cleared.
++   */
++  private fun publish() {
++    val availableBlessedPacks = mutableListOf<AvailableStickerPack>()
++    val availableNotBlessedPacks = mutableListOf<AvailableStickerPack>()
++
++    for (record in orderedRecords()) {
++      val downloadStatus = downloadStatuses[StickerPackId(record.packId)]
++
++      when {
++        downloadStatus != null -> {
++          val pack = AvailableStickerPack(
++            record = record,
++            isBlessed = BlessedPacks.contains(record.packId),
++            downloadStatus = downloadStatus
++          )
++
++          if (pack.isBlessed) {
++            availableBlessedPacks += pack
++          } else {
++            availableNotBlessedPacks += pack
++          }
++        }
++        record.isInstalled -> Unit
++        BlessedPacks.contains(record.packId) ->
++          availableBlessedPacks += AvailableStickerPack(record, true, AvailableStickerPack.DownloadStatus.NotDownloaded)
++        else ->
++          availableNotBlessedPacks += AvailableStickerPack(record, false, AvailableStickerPack.DownloadStatus.NotDownloaded)
++      }
++    }
++
++    _uiState.value = StickerManagementUiState(
++      availableBlessedPacks = availableBlessedPacks,
++      availableNotBlessedPacks = availableNotBlessedPacks,
++      installedPacks = installedPacks,
++      multiSelectEnabled = multiSelectEnabled,
++      selectedPackIds = selectedPackIds,
++      userPrompt = userPrompt,
++      actionConfirmation = actionConfirmation
++    )
++  }
++
++  /** All known pack records in the order the repository returned them. */
++  private fun orderedRecords(): List<StickerPackRecord> =
++    (packs.installedPacks + packs.availablePacks + packs.blessedPacks).sortedBy {
++      packs.sortOrderByPackId[StickerPackId(it.packId)] ?: Int.MAX_VALUE
++    }
++
++  private companion object {
++    /** How long a just installed pack keeps its completed download status. */
++    private const val INSTALLATION_LINGER_MS = 500L
++  }
++}
++
++data class StickerManagementUiState(
++  val availableBlessedPacks: List<AvailableStickerPack> = emptyList(),
++  val availableNotBlessedPacks: List<AvailableStickerPack> = emptyList(),
++  val installedPacks: List<InstalledStickerPack> = emptyList(),
++  val multiSelectEnabled: Boolean = false,
++  val selectedPackIds: Set<StickerPackId> = emptySet(),
++  val userPrompt: ConfirmRemoveStickerPacksPrompt? = null,
++  val actionConfirmation: StickerManagementConfirmation? = null
++)
++
++/** Confirmation shown before one or several installed packs are removed. */
++data class ConfirmRemoveStickerPacksPrompt(val numItemsToDelete: Int)
++
++/** Outcome of the last completed action, rendered as a snackbar. */
++sealed interface StickerManagementConfirmation {
++  data class InstalledPack(val packTitle: String) : StickerManagementConfirmation
++  data class UninstalledPack(val packTitle: String) : StickerManagementConfirmation
++  data class UninstalledPacks(val numPacksUninstalled: Int) : StickerManagementConfirmation
++}
++
++/** A pack that can be installed from the available tabs. */
++data class AvailableStickerPack(
++  val record: StickerPackRecord,
++  val isBlessed: Boolean,
++  val downloadStatus: DownloadStatus
++) {
++  val id: StickerPackId get() = StickerPackId(record.packId)
++  val key: StickerPackKey get() = StickerPackKey(record.packKey)
++
++  sealed class DownloadStatus {
++    data object NotDownloaded : DownloadStatus()
++    data object InProgress : DownloadStatus()
++    data object Downloaded : DownloadStatus()
++  }
++}
++
++/** A pack whose stickers are stored on this device. */
++data class InstalledStickerPack(
++  val record: StickerPackRecord,
++  val isBlessed: Boolean,
++  val sortOrder: Int
++) {
++  val id: StickerPackId get() = StickerPackId(record.packId)
++  val key: StickerPackKey get() = StickerPackKey(record.packKey)
++}
+\ No newline at end of file
+diff --git a/immutable-src/core-util/src/main/java/org/signal/core/util/CollectionsExtensions.kt b/immutable-src/core-util/src/main/java/org/signal/core/util/CollectionsExtensions.kt
+new file mode 100644
+index 0000000..d6fd6a8
+--- /dev/null
++++ b/immutable-src/core-util/src/main/java/org/signal/core/util/CollectionsExtensions.kt
+@@ -0,0 +1,21 @@
++package org.signal.core.util
++
++/**
++ * Returns a copy of this list in which the elements at [i] and [j] have been exchanged.
++ *
++ * Out of range indices leave the list untouched, which keeps drag-and-drop callbacks that
++ * race against the underlying data from crashing the UI.
++ */
++fun <E> List<E>.swap(i: Int, j: Int): List<E> {
++  val copy = toMutableList()
++
++  if (i !in copy.indices || j !in copy.indices) {
++    return copy
++  }
++
++  val tmp = copy[i]
++  copy[i] = copy[j]
++  copy[j] = tmp
++
++  return copy
++}
+\ No newline at end of file
+diff --git a/immutable-src/core-util/src/main/java/org/signal/core/util/probe/ProbeImmutableCoreUtil.kt b/immutable-src/core-util/src/main/java/org/signal/core/util/probe/ProbeImmutableCoreUtil.kt
+new file mode 100644
+index 0000000..565dd2b
+--- /dev/null
++++ b/immutable-src/core-util/src/main/java/org/signal/core/util/probe/ProbeImmutableCoreUtil.kt
+@@ -0,0 +1,3 @@
++package org.signal.core.util.probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/main/probe/A6.kt b/main/probe/A6.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/main/probe/A6.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/production-src/src/main/java/probe/A2.kt b/production-src/src/main/java/probe/A2.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/production-src/src/main/java/probe/A2.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/production/src/main/java/probe/A1.kt b/production/src/main/java/probe/A1.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/production/src/main/java/probe/A1.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index 45417bc..729a80a 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -1 +1 @@
+-rootProject.name = "signal-sticker-management-focused-base"
++rootProject.name = "signal-sticker-management-focused-base"
+\ No newline at end of file
+diff --git a/src/main/java/org/thoughtcrime/securesms/probe/ProbeSrc.kt b/src/main/java/org/thoughtcrime/securesms/probe/ProbeSrc.kt
+new file mode 100644
+index 0000000..1c8da43
+--- /dev/null
++++ b/src/main/java/org/thoughtcrime/securesms/probe/ProbeSrc.kt
+@@ -0,0 +1,3 @@
++package org.thoughtcrime.securesms.probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/src/main/java/org/thoughtcrime/securesms/probe/ProbeSrcJava.java b/src/main/java/org/thoughtcrime/securesms/probe/ProbeSrcJava.java
+new file mode 100644
+index 0000000..73a7d76
+--- /dev/null
++++ b/src/main/java/org/thoughtcrime/securesms/probe/ProbeSrcJava.java
+@@ -0,0 +1,3 @@
++package org.thoughtcrime.securesms.probe;
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/src/main/kotlin/probe/A4.kt b/src/main/kotlin/probe/A4.kt
+new file mode 100644
+index 0000000..0d7511e
+--- /dev/null
++++ b/src/main/kotlin/probe/A4.kt
+@@ -0,0 +1,3 @@
++package probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/stubs/org/thoughtcrime/securesms/probe/ProbeNewStubFile.kt b/stubs/org/thoughtcrime/securesms/probe/ProbeNewStubFile.kt
+new file mode 100644
+index 0000000..1c8da43
+--- /dev/null
++++ b/stubs/org/thoughtcrime/securesms/probe/ProbeNewStubFile.kt
+@@ -0,0 +1,3 @@
++package org.thoughtcrime.securesms.probe
++
++// (empty placeholder)
+\ No newline at end of file
+diff --git a/stubs/org/thoughtcrime/securesms/util/TextSecurePreferences.kt b/stubs/org/thoughtcrime/securesms/util/TextSecurePreferences.kt
+index 5b7e10b..a3358ad 100644
+--- a/stubs/org/thoughtcrime/securesms/util/TextSecurePreferences.kt
++++ b/stubs/org/thoughtcrime/securesms/util/TextSecurePreferences.kt
+@@ -1,3 +1,3 @@
+ package org.thoughtcrime.securesms.util
+ 
+-object TextSecurePreferences
++object TextSecurePreferences
+\ No newline at end of file

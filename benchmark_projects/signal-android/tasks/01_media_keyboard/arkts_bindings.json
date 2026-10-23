@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_media_keyboard",
+  "canonicalContract": "transitions.json",
+  "runtime": "API 23 EntryAbility loads ArkUI Index; the injected observer receives Index's existing MediaKeyboardPageOwner and uses its production actions, state snapshots, and attached external-leaf log",
+  "cases": [
+    {
+      "caseId": "mk_state_001_initialize_tabs",
+      "traceDigest": "db8238253cddff40bb35c8aae0bc446bdd8a39686cbd29377b51f1b461a59770",
+      "fixture": "pageOwner.externalLeaf.configureTabs(unorderedTabs); pageOwner.reopen()",
+      "eventEntrypoint": "Index.owner.initializeKeyboard()",
+      "observations": [
+        "state",
+        "leaf.calls"
+      ]
+    },
+    {
+      "caseId": "mk_state_002_restrict_fallback",
+      "traceDigest": "2fc90f16aaa0cf612e76e8b711c61b6ac2fc4d4c077aa03838cbb7692451e072",
+      "fixture": "Index.owner.initializeKeyboard(); Index.owner.selectTab('GIF')",
+      "eventEntrypoint": "Index.owner.restrictTabs(['EMOJI'])",
+      "observations": [
+        "state"
+      ]
+    },
+    {
+      "caseId": "mk_state_003_lift_restriction",
+      "traceDigest": "3f53eaf59df29421e3c4c5876aa59c9982627d770b53682f675bf6a174900fc9",
+      "fixture": "Index.owner.initializeKeyboard(); Index.owner.selectTab('GIF'); Index.owner.restrictTabs(['EMOJI'])",
+      "eventEntrypoint": "Index.owner.restrictTabs(null)",
+      "observations": [
+        "state"
+      ]
+    },
+    {
+      "caseId": "mk_state_004_tab_clears_query",
+      "traceDigest": "280978f6cc34af9df08bdc4a55fe87232da02bc34c6d87d335f29bf11a25097b",
+      "fixture": "Index.owner.initializeKeyboard(); Index.owner.setSearch(true, 'cats')",
+      "eventEntrypoint": "Index.owner.selectTab('GIF')",
+      "observations": [
+        "state"
+      ]
+    },
+    {
+      "caseId": "mk_state_005_gif_initial_failure",
+      "traceDigest": "02d637a7df4e190ea3c63d40800d4b94f34a23564fa7bdfd6824b294d42ede09",
+      "fixture": "pageOwner.externalLeaf.configureGifPage(0, networkFailure); pageOwner.reopen()",
+      "eventEntrypoint": "Index.owner.loadFirstGifPage()",
+      "observations": [
+        "state",
+        "GifServiceLeaf.calls"
+      ]
+    },
+    {
+      "caseId": "mk_state_006_gif_retry_recovery",
+      "traceDigest": "b85a8df5e73d9d0c5498ca80ef57f6fb09341c7c31747e3dd9c6cabfce84aa89",
+      "fixture": "Index.owner.loadFirstGifPage() failure prefix, then external leaf success",
+      "eventEntrypoint": "Index.owner.retryGifLoad()",
+      "observations": [
+        "state",
+        "GifServiceLeaf.calls"
+      ]
+    },
+    {
+      "caseId": "mk_state_007_gif_pagination",
+      "traceDigest": "2e8435e8b00c87fa5ae94068750f78732808306ec865082d3f880e874cc5ee28",
+      "fixture": "Index.owner.loadFirstGifPage() success prefix, then external next-page leaf",
+      "eventEntrypoint": "Index.owner.loadMoreGifs()",
+      "observations": [
+        "state",
+        "GifServiceLeaf.calls"
+      ]
+    },
+    {
+      "caseId": "mk_state_008_sticker_tap_defers_send",
+      "traceDigest": "353775fe7c6503a4ff685a9b5f0462d6db376437f6f6765ef5094b4b12be2c65",
+      "fixture": "pageOwner.reopen(); external sticker value",
+      "eventEntrypoint": "Index.owner.tapSticker(sticker)",
+      "observations": [
+        "state",
+        "effects"
+      ]
+    },
+    {
+      "caseId": "mk_state_009_confirmation_cancel",
+      "traceDigest": "6286d49c190caa406a580417036bb7869d89fa4d405df8634801f452c79fa9a4",
+      "fixture": "Index.owner.tapSticker(sticker) transition prefix",
+      "eventEntrypoint": "Index.owner.cancelStickerConfirmation()",
+      "observations": [
+        "state",
+        "effects"
+      ]
+    },
+    {
+      "caseId": "mk_state_010_confirmation_send_once",
+      "traceDigest": "473a01979c3d670ac85f025954dddfc11eedf950242bf2b04cb6dddf0c5fa8d2",
+      "fixture": "Index.owner.tapSticker(sticker) transition prefix",
+      "eventEntrypoint": "Index.owner.confirmStickerSend()",
+      "observations": [
+        "state",
+        "orderedEffects"
+      ]
+    }
+  ]
+}

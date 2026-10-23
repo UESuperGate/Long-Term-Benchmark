@@ -1,0 +1,457 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_reading_challenge",
+  "description": "Platform-neutral reading challenge transitions driven by an evaluator-supplied clock",
+  "cases": [
+    {
+      "caseId": "rc_before_start",
+      "key": "before_start",
+      "traceSchemaVersion": 2,
+      "functionalArea": "date_gated_lifecycle",
+      "given": {
+        "clockDate": "2026-05-10",
+        "preferences": {
+          "enrolled": false,
+          "streak": 0,
+          "lastReadDate": null
+        }
+      },
+      "event": {
+        "name": "refreshChallengeSurface"
+      },
+      "expected": {
+        "state": {
+          "name": "not_live_yet",
+          "streak": 0
+        },
+        "persistence": {
+          "unchanged": true
+        },
+        "effects": []
+      },
+      "invariants": [
+        "clockDate is evaluator input, not persisted production state",
+        "no challenge preference is mutated"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.resolveState"
+        ],
+        "androidTests": [
+          "returns NotLiveYet before start date"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "843a688534b65eb6b800dd50ee6994852f4f0761baec2459a4bde4b97bb64315"
+    },
+    {
+      "caseId": "rc_start_not_enrolled",
+      "key": "start_not_enrolled",
+      "traceSchemaVersion": 2,
+      "functionalArea": "date_gated_lifecycle",
+      "given": {
+        "clockDate": "2026-05-11",
+        "preferences": {
+          "enrolled": false,
+          "streak": 0,
+          "lastReadDate": null
+        }
+      },
+      "event": {
+        "name": "refreshChallengeSurface"
+      },
+      "expected": {
+        "state": {
+          "name": "not_enrolled",
+          "streak": 0
+        },
+        "persistence": {
+          "unchanged": true
+        },
+        "effects": []
+      },
+      "invariants": [
+        "the start date is inside the active window",
+        "no read is synthesized"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.resolveState"
+        ],
+        "androidTests": [
+          "returns NotEnrolled on start date since challenge is Live"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "ba74b92a32e5f3d01d997ecb7557843c425befd000a53503d47a72638901eb81"
+    },
+    {
+      "caseId": "rc_enroll",
+      "key": "enroll",
+      "traceSchemaVersion": 2,
+      "functionalArea": "persistent_streak",
+      "given": {
+        "clockDate": "2026-05-11",
+        "preferences": {
+          "enrolled": false,
+          "streak": 0,
+          "lastReadDate": null
+        }
+      },
+      "event": {
+        "name": "enroll"
+      },
+      "expected": {
+        "state": {
+          "name": "enrolled_not_started",
+          "streak": 0
+        },
+        "persistence": {
+          "enrolled": true,
+          "enrollmentDate": "2026-05-11"
+        },
+        "effects": [
+          "challenge_surface_refreshed"
+        ]
+      },
+      "invariants": [
+        "enrollment does not count as an article read",
+        "streak remains zero"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeOnboardingActivity",
+          "ReadingChallengeWidgetRepository.resolveState"
+        ],
+        "androidTests": [
+          "returns EnrolledNotStarted on start date with zero streak"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "4edba76be5f2acba5d3acf715e619c3a93f19face8ce9c936d9120d691c53122"
+    },
+    {
+      "caseId": "rc_first_read",
+      "key": "first_read",
+      "traceSchemaVersion": 2,
+      "functionalArea": "article_read_entrypoint",
+      "given": {
+        "clockDate": "2026-05-11",
+        "preferences": {
+          "enrolled": true,
+          "streak": 0,
+          "lastReadDate": null,
+          "enrollmentDate": "2026-05-11"
+        }
+      },
+      "event": {
+        "name": "openArticle",
+        "article": "Ada_Lovelace"
+      },
+      "expected": {
+        "state": {
+          "name": "streak_read_today",
+          "streak": 1
+        },
+        "persistence": {
+          "streak": 1,
+          "lastReadDate": "2026-05-11"
+        },
+        "effects": [
+          "heartbeat_requested",
+          "widget_update_requested"
+        ]
+      },
+      "invariants": [
+        "the application article entrypoint invokes the challenge store",
+        "exactly one heartbeat and one widget request follow the qualifying read"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.updateOnArticleRead"
+        ],
+        "androidTests": [
+          "hasReadToday returns true when lastReadDate matches currentDate"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "96c4b7c8c7aa3b3aadb344e9c661c15aa614d048037c35d52c0757bf6de879ff"
+    },
+    {
+      "caseId": "rc_duplicate_same_day",
+      "key": "duplicate_same_day",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {
+        "clockDate": "2026-05-11",
+        "preferences": {
+          "enrolled": true,
+          "streak": 1,
+          "lastReadDate": "2026-05-11"
+        }
+      },
+      "event": {
+        "name": "openArticle",
+        "article": "Grace_Hopper"
+      },
+      "expected": {
+        "state": {
+          "name": "streak_read_today",
+          "streak": 1
+        },
+        "persistence": {
+          "streak": 1,
+          "lastReadDate": "2026-05-11"
+        },
+        "effects": []
+      },
+      "invariants": [
+        "a calendar day contributes at most one increment",
+        "no duplicate widget or heartbeat request is emitted"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.hasReadToday",
+          "ReadingChallengeWidgetRepository.updateOnArticleRead"
+        ],
+        "androidTests": []
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "0dfdb1d4a8aaa1bc39e37677ac328617fc407081ce3d581c6ef37c1e5749957f"
+    },
+    {
+      "caseId": "rc_next_day_continues",
+      "key": "next_day_continues",
+      "traceSchemaVersion": 2,
+      "functionalArea": "persistent_streak",
+      "given": {
+        "clockDate": "2026-05-12",
+        "preferences": {
+          "enrolled": true,
+          "streak": 1,
+          "lastReadDate": "2026-05-11"
+        }
+      },
+      "event": {
+        "name": "openArticle",
+        "article": "Computer"
+      },
+      "expected": {
+        "state": {
+          "name": "streak_read_today",
+          "streak": 2
+        },
+        "persistence": {
+          "streak": 2,
+          "lastReadDate": "2026-05-12"
+        },
+        "effects": [
+          "heartbeat_requested",
+          "widget_update_requested"
+        ]
+      },
+      "invariants": [
+        "a one-day interval preserves the active streak",
+        "last-read date advances to the evaluator clock date"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.hasActiveStreak",
+          "ReadingChallengeWidgetRepository.updateOnArticleRead"
+        ],
+        "androidTests": [
+          "streak does not reset when lastReadDate is exactly yesterday"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "c5e38489e2d6afe328e6c75402e76d755887d667caf3300b5d71ca46c1475d80"
+    },
+    {
+      "caseId": "rc_gap_resets",
+      "key": "gap_resets",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {
+        "clockDate": "2026-05-14",
+        "preferences": {
+          "enrolled": true,
+          "streak": 3,
+          "lastReadDate": "2026-05-12"
+        }
+      },
+      "event": {
+        "name": "refreshChallengeSurface"
+      },
+      "expected": {
+        "state": {
+          "name": "enrolled_not_started",
+          "streak": 0
+        },
+        "persistence": {
+          "streak": 0,
+          "lastReadDate": "2026-05-12"
+        },
+        "effects": []
+      },
+      "invariants": [
+        "only an incomplete streak is reset",
+        "refresh does not manufacture an article read"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.recalculateStreakIfNeeded"
+        ],
+        "androidTests": [
+          "streak resets when lastReadDate is more than 1 day ago during challenge"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "ae1e6e5d90fc94ad639fb60077b6cc24fe60fa2c491c0d7836128b8f923e4dcc"
+    },
+    {
+      "caseId": "rc_read_after_reset",
+      "key": "read_after_reset",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {
+        "clockDate": "2026-05-14",
+        "preferences": {
+          "enrolled": true,
+          "streak": 3,
+          "lastReadDate": "2026-05-12"
+        }
+      },
+      "setup": [
+        {
+          "name": "refreshChallengeSurface"
+        }
+      ],
+      "event": {
+        "name": "openArticle",
+        "article": "Recovery"
+      },
+      "expected": {
+        "state": {
+          "name": "streak_read_today",
+          "streak": 1
+        },
+        "persistence": {
+          "streak": 1,
+          "lastReadDate": "2026-05-14"
+        },
+        "effects": [
+          "heartbeat_requested",
+          "widget_update_requested"
+        ]
+      },
+      "invariants": [
+        "the stale streak is reset before the new read increments",
+        "recovery starts at one rather than four"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.recalculateStreakIfNeeded",
+          "ReadingChallengeWidgetRepository.updateOnArticleRead"
+        ],
+        "androidTests": [
+          "streak resets when lastReadDate is more than 1 day ago during challenge"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "b2f025a4305c5ae5e251d5c4aeb44d29d23be727d4a1008397186070e82dba38"
+    },
+    {
+      "caseId": "rc_goal_completion",
+      "key": "goal_completion",
+      "traceSchemaVersion": 2,
+      "functionalArea": "persistent_streak",
+      "given": {
+        "clockDate": "2026-06-04",
+        "preferences": {
+          "enrolled": true,
+          "streak": 24,
+          "lastReadDate": "2026-06-03"
+        }
+      },
+      "event": {
+        "name": "openArticle",
+        "article": "Wikipedia"
+      },
+      "expected": {
+        "state": {
+          "name": "challenge_completed",
+          "streak": 25
+        },
+        "persistence": {
+          "streak": 25,
+          "lastReadDate": "2026-06-04"
+        },
+        "effects": [
+          "heartbeat_requested",
+          "widget_update_requested"
+        ]
+      },
+      "invariants": [
+        "the goal state is reached at 25",
+        "the persisted streak and rendered completion state agree"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.READING_STREAK_GOAL",
+          "ReadingChallengeWidgetRepository.resolveState"
+        ],
+        "androidTests": [
+          "returns ChallengeCompleted when streak reaches goal in mid challenge",
+          "streak does not reset after completion"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "03ded454ccb72917e56aa0aaf11b0ee76ec0e05411b6935e894659ae9cc8b7ef"
+    },
+    {
+      "caseId": "rc_post_end_broken_rejected",
+      "key": "post_end_broken_rejected",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {
+        "clockDate": "2026-06-20",
+        "preferences": {
+          "enrolled": true,
+          "streak": 10,
+          "lastReadDate": "2026-06-18"
+        }
+      },
+      "event": {
+        "name": "openArticle",
+        "article": "Too_late"
+      },
+      "expected": {
+        "state": {
+          "name": "challenge_concluded_incomplete",
+          "streak": 10
+        },
+        "persistence": {
+          "streak": 10,
+          "lastReadDate": "2026-06-18"
+        },
+        "effects": []
+      },
+      "invariants": [
+        "a broken post-end streak cannot restart",
+        "nonqualifying reads emit no widget or heartbeat request"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ReadingChallengeWidgetRepository.hasActiveStreak",
+          "ReadingChallengeWidgetRepository.updateOnArticleRead"
+        ],
+        "androidTests": [
+          "return ChallengeConcludedIncomplete on day after END_DATE when streak is broken"
+        ]
+      },
+      "taskId": "01_reading_challenge",
+      "traceDigest": "b3896386cd985b4b77a4090685a3d949e1f9df26613382bc57fb5ca15a5da226"
+    }
+  ],
+  "owner": "evaluator"
+}

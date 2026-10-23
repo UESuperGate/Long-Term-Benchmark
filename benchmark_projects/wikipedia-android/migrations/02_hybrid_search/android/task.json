@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wikipedia-android",
+  "taskId": "02_hybrid_search",
+  "title": "Concurrent hybrid lexical and semantic search",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wikimedia/apps-android-wikipedia.git",
+    "baseRef": "r/50566-r-2026-02-04",
+    "baseCommit": "6a085362ecf74ff69a3abf689038ba2882976c07",
+    "finalRef": "r/50574-r-2026-03-20",
+    "finalCommit": "2c086856d4840f854fb9fb456ae3b4db055f1183",
+    "featureCommit": "af457ff7ae17cf2acdd14da991abe76e032fc28f",
+    "pullRequest": "https://github.com/wikimedia/apps-android-wikipedia/pull/6221",
+    "branchException": "The two release tags diverge at 76ceafa9b0edcb5d3a60ab337b907dfca552c0d8; the base tag has two release-only commits and the feature commit is contained by the final branch."
+  },
+  "releaseNotes": [
+    {
+      "text": "The release interval introduces hybrid search that runs lexical and semantic retrieval together, presents both result groups, supports partial failure, retry, opt-out, and semantic-result feedback.",
+      "source": "https://github.com/wikimedia/apps-android-wikipedia/commit/af457ff7ae17cf2acdd14da991abe76e032fc28f"
+    }
+  ],
+  "functionalAreas": ["experiment_gating", "concurrent_search", "fallback", "result_merge", "feedback", "retry"],
+  "stateSurfaces": ["search results page", "search view model", "hybrid preference", "feedback dispatch"],
+  "eventEntrypoints": ["enable hybrid search", "submit search", "retry", "rate semantic result", "opt out"],
+  "evidence": {
+    "productionPaths": [
+      "app/src/main/java/org/wikipedia/search/SearchResultsViewModel.kt",
+      "app/src/main/java/org/wikipedia/search/HybridSearchResultsScreen.kt",
+      "app/src/main/java/org/wikipedia/search/SearchResultsFragment.kt",
+      "app/src/main/java/org/wikipedia/search/SemanticSearchService.kt",
+      "app/src/main/java/org/wikipedia/search/HybridSearchAbCTest.kt"
+    ],
+    "testPaths": [],
+    "commits": ["af457ff7ae17cf2acdd14da991abe76e032fc28f", "517351d", "6240fa0", "731e3df"]
+  },
+  "nonGoals": ["Live Wikimedia search availability", "Search ranking quality", "Unrelated standard-search pagination", "Pixel-perfect Compose rendering"],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json",
+    "transitionDraft": "transitions.draft.json",
+    "transitions": "transitions.json",
+    "observerRules": "observer_rules.json",
+    "arktsBindings": "arkts_bindings.json",
+    "migrationValidation": "migration_validation.json"
+  }
+}

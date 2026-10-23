@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_media_keyboard",
+  "rawEvidence": "raw_release_evidence.json",
+  "releaseEvidence": [
+    "417bd702: Introduce and integrate new media keyboard.",
+    "5b2e9514: Add sticker confirmation overlay.",
+    "ce29d21e: Fix sticker keyboard rendering and cache animated stickers."
+  ],
+  "implementationEvidence": {
+    "symbols": [
+      "MediaKeyboardViewModel",
+      "MediaKeyboardState",
+      "GifPageViewModel",
+      "StickerPageViewModel",
+      "ChatStickerConfirmationController",
+      "KeyboardSheetController"
+    ],
+    "productionPaths": [
+      "feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardViewModel.kt",
+      "feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardState.kt",
+      "feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageViewModel.kt",
+      "feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/sticker/StickerPageViewModel.kt",
+      "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatStickerConfirmationController.kt"
+    ],
+    "testPaths": [
+      "feature/media-keyboard/src/test/java/org/signal/mediakeyboard/MediaKeyboardViewModelTest.kt",
+      "feature/media-keyboard/src/test/java/org/signal/mediakeyboard/screens/gif/GifPageViewModelTest.kt",
+      "feature/media-keyboard/src/test/java/org/signal/mediakeyboard/screens/sticker/StickerPageViewModelTest.kt"
+    ]
+  },
+  "baseFailureEvidence": [
+    "The v8.28.4 tree has no feature/media-keyboard module or MediaKeyboardViewModel/GifPageViewModel production entrypoints.",
+    "The base uses the older components/compose/mediakeyboard controller and does not implement repository-driven tab availability or the new page state machines.",
+    "The base has no ChatStickerConfirmationController and therefore cannot defer a sticker send through the new overlay lifecycle."
+  ],
+  "boundaryAudit": {
+    "baseCommitObjectAvailable": true,
+    "finalCommitObjectAvailable": true,
+    "localClone": "partial blob:none checkout with shallow history",
+    "baseIsAncestor": null,
+    "baseIsAncestorReason": "The local partial clone omits intermediate commit graph objects; full-clone ancestry remains a required calibration preflight.",
+    "finalTreeFeaturePresent": true,
+    "baseTreeFeaturePresent": false
+  },
+  "longHorizonSignals": [
+    "The feature spans host integration, tab policy, keyboard sheet lifecycle, three media repositories, asynchronous GIF paging, sticker usage accounting, and a confirmation overlay.",
+    "The initial implementation changes 116 files; follow-up commits alter confirmation and rendering behavior.",
+    "The canonical graph contains recoverable network failure and explicit cancellation paths."
+  ]
+}

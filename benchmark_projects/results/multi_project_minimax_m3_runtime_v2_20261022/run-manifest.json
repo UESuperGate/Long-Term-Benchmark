@@ -1,0 +1,586 @@
+{
+  "schemaVersion": 1,
+  "runId": "multi_project_minimax_m3_runtime_v2_20261022",
+  "status": "complete",
+  "scope": "Signal, WordPress, and Wikipedia Android long-horizon tasks with matched ArkTS migrations",
+  "projects": [
+    {
+      "projectId": "signal-android",
+      "displayName": "Signal Android",
+      "source": "https://github.com/signalapp/Signal-Android.git",
+      "catalog": "signal-android/catalog.json"
+    },
+    {
+      "projectId": "wordpress-android",
+      "displayName": "WordPress Android",
+      "source": "https://github.com/wordpress-mobile/WordPress-Android.git",
+      "catalog": "wordpress-android/catalog.json"
+    },
+    {
+      "projectId": "wikipedia-android",
+      "displayName": "Wikipedia Android",
+      "source": "https://github.com/wikimedia/apps-android-wikipedia.git",
+      "catalog": "wikipedia-android/catalog.json"
+    }
+  ],
+  "tasks": [
+    {
+      "projectId": "signal-android",
+      "taskId": "01_media_keyboard",
+      "title": "Unified media keyboard with search, recovery, and sticker confirmation",
+      "status": "accepted",
+      "android": {
+        "repository": "https://github.com/signalapp/Signal-Android.git",
+        "baseRef": "v8.28.4",
+        "baseCommit": "d0b314d2d7197c38737c6189d1f6c294e76e247e",
+        "finalRef": "v8.30.0",
+        "finalCommit": "d8d36376f480eb4669efe8bfee94b2c196a9f7bd"
+      },
+      "releaseNotes": [
+        {
+          "text": "Introduce and integrate new media keyboard.",
+          "source": "Official commit 417bd702968270cea706f8578d87f16794801ddc"
+        },
+        {
+          "text": "Add sticker confirmation overlay and follow-up rendering/cache fixes.",
+          "source": "Official commits 5b2e9514812c364e8b40de8ac41dde8d8a620c53 and ce29d21e9d304c85e6e3b1fb920591e5cf8a8238"
+        }
+      ],
+      "functionalAreas": [
+        "tab_availability",
+        "host_tab_restriction",
+        "search_state",
+        "gif_loading",
+        "failure_recovery",
+        "sticker_confirmation"
+      ],
+      "caseCount": 10
+    },
+    {
+      "projectId": "signal-android",
+      "taskId": "02_sticker_management",
+      "title": "Tabbed sticker management with installation, ordering, and multi-delete",
+      "status": "accepted",
+      "android": {
+        "repository": "https://github.com/signalapp/Signal-Android.git",
+        "baseRef": "v7.40.2",
+        "baseCommit": "556bcda58ae65abbba75bf899a43666ba6d9d427",
+        "finalRef": "v7.43.1",
+        "finalCommit": "23669c3c372284d42db486a218d9f29bef247abf"
+      },
+      "releaseNotes": [
+        {
+          "text": "Create a new sticker management screen with a tabbed interface.",
+          "source": "Official commit 885588db86b98d0f47c5f7fb09013b022df210ad"
+        },
+        {
+          "text": "Implement sticker pack installation, drag and drop, and multi-delete.",
+          "source": "Official commits a5f766a33311c4953157f07c73c60cd207947193, 62ed823e428757eee21a86c6e1a553259fff5ad5, and 3c77a3d7aa56d2d14b9cd4ac644578c8770efaec"
+        }
+      ],
+      "functionalAreas": [
+        "pack_classification",
+        "installation",
+        "installation_settle",
+        "drag_reorder",
+        "multi_selection",
+        "delete_confirmation"
+      ],
+      "caseCount": 10
+    },
+    {
+      "projectId": "wikipedia-android",
+      "taskId": "01_reading_challenge",
+      "title": "Reading challenge lifecycle",
+      "status": "accepted",
+      "android": {
+        "repository": "https://github.com/wikimedia/apps-android-wikipedia.git",
+        "baseRef": "r/50579-r-2026-04-14",
+        "baseCommit": "b74f202c37c50d9136a6bc9b632b47336ad21645",
+        "finalRef": "r/50585-r-2026-05-06",
+        "finalCommit": "f730d59705224aca1c8d96a6dfec3cf46264abde",
+        "featureCommit": "52102be0fa169c5969fb999a4f2d9a61ef8ffc8d",
+        "pullRequest": "https://github.com/wikimedia/apps-android-wikipedia/pull/6367"
+      },
+      "releaseNotes": [
+        {
+          "text": "The release interval introduces the Reading Challenge widget, enrollment flow, persistent daily streak tracking, challenge completion and post-challenge states.",
+          "source": "https://github.com/wikimedia/apps-android-wikipedia/commit/52102be0fa169c5969fb999a4f2d9a61ef8ffc8d"
+        }
+      ],
+      "functionalAreas": [
+        "date_gated_lifecycle",
+        "persistent_streak",
+        "article_read_entrypoint",
+        "widget_state",
+        "failure_recovery"
+      ],
+      "caseCount": 10
+    },
+    {
+      "projectId": "wikipedia-android",
+      "taskId": "02_hybrid_search",
+      "title": "Concurrent hybrid lexical and semantic search",
+      "status": "accepted",
+      "android": {
+        "repository": "https://github.com/wikimedia/apps-android-wikipedia.git",
+        "baseRef": "r/50566-r-2026-02-04",
+        "baseCommit": "6a085362ecf74ff69a3abf689038ba2882976c07",
+        "finalRef": "r/50574-r-2026-03-20",
+        "finalCommit": "2c086856d4840f854fb9fb456ae3b4db055f1183",
+        "featureCommit": "af457ff7ae17cf2acdd14da991abe76e032fc28f",
+        "pullRequest": "https://github.com/wikimedia/apps-android-wikipedia/pull/6221",
+        "branchException": "The two release tags diverge at 76ceafa9b0edcb5d3a60ab337b907dfca552c0d8; the base tag has two release-only commits and the feature commit is contained by the final branch."
+      },
+      "releaseNotes": [
+        {
+          "text": "The release interval introduces hybrid search that runs lexical and semantic retrieval together, presents both result groups, supports partial failure, retry, opt-out, and semantic-result feedback.",
+          "source": "https://github.com/wikimedia/apps-android-wikipedia/commit/af457ff7ae17cf2acdd14da991abe76e032fc28f"
+        }
+      ],
+      "functionalAreas": [
+        "experiment_gating",
+        "concurrent_search",
+        "fallback",
+        "result_merge",
+        "feedback",
+        "retry"
+      ],
+      "caseCount": 10
+    },
+    {
+      "projectId": "wordpress-android",
+      "taskId": "01_pages_list",
+      "title": "Modern pages list lifecycle and actions",
+      "status": "accepted",
+      "android": {
+        "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+        "baseRef": "26.8",
+        "baseCommit": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+        "finalRef": "26.9",
+        "finalCommit": "510f1cddc186a486ffa9559018578a644d303d96",
+        "ancestry": {
+          "isAncestor": false,
+          "exception": "official_release_branch_shallow_tag_exception",
+          "audit": "Both official tag objects are locally grafted and have no merge-base. The 26.8 tree was directly inspected and contains neither WordPress/src/main/java/org/wordpress/android/ui/pagesrs nor any RS_PAGES_LIST/PagesRsListActivity symbol; the 26.9 tree contains the complete target package."
+        }
+      },
+      "releaseNotes": [
+        {
+          "text": "Enabled new Pages list with updated features",
+          "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9"
+        },
+        {
+          "text": "The new Pages list adds search, an author filter, page hierarchy, featured image thumbnails, a quick-create button, and a full set of page actions.",
+          "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9-rc-1"
+        }
+      ],
+      "functionalAreas": [
+        "list_loading",
+        "failure_recovery",
+        "search",
+        "author_filter_persistence",
+        "hierarchy",
+        "page_actions",
+        "featured_media"
+      ],
+      "caseCount": 10
+    },
+    {
+      "projectId": "wordpress-android",
+      "taskId": "02_unified_support",
+      "title": "Unified bot and Happiness Engineer support",
+      "status": "accepted",
+      "android": {
+        "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+        "baseRef": "26.8",
+        "baseCommit": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+        "finalRef": "26.9",
+        "finalCommit": "510f1cddc186a486ffa9559018578a644d303d96",
+        "featureCommit": "ad1de650a67b426b807e14c46d249924b028ac0c",
+        "ancestry": {
+          "isAncestor": false,
+          "exception": "official_release_branch_shallow_tag_exception",
+          "audit": "Both official tag objects are locally grafted and have no merge-base. The 26.8 tree was directly inspected and contains no WordPress/src/main/java/org/wordpress/android/support/unified path or UnifiedSupportActivity symbol; the 26.9 tree contains the complete target package."
+        }
+      },
+      "releaseNotes": [
+        {
+          "text": "Combined bot/Happiness Engineer chats in Support",
+          "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9"
+        },
+        {
+          "text": "Getting help is simpler with a single conversations flow that combines support bots and Happiness Engineers.",
+          "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9-rc-1"
+        }
+      ],
+      "functionalAreas": [
+        "conversation_list",
+        "conversation_detail",
+        "bot_conversation_creation",
+        "reply_lifecycle",
+        "failure_recovery",
+        "draft_state",
+        "attachment_cleanup"
+      ],
+      "caseCount": 10
+    }
+  ],
+  "agent": {
+    "runner": "OpenCode",
+    "runnerVersion": "2.0.20",
+    "provider": "MiniMax token plan",
+    "model": "MiniMax-M3",
+    "modelId": "minimax-token-plan/MiniMax-M3",
+    "endpoint": "https://api.minimaxi.com/v1",
+    "timeoutSecondsPerTask": 3600,
+    "subagentsAllowed": true,
+    "semanticFeedbackDuringGeneration": false,
+    "apiKeyRecorded": false
+  },
+  "formalAgentEvaluation": {
+    "startedAt": "2026-10-22T09:12:49Z",
+    "completedAt": "2026-10-22T11:19:48Z",
+    "elapsedSeconds": 7619,
+    "timingPolicy": "overall wall clock; subagent time is not added separately"
+  },
+  "environment": {
+    "android": {
+      "compileSdk": 37,
+      "targetSdk": 37,
+      "minSdk": 23,
+      "emulator": {
+        "serial": "emulator-5554",
+        "apiLevel": 37,
+        "androidRelease": "17"
+      },
+      "runtime": "ADB instrumentation against installed production application owners"
+    },
+    "arkts": {
+      "apiLevel": 23,
+      "openHarmonySdkComponentVersion": "6.1.0.32",
+      "emulatorSystemBuild": "6.1.0.115(SP11DEVC00E115R4P11)",
+      "target": "127.0.0.1:10180",
+      "devecoStudio": "6.1.1",
+      "jdk": "JBR 21.0.8",
+      "runtime": "HDC EntryAbility/ArkUI page-owner execution"
+    }
+  },
+  "calibrationRuns": {
+    "signal": "multi_project_runtime_calibration_v4_20261022",
+    "wordpress": "multi_project_runtime_calibration_v5_20261022",
+    "wikipedia": "multi_project_runtime_calibration_v6_20261022"
+  },
+  "noChangeControls": {
+    "signal": "multi_project_no_change_runtime_v3_20261022",
+    "wordpress": "multi_project_no_change_runtime_v6_20261022",
+    "wikipedia": "multi_project_no_change_runtime_v3_20261022"
+  },
+  "qualityGates": {
+    "baseAllFail": true,
+    "finalAllPass": true,
+    "noUnscoredCalibration": true,
+    "formalReportsCanonicalContractValid": true,
+    "sourceObserversUsedForScoring": false,
+    "agentPatchesReconstructable": true
+  },
+  "benchmarkMetrics": {
+    "taskRuns": 12,
+    "codeGeneration": {
+      "passed": 9,
+      "total": 12,
+      "rate": 0.75
+    },
+    "compile": {
+      "passed": 12,
+      "total": 12,
+      "rate": 1.0
+    },
+    "semanticTestcase": {
+      "passed": 52,
+      "total": 120,
+      "rate": 0.433333
+    }
+  },
+  "platformMetrics": {
+    "android": {
+      "taskRuns": 6,
+      "codeGeneration": {
+        "passed": 3,
+        "total": 6,
+        "rate": 0.5
+      },
+      "compile": {
+        "passed": 6,
+        "total": 6,
+        "rate": 1.0
+      },
+      "semanticTestcase": {
+        "passed": 28,
+        "total": 60,
+        "rate": 0.466667
+      }
+    },
+    "arkts": {
+      "taskRuns": 6,
+      "codeGeneration": {
+        "passed": 6,
+        "total": 6,
+        "rate": 1.0
+      },
+      "compile": {
+        "passed": 6,
+        "total": 6,
+        "rate": 1.0
+      },
+      "semanticTestcase": {
+        "passed": 24,
+        "total": 60,
+        "rate": 0.4
+      }
+    }
+  },
+  "artifacts": [
+    {
+      "projectId": "signal-android",
+      "taskId": "01_media_keyboard",
+      "platform": "android",
+      "report": {
+        "path": "benchmark_projects/signal-android/migrations/01_media_keyboard/results/android-agent.json",
+        "bytes": 29086,
+        "sha256": "6a03b9ec8e2fd64ea24c9d21285222626380d1bfae1f2013989ba1c7c92cfa00"
+      },
+      "patch": {
+        "path": "benchmark_projects/signal-android/migrations/01_media_keyboard/results/agent-patches/android-agent.patch",
+        "bytes": 62675,
+        "sha256": "582134f08316a8c4adb31f3a12201168d9cb905988ccd8fcb392ce5c06351f68"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/signal-android/migrations/01_media_keyboard/results/agent-patches/android-agent-generated-files.json",
+        "bytes": 4082,
+        "sha256": "5837124a4e930364f5469d822467ece36c758533704e464b2456fe5b56b35990"
+      }
+    },
+    {
+      "projectId": "signal-android",
+      "taskId": "01_media_keyboard",
+      "platform": "arkts",
+      "report": {
+        "path": "benchmark_projects/signal-android/migrations/01_media_keyboard/results/arkts-agent.json",
+        "bytes": 30333,
+        "sha256": "c7a238a55978fa5e8918a5fd413f365e0471c80c28403c1fdf47e54f820d8b05"
+      },
+      "patch": {
+        "path": "benchmark_projects/signal-android/migrations/01_media_keyboard/results/agent-patches/arkts-agent.patch",
+        "bytes": 23820,
+        "sha256": "3b50648e81c29336a597f236e7ffa5d3f1775df68790a3cfcb88499daf170fb6"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/signal-android/migrations/01_media_keyboard/results/agent-patches/arkts-agent-generated-files.json",
+        "bytes": 137,
+        "sha256": "6d48f35017066a3b0101832133f6024f44e5c434c4dbfaa552e2ef9a9cf8da33"
+      }
+    },
+    {
+      "projectId": "signal-android",
+      "taskId": "02_sticker_management",
+      "platform": "android",
+      "report": {
+        "path": "benchmark_projects/signal-android/migrations/02_sticker_management/results/android-agent.json",
+        "bytes": 63895,
+        "sha256": "06d68dd6b80777558585e9e899522247f3e7fdb335ecef5ef8bee52c1859edf8"
+      },
+      "patch": {
+        "path": "benchmark_projects/signal-android/migrations/02_sticker_management/results/agent-patches/android-agent.patch",
+        "bytes": 53749,
+        "sha256": "03d377bb07248809fb87a3d6a2513148f9e0f467caacda946564b57644707eb7"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/signal-android/migrations/02_sticker_management/results/agent-patches/android-agent-generated-files.json",
+        "bytes": 1679,
+        "sha256": "884fe179cfca968e82accff2b64ee3d39440ea557e36e835eee55559e35cb976"
+      }
+    },
+    {
+      "projectId": "signal-android",
+      "taskId": "02_sticker_management",
+      "platform": "arkts",
+      "report": {
+        "path": "benchmark_projects/signal-android/migrations/02_sticker_management/results/arkts-agent.json",
+        "bytes": 39244,
+        "sha256": "9c08935a10704208495ba19896eb0e0b09cd1c415663ee8a1364453ce8ae5833"
+      },
+      "patch": {
+        "path": "benchmark_projects/signal-android/migrations/02_sticker_management/results/agent-patches/arkts-agent.patch",
+        "bytes": 41076,
+        "sha256": "7a15abedd6e95410a20520b6521d26d902951cdb9b520f019e1616cd27385d4e"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/signal-android/migrations/02_sticker_management/results/agent-patches/arkts-agent-generated-files.json",
+        "bytes": 141,
+        "sha256": "d0f1a20bea0322dd6c35dce63f98680d044a92ec3b41ea18721c76ced6426495"
+      }
+    },
+    {
+      "projectId": "wikipedia-android",
+      "taskId": "01_reading_challenge",
+      "platform": "android",
+      "report": {
+        "path": "benchmark_projects/wikipedia-android/migrations/01_reading_challenge/results/android-agent.json",
+        "bytes": 60926,
+        "sha256": "83d2f41dbd5f53b302caea4b0168cf064ebda9328abdc5d5e7a2c4fa37cf00a8"
+      },
+      "patch": {
+        "path": "benchmark_projects/wikipedia-android/migrations/01_reading_challenge/results/agent-patches/android-agent.patch",
+        "bytes": 31126,
+        "sha256": "2ff6920c49765023b7784d871cce7d20b548e57e9b43c5bac00933ec071dea66"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wikipedia-android/migrations/01_reading_challenge/results/agent-patches/android-agent-generated-files.json",
+        "bytes": 737,
+        "sha256": "b9a6c533a00c265b011723665f13c7a4a8da74b5f861a540574a9af1221b909f"
+      }
+    },
+    {
+      "projectId": "wikipedia-android",
+      "taskId": "01_reading_challenge",
+      "platform": "arkts",
+      "report": {
+        "path": "benchmark_projects/wikipedia-android/migrations/01_reading_challenge/results/arkts-agent.json",
+        "bytes": 69750,
+        "sha256": "44450139892c283586714250c2b6406c1a200ffea7c76973092eabf15ec02fba"
+      },
+      "patch": {
+        "path": "benchmark_projects/wikipedia-android/migrations/01_reading_challenge/results/agent-patches/arkts-agent.patch",
+        "bytes": 30932,
+        "sha256": "ddd7aaa20b21c633f65a55ed1a43d14837f1d6aae4f7f0cbffad52b6a746d86b"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wikipedia-android/migrations/01_reading_challenge/results/agent-patches/arkts-agent-generated-files.json",
+        "bytes": 203,
+        "sha256": "3efd927df1faf6e0e1c38e0e9b59985b3997fd451f0ae5fec137b96dc8101ffd"
+      }
+    },
+    {
+      "projectId": "wikipedia-android",
+      "taskId": "02_hybrid_search",
+      "platform": "android",
+      "report": {
+        "path": "benchmark_projects/wikipedia-android/migrations/02_hybrid_search/results/android-agent.json",
+        "bytes": 81434,
+        "sha256": "f8ff3bbe8607360cbe07da79016e079172ccf8779e3aa12ab2088e56b58ceba3"
+      },
+      "patch": {
+        "path": "benchmark_projects/wikipedia-android/migrations/02_hybrid_search/results/agent-patches/android-agent.patch",
+        "bytes": 40848,
+        "sha256": "77f7eafb505529b12608e9c252c03d63170156db9a7ccb3a7e2fba6171d8ec5b"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wikipedia-android/migrations/02_hybrid_search/results/agent-patches/android-agent-generated-files.json",
+        "bytes": 421,
+        "sha256": "95bfdc3dd810317b670ea15d8e28e98b796c2691e67df0679fe8cc0b3c337ae1"
+      }
+    },
+    {
+      "projectId": "wikipedia-android",
+      "taskId": "02_hybrid_search",
+      "platform": "arkts",
+      "report": {
+        "path": "benchmark_projects/wikipedia-android/migrations/02_hybrid_search/results/arkts-agent.json",
+        "bytes": 92582,
+        "sha256": "1dc88aea0339f518599fc430bbb785c3364d65d522cc890c8ff8b6b5c4f1bb11"
+      },
+      "patch": {
+        "path": "benchmark_projects/wikipedia-android/migrations/02_hybrid_search/results/agent-patches/arkts-agent.patch",
+        "bytes": 48389,
+        "sha256": "8b31c172537bcd64a0e90a58d0358d6e889488ddd78882b822ac0d7533a341f8"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wikipedia-android/migrations/02_hybrid_search/results/agent-patches/arkts-agent-generated-files.json",
+        "bytes": 402,
+        "sha256": "7d19184e5dcb25931066a068e81d7693159a0066df04b4a03465d140e4b5c182"
+      }
+    },
+    {
+      "projectId": "wordpress-android",
+      "taskId": "01_pages_list",
+      "platform": "android",
+      "report": {
+        "path": "benchmark_projects/wordpress-android/migrations/01_pages_list/results/android-agent.json",
+        "bytes": 52405,
+        "sha256": "ec7f4c67b65a7cdfd089e6a31848afa199f82ac81c3c504d3df839833343c64a"
+      },
+      "patch": {
+        "path": "benchmark_projects/wordpress-android/migrations/01_pages_list/results/agent-patches/android-agent.patch",
+        "bytes": 108414,
+        "sha256": "31161b6b8ad54019155fb593972c210d66c82f01dde80f6521e8f4d734f1a3a0"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wordpress-android/migrations/01_pages_list/results/agent-patches/android-agent-generated-files.json",
+        "bytes": 1237,
+        "sha256": "31c916fe0d85b4fa67ff465957eb8e973bfc087f4e192c3bdb904d6c85c54bc9"
+      }
+    },
+    {
+      "projectId": "wordpress-android",
+      "taskId": "01_pages_list",
+      "platform": "arkts",
+      "report": {
+        "path": "benchmark_projects/wordpress-android/migrations/01_pages_list/results/arkts-agent.json",
+        "bytes": 32080,
+        "sha256": "1b89894211f9254e21ad3c5cae90fc2067a03cceefcd82b6ac61fd9b13867fa8"
+      },
+      "patch": {
+        "path": "benchmark_projects/wordpress-android/migrations/01_pages_list/results/agent-patches/arkts-agent.patch",
+        "bytes": 44331,
+        "sha256": "eff3faa6233ab6b944bc3a887039d336c748356911475015fa0fd08234c20e8a"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wordpress-android/migrations/01_pages_list/results/agent-patches/arkts-agent-generated-files.json",
+        "bytes": 187,
+        "sha256": "420904ac6f93f9678b3525d6a04a247c7d7aaa88fe6428adbeb4b0d15131055d"
+      }
+    },
+    {
+      "projectId": "wordpress-android",
+      "taskId": "02_unified_support",
+      "platform": "android",
+      "report": {
+        "path": "benchmark_projects/wordpress-android/migrations/02_unified_support/results/android-agent.json",
+        "bytes": 64016,
+        "sha256": "a66dca91f4d5540cc2f843a1ab08fa31cdfaf47d4010ef2864782cbef6996dd2"
+      },
+      "patch": {
+        "path": "benchmark_projects/wordpress-android/migrations/02_unified_support/results/agent-patches/android-agent.patch",
+        "bytes": 92386,
+        "sha256": "83ea27c830786dae4da7e4fff3ffac983154662d6d53749af30c3a26795a844b"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wordpress-android/migrations/02_unified_support/results/agent-patches/android-agent-generated-files.json",
+        "bytes": 2144,
+        "sha256": "b94c22e7ecd600b4f29f1d4104c4f35e224a371055b265ecec00e169893b622e"
+      }
+    },
+    {
+      "projectId": "wordpress-android",
+      "taskId": "02_unified_support",
+      "platform": "arkts",
+      "report": {
+        "path": "benchmark_projects/wordpress-android/migrations/02_unified_support/results/arkts-agent.json",
+        "bytes": 39784,
+        "sha256": "d7a8556d0035812415bc8ca56886d540f8f4fcb96b80d2fd8680ccb9ebaad595"
+      },
+      "patch": {
+        "path": "benchmark_projects/wordpress-android/migrations/02_unified_support/results/agent-patches/arkts-agent.patch",
+        "bytes": 43239,
+        "sha256": "08f07ae1d6805ddbbc166f9dce4009385fe76dd249abb6c149d78e2b07a3d0f3"
+      },
+      "generatedFiles": {
+        "path": "benchmark_projects/wordpress-android/migrations/02_unified_support/results/agent-patches/arkts-agent-generated-files.json",
+        "bytes": 235,
+        "sha256": "f113f7654dc15addc5a0d4b0d366ce81b4e8358198b3fe536073854b819bb3f0"
+      }
+    }
+  ],
+  "metricPolicy": "Only code generation, production compile, and semantic testcase pass rate are benchmark metrics; adapter, transport, provider, and hidden runtime compile are diagnostics."
+}

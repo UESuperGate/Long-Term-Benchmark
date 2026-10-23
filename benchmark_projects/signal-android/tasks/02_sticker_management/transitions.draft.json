@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_sticker_management",
+  "description": "Platform-neutral sticker management state transitions",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_001_exit_multiselect",
+      "key": "exit_multiselect",
+      "functionalArea": "multi_selection",
+      "given": {"installedPackIds": ["a", "b"], "selectedPackIds": ["a"], "multiSelectEnabled": true},
+      "event": {"name": "setMultiSelectEnabled", "enabled": false},
+      "expected": {"state": {"installedPackIds": ["a", "b"], "selectedPackIds": [], "multiSelectEnabled": false}, "effects": []},
+      "invariants": ["leaving multi-select clears selection without changing installed packs"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.setMultiSelectEnabled"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_002_install_lifecycle",
+      "key": "install_lifecycle",
+      "functionalArea": "installation",
+      "given": {"availablePack": {"id": "p1", "key": "k1", "title": "One"}, "linkedDevices": false},
+      "event": {"name": "installPack"},
+      "expected": {"state": {"downloadStatus": "DOWNLOADED", "confirmation": {"type": "INSTALLED", "title": "One"}}, "effects": [{"name": "installStickerPack", "packId": "p1", "notify": true, "count": 1}], "orderedStates": ["IN_PROGRESS", "DOWNLOADED"]},
+      "invariants": ["the install effect occurs between in-progress and downloaded states", "unrelated pack order is unchanged"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.installStickerPack"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_003_install_status_settles",
+      "key": "install_status_settles",
+      "functionalArea": "installation_settle",
+      "given": {"availablePackIds": ["p1"], "downloadStatuses": {"p1": "DOWNLOADED"}, "repositoryInstalledIds": ["p1"]},
+      "event": {"name": "installationLingerElapsed", "packId": "p1"},
+      "expected": {"state": {"downloadStatus": null, "availablePackIds": []}, "effects": [{"name": "clearTransientDownloadStatus", "packId": "p1", "count": 1}]},
+      "invariants": ["clearing transient status does not uninstall the pack", "the pack remains in the repository's installed category"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.installStickerPack", "StickerManagementViewModel.updatePackDownloadStatus"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_004_drag_reorder",
+      "key": "drag_reorder",
+      "functionalArea": "drag_reorder",
+      "given": {"installedPackIds": ["a", "b", "c"]},
+      "event": {"name": "movePack", "fromIndex": 0, "toIndex": 2},
+      "expected": {"state": {"installedPackIds": ["c", "b", "a"]}, "effects": []},
+      "invariants": ["pack membership and identity are unchanged"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.updatePosition"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_005_drop_persists_order",
+      "key": "drop_persists_order",
+      "functionalArea": "drag_reorder",
+      "given": {"installedPackIds": ["a", "b", "c"]},
+      "event": {"name": "completeDrag", "fromIndex": 0, "toIndex": 2},
+      "expected": {"state": {"installedPackIds": ["c", "b", "a"]}, "effects": [{"name": "setStickerPacksOrder", "packIds": ["c", "b", "a"], "count": 1}]},
+      "invariants": ["the persisted order exactly matches the visible order"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.updatePosition", "StickerManagementViewModel.saveInstalledPacksSortOrder", "StickerManagementRepository.setStickerPacksOrder"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_006_select_enters_multiselect",
+      "key": "select_enters_multiselect",
+      "functionalArea": "multi_selection",
+      "given": {"installedPackIds": ["a", "b"], "selectedPackIds": [], "multiSelectEnabled": false},
+      "event": {"name": "toggleSelection", "packId": "a"},
+      "expected": {"state": {"selectedPackIds": ["a"], "multiSelectEnabled": true}, "effects": []},
+      "invariants": ["selection contains only installed packs"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.toggleSelection"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_007_select_all_toggle",
+      "key": "select_all_toggle",
+      "functionalArea": "multi_selection",
+      "given": {"installedPackIds": ["a", "b", "c"], "selectedPackIds": ["a"], "multiSelectEnabled": true},
+      "event": {"name": "toggleSelectAll"},
+      "expected": {"state": {"selectedPackIds": ["a", "b", "c"], "multiSelectEnabled": true}, "effects": []},
+      "invariants": ["select-all does not change installed-pack order"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.toggleSelectAll"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_008_request_multi_delete",
+      "key": "request_multi_delete",
+      "functionalArea": "delete_confirmation",
+      "given": {"installedPackIds": ["a", "b", "c"], "selectedPackIds": ["a", "c"], "multiSelectEnabled": true},
+      "event": {"name": "requestUninstall", "packIds": ["a", "c"]},
+      "expected": {"state": {"prompt": {"numItemsToDelete": 2}, "selectedPackIds": ["a", "c"]}, "effects": [], "absentEffects": ["uninstallStickerPacks"]},
+      "invariants": ["multi-delete never mutates storage before confirmation"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.onUninstallStickerPacksRequested"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_009_cancel_multi_delete",
+      "key": "cancel_multi_delete_recovery",
+      "functionalArea": "delete_confirmation",
+      "given": {"installedPackIds": ["a", "b", "c"], "selectedPackIds": ["a", "c"], "prompt": {"numItemsToDelete": 2}},
+      "event": {"name": "cancelUninstall"},
+      "expected": {"state": {"prompt": null, "installedPackIds": ["a", "b", "c"], "selectedPackIds": ["a", "c"]}, "effects": [], "absentEffects": ["uninstallStickerPacks", "enqueueLinkedOperation"]},
+      "invariants": ["cancellation preserves both data and selection"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.onUninstallStickerPacksCanceled"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "sm_state_010_confirm_multi_delete",
+      "key": "confirm_multi_delete",
+      "functionalArea": "delete_confirmation",
+      "given": {"installedPackIds": ["a", "b", "c"], "selectedPackIds": ["a", "c"], "prompt": {"numItemsToDelete": 2}, "linkedDevices": true},
+      "event": {"name": "confirmUninstall", "packIds": ["a", "c"]},
+      "expected": {"state": {"prompt": null, "selectedPackIds": [], "confirmation": {"type": "UNINSTALLED_MULTIPLE", "count": 2}}, "effects": [{"name": "uninstallStickerPacks", "packIds": ["a", "c"], "count": 1}, {"name": "enqueueLinkedOperation", "packId": "a", "operation": "REMOVE", "count": 1}, {"name": "enqueueLinkedOperation", "packId": "c", "operation": "REMOVE", "count": 1}]},
+      "invariants": ["only selected IDs are removed from selection", "one linked-device removal is emitted per confirmed pack"],
+      "evidence": {"androidProduction": ["StickerManagementViewModel.onUninstallStickerPacksConfirmed", "StickerManagementRepository.uninstallStickerPacks"], "androidTests": []}
+    }
+  ]
+}

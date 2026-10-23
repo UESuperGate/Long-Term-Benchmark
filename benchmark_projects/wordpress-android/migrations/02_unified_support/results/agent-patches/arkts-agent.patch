@@ -1,0 +1,1183 @@
+diff --git a/entry/oh-package.json5 b/entry/oh-package.json5
+index c3100bb..9de72b5 100644
+--- a/entry/oh-package.json5
++++ b/entry/oh-package.json5
+@@ -1 +1 @@
+-{"name":"entry","version":"1.0.0","description":"WordPress separate support entries","dependencies":{}}
++{"name":"entry","version":"1.0.0","description":"WordPress unified support","dependencies":{}}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/features/UnifiedSupportController.ets b/entry/src/main/ets/features/UnifiedSupportController.ets
+index 4aaf93b..12c5c88 100644
+--- a/entry/src/main/ets/features/UnifiedSupportController.ets
++++ b/entry/src/main/ets/features/UnifiedSupportController.ets
+@@ -1,44 +1,614 @@
+-export interface SupportMessage { id: number; author: string; text: string; }
++/*
++ * Unified support.
++ *
++ * A single "Get help" entry replaces the retired, separate bot and Happiness
++ * Engineer menu entries. One list/repository path serves both conversation
++ * kinds, every detail experience is derived from conversation status and reply
++ * capability, and replies are created optimistically so a failed send never
++ * costs the user their input.
++ */
++
++// ------------------------------------------------------------ service leaves
++
++export interface SupportMessage {
++  id: number;
++  author: string;
++  text: string;
++}
++
+ export interface SupportConversation {
+-  id: number; title: string; status: string; canAcceptReply: boolean; messages: SupportMessage[];
++  id: number;
++  title: string;
++  status: string;
++  canAcceptReply: boolean;
++  messages: SupportMessage[];
+ }
++
+ export interface SupportServiceLeaf {
+   loadConversations(): Promise<SupportConversation[]>;
+   loadConversation(id: number): Promise<SupportConversation>;
+   createBotConversation(botId: string, message: string): Promise<SupportConversation>;
+   reply(id: number, message: string, attachments: string[], logIds: string[]): Promise<SupportConversation>;
+ }
+-export interface NetworkLeaf { online(): boolean; }
++
++export interface NetworkLeaf {
++  online(): boolean;
++}
++
+ export interface AttachmentLeaf {
+   uploadEncryptedLogs(): Promise<string[]>;
+   createTempFiles(inputs: string[]): Promise<string[]>;
+   removeTempFiles(paths: string[]): Promise<void>;
+ }
+ 
++export interface DetailAffordance {
++  composer: string;
++  typingIndicatorSupported: boolean;
++  closedBanner: boolean;
++}
++
++// ---------------------------------------------------------------- vocabulary
++
++/** Name of the unified surface that replaced the separate support entries. */
++export const SUPPORT_SURFACE: string = 'unified_support';
++
++/** The single menu entry that opens the unified experience. */
++export const SUPPORT_ENTRY_LABEL: string = 'Get help';
++
++/** Status that identifies a bot conversation row. */
++export const SUPPORT_BOT_STATUS: string = 'bot';
++
++/** Status of a Happiness Engineer ticket that can no longer be replied to. */
++export const SUPPORT_CLOSED_STATUS: string = 'closed';
++
++export const ERROR_NONE: string = '';
++export const ERROR_GENERAL: string = 'general';
++export const ERROR_OFFLINE: string = 'offline';
++
++export const MESSAGE_AUTHOR_USER: string = 'user';
++export const NEW_CONVERSATION_TITLE: string = 'New conversation';
++
++/** Bot that answers questions started from the unified "Get help" entry. */
++export const GET_HELP_BOT_ID: string = 'get-help';
++
++export const COMPOSER_INLINE: string = 'inline_composer';
++export const COMPOSER_REPLY_SHEET: string = 'reply_sheet';
++export const COMPOSER_NONE: string = 'none';
++
++export const AFFORDANCE_INLINE_COMPOSER: string = 'inline_composer';
++export const AFFORDANCE_REPLY_SHEET: string = 'reply_sheet';
++export const AFFORDANCE_CLOSED_BANNER: string = 'closed_banner';
++export const AFFORDANCE_NO_REPLY: string = 'no_reply_action';
++
++// --------------------------------------------------------------- model rules
++
++export function isBotConversation(conversation: SupportConversation): boolean {
++  return conversation.status === SUPPORT_BOT_STATUS;
++}
++
++export function isClosedConversation(conversation: SupportConversation): boolean {
++  return conversation.status === SUPPORT_CLOSED_STATUS;
++}
++
++/**
++ * Closed Happiness Engineer tickets keep their history but can no longer accept
++ * replies, so the reply affordance is derived from both flags.
++ */
++export function canReplyToConversation(conversation: SupportConversation): boolean {
++  return conversation.canAcceptReply && !isClosedConversation(conversation);
++}
++
++export function isUserMessage(message: SupportMessage): boolean {
++  return message.author === MESSAGE_AUTHOR_USER;
++}
++
++export function statusLabel(conversation: SupportConversation): string {
++  if (isBotConversation(conversation)) {
++    return 'Bot conversation';
++  }
++  return conversation.status;
++}
++
++// ------------------------------------------------------------------ form state
++
+ export class ReplyFormState {
+   message: string = '';
+   attachments: string[] = [];
+   includeAppLogs: boolean = false;
+   sheetVisible: boolean = false;
++
++  isEmpty(): boolean {
++    return this.message.length === 0 && this.attachments.length === 0
++      && !this.includeAppLogs && !this.sheetVisible;
++  }
++
++  /** Full reset used when a reply completes or another conversation is opened. */
++  clear(): void {
++    this.message = '';
++    this.attachments = [];
++    this.includeAppLogs = false;
++    this.sheetVisible = false;
++  }
+ }
+ 
++// -------------------------------------------------------------- observable store
++
+ export class UnifiedSupportStore {
+-  surface: string = 'separate_support_entries';
+-  entryLabel: string = '';
++  surface: string = SUPPORT_SURFACE;
++  entryLabel: string = SUPPORT_ENTRY_LABEL;
+   conversations: SupportConversation[] = [];
+   selected?: SupportConversation;
+   replyForm: ReplyFormState = new ReplyFormState();
+   loading: boolean = false;
+   sending: boolean = false;
+-  error: string = '';
++  error: string = ERROR_NONE;
++  /** Number of unified repository requests that reached the service leaf. */
+   requestCount: number = 0;
+ }
+ 
+-export class LegacySupportStore extends UnifiedSupportStore {
+-  entries: string[] = ['Ask the Bots', 'Ask the Happiness Engineers'];
+-}
++// ------------------------------------------------------------------ controller
+ 
+-export class LegacySupportController {
+-  readonly store: LegacySupportStore = new LegacySupportStore();
+-  open(): void { this.store.surface = 'separate_support_entries'; }
+-}
++export class UnifiedSupportController {
++  readonly store: UnifiedSupportStore = new UnifiedSupportStore();
++  private readonly service: SupportServiceLeaf;
++  private readonly network?: NetworkLeaf;
++  private readonly attachments?: AttachmentLeaf;
++  /** Local conversations get negative ids until the bot bridge returns one. */
++  private localConversationId: number = 0;
++  private localMessageId: number = 0;
++
++  constructor(service: SupportServiceLeaf, network?: NetworkLeaf, attachments?: AttachmentLeaf) {
++    this.service = service;
++    this.network = network;
++    this.attachments = attachments;
++  }
++
++  // ------------------------------------------------------------ list loading
++
++  /** Opens the unified list from the single "Get help" entry. */
++  open(): Promise<boolean> {
++    return this.loadUnifiedList();
++  }
++
++  /** Retries the unified list through the very same repository path. */
++  retry(): Promise<boolean> {
++    return this.loadUnifiedList();
++  }
++
++  private async loadUnifiedList(): Promise<boolean> {
++    this.store.loading = true;
++    this.store.error = ERROR_NONE;
++    this.store.requestCount += 1;
++    try {
++      const rows: SupportConversation[] = await this.service.loadConversations();
++      this.store.conversations = this.adoptAll(rows);
++      this.realignSelection();
++      this.store.error = ERROR_NONE;
++      return true;
++    } catch (error) {
++      // A failed request stays observable error state; it is never flattened
++      // into an empty successful list.
++      this.store.error = this.failureToken();
++      return false;
++    } finally {
++      this.store.loading = false;
++    }
++  }
++
++  // --------------------------------------------------------- detail opening
++
++  async openConversation(id: number): Promise<boolean> {
++    // Draft state belongs to the conversation it was typed for, so switching to
++    // another conversation clears it. Re-opening the same conversation keeps the
++    // input the user already wrote.
++    const current: SupportConversation | undefined = this.store.selected;
++    if (current === undefined || current.id !== id) {
++      this.store.replyForm.clear();
++    }
++    this.store.error = ERROR_NONE;
++    this.store.loading = true;
++    this.store.requestCount += 1;
++    try {
++      const conversation: SupportConversation = await this.service.loadConversation(id);
++      const adopted: SupportConversation = this.adopt(conversation);
++      this.upsert(adopted);
++      this.store.selected = adopted;
++      return true;
++    } catch (error) {
++      this.store.error = this.failureToken();
++      return false;
++    } finally {
++      this.store.loading = false;
++    }
++  }
++
++  /**
++   * Creates the bot conversation locally. The remote bot bridge only runs on the
++   * first send, so the entry appears immediately without a round trip.
++   */
++  createNewBotConversation(): void {
++    this.localConversationId += 1;
++    const conversation: SupportConversation = {
++      id: -this.localConversationId,
++      title: NEW_CONVERSATION_TITLE,
++      status: SUPPORT_BOT_STATUS,
++      canAcceptReply: true,
++      messages: []
++    };
++    this.store.replyForm.clear();
++    this.store.error = ERROR_NONE;
++
++    const rows: SupportConversation[] = [conversation];
++    const existing: SupportConversation[] = this.store.conversations;
++    for (let i = 0; i < existing.length; i++) {
++      rows.push(existing[i]);
++    }
++    this.store.conversations = rows;
++    this.store.selected = conversation;
++  }
++
++  // -------------------------------------------------------------- reply form
++
++  updateDraft(message: string): void {
++    this.store.replyForm.message = message;
++  }
++
++  updateAttachments(values: string[]): void {
++    this.store.replyForm.attachments = values.slice();
++  }
++
++  setIncludeAppLogs(value: boolean): void {
++    this.store.replyForm.includeAppLogs = value;
++  }
++
++  setReplySheetVisible(value: boolean): void {
++    this.store.replyForm.sheetVisible = value;
++  }
++
++  // ------------------------------------------------------ detail affordances
++
++  detailState(conversation: SupportConversation): DetailAffordance {
++    const affordance: DetailAffordance = {
++      composer: COMPOSER_NONE,
++      typingIndicatorSupported: false,
++      closedBanner: false
++    };
++    if (isClosedConversation(conversation)) {
++      affordance.closedBanner = true;
++      return affordance;
++    }
++    if (!conversation.canAcceptReply) {
++      return affordance;
++    }
++    affordance.typingIndicatorSupported = true;
++    affordance.composer = isBotConversation(conversation) ? COMPOSER_INLINE : COMPOSER_REPLY_SHEET;
++    return affordance;
++  }
++
++  detailAffordance(conversation: SupportConversation): string {
++    const affordance: DetailAffordance = this.detailState(conversation);
++    if (affordance.closedBanner) {
++      return AFFORDANCE_CLOSED_BANNER;
++    }
++    if (affordance.composer === COMPOSER_INLINE) {
++      return AFFORDANCE_INLINE_COMPOSER;
++    }
++    if (affordance.composer === COMPOSER_REPLY_SHEET) {
++      return AFFORDANCE_REPLY_SHEET;
++    }
++    return AFFORDANCE_NO_REPLY;
++  }
++
++  // -------------------------------------------------------------- send reply
++
++  async sendReply(message: string): Promise<boolean> {
++    // The guard is set before any asynchronous work so a duplicate tap cannot
++    // reach the repository.
++    if (this.store.sending) {
++      return false;
++    }
++    // Offline is detected before the optimistic message is inserted and before
++    // the repository is called at all.
++    if (!this.isOnline()) {
++      this.store.error = ERROR_OFFLINE;
++      return false;
++    }
++
++    let conversation: SupportConversation | undefined = this.store.selected;
++    if (conversation === undefined) {
++      this.createNewBotConversation();
++      conversation = this.store.selected;
++    }
++    if (conversation === undefined) {
++      return false;
++    }
++
++    const form: ReplyFormState = this.store.replyForm;
++    const sentText: string = message.length > 0 ? message : form.message;
++    if (sentText.length === 0) {
++      return false;
++    }
++
++    this.localMessageId += 1;
++    const optimistic: SupportMessage = {
++      id: -this.localMessageId,
++      author: MESSAGE_AUTHOR_USER,
++      text: sentText
++    };
++    const pendingBotConversation: boolean = conversation.id < 0;
++    // Snapshot the payload before any asynchronous work so later typing cannot
++    // change what this send actually transmits.
++    const pendingAttachments: string[] = form.attachments.slice();
++    const pendingAppLogs: boolean = form.includeAppLogs;
++
++    this.store.sending = true;
++    this.store.error = ERROR_NONE;
++    form.message = '';
++    this.appendMessage(conversation, optimistic);
++    this.upsert(conversation);
++    this.store.selected = conversation;
++
++    let tempPaths: string[] = [];
++    let logIds: string[] = [];
++    let returned: SupportConversation | undefined = undefined;
++    let failed = false;
++    try {
++      if (pendingAppLogs) {
++        logIds = await this.uploadAppLogs();
++      }
++      tempPaths = await this.createTempFiles(pendingAttachments);
++      if (pendingBotConversation) {
++        // Application owned bot creation bridge, then the returned reply.
++        this.store.requestCount += 1;
++        returned = await this.service.createBotConversation(GET_HELP_BOT_ID, sentText);
++      } else {
++        this.store.requestCount += 1;
++        returned = await this.service.reply(conversation.id, sentText, tempPaths, logIds);
++      }
++    } catch (error) {
++      failed = true;
++    }
++
++    this.store.sending = false;
++    await this.removeTempFiles(tempPaths);
++
++    if (failed || returned === undefined) {
++      this.rollbackOptimistic(conversation, optimistic, sentText);
++      this.store.error = this.failureToken();
++      return false;
++    }
++
++    this.applySentConversation(conversation, optimistic, returned);
++    this.store.replyForm.clear();
++    this.store.error = ERROR_NONE;
++    return true;
++  }
++
++  // ------------------------------------------------------------------ private
++
++  private isOnline(): boolean {
++    const leaf: NetworkLeaf | undefined = this.network;
++    if (leaf === undefined) {
++      return true;
++    }
++    return leaf.online();
++  }
++
++  private failureToken(): string {
++    return this.isOnline() ? ERROR_GENERAL : ERROR_OFFLINE;
++  }
++
++  /** Copies leaf payloads so the controller never mutates foreign objects. */
++  private adopt(conversation: SupportConversation): SupportConversation {
++    return {
++      id: conversation.id,
++      title: conversation.title,
++      status: conversation.status,
++      canAcceptReply: conversation.canAcceptReply,
++      messages: conversation.messages.slice()
++    };
++  }
++
++  private adoptAll(conversations: SupportConversation[]): SupportConversation[] {
++    const adopted: SupportConversation[] = [];
++    for (let i = 0; i < conversations.length; i++) {
++      adopted.push(this.adopt(conversations[i]));
++    }
++    return adopted;
++  }
++
++  /** Keeps the selected detail pointing at the same object as its list row. */
++  private realignSelection(): void {
++    const selected: SupportConversation | undefined = this.store.selected;
++    if (selected === undefined) {
++      return;
++    }
++    const rows: SupportConversation[] = this.store.conversations;
++    for (let i = 0; i < rows.length; i++) {
++      if (rows[i].id === selected.id) {
++        this.store.selected = rows[i];
++        return;
++      }
++    }
++  }
++
++  private upsert(conversation: SupportConversation): void {
++    const rows: SupportConversation[] = [];
++    const existing: SupportConversation[] = this.store.conversations;
++    let replaced = false;
++    for (let i = 0; i < existing.length; i++) {
++      if (existing[i].id === conversation.id) {
++        if (!replaced) {
++          rows.push(conversation);
++          replaced = true;
++        }
++      } else {
++        rows.push(existing[i]);
++      }
++    }
++    if (!replaced) {
++      const head: SupportConversation[] = [conversation];
++      for (let i = 0; i < rows.length; i++) {
++        head.push(rows[i]);
++      }
++      this.store.conversations = head;
++      return;
++    }
++    this.store.conversations = rows;
++  }
++
++  /** Swaps the previous row for the refreshed conversation, keeping position. */
++  private replaceInList(previousId: number, next: SupportConversation): void {
++    const source: SupportConversation[] = this.store.conversations;
++    const rows: SupportConversation[] = [];
++    let inserted = false;
++    for (let i = 0; i < source.length; i++) {
++      const row: SupportConversation = source[i];
++      if (row.id === previousId || row.id === next.id) {
++        if (!inserted) {
++          rows.push(next);
++          inserted = true;
++        }
++        continue;
++      }
++      rows.push(row);
++    }
++    if (!inserted) {
++      const head: SupportConversation[] = [next];
++      for (let i = 0; i < rows.length; i++) {
++        head.push(rows[i]);
++      }
++      this.store.conversations = head;
++      return;
++    }
++    this.store.conversations = rows;
++  }
++
++  private appendMessage(conversation: SupportConversation, message: SupportMessage): void {
++    const messages: SupportMessage[] = conversation.messages.slice();
++    messages.push(message);
++    conversation.messages = messages;
++  }
++
++  private removeMessage(conversation: SupportConversation, messageId: number): void {
++    const messages: SupportMessage[] = conversation.messages;
++    const remaining: SupportMessage[] = [];
++    for (let i = 0; i < messages.length; i++) {
++      if (messages[i].id !== messageId) {
++        remaining.push(messages[i]);
++      }
++    }
++    conversation.messages = remaining;
++  }
++
++  private async uploadAppLogs(): Promise<string[]> {
++    const leaf: AttachmentLeaf | undefined = this.attachments;
++    if (leaf === undefined) {
++      return [];
++    }
++    return await leaf.uploadEncryptedLogs();
++  }
++
++  private async createTempFiles(sources: string[]): Promise<string[]> {
++    if (sources.length === 0) {
++      return [];
++    }
++    const leaf: AttachmentLeaf | undefined = this.attachments;
++    if (leaf === undefined) {
++      return sources.slice();
++    }
++    return await leaf.createTempFiles(sources);
++  }
++
++  private async removeTempFiles(paths: string[]): Promise<void> {
++    if (paths.length === 0) {
++      return;
++    }
++    const leaf: AttachmentLeaf | undefined = this.attachments;
++    if (leaf === undefined) {
++      return;
++    }
++    try {
++      await leaf.removeTempFiles(paths);
++    } catch (error) {
++      // Temporary file cleanup is best effort and never fails a completed send.
++    }
++  }
++
++  /** Only the optimistic message is undone; history is left untouched. */
++  private rollbackOptimistic(
++    conversation: SupportConversation,
++    optimistic: SupportMessage,
++    sentText: string
++  ): void {
++    this.removeMessage(conversation, optimistic.id);
++    if (this.store.replyForm.message.length === 0) {
++      this.store.replyForm.message = sentText;
++    }
++    this.upsert(conversation);
++    this.store.selected = conversation;
++  }
++
++  private applySentConversation(
++    conversation: SupportConversation,
++    optimistic: SupportMessage,
++    returned: SupportConversation
++  ): void {
++    const merged: SupportConversation = {
++      id: returned.id,
++      title: returned.title.length > 0 ? returned.title : conversation.title,
++      status: returned.status.length > 0 ? returned.status : conversation.status,
++      canAcceptReply: returned.canAcceptReply,
++      messages: this.mergeMessages(conversation, optimistic, returned)
++    };
++    this.replaceInList(conversation.id, merged);
++    this.store.selected = merged;
++  }
++
++  /**
++   * Keeps the user's question exactly once: when the response already echoes it
++   * the response is authoritative, otherwise the local message is re-inserted at
++   * its chronological position.
++   */
++  private mergeMessages(
++    conversation: SupportConversation,
++    optimistic: SupportMessage,
++    returned: SupportConversation
++  ): SupportMessage[] {
++    const incoming: SupportMessage[] = returned.messages;
++    for (let i = 0; i < incoming.length; i++) {
++      if (incoming[i].id === optimistic.id || incoming[i].text === optimistic.text) {
++        return incoming.slice();
++      }
++    }
++    const anchor: number = this.lastAnchorIndex(incoming, conversation.messages);
++    const merged: SupportMessage[] = [];
++    if (anchor < 0) {
++      merged.push(optimistic);
++      for (let i = 0; i < incoming.length; i++) {
++        merged.push(incoming[i]);
++      }
++      return merged;
++    }
++    for (let i = 0; i <= anchor; i++) {
++      merged.push(incoming[i]);
++    }
++    merged.push(optimistic);
++    for (let i = anchor + 1; i < incoming.length; i++) {
++      merged.push(incoming[i]);
++    }
++    return merged;
++  }
++
++  private lastAnchorIndex(incoming: SupportMessage[], previous: SupportMessage[]): number {
++    let anchor = -1;
++    for (let i = 0; i < incoming.length; i++) {
++      for (let j = 0; j < previous.length; j++) {
++        if (previous[j].id === incoming[i].id) {
++          anchor = i;
++        }
++      }
++    }
++    return anchor;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 753655d..146c2ae 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,17 +1,187 @@
+-import { LegacySupportPageOwner, LegacySupportPageRuntime } from './UnifiedSupportPageOwner';
++import { UnifiedSupportPageOwner, UnifiedSupportPageRuntime } from './UnifiedSupportPageOwner';
++import {
++  COMPOSER_INLINE,
++  COMPOSER_REPLY_SHEET,
++  ERROR_OFFLINE,
++  SupportConversation,
++  SupportMessage,
++  UnifiedSupportStore,
++  isUserMessage,
++  statusLabel
++} from '../features/UnifiedSupportController';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private owner: LegacySupportPageOwner = LegacySupportPageRuntime.createOwner();
+-  aboutToAppear(): void { this.owner.aboutToAppear(); }
++  private owner: UnifiedSupportPageOwner = UnifiedSupportPageRuntime.mount();
++  @State private entryLabel: string = '';
++  @State private loading: boolean = false;
++  @State private sending: boolean = false;
++  @State private error: string = '';
++  @State private rows: SupportConversation[] = [];
++  @State private detailTitle: string = '';
++  @State private detailMessages: SupportMessage[] = [];
++  @State private composer: string = COMPOSER_INLINE;
++  @State private closedBanner: boolean = false;
++  @State private draft: string = '';
++  @State private attachmentCount: number = 0;
++  @State private includeAppLogs: boolean = false;
++  @State private sheetVisible: boolean = false;
++
++  aboutToAppear(): void {
++    this.sync();
++    this.owner.openSupport().then(() => {
++      this.sync();
++    });
++  }
++
++  private sync(): void {
++    const store: UnifiedSupportStore = this.owner.store();
++    this.entryLabel = store.entryLabel;
++    this.loading = store.loading;
++    this.sending = store.sending;
++    this.error = store.error;
++    this.rows = store.conversations;
++    this.draft = store.replyForm.message;
++    this.attachmentCount = store.replyForm.attachments.length;
++    this.includeAppLogs = store.replyForm.includeAppLogs;
++    this.sheetVisible = store.replyForm.sheetVisible;
++    const selected: SupportConversation | undefined = store.selected;
++    if (selected === undefined) {
++      this.detailTitle = '';
++      this.detailMessages = [];
++      this.composer = COMPOSER_INLINE;
++      this.closedBanner = false;
++      return;
++    }
++    this.detailTitle = selected.title;
++    this.detailMessages = selected.messages;
++    const affordance = this.owner.detailState(selected);
++    this.composer = affordance.composer;
++    this.closedBanner = affordance.closedBanner;
++  }
+ 
+   build() {
+     Column({ space: 12 }) {
+-      Text('Help & Support').fontSize(24).fontWeight(FontWeight.Bold).margin({ bottom: 12 })
+-      ForEach(this.owner.store().entries, (entry: string) => {
+-        Button(entry).width('100%')
+-      })
+-    }.width('100%').height('100%').padding(20)
++      Text(this.entryLabel).fontSize(24).fontWeight(FontWeight.Bold).width('100%')
++
++      if (this.loading) {
++        Text('Loading conversations').fontSize(14)
++      }
++
++      if (this.error.length > 0) {
++        Text(this.error === ERROR_OFFLINE ? 'You are offline' : 'Something went wrong')
++          .fontSize(14)
++          .width('100%')
++        Button('Retry').width('100%').onClick(() => {
++          this.owner.retryConversations().then(() => {
++            this.sync();
++          });
++        })
++      }
++
++      if (this.error.length === 0) {
++        Button('Start a new conversation').width('100%').onClick(() => {
++          this.owner.createBotConversation();
++          this.sync();
++        })
++
++        List({ space: 8 }) {
++          ForEach(this.rows, (item: SupportConversation) => {
++            ListItem() {
++              Column({ space: 4 }) {
++                Text(item.title).fontSize(16).width('100%')
++                Text(statusLabel(item)).fontSize(12).width('100%')
++              }
++              .width('100%')
++              .padding(12)
++              .backgroundColor('#F3F3F3')
++              .borderRadius(8)
++              .onClick(() => {
++                this.owner.openConversation(item.id).then(() => {
++                  this.sync();
++                });
++              })
++            }
++          }, (item: SupportConversation) => item.id.toString())
++        }
++        .layoutWeight(1)
++        .width('100%')
++      }
++
++      if (this.detailTitle.length > 0) {
++        Column({ space: 8 }) {
++          Text(this.detailTitle).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
++
++          if (this.closedBanner) {
++            Text('This conversation is closed').fontSize(14).width('100%')
++          }
++
++          ForEach(this.detailMessages, (item: SupportMessage) => {
++            Column({ space: 2 }) {
++              Text(isUserMessage(item) ? 'You' : item.author).fontSize(11).width('100%')
++              Text(item.text).fontSize(14).width('100%')
++            }
++            .alignItems(HorizontalAlign.Start)
++            .width('100%')
++            .padding(8)
++          }, (item: SupportMessage) => item.id.toString())
++
++          if (this.composer === COMPOSER_REPLY_SHEET && !this.sheetVisible) {
++            Button('Reply').width('100%').onClick(() => {
++              this.owner.setReplySheetVisible(true);
++              this.sync();
++            })
++          }
++
++          if (this.composer === COMPOSER_INLINE || this.composer === COMPOSER_REPLY_SHEET) {
++            if (this.composer === COMPOSER_REPLY_SHEET) {
++              if (this.sheetVisible) {
++                TextInput({ text: this.draft, placeholder: 'Add a reply' })
++                  .width('100%')
++                  .onChange((value: string) => {
++                    this.owner.updateDraft(value);
++                  })
++              }
++            } else {
++              TextInput({ text: this.draft, placeholder: 'Ask a question' })
++                .width('100%')
++                .onChange((value: string) => {
++                  this.owner.updateDraft(value);
++                })
++            }
++
++            Text(`${this.attachmentCount} attachment(s)`).fontSize(11).width('100%')
++
++            Button(this.includeAppLogs ? 'App logs on' : 'App logs off')
++              .width('100%')
++              .onClick(() => {
++                this.owner.setIncludeAppLogs(!this.includeAppLogs);
++                this.sync();
++              })
++
++            Button(this.sending ? 'Sending' : 'Send')
++              .width('100%')
++              .enabled(!this.sending)
++              .onClick(() => {
++                this.owner.sendReply(this.draft).then(() => {
++                  this.sync();
++                });
++              })
++          }
++
++          if (this.error.length > 0) {
++            Text(this.error === ERROR_OFFLINE ? 'You are offline' : 'Message not sent').fontSize(12)
++          }
++        }
++        .width('100%')
++        .padding(12)
++        .backgroundColor('#FFFFFF')
++        .borderRadius(8)
++      }
++    }
++    .width('100%')
++    .height('100%')
++    .padding(20)
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/UnifiedSupportPageOwner.ets b/entry/src/main/ets/pages/UnifiedSupportPageOwner.ets
+index 6a320dd..1f7685e 100644
+--- a/entry/src/main/ets/pages/UnifiedSupportPageOwner.ets
++++ b/entry/src/main/ets/pages/UnifiedSupportPageOwner.ets
+@@ -1,9 +1,10 @@
+ import {
+   AttachmentLeaf,
+-  LegacySupportController,
+-  LegacySupportStore,
++  DetailAffordance,
+   NetworkLeaf,
++  SupportConversation,
+   SupportServiceLeaf,
++  UnifiedSupportController,
+   UnifiedSupportStore
+ } from '../features/UnifiedSupportController';
+ 
+@@ -14,123 +15,236 @@ export interface RenderedAffordance {
+   closedBanner: boolean;
+ }
+ 
+-export class LegacySupportPageOwner {
++/**
++ * Service leaf used until the support backend has been wired into the ability.
++ * It reports the remote call as unavailable so the unified list surfaces an
++ * error state instead of pretending an empty support history.
++ */
++export class UnavailableSupportServiceLeaf implements SupportServiceLeaf {
++  private readonly reason: string = 'The support service is not available';
++
++  loadConversations(): Promise<SupportConversation[]> {
++    return Promise.reject(new Error(this.reason));
++  }
++
++  loadConversation(_id: number): Promise<SupportConversation> {
++    return Promise.reject(new Error(this.reason));
++  }
++
++  createBotConversation(_botId: string, _message: string): Promise<SupportConversation> {
++    return Promise.reject(new Error(this.reason));
++  }
++
++  reply(_id: number, _message: string, _attachments: string[], _logIds: string[]): Promise<SupportConversation> {
++    return Promise.reject(new Error(this.reason));
++  }
++}
++
++/**
++ * The support page instance. It owns no state of its own: every event is
++ * dispatched to the retained controller, so a page recreation keeps the reply
++ * form and the selected conversation exactly as the user left them.
++ */
++export class UnifiedSupportPageOwner {
+   readonly ownerId: string;
+   readonly controllerId: string;
+-  readonly controller: LegacySupportController = new LegacySupportController();
++  private readonly controller: UnifiedSupportController;
+ 
+-  constructor(ownerId: string, controllerId: string) {
++  constructor(controller: UnifiedSupportController, ownerId: string, controllerId: string) {
++    this.controller = controller;
+     this.ownerId = ownerId;
+     this.controllerId = controllerId;
+   }
+ 
+-  aboutToAppear(): void { this.controller.open(); }
+-  store(): LegacySupportStore { return this.controller.store; }
+-  openSupport(): void { this.controller.open(); }
+-}
++  waitUntilReady(): Promise<void> {
++    return Promise.resolve();
++  }
+ 
+-export class LegacySupportPageRuntime {
+-  private static current?: LegacySupportPageOwner;
+-  private static generation: number = 0;
++  store(): UnifiedSupportStore {
++    return this.controller.store;
++  }
+ 
+-  static reset(): void {
+-    LegacySupportPageRuntime.current = undefined;
+-    LegacySupportPageRuntime.generation = 0;
++  support(): UnifiedSupportController {
++    return this.controller;
+   }
+ 
+-  static createOwner(): LegacySupportPageOwner {
+-    LegacySupportPageRuntime.generation += 1;
+-    const suffix = LegacySupportPageRuntime.generation.toString();
+-    const owner = new LegacySupportPageOwner(`legacy-support-owner-${suffix}`, `legacy-support-controller-${suffix}`);
+-    LegacySupportPageRuntime.current = owner;
+-    UnifiedSupportPageRuntime.attachLegacy(owner);
+-    return owner;
++  openSupport(): Promise<boolean> {
++    return this.controller.open();
+   }
+ 
+-  static currentOwner(): LegacySupportPageOwner {
+-    const owner = LegacySupportPageRuntime.current;
+-    if (owner === undefined) throw new Error('Legacy support page owner is not mounted');
+-    return owner;
++  retryConversations(): Promise<boolean> {
++    return this.controller.retry();
+   }
+ 
+-  static async waitForOwner(attempt: number = 0): Promise<LegacySupportPageOwner> {
+-    const owner = LegacySupportPageRuntime.current;
+-    if (owner !== undefined) return owner;
+-    if (attempt >= 80) throw new Error('Legacy support page owner mount timed out');
+-    await new Promise<void>((resolve) => { setTimeout(() => resolve(), 25); });
+-    return LegacySupportPageRuntime.waitForOwner(attempt + 1);
++  openConversation(id: number): Promise<boolean> {
++    return this.controller.openConversation(id);
+   }
+ 
+-  static async waitForOwnerAfter(previousOwnerId: string, attempt: number = 0): Promise<LegacySupportPageOwner> {
+-    const owner = LegacySupportPageRuntime.current;
+-    if (owner !== undefined && owner.ownerId !== previousOwnerId) return owner;
+-    if (attempt >= 80) throw new Error('Legacy support replacement page owner mount timed out');
+-    await new Promise<void>((resolve) => { setTimeout(() => resolve(), 25); });
+-    return LegacySupportPageRuntime.waitForOwnerAfter(previousOwnerId, attempt + 1);
++  createBotConversation(): void {
++    this.controller.createNewBotConversation();
+   }
+ 
+-  static ownerGeneration(): number { return LegacySupportPageRuntime.generation; }
+-}
++  updateDraft(message: string): void {
++    this.controller.updateDraft(message);
++  }
+ 
+-export class UnifiedSupportPageOwner {
+-  readonly ownerId: string;
+-  readonly controllerId: string;
+-  private legacy: LegacySupportPageOwner;
+-
+-  constructor(legacy: LegacySupportPageOwner) {
+-    this.legacy = legacy;
+-    this.ownerId = legacy.ownerId;
+-    this.controllerId = legacy.controllerId;
+-  }
+-
+-  waitUntilReady(): Promise<void> { return Promise.resolve(); }
+-  store(): UnifiedSupportStore { return this.legacy.store(); }
+-  retryConversations(): Promise<boolean> { return Promise.resolve(false); }
+-  openConversation(_id: number): Promise<boolean> { return Promise.resolve(false); }
+-  createBotConversation(): void {}
+-  updateDraft(_message: string): void {}
+-  updateAttachments(_values: string[]): void {}
+-  setIncludeAppLogs(_value: boolean): void {}
+-  setReplySheetVisible(_value: boolean): void {}
+-  sendReply(_message: string): Promise<boolean> { return Promise.resolve(false); }
+-  renderedAffordances(): RenderedAffordance[] { return []; }
++  updateAttachments(values: string[]): void {
++    this.controller.updateAttachments(values);
++  }
++
++  setIncludeAppLogs(value: boolean): void {
++    this.controller.setIncludeAppLogs(value);
++  }
++
++  setReplySheetVisible(value: boolean): void {
++    this.controller.setReplySheetVisible(value);
++  }
++
++  sendReply(message: string): Promise<boolean> {
++    return this.controller.sendReply(message);
++  }
++
++  detailState(conversation: SupportConversation): DetailAffordance {
++    return this.controller.detailState(conversation);
++  }
++
++  /** The affordances the detail screen renders for the current unified list. */
++  renderedAffordances(): RenderedAffordance[] {
++    const rows: SupportConversation[] = this.controller.store.conversations;
++    const rendered: RenderedAffordance[] = [];
++    for (let i = 0; i < rows.length; i++) {
++      const affordance: DetailAffordance = this.controller.detailState(rows[i]);
++      rendered.push({
++        id: rows[i].id,
++        composer: affordance.composer,
++        typingIndicatorSupported: affordance.typingIndicatorSupported,
++        closedBanner: affordance.closedBanner
++      });
++    }
++    return rendered;
++  }
+ }
+ 
++/**
++ * Retained store for the support page, mirroring the ViewModelStore of the
++ * production host: the controller survives page recreation and is only rebuilt
++ * when new service leaves are configured.
++ */
+ export class UnifiedSupportPageRuntime {
+   private static current?: UnifiedSupportPageOwner;
+   private static generation: number = 0;
++  private static controller?: UnifiedSupportController;
++  private static controllerId: string = '';
++  private static service?: SupportServiceLeaf;
++  private static network?: NetworkLeaf;
++  private static attachments?: AttachmentLeaf;
++
++  static configure(service: SupportServiceLeaf, network?: NetworkLeaf, attachments?: AttachmentLeaf): void {
++    UnifiedSupportPageRuntime.service = service;
++    UnifiedSupportPageRuntime.network = network;
++    UnifiedSupportPageRuntime.attachments = attachments;
++    // A new leaf configuration starts a new retained controller.
++    UnifiedSupportPageRuntime.controller = undefined;
++    UnifiedSupportPageRuntime.controllerId = '';
++    const mounted: UnifiedSupportPageOwner | undefined = UnifiedSupportPageRuntime.current;
++    if (mounted === undefined) {
++      UnifiedSupportPageRuntime.generation = 0;
++      return;
++    }
++    UnifiedSupportPageRuntime.current = UnifiedSupportPageRuntime.buildOwner(mounted.ownerId);
++  }
+ 
+-  static configure(_service: SupportServiceLeaf, _network: NetworkLeaf, _attachments: AttachmentLeaf): void {
++  static reset(): void {
+     UnifiedSupportPageRuntime.current = undefined;
+     UnifiedSupportPageRuntime.generation = 0;
++    UnifiedSupportPageRuntime.controller = undefined;
++    UnifiedSupportPageRuntime.controllerId = '';
++    UnifiedSupportPageRuntime.service = undefined;
++    UnifiedSupportPageRuntime.network = undefined;
++    UnifiedSupportPageRuntime.attachments = undefined;
++  }
++
++  /** Creates the page instance, keeping the retained controller instance. */
++  static mount(): UnifiedSupportPageOwner {
++    UnifiedSupportPageRuntime.generation += 1;
++    const owner: UnifiedSupportPageOwner =
++      UnifiedSupportPageRuntime.buildOwner(`support-owner-${UnifiedSupportPageRuntime.generation}`);
++    UnifiedSupportPageRuntime.current = owner;
++    return owner;
+   }
+ 
+-  static attachLegacy(owner: LegacySupportPageOwner): void {
+-    UnifiedSupportPageRuntime.current = new UnifiedSupportPageOwner(owner);
+-    UnifiedSupportPageRuntime.generation = LegacySupportPageRuntime.ownerGeneration();
++  static currentController(): UnifiedSupportController {
++    let controller: UnifiedSupportController | undefined = UnifiedSupportPageRuntime.controller;
++    if (controller !== undefined) {
++      return controller;
++    }
++    let service: SupportServiceLeaf | undefined = UnifiedSupportPageRuntime.service;
++    if (service === undefined) {
++      service = new UnavailableSupportServiceLeaf();
++    }
++    controller = new UnifiedSupportController(
++      service,
++      UnifiedSupportPageRuntime.network,
++      UnifiedSupportPageRuntime.attachments
++    );
++    UnifiedSupportPageRuntime.controller = controller;
++    UnifiedSupportPageRuntime.controllerId = `support-controller-${UnifiedSupportPageRuntime.generation + 1}`;
++    return controller;
+   }
+ 
+   static currentOwner(): UnifiedSupportPageOwner {
+-    const owner = UnifiedSupportPageRuntime.current;
+-    if (owner === undefined) throw new Error('Unified Support page owner is not mounted');
++    const owner: UnifiedSupportPageOwner | undefined = UnifiedSupportPageRuntime.current;
++    if (owner === undefined) {
++      throw new Error('Unified Support page owner is not mounted');
++    }
+     return owner;
+   }
+ 
+   static async waitForOwner(attempt: number = 0): Promise<UnifiedSupportPageOwner> {
+-    const owner = UnifiedSupportPageRuntime.current;
+-    if (owner !== undefined) return owner;
+-    if (attempt >= 80) throw new Error('Unified Support page owner mount timed out');
+-    await new Promise<void>((resolve) => { setTimeout(() => resolve(), 25); });
++    const owner: UnifiedSupportPageOwner | undefined = UnifiedSupportPageRuntime.current;
++    if (owner !== undefined) {
++      return owner;
++    }
++    if (attempt >= 80) {
++      throw new Error('Unified Support page owner mount timed out');
++    }
++    await new Promise<void>((resolve: () => void) => {
++      setTimeout(() => resolve(), 25);
++    });
+     return UnifiedSupportPageRuntime.waitForOwner(attempt + 1);
+   }
+ 
+-  static async waitForOwnerAfter(previousOwnerId: string, attempt: number = 0): Promise<UnifiedSupportPageOwner> {
+-    const owner = UnifiedSupportPageRuntime.current;
+-    if (owner !== undefined && owner.ownerId !== previousOwnerId) return owner;
+-    if (attempt >= 80) throw new Error('Unified Support replacement page owner mount timed out');
+-    await new Promise<void>((resolve) => { setTimeout(() => resolve(), 25); });
++  static async waitForOwnerAfter(
++    previousOwnerId: string,
++    attempt: number = 0
++  ): Promise<UnifiedSupportPageOwner> {
++    const owner: UnifiedSupportPageOwner | undefined = UnifiedSupportPageRuntime.current;
++    if (owner !== undefined && owner.ownerId !== previousOwnerId) {
++      return owner;
++    }
++    if (attempt >= 80) {
++      throw new Error('Unified Support replacement page owner mount timed out');
++    }
++    await new Promise<void>((resolve: () => void) => {
++      setTimeout(() => resolve(), 25);
++    });
+     return UnifiedSupportPageRuntime.waitForOwnerAfter(previousOwnerId, attempt + 1);
+   }
+ 
+-  static ownerGeneration(): number { return UnifiedSupportPageRuntime.generation; }
+-}
++  static ownerGeneration(): number {
++    return UnifiedSupportPageRuntime.generation;
++  }
++
++  static controllerIdentity(): string {
++    UnifiedSupportPageRuntime.currentController();
++    return UnifiedSupportPageRuntime.controllerId;
++  }
++
++  private static buildOwner(ownerId: string): UnifiedSupportPageOwner {
++    const controller: UnifiedSupportController = UnifiedSupportPageRuntime.currentController();
++    if (UnifiedSupportPageRuntime.controllerId.length === 0) {
++      UnifiedSupportPageRuntime.controllerId = `support-controller-${UnifiedSupportPageRuntime.generation + 1}`;
++    }
++    return new UnifiedSupportPageOwner(controller, ownerId, UnifiedSupportPageRuntime.controllerId);
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/resources/base/element/string.json b/entry/src/main/resources/base/element/string.json
+index d8673d0..4875d74 100644
+--- a/entry/src/main/resources/base/element/string.json
++++ b/entry/src/main/resources/base/element/string.json
+@@ -1 +1 @@
+-{"string":[{"name":"app_name","value":"WordPress Support Base"},{"name":"module_desc","value":"Separate support migration base"},{"name":"entry_desc","value":"Separate support entry"}]}
++{"string":[{"name":"app_name","value":"WordPress Support"},{"name":"module_desc","value":"Unified bot and Happiness Engineer support"},{"name":"entry_desc","value":"Unified Get help entry"}]}
+\ No newline at end of file

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "taskId": "02_sticker_management",
+  "observationMode": "runtime_state_transition",
+  "sourceObserverAllowed": false,
+  "candidateSourceParameterRequired": true,
+  "runtimeBoundary": "production StickerManagementStore and application-owned StickerManagementRepository invoked by evaluator adapter",
+  "externalLeaves": ["StickerDatabaseLeaf", "JobQueueLeaf"],
+  "cases": [
+    {"caseId": "sm_state_001_exit_multiselect", "probe": "StickerManagementViewModel.setMultiSelectEnabled", "observations": ["before/after selection", "multi-select flag", "installed pack identity"]},
+    {"caseId": "sm_state_002_install_lifecycle", "probe": "StickerManagementStore.installPack", "observations": ["orderedStates", "state", "repository effects"]},
+    {"caseId": "sm_state_003_install_status_settles", "probe": "StickerManagementStore.installationLingerElapsed", "observations": ["state", "transient-status effect"]},
+    {"caseId": "sm_state_004_drag_reorder", "probe": "StickerManagementStore.movePack", "observations": ["state.installedPackIds"]},
+    {"caseId": "sm_state_005_drop_persists_order", "probe": "StickerManagementStore.saveOrder", "observations": ["repository effects"]},
+    {"caseId": "sm_state_006_select_enters_multiselect", "probe": "StickerManagementStore.toggleSelection", "observations": ["state"]},
+    {"caseId": "sm_state_007_select_all_toggle", "probe": "StickerManagementStore.toggleSelectAll", "observations": ["state"]},
+    {"caseId": "sm_state_008_request_multi_delete", "probe": "StickerManagementStore.requestUninstall", "observations": ["state.prompt", "absence of repository effects"]},
+    {"caseId": "sm_state_009_cancel_multi_delete", "probe": "StickerManagementStore.cancelUninstall", "observations": ["state", "absence of repository effects"]},
+    {"caseId": "sm_state_010_confirm_multi_delete", "probe": "StickerManagementStore.confirmUninstall", "observations": ["state", "database leaf calls", "job queue leaf calls"]}
+  ],
+  "changedBodyCoverage": [
+    {"path": "app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.kt", "symbol": "load/install/reorder/select/delete methods", "caseIds": ["sm_state_001_exit_multiselect", "sm_state_002_install_lifecycle", "sm_state_003_install_status_settles", "sm_state_004_drag_reorder", "sm_state_005_drop_persists_order", "sm_state_006_select_enters_multiselect", "sm_state_007_select_all_toggle", "sm_state_008_request_multi_delete", "sm_state_009_cancel_multi_delete", "sm_state_010_confirm_multi_delete"]},
+    {"path": "app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.kt", "symbol": "installStickerPack/uninstallStickerPacks/setStickerPacksOrder", "caseIds": ["sm_state_002_install_lifecycle", "sm_state_005_drop_persists_order", "sm_state_010_confirm_multi_delete"], "controlledLeaves": ["StickerDatabaseLeaf", "JobQueueLeaf"]}
+  ],
+  "unscoredPolicy": "compile, binding, transport, or runtime evidence gaps produce not_scored; source presence never produces pass/fail"
+}

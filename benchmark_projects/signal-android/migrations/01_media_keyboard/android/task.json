@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "projectId": "signal-android",
+  "taskId": "01_media_keyboard",
+  "title": "Unified media keyboard with search, recovery, and sticker confirmation",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/signalapp/Signal-Android.git",
+    "baseRef": "v8.28.4",
+    "baseCommit": "d0b314d2d7197c38737c6189d1f6c294e76e247e",
+    "finalRef": "v8.30.0",
+    "finalCommit": "d8d36376f480eb4669efe8bfee94b2c196a9f7bd"
+  },
+  "releaseNotes": [
+    {
+      "text": "Introduce and integrate new media keyboard.",
+      "source": "Official commit 417bd702968270cea706f8578d87f16794801ddc"
+    },
+    {
+      "text": "Add sticker confirmation overlay and follow-up rendering/cache fixes.",
+      "source": "Official commits 5b2e9514812c364e8b40de8ac41dde8d8a620c53 and ce29d21e9d304c85e6e3b1fb920591e5cf8a8238"
+    }
+  ],
+  "functionalAreas": [
+    "tab_availability",
+    "host_tab_restriction",
+    "search_state",
+    "gif_loading",
+    "failure_recovery",
+    "sticker_confirmation"
+  ],
+  "stateSurfaces": [
+    "MediaKeyboardState",
+    "GifPageState",
+    "StickerPageState",
+    "ChatStickerConfirmationController"
+  ],
+  "eventEntrypoints": [
+    "Initialize",
+    "restrictTabs",
+    "TabSelected",
+    "RetryClicked",
+    "LoadMoreRequested",
+    "StickerClicked",
+    "dismiss",
+    "send"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "feature/media-keyboard/src/main/java/org/signal/mediakeyboard",
+      "core/ui/src/main/java/org/signal/core/ui/compose/keyboard",
+      "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatStickerConfirmationController.kt"
+    ],
+    "testPaths": [
+      "feature/media-keyboard/src/test/java/org/signal/mediakeyboard/MediaKeyboardViewModelTest.kt",
+      "feature/media-keyboard/src/test/java/org/signal/mediakeyboard/screens/gif/GifPageViewModelTest.kt",
+      "feature/media-keyboard/src/test/java/org/signal/mediakeyboard/screens/sticker/StickerPageViewModelTest.kt"
+    ],
+    "commits": [
+      "417bd702968270cea706f8578d87f16794801ddc",
+      "5b2e9514812c364e8b40de8ac41dde8d8a620c53",
+      "ce29d21e9d304c85e6e3b1fb920591e5cf8a8238"
+    ]
+  },
+  "nonGoals": [
+    "Changing message transport or attachment upload semantics",
+    "Replacing Signal GIF or sticker network services",
+    "Benchmarking the Android-to-ArkTS migration itself",
+    "Visual pixel parity outside the keyboard and confirmation surfaces"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json",
+    "transitionDraft": "transitions.draft.json",
+    "transitions": "transitions.json",
+    "observerRules": "observer_rules.json",
+    "arktsBindings": "arkts_bindings.json",
+    "migrationValidation": "migration_validation.json"
+  }
+}

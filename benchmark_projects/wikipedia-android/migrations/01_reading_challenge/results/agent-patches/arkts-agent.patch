@@ -1,0 +1,833 @@
+diff --git a/entry/src/main/ets/model/ReadingChallengePreferences.ets b/entry/src/main/ets/model/ReadingChallengePreferences.ets
+new file mode 100644
+index 0000000..c7768bc
+--- /dev/null
++++ b/entry/src/main/ets/model/ReadingChallengePreferences.ets
+@@ -0,0 +1,101 @@
++/**
++ * Production persistence for the reading challenge.
++ *
++ * Reading challenge user data lives in the application preferences file. All
++ * stored dates are ISO local-date strings; the device clock is never rewritten.
++ * Storage failures degrade to an unavailable store instead of tearing the
++ * reading challenge surface down.
++ */
++import { common } from '@kit.AbilityKit';
++import { preferences } from '@kit.ArkData';
++import { hilog } from '@kit.PerformanceAnalysisKit';
++
++import {
++  ChallengePersistence,
++  ChallengePreferences
++} from './ReadingChallengeStore';
++
++export { ChallengePersistence, ChallengePreferences } from './ReadingChallengeStore';
++
++const PREFERENCES_NAME: string = 'wikipedia_reading_challenge';
++const KEY_ENROLLED: string = 'reading_challenge_enrolled';
++const KEY_STREAK: string = 'reading_challenge_streak';
++const KEY_LAST_READ_DATE: string = 'reading_challenge_last_read_date';
++const KEY_ENROLLMENT_DATE: string = 'reading_challenge_enrollment_date';
++const EMPTY_DATE: string = '';
++const LOG_DOMAIN: number = 0x0001;
++const LOG_TAG: string = 'ReadingChallengePrefs';
++
++function emptyPreferences(): ChallengePreferences {
++  const empty: ChallengePreferences = { enrolled: false, streak: 0 };
++  return empty;
++}
++
++function sanitizeStreak(value: number | undefined): number {
++  if (value === undefined || typeof value !== 'number' || !isFinite(value) || value <= 0) {
++    return 0;
++  }
++  return Math.floor(value);
++}
++
++export class ReadingChallengePreferences implements ChallengePersistence {
++  private store: preferences.Preferences | undefined = undefined;
++
++  constructor(store: preferences.Preferences | undefined) {
++    this.store = store;
++  }
++
++  /** Opens the application preferences file that owns the challenge user data. */
++  static async create(context: common.UIAbilityContext): Promise<ReadingChallengePreferences> {
++    try {
++      const store: preferences.Preferences =
++        await preferences.getPreferences(context, { name: PREFERENCES_NAME });
++      return new ReadingChallengePreferences(store);
++    } catch (error) {
++      hilog.error(LOG_DOMAIN, LOG_TAG, 'reading challenge preferences unavailable');
++      return new ReadingChallengePreferences(undefined);
++    }
++  }
++
++  async load(): Promise<ChallengePreferences> {
++    const stored: ChallengePreferences = emptyPreferences();
++    const store: preferences.Preferences | undefined = this.store;
++    if (store === undefined) {
++      return stored;
++    }
++    try {
++      const enrolled: preferences.ValueType = await store.get(KEY_ENROLLED, false);
++      const streak: preferences.ValueType = await store.get(KEY_STREAK, 0);
++      const lastReadDate: preferences.ValueType = await store.get(KEY_LAST_READ_DATE, EMPTY_DATE);
++      const enrollmentDate: preferences.ValueType = await store.get(KEY_ENROLLMENT_DATE, EMPTY_DATE);
++      stored.enrolled = enrolled === true;
++      stored.streak = typeof streak === 'number' ? sanitizeStreak(streak) : 0;
++      if (typeof lastReadDate === 'string' && lastReadDate.length > 0) {
++        stored.lastReadDate = lastReadDate;
++      }
++      if (typeof enrollmentDate === 'string' && enrollmentDate.length > 0) {
++        stored.enrollmentDate = enrollmentDate;
++      }
++    } catch (error) {
++      hilog.error(LOG_DOMAIN, LOG_TAG, 'reading challenge preferences read failed');
++    }
++    return stored;
++  }
++
++  async save(value: ChallengePreferences): Promise<void> {
++    const store: preferences.Preferences | undefined = this.store;
++    if (store === undefined) {
++      return;
++    }
++    try {
++      await store.put(KEY_ENROLLED, value.enrolled === true);
++      await store.put(KEY_STREAK, sanitizeStreak(value.streak));
++      await store.put(KEY_LAST_READ_DATE, typeof value.lastReadDate === 'string' ? value.lastReadDate : EMPTY_DATE);
++      await store.put(KEY_ENROLLMENT_DATE,
++        typeof value.enrollmentDate === 'string' ? value.enrollmentDate : EMPTY_DATE);
++      await store.flush();
++    } catch (error) {
++      hilog.error(LOG_DOMAIN, LOG_TAG, 'reading challenge preferences write failed');
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/ReadingChallengeStore.ets b/entry/src/main/ets/model/ReadingChallengeStore.ets
+new file mode 100644
+index 0000000..810dd20
+--- /dev/null
++++ b/entry/src/main/ets/model/ReadingChallengeStore.ets
+@@ -0,0 +1,385 @@
++/**
++ * Production reading challenge domain model.
++ *
++ * The store owns the complete reading challenge lifecycle: date gating,
++ * enrollment, per-calendar-day eligibility, streak maintenance, persistence
++ * access and effect dispatch. Everything that talks to the outside world is an
++ * injected leaf (clock, persistence, effects) so the domain rules stay
++ * deterministic and application owned.
++ */
++
++/** Leaf that supplies the current calendar date as an ISO local-date value. */
++export interface ChallengeClock {
++  today(): string;
++}
++
++/** Production clock backed by the device's local wall clock. */
++export class SystemChallengeClock implements ChallengeClock {
++  today(): string {
++    const now: Date = new Date();
++    return formatIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
++  }
++}
++
++/** Persisted reading challenge user data. */
++export interface ChallengePreferences {
++  enrolled: boolean;
++  streak: number;
++  lastReadDate?: string;
++  enrollmentDate?: string;
++}
++
++/** Leaf that stores and restores the reading challenge user data. */
++export interface ChallengePersistence {
++  load(): Promise<ChallengePreferences>;
++  save(value: ChallengePreferences): Promise<void>;
++}
++
++/** Leaf for widget delivery, analytics transport and surface re-binding. */
++export interface ChallengeEffects {
++  heartbeat(state: ChallengeViewState): void;
++  updateWidget(): void;
++  refreshSurface(): void;
++}
++
++/** Resolved state rendered by the reading challenge surface. */
++export interface ChallengeViewState {
++  name: string;
++  streak: number;
++}
++
++export const CHALLENGE_STATE_LOADING: string = 'Loading';
++export const CHALLENGE_STATE_NOT_LIVE_YET: string = 'NotLiveYet';
++export const CHALLENGE_STATE_NOT_ENROLLED: string = 'NotEnrolled';
++export const CHALLENGE_STATE_ENROLLED_NOT_STARTED: string = 'EnrolledNotStarted';
++export const CHALLENGE_STATE_NEEDS_READING: string = 'StreakOngoingNeedsReading';
++export const CHALLENGE_STATE_READ_TODAY: string = 'StreakOngoingReadToday';
++export const CHALLENGE_STATE_COMPLETED: string = 'ChallengeCompleted';
++export const CHALLENGE_STATE_CONCLUDED_INCOMPLETE: string = 'ChallengeConcludedIncomplete';
++export const CHALLENGE_STATE_CONCLUDED_NO_STREAK: string = 'ChallengeConcludedNoStreak';
++export const CHALLENGE_STATE_REMOVED: string = 'ChallengeRemoved';
++
++const MILLISECONDS_PER_DAY: number = 86400000;
++const ISO_LOCAL_DATE_LENGTH: number = 10;
++const ISO_MONTH_SEPARATOR_INDEX: number = 4;
++const ISO_DAY_SEPARATOR_INDEX: number = 7;
++
++/** A calendar day counts for the streak only while it has not been missed yet. */
++const MAX_CONTINUING_GAP_DAYS: number = 1;
++
++function padTwo(value: number): string {
++  return value < 10 ? '0' + String(value) : String(value);
++}
++
++function formatIsoDate(year: number, month: number, day: number): string {
++  return String(year) + '-' + padTwo(month) + '-' + padTwo(day);
++}
++
++/** True when the value is a well formed `yyyy-mm-dd` local date. */
++export function isIsoLocalDate(value: string | undefined): boolean {
++  if (typeof value !== 'string' || value.length !== ISO_LOCAL_DATE_LENGTH) {
++    return false;
++  }
++  if (value.charAt(ISO_MONTH_SEPARATOR_INDEX) !== '-') {
++    return false;
++  }
++  if (value.charAt(ISO_DAY_SEPARATOR_INDEX) !== '-') {
++    return false;
++  }
++  for (let index: number = 0; index < value.length; index++) {
++    if (index === ISO_MONTH_SEPARATOR_INDEX || index === ISO_DAY_SEPARATOR_INDEX) {
++      continue;
++    }
++    const character: string = value.charAt(index);
++    if (character < '0' || character > '9') {
++      return false;
++    }
++  }
++  return true;
++}
++
++/**
++ * Orders two ISO local dates. Unusable values are pushed to the far end so a
++ * malformed stored date can never look like a challenge milestone.
++ */
++export function compareIsoDate(left: string | undefined, right: string | undefined): number {
++  const leftIsDate: boolean = isIsoLocalDate(left);
++  const rightIsDate: boolean = isIsoLocalDate(right);
++  if (leftIsDate !== rightIsDate) {
++    // A missing or malformed value never outranks a real local date.
++    return leftIsDate ? -1 : 1;
++  }
++  if (!leftIsDate || left === undefined || right === undefined) {
++    return 0;
++  }
++  if (left < right) {
++    return -1;
++  }
++  if (left > right) {
++    return 1;
++  }
++  return 0;
++}
++
++/** Calendar days between two ISO local dates; negative when `right` is earlier. */
++export function differenceInDays(left: string | undefined, right: string | undefined): number {
++  if (!isIsoLocalDate(left) || !isIsoLocalDate(right) || left === undefined || right === undefined) {
++    return 0;
++  }
++  const leftYear: number = Number(left.substring(0, ISO_MONTH_SEPARATOR_INDEX));
++  const leftMonth: number = Number(left.substring(ISO_MONTH_SEPARATOR_INDEX + 1, ISO_DAY_SEPARATOR_INDEX));
++  const leftDay: number = Number(left.substring(ISO_DAY_SEPARATOR_INDEX + 1, ISO_LOCAL_DATE_LENGTH));
++  const rightYear: number = Number(right.substring(0, ISO_MONTH_SEPARATOR_INDEX));
++  const rightMonth: number = Number(right.substring(ISO_MONTH_SEPARATOR_INDEX + 1, ISO_DAY_SEPARATOR_INDEX));
++  const rightDay: number = Number(right.substring(ISO_DAY_SEPARATOR_INDEX + 1, ISO_LOCAL_DATE_LENGTH));
++  const leftEpochDay: number = Math.floor(Date.UTC(leftYear, leftMonth - 1, leftDay) / MILLISECONDS_PER_DAY);
++  const rightEpochDay: number = Math.floor(Date.UTC(rightYear, rightMonth - 1, rightDay) / MILLISECONDS_PER_DAY);
++  return rightEpochDay - leftEpochDay;
++}
++
++function createViewState(name: string, streak: number): ChallengeViewState {
++  const viewState: ChallengeViewState = { name: name, streak: streak };
++  return viewState;
++}
++
++/**
++ * Detaches the loaded user data from the persistence leaf so in-memory
++ * maintenance can never mutate stored state without an explicit save.
++ */
++function detachPreferences(source: ChallengePreferences): ChallengePreferences {
++  const detached: ChallengePreferences = {
++    enrolled: source.enrolled === true,
++    streak: normalizeStreak(source.streak)
++  };
++  if (isIsoLocalDate(source.lastReadDate)) {
++    detached.lastReadDate = source.lastReadDate;
++  }
++  if (isIsoLocalDate(source.enrollmentDate)) {
++    detached.enrollmentDate = source.enrollmentDate;
++  }
++  return detached;
++}
++
++/**
++ * Rebuilds the record after a reset. The cleared last-read date is dropped from
++ * the stored record instead of being written as an empty or unusable value.
++ */
++function withoutLastReadDate(source: ChallengePreferences): ChallengePreferences {
++  const cleared: ChallengePreferences = { enrolled: source.enrolled, streak: 0 };
++  if (isIsoLocalDate(source.enrollmentDate)) {
++    cleared.enrollmentDate = source.enrollmentDate;
++  }
++  return cleared;
++}
++
++function normalizeStreak(value: number): number {
++  if (typeof value !== 'number' || !isFinite(value) || value <= 0) {
++    return 0;
++  }
++  return Math.floor(value);
++}
++
++/**
++ * Application owned reading challenge store.
++ *
++ * All date evaluation goes through the injected clock; production preferences
++ * only ever hold ISO local-date strings.
++ */
++export class ReadingChallengeStore {
++  /** Reads required to complete the challenge. */
++  static readonly GOAL: number = 25;
++  /** First day the challenge accepts enrollment and reads. */
++  static readonly START_DATE: string = '2026-05-11';
++  /** Last day an ordinary reading streak is built. */
++  static readonly END_DATE: string = '2026-06-04';
++  /** First day after the post-end buffer; the challenge is removed here. */
++  static readonly REMOVE_DATE: string = '2026-07-04';
++
++  private readonly clock: ChallengeClock;
++  private readonly persistence: ChallengePersistence;
++  private readonly effects: ChallengeEffects;
++
++  state: ChallengeViewState = createViewState(CHALLENGE_STATE_LOADING, 0);
++
++  constructor(clock: ChallengeClock, persistence: ChallengePersistence, effects: ChallengeEffects) {
++    this.clock = clock;
++    this.persistence = persistence;
++    this.effects = effects;
++  }
++
++  /** True once the challenge has started and before it is removed. */
++  static isLiveOn(date: string): boolean {
++    return compareIsoDate(date, ReadingChallengeStore.START_DATE) >= 0 &&
++      compareIsoDate(date, ReadingChallengeStore.REMOVE_DATE) <= 0;
++  }
++
++  /** True while the ordinary reading window is open. */
++  static isAcceptingReadsOn(date: string): boolean {
++    return compareIsoDate(date, ReadingChallengeStore.START_DATE) >= 0 &&
++      compareIsoDate(date, ReadingChallengeStore.END_DATE) <= 0;
++  }
++
++  /** Re-reads persisted data, resolves the surface state and emits no read effects. */
++  async refresh(): Promise<ChallengeViewState> {
++    const today: string = this.clock.today();
++    let preferences: ChallengePreferences = detachPreferences(await this.persistence.load());
++    if (this.hasMissedADay(today, preferences)) {
++      preferences = withoutLastReadDate(preferences);
++      await this.persistence.save(preferences);
++    }
++    return this.publish(this.resolveState(today, preferences), false);
++  }
++
++  /** Enrolls the reader with a zero streak, once and only while the challenge is live. */
++  async enroll(): Promise<ChallengeViewState> {
++    const today: string = this.clock.today();
++    let preferences: ChallengePreferences = detachPreferences(await this.persistence.load());
++    let joined: boolean = false;
++    if (!preferences.enrolled && ReadingChallengeStore.isLiveOn(today)) {
++      const enrollment: ChallengePreferences = { enrolled: true, streak: 0, enrollmentDate: today };
++      await this.persistence.save(enrollment);
++      preferences = enrollment;
++      joined = true;
++    }
++    return this.publish(this.resolveState(today, preferences), joined);
++  }
++
++  /**
++   * Article open entrypoint. Records at most one qualifying read per calendar
++   * day; every other open leaves enrollment, streak and last-read date alone.
++   */
++  async openArticle(): Promise<ChallengeViewState> {
++    const today: string = this.clock.today();
++    let preferences: ChallengePreferences = detachPreferences(await this.persistence.load());
++    let recorded: boolean = false;
++    if (this.canRecordRead(today, preferences)) {
++      if (this.hasMissedADay(today, preferences)) {
++        preferences = withoutLastReadDate(preferences);
++      }
++      if (this.isEligibleForIncrement(today, preferences)) {
++        const read: ChallengePreferences = {
++          enrolled: preferences.enrolled,
++          streak: preferences.streak + 1,
++          lastReadDate: today
++        };
++        if (isIsoLocalDate(preferences.enrollmentDate)) {
++          read.enrollmentDate = preferences.enrollmentDate;
++        }
++        await this.persistence.save(read);
++        preferences = read;
++        recorded = true;
++      }
++    }
++    return this.publish(this.resolveState(today, preferences), recorded);
++  }
++
++  /** Resolves the rendered state and pushes it to the host exactly once. */
++  private publish(state: ChallengeViewState, emitReadEffects: boolean): ChallengeViewState {
++    this.state = state;
++    this.effects.refreshSurface();
++    if (emitReadEffects) {
++      this.effects.updateWidget();
++      this.effects.heartbeat(state);
++    }
++    return state;
++  }
++
++  /**
++   * Enrollment, goal, challenge window and post-end buffer all gate whether an
++   * article open may move the streak at all.
++   */
++  private canRecordRead(today: string, preferences: ChallengePreferences): boolean {
++    if (!preferences.enrolled) {
++      return false;
++    }
++    if (preferences.streak >= ReadingChallengeStore.GOAL) {
++      return false;
++    }
++    if (!ReadingChallengeStore.isLiveOn(today)) {
++      return false;
++    }
++    if (ReadingChallengeStore.isAcceptingReadsOn(today)) {
++      return true;
++    }
++    // Post-end buffer: only a streak that is still active may continue.
++    return this.hasActiveStreak(today, preferences);
++  }
++
++  /** One increment per calendar day, and never backwards in time. */
++  private isEligibleForIncrement(today: string, preferences: ChallengePreferences): boolean {
++    if (!isIsoLocalDate(preferences.lastReadDate)) {
++      return true;
++    }
++    return compareIsoDate(preferences.lastReadDate, today) < 0;
++  }
++
++  /** An incomplete streak survives a gap of at most one day. */
++  private hasActiveStreak(today: string, preferences: ChallengePreferences): boolean {
++    if (!preferences.enrolled || preferences.streak <= 0) {
++      return false;
++    }
++    if (preferences.streak >= ReadingChallengeStore.GOAL) {
++      return false;
++    }
++    if (!isIsoLocalDate(preferences.lastReadDate)) {
++      return false;
++    }
++    const gap: number = differenceInDays(preferences.lastReadDate, today);
++    return gap >= 0 && gap <= MAX_CONTINUING_GAP_DAYS;
++  }
++
++  /**
++   * True when an incomplete streak skipped more than one day while the ordinary
++   * window is open, which is exactly the recoverable missed-day case. The goal
++   * is terminal, and a concluded post-end streak is never rewritten.
++   */
++  private hasMissedADay(today: string, preferences: ChallengePreferences): boolean {
++    if (!ReadingChallengeStore.isAcceptingReadsOn(today)) {
++      return false;
++    }
++    if (!preferences.enrolled || preferences.streak <= 0) {
++      return false;
++    }
++    if (preferences.streak >= ReadingChallengeStore.GOAL) {
++      return false;
++    }
++    if (!isIsoLocalDate(preferences.lastReadDate)) {
++      return false;
++    }
++    return differenceInDays(preferences.lastReadDate, today) > MAX_CONTINUING_GAP_DAYS;
++  }
++
++  /** Pure state resolution for the current date and persisted user data. */
++  private resolveState(today: string, preferences: ChallengePreferences): ChallengeViewState {
++    if (compareIsoDate(today, ReadingChallengeStore.START_DATE) < 0) {
++      return createViewState(CHALLENGE_STATE_NOT_LIVE_YET, 0);
++    }
++    if (compareIsoDate(today, ReadingChallengeStore.REMOVE_DATE) > 0) {
++      return createViewState(CHALLENGE_STATE_REMOVED, 0);
++    }
++    if (!preferences.enrolled) {
++      return createViewState(CHALLENGE_STATE_NOT_ENROLLED, 0);
++    }
++    if (preferences.streak >= ReadingChallengeStore.GOAL) {
++      return createViewState(CHALLENGE_STATE_COMPLETED, preferences.streak);
++    }
++    const readToday: boolean = preferences.lastReadDate === today;
++    if (compareIsoDate(today, ReadingChallengeStore.END_DATE) > 0) {
++      if (this.hasActiveStreak(today, preferences)) {
++        return createViewState(readToday ? CHALLENGE_STATE_READ_TODAY : CHALLENGE_STATE_NEEDS_READING,
++          preferences.streak);
++      }
++      if (preferences.streak > 0) {
++        return createViewState(CHALLENGE_STATE_CONCLUDED_INCOMPLETE, preferences.streak);
++      }
++      return createViewState(CHALLENGE_STATE_CONCLUDED_NO_STREAK, 0);
++    }
++    if (readToday) {
++      return createViewState(CHALLENGE_STATE_READ_TODAY, preferences.streak);
++    }
++    if (preferences.streak > 0) {
++      return createViewState(CHALLENGE_STATE_NEEDS_READING, preferences.streak);
++    }
++    return createViewState(CHALLENGE_STATE_ENROLLED_NOT_STARTED, 0);
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index d0f9641..25eef66 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,34 +1,284 @@
++import { common } from '@kit.AbilityKit';
++import { hilog } from '@kit.PerformanceAnalysisKit';
++
+ import {
+   CallbackReadingPageOwner,
++  ReadingIntegrationClock,
++  ReadingIntegrationEffects,
++  ReadingIntegrationInput,
+   ReadingIntegrationState,
+   ReadingPageOwner
+ } from '../integration/ReadingPageIntegration';
++import {
++  ChallengeClock,
++  ChallengeEffects,
++  ChallengeViewState,
++  CHALLENGE_STATE_COMPLETED,
++  CHALLENGE_STATE_CONCLUDED_INCOMPLETE,
++  CHALLENGE_STATE_CONCLUDED_NO_STREAK,
++  CHALLENGE_STATE_ENROLLED_NOT_STARTED,
++  CHALLENGE_STATE_LOADING,
++  CHALLENGE_STATE_NEEDS_READING,
++  CHALLENGE_STATE_NOT_ENROLLED,
++  CHALLENGE_STATE_NOT_LIVE_YET,
++  CHALLENGE_STATE_READ_TODAY,
++  CHALLENGE_STATE_REMOVED,
++  ReadingChallengeStore,
++  SystemChallengeClock
++} from '../model/ReadingChallengeStore';
++import { ReadingChallengePreferences } from '../model/ReadingChallengePreferences';
++
++const CHALLENGE_LOG_DOMAIN: number = 0x0001;
++const CHALLENGE_LOG_TAG: string = 'ReadingChallenge';
++
++/**
++ * Page owned leaf for the reading challenge external effects. Widget delivery
++ * and analytics transport are leaves; the store decides when they run. The
++ * surface binder re-reads the store's resolved state so the rendered challenge
++ * surface always matches persisted state.
++ */
++class PageChallengeEffects implements ChallengeEffects {
++  private readonly surfaceBinder: () => void;
++
++  constructor(surfaceBinder: () => void) {
++    this.surfaceBinder = surfaceBinder;
++  }
++
++  heartbeat(state: ChallengeViewState): void {
++    hilog.info(CHALLENGE_LOG_DOMAIN, CHALLENGE_LOG_TAG,
++      'reading challenge heartbeat state=%{public}s streak=%{public}d', state.name, state.streak);
++  }
++
++  updateWidget(): void {
++    hilog.info(CHALLENGE_LOG_DOMAIN, CHALLENGE_LOG_TAG, 'reading challenge widget update requested');
++  }
++
++  refreshSurface(): void {
++    this.surfaceBinder();
++  }
++}
++
++/** Adapts the page integration clock leaf onto the reading challenge clock. */
++class InjectedChallengeClock implements ChallengeClock {
++  private readonly source: ReadingIntegrationClock;
++
++  constructor(source: ReadingIntegrationClock) {
++    this.source = source;
++  }
++
++  today(): string {
++    return this.source.today();
++  }
++}
++
++function toIntegrationState(state: ChallengeViewState): ReadingIntegrationState {
++  const integrationState: ReadingIntegrationState = { name: state.name, streak: state.streak };
++  return integrationState;
++}
++
++/** Adapts the page integration effect leaf onto the reading challenge effects. */
++class InjectedChallengeEffects implements ChallengeEffects {
++  private readonly source: ReadingIntegrationEffects;
++
++  constructor(source: ReadingIntegrationEffects) {
++    this.source = source;
++  }
++
++  heartbeat(state: ChallengeViewState): void {
++    this.source.heartbeat(toIntegrationState(state));
++  }
++
++  updateWidget(): void {
++    this.source.updateWidget();
++  }
++
++  refreshSurface(): void {
++    this.source.refreshSurface();
++  }
++}
+ 
+ @Entry
+ @Component
+ struct Index {
+   @State articleTitle: string = 'Ada Lovelace';
+   @State articleOpen: boolean = false;
++  @State challengeName: string = CHALLENGE_STATE_LOADING;
++  @State challengeStreak: number = 0;
+   private runtimeOwnerId: string = 'Index:' + String(Date.now());
++  private store: ReadingChallengeStore | undefined = undefined;
++  private injectedClock: ChallengeClock | undefined = undefined;
++  private injectedEffects: ChallengeEffects | undefined = undefined;
+ 
+   async aboutToAppear(): Promise<void> {
++    const context: common.UIAbilityContext | undefined = this.abilityContext();
++    if (context === undefined) {
++      return;
++    }
++    if (await this.attachStore(context)) {
++      await this.refreshChallengeSurface();
++    }
++  }
++
++  aboutToDisappear(): void {
++    this.store = undefined;
++  }
++
++  private abilityContext(): common.UIAbilityContext | undefined {
++    return this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
++  }
++
++  private createPageEffects(): ChallengeEffects {
++    return new PageChallengeEffects((): void => {
++      this.bindSurface();
++    });
++  }
++
++  /**
++   * Composition root: real preferences storage, the system clock, the page
++   * owned effects and the application owned store.
++   */
++  private async attachStore(context: common.UIAbilityContext): Promise<boolean> {
++    try {
++      const clock: ChallengeClock = this.injectedClock ?? new SystemChallengeClock();
++      const effects: ChallengeEffects = this.injectedEffects ?? this.createPageEffects();
++      const persistence: ReadingChallengePreferences = await ReadingChallengePreferences.create(context);
++      this.store = new ReadingChallengeStore(clock, persistence, effects);
++      this.bindSurface();
++      return true;
++    } catch (error) {
++      hilog.error(CHALLENGE_LOG_DOMAIN, CHALLENGE_LOG_TAG, 'reading challenge store unavailable');
++      return false;
++    }
+   }
+ 
+-  private openArticle(): void {
++  private bindSurface(): void {
++    const store: ReadingChallengeStore | undefined = this.store;
++    if (store === undefined) {
++      return;
++    }
++    this.challengeName = store.state.name;
++    this.challengeStreak = store.state.streak;
++  }
++
++  async refreshChallengeSurface(): Promise<void> {
++    const store: ReadingChallengeStore | undefined = this.store;
++    if (store === undefined) {
++      return;
++    }
++    try {
++      await store.refresh();
++    } catch (error) {
++      hilog.error(CHALLENGE_LOG_DOMAIN, CHALLENGE_LOG_TAG, 'reading challenge refresh failed');
++    }
++  }
++
++  async enrollInChallenge(): Promise<void> {
++    const store: ReadingChallengeStore | undefined = this.store;
++    if (store === undefined) {
++      return;
++    }
++    try {
++      await store.enroll();
++    } catch (error) {
++      hilog.error(CHALLENGE_LOG_DOMAIN, CHALLENGE_LOG_TAG, 'reading challenge enrollment failed');
++    }
++  }
++
++  async openArticle(): Promise<void> {
+     this.articleOpen = true;
++    const store: ReadingChallengeStore | undefined = this.store;
++    if (store === undefined) {
++      return;
++    }
++    try {
++      await store.openArticle();
++    } catch (error) {
++      hilog.error(CHALLENGE_LOG_DOMAIN, CHALLENGE_LOG_TAG, 'reading challenge article read failed');
++    }
++  }
++
++  private currentChallengeState(): ReadingIntegrationState {
++    const store: ReadingChallengeStore | undefined = this.store;
++    if (store === undefined) {
++      const unavailable: ReadingIntegrationState = { name: CHALLENGE_STATE_LOADING, streak: 0 };
++      return unavailable;
++    }
++    const current: ReadingIntegrationState = { name: store.state.name, streak: store.state.streak };
++    return current;
++  }
++
++  private featureAvailable(): boolean {
++    return this.challengeName !== CHALLENGE_STATE_LOADING &&
++      this.challengeName !== CHALLENGE_STATE_NOT_LIVE_YET &&
++      this.challengeName !== CHALLENGE_STATE_REMOVED;
++  }
++
++  private canJoinChallenge(): boolean {
++    return this.challengeName === CHALLENGE_STATE_NOT_ENROLLED;
++  }
++
++  private challengeHeadline(): string {
++    if (this.challengeName === CHALLENGE_STATE_NOT_LIVE_YET) {
++      return 'Reading challenge is not live yet';
++    }
++    if (this.challengeName === CHALLENGE_STATE_NOT_ENROLLED) {
++      return 'Join the reading challenge';
++    }
++    if (this.challengeName === CHALLENGE_STATE_ENROLLED_NOT_STARTED) {
++      return 'Reading challenge joined - read your first article';
++    }
++    if (this.challengeName === CHALLENGE_STATE_NEEDS_READING) {
++      return 'Read an article to keep the streak';
++    }
++    if (this.challengeName === CHALLENGE_STATE_READ_TODAY) {
++      return 'Read today - streak kept';
++    }
++    if (this.challengeName === CHALLENGE_STATE_COMPLETED) {
++      return 'Reading challenge complete';
++    }
++    if (this.challengeName === CHALLENGE_STATE_CONCLUDED_INCOMPLETE) {
++      return 'Reading challenge concluded without the goal';
++    }
++    if (this.challengeName === CHALLENGE_STATE_CONCLUDED_NO_STREAK) {
++      return 'Reading challenge concluded without a streak';
++    }
++    if (this.challengeName === CHALLENGE_STATE_REMOVED) {
++      return 'Reading challenge is no longer available';
++    }
++    return 'Reading challenge';
++  }
++
++  private challengeProgressLabel(): string {
++    if (!this.featureAvailable()) {
++      return this.challengeName;
++    }
++    if (this.challengeName === CHALLENGE_STATE_COMPLETED) {
++      return 'Goal reached: ' + String(ReadingChallengeStore.GOAL);
++    }
++    return 'Streak ' + String(this.challengeStreak) + ' of ' + String(ReadingChallengeStore.GOAL);
+   }
+ 
+   createRuntimeOwner(): ReadingPageOwner {
+     return new CallbackReadingPageOwner(
+-      async (): Promise<void> => {},
+-      async (): Promise<void> => {},
+-      async (): Promise<void> => {},
+-      async (): Promise<void> => { this.openArticle(); },
+-      (): ReadingIntegrationState => ({
+-        name: this.articleOpen ? 'article_open' : 'standard', streak: 0
+-      }),
++      async (context: common.UIAbilityContext, input: ReadingIntegrationInput): Promise<void> => {
++        this.injectedClock = new InjectedChallengeClock(input.clock);
++        this.injectedEffects = new InjectedChallengeEffects(input.effects);
++        if (await this.attachStore(context)) {
++          await this.refreshChallengeSurface();
++        }
++      },
++      async (): Promise<void> => {
++        await this.refreshChallengeSurface();
++      },
++      async (): Promise<void> => {
++        await this.enrollInChallenge();
++      },
++      async (): Promise<void> => {
++        await this.openArticle();
++      },
++      (): ReadingIntegrationState => this.currentChallengeState(),
+       (): boolean => this.articleOpen,
+-      (): boolean => false,
++      (): boolean => this.featureAvailable(),
+       (): string => this.runtimeOwnerId
+     );
+   }
+@@ -38,16 +288,30 @@ struct Index {
+       Text('Wikipedia')
+         .fontSize(28)
+         .fontWeight(FontWeight.Bold)
+-      Text(this.articleTitle)
+-        .fontSize(22)
++      Text(this.challengeHeadline())
++        .fontSize(20)
++      Text(this.challengeProgressLabel())
++        .fontSize(18)
++      if (this.canJoinChallenge()) {
++        Button('Join reading challenge')
++          .onClick(() => {
++            this.enrollInChallenge();
++          })
++      }
+       Button(this.articleOpen ? 'Article open' : 'Open article')
+         .onClick(() => {
+           this.openArticle();
+         })
++      Button('Refresh')
++        .onClick(() => {
++          this.refreshChallengeSurface();
++        })
++      Text(this.articleTitle)
++        .fontSize(22)
+     }
+     .width('100%')
+     .height('100%')
+     .padding(24)
+     .justifyContent(FlexAlign.Center)
+   }
+-}
++}
+\ No newline at end of file

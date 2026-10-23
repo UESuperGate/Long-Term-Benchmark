@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_sticker_management",
+  "rawEvidence": "raw_release_evidence.json",
+  "releaseEvidence": ["885588db: new tabbed sticker management screen", "a5f766a3: sticker pack installation", "62ed823e: drag and drop ordering", "3c77a3d7: multi-delete"],
+  "implementationEvidence": {
+    "symbols": ["StickerManagementActivity", "StickerManagementViewModel", "StickerManagementRepository", "StickerManagementUiState", "AvailableStickerPack", "InstalledStickerPack"],
+    "productionPaths": ["app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementActivity.kt", "app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementViewModel.kt", "app/src/main/java/org/thoughtcrime/securesms/stickers/StickerManagementRepository.kt", "app/src/main/java/org/thoughtcrime/securesms/stickers/StickerPackListItems.kt"],
+    "testPaths": [],
+    "testEvidenceNote": "No focused upstream unit tests were added by the four supplied commits; runtime adapters therefore bind production symbols and external leaves directly."
+  },
+  "baseFailureEvidence": ["The v7.40.2 tree contains the legacy Java activity/viewmodel/adapter and no Kotlin tabbed management state model.", "The base has no AvailableStickerPack.DownloadStatus lifecycle, Compose tabbed screen, drag/drop state transition, or multi-delete prompt state.", "The final tree replaces the legacy surface with Kotlin Activity/ViewModel/Repository/ListItems production files."],
+  "boundaryAudit": {"baseCommitObjectAvailable": true, "finalCommitObjectAvailable": true, "localClone": "partial blob:none checkout with shallow history", "baseIsAncestor": null, "baseIsAncestorReason": "The local partial clone omits intermediate commit graph objects; full-clone ancestry remains a required calibration preflight.", "baseSurface": "legacy Java management", "finalSurface": "Kotlin tabbed management"},
+  "longHorizonSignals": ["The task crosses database observation, installation jobs, linked-device effects, Compose paging, transfer progress, drag/drop persistence, selection state, and destructive confirmation.", "The four commits form one connected management state graph.", "Cancellation must preserve both selection and installed data while suppressing effects."]
+}

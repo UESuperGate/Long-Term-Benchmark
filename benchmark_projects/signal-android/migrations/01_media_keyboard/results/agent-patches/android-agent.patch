@@ -1,0 +1,1707 @@
+diff --git a/P0.kt b/P0.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/app/P2.kt b/app/P2.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+new file mode 100644
+index 0000000..e69de29
+diff --git a/app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatMediaKeyboardActionHandler.kt b/app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatMediaKeyboardActionHandler.kt
+new file mode 100644
+index 0000000..f3ae808
+--- /dev/null
++++ b/app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatMediaKeyboardActionHandler.kt
+@@ -0,0 +1,68 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.thoughtcrime.securesms.conversation.v2
++
++import org.signal.mediakeyboard.MediaKeyboardAction
++import org.signal.mediakeyboard.data.KeyboardGif
++import org.signal.mediakeyboard.data.KeyboardSticker
++import org.signal.mediakeyboard.data.StickerKeyboardRepository
++
++/**
++ * Carries media keyboard actions into a conversation.
++ *
++ * The keyboard reports what the user did and leaves the consequences to the host, so this is where
++ * the conversation's own rules apply. The one that matters most: a sticker tap raises a confirmation
++ * and stops there. The sticker is not sent, and it is not marked as used either, so a sticker the
++ * user backs out of never reaches the top of their recents as though they had sent it.
++ *
++ * @param stickerRepository Recency for stickers, written only once one has been confirmed.
++ * @param onSendSticker Sends a sticker the user has confirmed.
++ * @param onInput Inserts text, such as emoji, into the composer.
++ * @param onBackspace Deletes the character before the cursor.
++ * @param onGifSelected Sends a gif the user picked.
++ * @param onShowingChanged Raises or drops the conversation's confirmation overlay.
++ */
++class ChatMediaKeyboardActionHandler(
++  private val stickerRepository: StickerKeyboardRepository,
++  private val onSendSticker: (KeyboardSticker) -> Unit,
++  private val onInput: (String) -> Unit,
++  private val onBackspace: () -> Unit,
++  private val onGifSelected: (KeyboardGif) -> Unit,
++  onShowingChanged: (Boolean) -> Unit
++) {
++  /** The overlay standing between a sticker tap and a sent sticker. */
++  val confirmation = ChatStickerConfirmationController(
++    onSend = { sticker ->
++      // Recording recency is part of sending, not part of tapping, so it happens here and nowhere
++      // else.
++      stickerRepository.onStickerUsed(sticker)
++      onSendSticker(sticker)
++    },
++    onShowingChanged = onShowingChanged
++  )
++
++  private var replyTo: String? = null
++
++  /** Records what the next confirmed sticker would reply to. */
++  fun onReplyChanged(replyTo: String?) {
++    this.replyTo = replyTo
++  }
++
++  /** Handles one action from a media keyboard page. */
++  fun onAction(action: MediaKeyboardAction) {
++    when (action) {
++      is MediaKeyboardAction.EmojiSelected -> onInput(action.emoji)
++      MediaKeyboardAction.Backspace -> onBackspace()
++      is MediaKeyboardAction.GifSelected -> onGifSelected(action.gif)
++
++      // A tap only asks. Sending, and recording the sticker as used, wait for the confirmation.
++      is MediaKeyboardAction.StickerSelected -> confirmation.show(action.sticker, replyTo)
++
++      // Nothing else on the keyboard is a conversation decision; the host screen owns those.
++      else -> Unit
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatStickerConfirmationController.kt b/app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatStickerConfirmationController.kt
+new file mode 100644
+index 0000000..5040b09
+--- /dev/null
++++ b/app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatStickerConfirmationController.kt
+@@ -0,0 +1,84 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.thoughtcrime.securesms.conversation.v2
++
++import androidx.compose.ui.graphics.Color
++import org.signal.mediakeyboard.data.KeyboardSticker
++
++/**
++ * Holds the sticker a conversation is waiting on the user to confirm before sending it.
++ *
++ * A sticker tap on the keyboard is not a send. It puts a sticker here and raises the conversation's
++ * overlay; nothing is sent, and nothing about the sticker changes, until [send] runs. That split is
++ * what makes it safe to show an overlay over whatever the user was doing when they tapped.
++ *
++ * @param onSend Sends a confirmed sticker. Called at most once per confirmation.
++ * @param onShowingChanged Tells the conversation to raise or drop the overlay.
++ */
++class ChatStickerConfirmationController(
++  private val onSend: (KeyboardSticker) -> Unit,
++  private val onShowingChanged: (Boolean) -> Unit
++) {
++  /** The sticker awaiting confirmation, or null when the overlay is not up. */
++  var confirmation: StickerConfirmation? = null
++    private set
++
++  /**
++   * Color of the conversation's send affordance. Highlighted while a sticker is waiting, so the
++   * button the overlay is asking about looks like the one it is standing in for.
++   */
++  var sendColor: Color = IDLE_SEND_COLOR
++
++  /** Whether the confirmation overlay is up. */
++  val isShowing: Boolean get() = confirmation != null
++
++  /**
++   * Puts [sticker] up for confirmation, as a reply to [replyTo] when there is one.
++   *
++   * Nothing is sent and the sticker is not marked as used. Show this in response to the tap, not
++   * after it.
++   */
++  fun show(sticker: KeyboardSticker, replyTo: String?) {
++    confirmation = StickerConfirmation(sticker, replyTo)
++    sendColor = PENDING_SEND_COLOR
++    onShowingChanged(true)
++  }
++
++  /** Drops the pending sticker. Doing this with nothing pending does nothing. */
++  fun dismiss() {
++    if (confirmation == null) {
++      return
++    }
++
++    confirmation = null
++    sendColor = IDLE_SEND_COLOR
++    onShowingChanged(false)
++  }
++
++  /** Sends the pending sticker, once. Does nothing when there is nothing pending. */
++  fun send() {
++    val pending = confirmation ?: return
++
++    // Cleared before the callback: a send that re-enters the conversation must not find the sticker
++    // still waiting and send it a second time.
++    confirmation = null
++    sendColor = IDLE_SEND_COLOR
++    onShowingChanged(false)
++    onSend(pending.sticker)
++  }
++
++  private companion object {
++    val IDLE_SEND_COLOR = Color(0xFF208FFFuL)
++    val PENDING_SEND_COLOR = Color(0xFF2ECC71uL)
++  }
++}
++
++/** A sticker the conversation is asking the user to confirm. */
++data class StickerConfirmation(
++  val sticker: KeyboardSticker,
++  /** The message this sticker would reply to, or null when it is not a reply. */
++  val replyTo: String?
++)
+\ No newline at end of file
+diff --git a/app/src/main/java/probefive/ProbeFive.kt b/app/src/main/java/probefive/ProbeFive.kt
+new file mode 100644
+index 0000000..95aa5d4
+--- /dev/null
++++ b/app/src/main/java/probefive/ProbeFive.kt
+@@ -0,0 +1,3 @@
++package probefive
++
++class ProbeFive
+\ No newline at end of file
+diff --git a/app/src/main/kotlin/probec/ProbeC.kt b/app/src/main/kotlin/probec/ProbeC.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/core/P3.kt b/core/P3.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/core/ui/build.gradle.kts b/core/ui/build.gradle.kts
+new file mode 100644
+index 0000000..e69de29
+diff --git a/core/ui/src/main/java/org/signal/core/ui/compose/EventDrivenViewModel.kt b/core/ui/src/main/java/org/signal/core/ui/compose/EventDrivenViewModel.kt
+new file mode 100644
+index 0000000..8786b0e
+--- /dev/null
++++ b/core/ui/src/main/java/org/signal/core/ui/compose/EventDrivenViewModel.kt
+@@ -0,0 +1,88 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.core.ui.compose
++
++import android.util.Log
++import androidx.lifecycle.ViewModel
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.channels.Channel
++import kotlinx.coroutines.launch
++import kotlin.coroutines.CoroutineContext
++import kotlin.coroutines.EmptyCoroutineContext
++
++/**
++ * Turns a fire-and-forget event stream into serialized state changes.
++ *
++ * UI is free to call [onEvent] from anywhere, including from callbacks that cannot suspend, so
++ * events are parked in an unbounded channel and drained one at a time. Handling them in order, and
++ * never concurrently, is what lets a screen fold an event into state without a mutex: [processEvent]
++ * always sees the state the previous event left behind.
++ *
++ * @param tag Log tag for the event stream.
++ * @param shouldLogEvents Whether every event should be logged as it is queued and handled.
++ */
++abstract class EventDrivenViewModel<E : Any>(
++  private val tag: String,
++  private val shouldLogEvents: Boolean = false
++) : ViewModel() {
++
++  private val eventQueue = Channel<E>(Channel.UNLIMITED)
++
++  /**
++   * Scope that owns everything this view model does on its own behalf, including draining
++   * [eventQueue]. Cancelled when the view model is cleared so nothing outlives the screen.
++   */
++  protected val eventScope: CoroutineScope = CoroutineScope(SupervisorJob() + eventDispatcher)
++
++  init {
++    eventScope.launch {
++      for (event in eventQueue) {
++        if (shouldLogEvents) {
++          Log.d(tag, "Handling event: $event")
++        }
++
++        processEvent(event)
++      }
++    }
++  }
++
++  /**
++   * Queues [event] to be handled. Returns immediately; the work happens on [eventScope] in the
++   * order events were queued.
++   */
++  fun onEvent(event: E) {
++    if (shouldLogEvents) {
++      Log.d(tag, "Queuing event: $event")
++    }
++
++    eventQueue.trySend(event)
++  }
++
++  /** Folds [event] into whatever state the previous event left behind. */
++  protected abstract suspend fun processEvent(event: E)
++
++  override fun onCleared() {
++    eventScope.cancel()
++    super.onCleared()
++  }
++
++  private companion object {
++    /**
++     * Events are normally handled on the main dispatcher. Hosted code and tests often have no main
++     * looper to offer, so fall back to the caller's context rather than failing construction.
++     */
++    val eventDispatcher: CoroutineContext = try {
++      Dispatchers.Main.immediate
++    } catch (e: IllegalStateException) {
++      EmptyCoroutineContext
++    } catch (e: NotImplementedError) {
++      EmptyCoroutineContext
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/core/ui/src/main/java/probetwo/ProbeTwo.kt b/core/ui/src/main/java/probetwo/ProbeTwo.kt
+new file mode 100644
+index 0000000..95cafe7
+--- /dev/null
++++ b/core/ui/src/main/java/probetwo/ProbeTwo.kt
+@@ -0,0 +1,3 @@
++package probetwo
++
++class ProbeTwo
+\ No newline at end of file
+diff --git a/core/ui/src/main/kotlin/probed/ProbeD.kt b/core/ui/src/main/kotlin/probed/ProbeD.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/core/util/P5.kt b/core/util/P5.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/core/util/build.gradle.kts b/core/util/build.gradle.kts
+new file mode 100644
+index 0000000..e69de29
+diff --git a/core/util/src/main/java/org/signal/core/util/Result.kt b/core/util/src/main/java/org/signal/core/util/Result.kt
+new file mode 100644
+index 0000000..ccd320a
+--- /dev/null
++++ b/core/util/src/main/java/org/signal/core/util/Result.kt
+@@ -0,0 +1,16 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.core.util
++
++sealed class Result<out S, out F> {
++  data class Failure<out F>(val failure: F) : Result<Nothing, F>()
++  data class Success<out S>(val success: S) : Result<S, Nothing>()
++
++  companion object {
++    fun <S> success(value: S): Result<S, Nothing> = Success(value)
++    fun <F> failure(value: F): Result<Nothing, F> = Failure(value)
++  }
++}
+\ No newline at end of file
+diff --git a/core/util/src/main/java/probefour/ProbeFour.kt b/core/util/src/main/java/probefour/ProbeFour.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/entry/src/main/ets/feature/MediaKeyboardStore.ts b/entry/src/main/ets/feature/MediaKeyboardStore.ts
+new file mode 100644
+index 0000000..05929cd
+--- /dev/null
++++ b/entry/src/main/ets/feature/MediaKeyboardStore.ts
+@@ -0,0 +1,302 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++/** One page of gif search results. A failed page is a normal outcome, not an exception. */
++export interface GifPageResult {
++  failed: boolean;
++  ids: string[];
++  hasMore: boolean;
++}
++
++/** A single sticker: enough to show it, and enough to send it. */
++export interface KeyboardSticker {
++  packId: string;
++  packKey: string;
++  stickerId: number;
++}
++
++/** What the conversation does when a sticker confirmation opens, closes, or is accepted. */
++export interface ConversationEffects {
++  visibility(value: boolean): void;
++  onSend(sticker: KeyboardSticker): void;
++}
++
++/** The media keyboard as it should be drawn. */
++export interface MediaKeyboardState {
++  initialized: boolean;
++  availableTabs: string[];
++  selectedTab: string;
++  preferredTab: string;
++  searchActive: boolean;
++  searchQuery: string;
++}
++
++/** What the gif tab is showing. */
++export interface GifState {
++  gifs: string[];
++  isLoading: boolean;
++  isLoadingMore: boolean;
++  hasMore: boolean;
++  loadFailed: boolean;
++}
++
++/** The order tabs are shown in, independent of the order the host offers them. */
++const PRODUCT_ORDER: string[] = ['EMOJI', 'STICKER', 'GIF'];
++
++/** How many results a single gif request asks for. */
++const GIF_PAGE_SIZE: number = 60;
++
++/**
++ * Which media surface the keyboard is showing, and which ones the host is willing to show.
++ *
++ * What the host offered and what the user last picked are kept apart. Narrowing is temporary and
++ * reversible, so it never overwrites the pick: a tab that is restricted away stays the user's
++ * preference and comes back when the restriction is lifted.
++ */
++export class MediaKeyboardStore {
++  /** Tabs the host offered, in product order. */
++  offeredTabs: string[] = [];
++  /** The tab the user last chose, remembered even while it is not reachable. */
++  preferredTab: string = 'EMOJI';
++  /** Temporary narrowing of the offered tabs, or null when nothing is being restricted. */
++  restrictedTo: string[] | null = null;
++  /** Whether the keyboard has asked the host what it can show. */
++  initialized: boolean = false;
++  /** Whether the media search surface is showing. Owned by the host, untouched by tab changes. */
++  searchActive: boolean = false;
++  /** Current media search query. Scoped to the tab that is showing. */
++  searchQuery: string = '';
++
++  private readonly getAvailableTabs: () => string[];
++
++  constructor(getAvailableTabs: () => string[]) {
++    this.getAvailableTabs = getAvailableTabs;
++  }
++
++  /** Asks the host what it can show and puts the first reachable tab up. */
++  initialize(): void {
++    this.offeredTabs = MediaKeyboardStore.orderTabs(this.getAvailableTabs());
++    this.initialized = true;
++  }
++
++  /** Replaces the whole state, for restoring a keyboard that already exists. */
++  seed(tabs: string[], preferred: string, restricted: string[] | null, active: boolean, query: string): void {
++    this.offeredTabs = MediaKeyboardStore.orderTabs(tabs);
++    this.preferredTab = preferred;
++    this.restrictedTo = restricted === null ? null : restricted.slice();
++    this.searchActive = active;
++    this.searchQuery = query;
++  }
++
++  /**
++   * Narrows the keyboard to tabs, or lifts any narrowing when tabs is null.
++   *
++   * Host-driven and reversible, so the remembered preference is left alone.
++   */
++  restrictTabs(tabs: string[] | null): void {
++    this.restrictedTo = tabs === null ? null : tabs.slice();
++  }
++
++  /** Moves to tab and drops the search query that belonged to the tab being left behind. */
++  selectTab(tab: string): void {
++    const available = this.available();
++    if (available.length > 0 && available.indexOf(tab) < 0) {
++      // Not something the user could have picked, so leave the selection where it is.
++      return;
++    }
++
++    this.preferredTab = tab;
++    this.searchQuery = '';
++  }
++
++  /** The keyboard as it should be drawn right now. */
++  keyboardState(): MediaKeyboardState {
++    return {
++      initialized: this.initialized,
++      availableTabs: this.available(),
++      selectedTab: this.selected(),
++      preferredTab: this.preferredTab,
++      searchActive: this.searchActive,
++      searchQuery: this.searchQuery
++    };
++  }
++
++  /**
++   * The tabs the user may actually be put on right now. A restriction can only narrow what the host
++   * offered, so it can never surface a tab the host does not support.
++   */
++  private available(): string[] {
++    const restricted = this.restrictedTo;
++    if (restricted === null) {
++      return this.offeredTabs.slice();
++    }
++
++    return this.offeredTabs.filter((tab: string) => restricted.indexOf(tab) >= 0);
++  }
++
++  /** The tab to show, falling back to the first reachable one while the preference is restricted. */
++  private selected(): string {
++    const available = this.available();
++    if (available.indexOf(this.preferredTab) >= 0) {
++      return this.preferredTab;
++    }
++
++    return available.length > 0 ? available[0] : this.preferredTab;
++  }
++
++  private static orderTabs(tabs: string[]): string[] {
++    const ordered: string[] = [];
++    for (const tab of PRODUCT_ORDER) {
++      if (tabs.indexOf(tab) >= 0 && ordered.indexOf(tab) < 0) {
++        ordered.push(tab);
++      }
++    }
++
++    return ordered;
++  }
++}
++
++/**
++ * Drives the gif tab: a first page, whatever the user scrolls onto after that, and a way back from a
++ * request that did not come back.
++ *
++ * A failed first page becomes state rather than an error to propagate: it is retryable, and it stops
++ * claiming there is more to load, because there is nothing on screen to append to.
++ */
++export class GifStore {
++  gifs: string[] = [];
++  isLoading: boolean = false;
++  isLoadingMore: boolean = false;
++  hasMore: boolean = false;
++  loadFailed: boolean = false;
++  query: string = '';
++
++  private readonly getGifs: (query: string, offset: number, limit: number) => GifPageResult;
++
++  constructor(getGifs: (query: string, offset: number, limit: number) => GifPageResult) {
++    this.getGifs = getGifs;
++  }
++
++  /** Replaces the whole state, for restoring a tab that already exists. */
++  seed(ids: string[], more: boolean, failed: boolean): void {
++    this.gifs = ids.slice();
++    this.hasMore = more;
++    this.loadFailed = failed;
++    this.isLoading = false;
++    this.isLoadingMore = false;
++  }
++
++  /** Loads the first page, replacing whatever was there. */
++  loadFirstPage(): void {
++    this.isLoading = true;
++    this.isLoadingMore = false;
++    this.loadFailed = false;
++
++    const page = this.getGifs(this.query, 0, GIF_PAGE_SIZE);
++    this.isLoading = false;
++
++    if (page.failed) {
++      this.hasMore = false;
++      this.loadFailed = true;
++      return;
++    }
++
++    this.gifs = page.ids.slice();
++    this.hasMore = page.hasMore;
++    this.loadFailed = false;
++  }
++
++  /** Asks for the first page again from the start, rather than continuing from the failure. */
++  retry(): void {
++    this.loadFirstPage();
++  }
++
++  /** Appends the next page. Results already on screen are the offset. */
++  loadMore(): void {
++    if (!this.hasMore || this.isLoading || this.isLoadingMore) {
++      return;
++    }
++
++    this.isLoadingMore = true;
++    const page = this.getGifs(this.query, this.gifs.length, GIF_PAGE_SIZE);
++    this.isLoadingMore = false;
++
++    if (page.failed) {
++      // Leave hasMore alone so scrolling again asks for the page that failed.
++      return;
++    }
++
++    this.gifs = this.gifs.concat(page.ids);
++    this.hasMore = page.hasMore;
++  }
++
++  /** The tab as it should be drawn right now. */
++  state(): GifState {
++    return {
++      gifs: this.gifs.slice(),
++      isLoading: this.isLoading,
++      isLoadingMore: this.isLoadingMore,
++      hasMore: this.hasMore,
++      loadFailed: this.loadFailed
++    };
++  }
++}
++
++/**
++ * Holds the sticker a conversation is waiting on the user to confirm before sending it.
++ *
++ * A sticker tap is not a send. It puts a sticker here and raises the conversation's overlay;
++ * nothing is sent until confirmSend runs.
++ */
++export class ConversationMediaStore {
++  /** The sticker awaiting confirmation, or null when the overlay is not up. */
++  pending: KeyboardSticker | null = null;
++
++  private readonly effects: ConversationEffects;
++
++  constructor(effects: ConversationEffects) {
++    this.effects = effects;
++  }
++
++  /** Puts sticker up for confirmation without going through the conversation. */
++  seed(sticker: KeyboardSticker): void {
++    this.pending = sticker;
++  }
++
++  /** The user tapped a sticker. Raises the overlay; sends nothing. */
++  tapSticker(sticker: KeyboardSticker): void {
++    this.pending = sticker;
++    this.effects.visibility(true);
++  }
++
++  /** The user backed out. Does nothing when there is nothing to back out of. */
++  cancelConfirmation(): void {
++    if (this.pending === null) {
++      return;
++    }
++
++    this.pending = null;
++    this.effects.visibility(false);
++  }
++
++  /** Sends the pending sticker, once. Does nothing when there is nothing pending. */
++  confirmSend(): void {
++    const pending = this.pending;
++    if (pending === null) {
++      return;
++    }
++
++    // Cleared before the effect: a send that re-enters the conversation must not find the sticker
++    // still waiting and send it a second time.
++    this.pending = null;
++    this.effects.visibility(false);
++    this.effects.onSend(pending);
++  }
++
++  /** The sticker awaiting confirmation, or null. */
++  confirmation(): KeyboardSticker | null {
++    return this.pending;
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/MediaKeyboardPage.ets b/entry/src/main/ets/pages/MediaKeyboardPage.ets
+new file mode 100644
+index 0000000..01550fe
+--- /dev/null
++++ b/entry/src/main/ets/pages/MediaKeyboardPage.ets
+@@ -0,0 +1,116 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++import {
++  ConversationMediaStore,
++  GifStore,
++  KeyboardSticker,
++  MediaKeyboardState,
++  MediaKeyboardStore
++} from '../feature/MediaKeyboardStore';
++
++@Entry
++@Component
++struct MediaKeyboardPage {
++  private keyboard: MediaKeyboardStore = new MediaKeyboardStore((): string[] => {
++    return ['GIF', 'EMOJI', 'STICKER'];
++  });
++
++  private gifs: GifStore = new GifStore((query: string, offset: number, limit: number) => {
++    return { failed: false, ids: [], hasMore: false };
++  });
++
++  private conversation: ConversationMediaStore = new ConversationMediaStore({
++    visibility: (value: boolean): void => {
++      this.showConfirmation = value;
++    },
++    onSend: (sticker: KeyboardSticker): void => {
++      this.sentSticker = sticker;
++    }
++  });
++
++  @State keyboardState: MediaKeyboardState = {
++    initialized: false,
++    availableTabs: [],
++    selectedTab: '',
++    preferredTab: '',
++    searchActive: false,
++    searchQuery: ''
++  };
++
++  @State gifIds: string[] = [];
++
++  @State showConfirmation: boolean = false;
++
++  @State sentSticker: KeyboardSticker | null = null;
++
++  aboutToAppear(): void {
++    this.keyboard.initialize();
++    this.gifs.loadFirstPage();
++    this.sync();
++  }
++
++  private sync(): void {
++    this.keyboardState = this.keyboard.keyboardState();
++    this.gifIds = this.gifs.state().gifs;
++    this.showConfirmation = this.conversation.confirmation() !== null;
++  }
++
++  build() {
++    Column() {
++      Row() {
++        ForEach(this.keyboardState.availableTabs, (tab: string) => {
++          Text(tab)
++            .fontWeight(this.keyboardState.selectedTab === tab ? FontWeight.Bold : FontWeight.Normal)
++            .onClick(() => {
++              this.keyboard.selectTab(tab);
++              this.sync();
++            })
++        }, (tab: string): string => tab)
++      }
++      .width('100%')
++      .justifyContent(FlexAlign.SpaceEvenly)
++
++      if (this.gifs.loadFailed) {
++        Text('Could not load gifs')
++          .onClick(() => {
++            this.gifs.retry();
++            this.sync();
++          })
++      } else {
++        Grid() {
++          ForEach(this.gifIds, (id: string) => {
++            GridItem() {
++              Text(id)
++            }
++          }, (id: string): string => id)
++        }
++        .onScrollIndex((start: number, end: number, center: number, index: number): void => {
++          if (index >= this.gifIds.length - 4) {
++            this.gifs.loadMore();
++            this.sync();
++          }
++        })
++      }
++
++      if (this.showConfirmation) {
++        Row() {
++          Button('Cancel')
++            .onClick(() => {
++              this.conversation.cancelConfirmation();
++              this.sync();
++            })
++          Button('Send')
++            .onClick(() => {
++              this.conversation.confirmSend();
++              this.sync();
++            })
++        }
++      }
++    }
++    .width('100%')
++    .height('100%')
++  }
++}
+\ No newline at end of file
+diff --git a/feature/P4.kt b/feature/P4.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/feature/media-keyboard/P6.kt b/feature/media-keyboard/P6.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/feature/media-keyboard/build.gradle.kts b/feature/media-keyboard/build.gradle.kts
+new file mode 100644
+index 0000000..e69de29
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardAction.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardAction.kt
+new file mode 100644
+index 0000000..d113559
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardAction.kt
+@@ -0,0 +1,51 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard
++
++/**
++ * Things a media keyboard page does that the conversation hosting it has to carry out.
++ *
++ * Pages never touch a conversation themselves; they describe what happened and let the host decide.
++ * That is also what keeps a sticker tap inert: the page reports [StickerSelected] and nothing is
++ * sent until the host has confirmed.
++ */
++sealed interface MediaKeyboardAction {
++  /** Insert [emoji] into the composer. */
++  data class EmojiSelected(val emoji: String) : MediaKeyboardAction
++
++  /** Delete the character before the cursor. */
++  data object Backspace : MediaKeyboardAction
++
++  /** The user tapped a sticker. Requests confirmation; does not send. */
++  data class StickerSelected(val sticker: data.KeyboardSticker) : MediaKeyboardAction
++
++  /** The user asked to send [sticker] outright, from somewhere that is already a send surface. */
++  data class StickerSendClicked(val sticker: data.KeyboardSticker) : MediaKeyboardAction
++
++  /** The user tapped a gif. */
++  data class GifSelected(val gif: data.KeyboardGif) : MediaKeyboardAction
++
++  /** The user asked to move to [tab]. */
++  data class TabSelected(val tab: MediaKeyboardTab) : MediaKeyboardAction
++
++  /** The user asked to open sticker management. */
++  data object StickerManagementClicked : MediaKeyboardAction
++
++  /** The user asked to open sticker search. */
++  data object StickerSearchClicked : MediaKeyboardAction
++
++  /** The user asked to open gif search. */
++  data object GifSearchClicked : MediaKeyboardAction
++
++  /** The user asked to look at a pack, from sticker search results. */
++  data class ViewStickerPackClicked(val packId: String, val packKey: String) : MediaKeyboardAction
++
++  /** The user asked to add a pack to their stickers. */
++  data class SendStickerPackClicked(val packId: String, val packKey: String) : MediaKeyboardAction
++
++  /** The user confirmed removing a pack from their stickers. */
++  data class RemoveStickerPackConfirmed(val packId: String, val packKey: String) : MediaKeyboardAction
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardScreenEvents.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardScreenEvents.kt
+new file mode 100644
+index 0000000..9337b8f
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardScreenEvents.kt
+@@ -0,0 +1,24 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard
++
++/**
++ * Input the media keyboard screen turns into state changes.
++ *
++ * Restricting tabs is deliberately not here: hosts narrow the tabs they are willing to show right
++ * now (a reply, for instance, has no room for stickers) without that narrowing being part of the
++ * screen's own story, so it goes through [MediaKeyboardViewModel.restrictTabs] instead.
++ */
++sealed interface MediaKeyboardScreenEvents {
++  /** Ask the host what the keyboard can show and put the first reachable tab up. */
++  data object Initialize : MediaKeyboardScreenEvents
++
++  /** The user picked [tab]. */
++  data class TabSelected(val tab: MediaKeyboardTab) : MediaKeyboardScreenEvents
++
++  /** The host changed the media search query. */
++  data class SearchQueryChanged(val query: String) : MediaKeyboardScreenEvents
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardState.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardState.kt
+new file mode 100644
+index 0000000..483d3d7
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardState.kt
+@@ -0,0 +1,47 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard
++
++/**
++ * Everything the media keyboard needs to draw itself.
++ *
++ * The keyboard remembers two things separately: which tabs the host offered ([offeredTabs], possibly
++ * narrowed right now by [restrictedTo]) and which tab the user actually wants ([preferredTab]).
++ * Restrictions are temporary, so narrowing the selection must never overwrite the preference: that
++ * is what lets lifting a restriction put the user back where they were.
++ */
++data class MediaKeyboardState(
++  /** Tabs the host offered, in product order. */
++  val offeredTabs: List<MediaKeyboardTab> = emptyList(),
++  /** Temporary narrowing of the offered tabs, or null when nothing is being restricted. */
++  val restrictedTo: Set<MediaKeyboardTab>? = null,
++  /** The tab the user last chose, remembered even while it is not reachable. */
++  val preferredTab: MediaKeyboardTab = MediaKeyboardTab.EMOJI,
++  /** Whether the media search surface is showing. Owned by the host and untouched by tab changes. */
++  val searchActive: Boolean = false,
++  /** Current media search query. Scoped to the tab that is showing. */
++  val searchQuery: String = "",
++  /** Whether the keyboard has asked the host what it can show. */
++  val initialized: Boolean = false
++) {
++  /**
++   * The tabs the user may actually be put on right now. A restriction can only narrow what the
++   * repository offered, so it can never surface a tab the host does not support.
++   */
++  val availableTabs: List<MediaKeyboardTab>
++    get() = if (restrictedTo == null) {
++      offeredTabs.distinct()
++    } else {
++      offeredTabs.filter { it in restrictedTo }.distinct()
++    }
++
++  /**
++   * The tab to show. Falls back to the first reachable tab when the preference is restricted away,
++   * and to the preference itself when nothing is reachable at all.
++   */
++  val selectedTab: MediaKeyboardTab
++    get() = if (preferredTab in availableTabs) preferredTab else availableTabs.firstOrNull() ?: preferredTab
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardTab.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardTab.kt
+new file mode 100644
+index 0000000..fd1516f
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardTab.kt
+@@ -0,0 +1,31 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard
++
++/**
++ * The media surfaces a conversation keyboard can offer.
++ *
++ * Declaration order is the order the product puts tabs in, but hosts are free to offer any subset
++ * in any order, so use [PRODUCT_ORDER] rather than a host's iteration order anywhere a user or the
++ * UI would notice.
++ */
++enum class MediaKeyboardTab {
++  EMOJI,
++  STICKER,
++  GIF;
++
++  companion object {
++    /** The order tabs are shown in, independent of the order the host offers them. */
++    @JvmField
++    val PRODUCT_ORDER: List<MediaKeyboardTab> = listOf(EMOJI, STICKER, GIF)
++
++    /** [tabs] with duplicates dropped, in [PRODUCT_ORDER]. */
++    fun ordered(tabs: Iterable<MediaKeyboardTab>): List<MediaKeyboardTab> {
++      val offered = tabs.toSet()
++      return PRODUCT_ORDER.filter { it in offered }
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardViewModel.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardViewModel.kt
+new file mode 100644
+index 0000000..c0ceb0a
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardViewModel.kt
+@@ -0,0 +1,125 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard
++
++import android.util.Log
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
++import kotlinx.coroutines.launch
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.mediakeyboard.data.MediaKeyboardRepository
++
++/**
++ * Owns which media surface the keyboard is showing, and which ones it is even allowed to show.
++ *
++ * The two are kept apart on purpose. [restrictTabs] is how a host narrows the keyboard for a
++ * particular conversation state, and it only ever narrows: the tab the user picked is remembered so
++ * that lifting the restriction puts them back on it. A user picking a different tab, on the other
++ * hand, is a real preference change and does replace it.
++ *
++ * @param repository Host-owned media, and the authority on what the keyboard can show.
++ * @param isEnteringText Whether the conversation behind the keyboard is in text entry.
++ * @param initialTab Tab to prefer when nothing else says otherwise, typically restored by the host.
++ */
++class MediaKeyboardViewModel(
++  private val repository: MediaKeyboardRepository,
++  isEnteringText: StateFlow<Boolean>,
++  private val initialTab: MediaKeyboardTab? = null
++) : EventDrivenViewModel<MediaKeyboardScreenEvents>(TAG, shouldLogEvents = true) {
++
++  private val _state = MutableStateFlow(MediaKeyboardState())
++
++  /** The keyboard as it should be drawn right now. */
++  val state: StateFlow<MediaKeyboardState> = _state.asStateFlow()
++
++  init {
++    eventScope.launch {
++      isEnteringText.collect { enteringText ->
++        if (enteringText) {
++          // A media query only means anything while the user is browsing media. Once they are back
++          // in the composer it is stale, so drop it instead of leaving it filtering the tab.
++          _state.update { current -> current.copy(searchQuery = "") }
++        }
++      }
++    }
++  }
++
++  /**
++   * Narrows the keyboard to [tabs], or lifts any narrowing when [tabs] is null.
++   *
++   * This is host-driven and reversible, so it never touches the remembered preference: a tab that is
++   * restricted away stays the user's preference and comes back when the restriction is lifted.
++   */
++  fun restrictTabs(tabs: Set<MediaKeyboardTab>?) {
++    _state.update { current -> current.copy(restrictedTo = tabs) }
++  }
++
++  override suspend fun processEvent(event: MediaKeyboardScreenEvents) {
++    applyEvent(_state.value, event) { updated -> _state.update { updated } }
++  }
++
++  /**
++   * Folds [event] into [state], handing the result to [stateEmitter].
++   *
++   * Kept separate from [processEvent] so a caller that already has the state in hand can fold an
++   * event into it without going through the view model.
++   */
++  suspend fun applyEvent(
++    state: MediaKeyboardState,
++    event: MediaKeyboardScreenEvents,
++    stateEmitter: (MediaKeyboardState) -> Unit
++  ) {
++    when (event) {
++      MediaKeyboardScreenEvents.Initialize -> stateEmitter(initialize(state))
++
++      is MediaKeyboardScreenEvents.TabSelected -> {
++        val available = state.availableTabs
++        // A tab the host is not offering right now is not something the user could have picked, so
++        // leave the current selection alone rather than stranding the keyboard on a hidden tab.
++        if (available.isEmpty() || event.tab in available) {
++          // Search results belong to the tab that produced them; carrying the query over would show
++          // a gif or sticker search against an emoji grid. Visibility is the host's business.
++          stateEmitter(state.copy(preferredTab = event.tab, searchQuery = ""))
++        }
++      }
++
++      is MediaKeyboardScreenEvents.SearchQueryChanged -> stateEmitter(
++        state.copy(
++          searchQuery = event.query,
++          searchActive = event.query.isNotEmpty()
++        )
++      )
++    }
++  }
++
++  private suspend fun initialize(state: MediaKeyboardState): MediaKeyboardState {
++    val offered = try {
++      MediaKeyboardTab.ordered(repository.getAvailableTabs())
++    } catch (e: Exception) {
++      // A host that cannot answer still gets a keyboard: empty, but not stuck loading forever.
++      Log.w(TAG, "Failed to load available media keyboard tabs", e)
++      emptyList()
++    }
++
++    // Order matters here: what the host was told to open wins, then whatever the user last chose,
++    // and only then the first thing the host offers.
++    val preferred = listOfNotNull(initialTab, state.preferredTab).firstOrNull { it in offered }
++      ?: offered.firstOrNull()
++      ?: state.preferredTab
++
++    return state.copy(
++      offeredTabs = offered,
++      preferredTab = preferred,
++      initialized = true
++    )
++  }
++
++  companion object {
++    private const val TAG = "MediaKeyboardViewModel"
++  }
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/EmojiKeyboardRepository.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/EmojiKeyboardRepository.kt
+new file mode 100644
+index 0000000..865fbb0
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/EmojiKeyboardRepository.kt
+@@ -0,0 +1,60 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.data
++
++import android.graphics.drawable.Drawable
++
++/** Emoji pages, recents, search, and variation preferences. */
++interface EmojiKeyboardRepository {
++  /** Pages of emoji, in the order the keyboard lays them out. */
++  suspend fun getEmojiPages(): List<EmojiCategoryPage>
++
++  /** Recently used emoji, most recent first. */
++  suspend fun getRecentEmoji(): List<KeyboardEmoji>
++
++  /** Emoji matching [query], most relevant first. */
++  suspend fun search(query: String): List<KeyboardEmoji>
++
++  /** Canonical emoji to the variation the user last picked for it. */
++  suspend fun getPreferredVariations(): Map<String, String>
++
++  /** Records that the user prefers [variation] whenever [canonical] is shown. */
++  fun setPreferredVariation(canonical: String, variation: String)
++
++  /** Records [emoji] as used, which feeds recents and future variation defaults. */
++  suspend fun onEmojiUsed(emoji: String)
++
++  /** The rendered drawable for [emoji], when the host has one. */
++  fun getEmojiDrawable(emoji: String): Drawable?
++}
++
++/** One emoji and the variations that render it differently. */
++data class KeyboardEmoji(
++  val canonical: String,
++  val variations: List<String>
++) {
++  /** Whether picking this emoji can offer the user more than one rendering of it. */
++  val hasVariations: Boolean get() = variations.size > 1
++}
++
++/** The emoji belonging to one category of the emoji keyboard. */
++data class EmojiCategoryPage(
++  val category: EmojiKeyboardCategory,
++  val emoji: List<KeyboardEmoji>
++)
++
++/** Groups the emoji keyboard lays out, in the order the user sees them. */
++enum class EmojiKeyboardCategory {
++  RECENT,
++  CUSTOM,
++  SMILEYS_AND_EMOTION,
++  PEOPLE_AND_BODY,
++  ANIMALS_AND_NATURE,
++  FOOD_AND_DRINK,
++  ACTIVITY_AND_TRAVEL,
++  OBJECTS_AND_SYMBOLS,
++  FLAGS
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/GifKeyboardRepository.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/GifKeyboardRepository.kt
+new file mode 100644
+index 0000000..2e79f7f
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/GifKeyboardRepository.kt
+@@ -0,0 +1,46 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.data
++
++import android.net.Uri
++import org.signal.core.util.Result
++
++/** Gif search. */
++interface GifKeyboardRepository {
++  /**
++   * One page of gifs for [query], starting at [offset]. A [Result.Failure] is a normal outcome, not
++   * an exception: the keyboard turns it into a retryable state.
++   */
++  suspend fun getGifs(query: String, offset: Int, limit: Int): Result<GifPage, GifFetchError>
++}
++
++/** One page of gif search results. */
++data class GifPage(
++  val gifs: List<KeyboardGif>,
++  /** Whether the host has more results past the end of this page. */
++  val hasMore: Boolean
++)
++
++/** Why a gif request could not be served. */
++sealed interface GifFetchError {
++  /** The host could not reach the gif service. */
++  data object Network : GifFetchError
++
++  /** Anything else, with the cause when there was one. */
++  data class Unknown(val cause: Throwable? = null) : GifFetchError
++}
++
++/** A single gif result, in whatever form the host keeps its media. */
++data class KeyboardGif(
++  val id: String,
++  val still: Any?,
++  val mp4PreviewUri: Uri?,
++  val width: Int,
++  val height: Int
++) {
++  /** Aspect ratio used to lay results out in a stable grid. Falls back to square for bad sizes. */
++  val aspectRatio: Float get() = if (width > 0 && height > 0) width.toFloat() / height.toFloat() else 1f
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/MediaKeyboardRepository.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/MediaKeyboardRepository.kt
+new file mode 100644
+index 0000000..394954e
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/MediaKeyboardRepository.kt
+@@ -0,0 +1,26 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.data
++
++import org.signal.mediakeyboard.MediaKeyboardTab
++
++/**
++ * Everything the media keyboard can show, owned by the host that knows how to fetch it.
++ *
++ * The keyboard only decides which of the offered surfaces to put up; it never goes to a network on
++ * its own.
++ */
++interface MediaKeyboardRepository {
++  val emoji: EmojiKeyboardRepository
++  val stickers: StickerKeyboardRepository
++  val gifs: GifKeyboardRepository
++
++  /**
++   * The surfaces this host can actually show right now, in whatever order the host happens to know
++   * them in. The keyboard reorders these into product order before showing any of them.
++   */
++  suspend fun getAvailableTabs(): Set<MediaKeyboardTab>
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/StickerKeyboardRepository.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/StickerKeyboardRepository.kt
+new file mode 100644
+index 0000000..3d4bbb9
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/data/StickerKeyboardRepository.kt
+@@ -0,0 +1,44 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.data
++
++import kotlinx.coroutines.flow.Flow
++
++/** Installed sticker packs, and the recents the user has reached for. */
++interface StickerKeyboardRepository {
++  /** Whether the host can play animated stickers. */
++  val allowStickerAnimation: Boolean
++
++  /** Installed packs and their stickers, kept up to date by the host. */
++  fun observeStickerPacks(): Flow<List<KeyboardStickerPack>>
++
++  /**
++   * Records [sticker] as used, which is what moves it to the top of the recents list. Only ever
++   * called once the user has confirmed the sticker, never on the tap that asks for confirmation.
++   */
++  fun onStickerUsed(sticker: KeyboardSticker)
++
++  /** Forgets the recent stickers list. */
++  fun clearRecentStickers()
++}
++
++/** A single sticker: enough to show it, and enough to send it. */
++data class KeyboardSticker(
++  val packId: String,
++  val packKey: String,
++  val stickerId: Long,
++  val emoji: String?,
++  val image: Any
++)
++
++/** One installed sticker pack. */
++data class KeyboardStickerPack(
++  val id: String,
++  val packKey: String?,
++  val title: String?,
++  val cover: Any?,
++  val stickers: List<KeyboardSticker>
++)
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/MediaKeyboardPage.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/MediaKeyboardPage.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/MediaKeyboardPageViewModel.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/MediaKeyboardPageViewModel.kt
+new file mode 100644
+index 0000000..40d628e
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/MediaKeyboardPageViewModel.kt
+@@ -0,0 +1,44 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.screens
++
++import kotlinx.coroutines.channels.BufferOverflow
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableSharedFlow
++import kotlinx.coroutines.flow.asSharedFlow
++import kotlinx.coroutines.launch
++import org.signal.core.ui.compose.EventDrivenViewModel
++import org.signal.mediakeyboard.MediaKeyboardAction
++
++/**
++ * Base for the view models behind each media tab.
++ *
++ * A page owns its own state and reports what the user did as a [MediaKeyboardAction], which the
++ * conversation hosting the keyboard carries out. Keeping the two apart is what makes a sticker tap
++ * inert: a page can report that a sticker was tapped without anything being sent, and the host
++ * decides what happens next.
++ */
++abstract class MediaKeyboardPageViewModel<E : Any>(
++  tag: String,
++  shouldLogEvents: Boolean = false
++) : EventDrivenViewModel<E>(tag, shouldLogEvents) {
++
++  private val _actions = MutableSharedFlow<MediaKeyboardAction>(
++    replay = 0,
++    extraBufferCapacity = 32,
++    onBufferOverflow = BufferOverflow.SUSPEND
++  )
++
++  /** Things the user did on this page that the conversation has to act on. */
++  val actions: Flow<MediaKeyboardAction> = _actions.asSharedFlow()
++
++  /** Reports [action] to whoever is collecting [actions]. */
++  protected fun emitAction(action: MediaKeyboardAction) {
++    eventScope.launch {
++      _actions.emit(action)
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageScreenEvents.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageScreenEvents.kt
+new file mode 100644
+index 0000000..a487637
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageScreenEvents.kt
+@@ -0,0 +1,29 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.screens.gif
++
++import org.signal.mediakeyboard.data.KeyboardGif
++
++/** Input for the gif tab. */
++sealed interface GifPageScreenEvents {
++  /** Put the tab up, loading the first page unless there is already something to show. */
++  data object Initialize : GifPageScreenEvents
++
++  /** The user picked a quick search chip, replacing the current results. */
++  data class QuickSearchSelected(val option: GifQuickSearchOption) : GifPageScreenEvents
++
++  /** The user scrolled far enough to want the next page. */
++  data object LoadMoreRequested : GifPageScreenEvents
++
++  /** The user asked to try a failed load again. */
++  data object RetryClicked : GifPageScreenEvents
++
++  /** The user tapped a gif. */
++  data class GifClicked(val gif: KeyboardGif) : GifPageScreenEvents
++
++  /** The user asked to open gif search. */
++  data object SearchClicked : GifPageScreenEvents
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageState.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageState.kt
+new file mode 100644
+index 0000000..08d51f7
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageState.kt
+@@ -0,0 +1,27 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.screens.gif
++
++import org.signal.mediakeyboard.data.KeyboardGif
++
++/**
++ * What the gif tab is showing.
++ *
++ * Loading is split in two so a page already on screen can stay put while the next one is fetched.
++ * [hasMore] is only ever true when there is something real left to ask for, which is why a failed
++ * request has to clear it.
++ */
++data class GifPageState(
++  val selectedQuickSearch: GifQuickSearchOption = GifQuickSearchOption.LAST,
++  val gifs: List<KeyboardGif> = emptyList(),
++  /** A first page is in flight and there is nothing to show yet. */
++  val isLoading: Boolean = false,
++  /** A later page is in flight, appending to gifs that are already on screen. */
++  val isLoadingMore: Boolean = false,
++  val hasMore: Boolean = false,
++  /** The first page could not be loaded. Retryable. */
++  val loadFailed: Boolean = false
++)
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageViewModel.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageViewModel.kt
+new file mode 100644
+index 0000000..6d8a67b
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageViewModel.kt
+@@ -0,0 +1,139 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.screens.gif
++
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
++import org.signal.core.util.Result
++import org.signal.mediakeyboard.MediaKeyboardAction
++import org.signal.mediakeyboard.data.GifKeyboardRepository
++import org.signal.mediakeyboard.screens.MediaKeyboardPageViewModel
++
++/**
++ * Drives the gif tab: a first page, whatever the user scrolls onto after that, and a way back from
++ * a request that did not come back.
++ *
++ * A failed first page is state, not an exception: it becomes a retryable screen and stops claiming
++ * there is more to load, because there is nothing on screen to append to. Retrying asks for the
++ * first page again from offset zero rather than continuing from where the failure happened.
++ */
++class GifPageViewModel(
++  private val repository: GifKeyboardRepository
++) : MediaKeyboardPageViewModel<GifPageScreenEvents>(TAG, shouldLogEvents = true) {
++
++  private val _state = MutableStateFlow(GifPageState())
++
++  /** What the tab should be showing right now. */
++  val state: StateFlow<GifPageState> = _state.asStateFlow()
++
++  override suspend fun processEvent(event: GifPageScreenEvents) {
++    applyEvent(_state.value, event) { updated -> _state.update { updated } }
++  }
++
++  /**
++   * Folds [event] into [state], handing the result to [stateEmitter].
++   *
++   * Kept separate from [processEvent] so a caller that already has the state in hand can fold an
++   * event into it without going through the view model.
++   */
++  suspend fun applyEvent(
++    state: GifPageState,
++    event: GifPageScreenEvents,
++    stateEmitter: (GifPageState) -> Unit
++  ) {
++    when (event) {
++      GifPageScreenEvents.Initialize -> {
++        // Already showing something, and not sitting on a failure the user has to clear: leave it.
++        if (!state.isLoading && (state.gifs.isNotEmpty() && !state.loadFailed)) {
++          return
++        }
++
++        loadFirstPage(state, stateEmitter)
++      }
++
++      is GifPageScreenEvents.QuickSearchSelected -> {
++        if (event.option == state.selectedQuickSearch) {
++          return
++        }
++
++        // A new search is a new first page, not an extension of the old results.
++        loadFirstPage(state.copy(selectedQuickSearch = event.option), stateEmitter)
++      }
++
++      GifPageScreenEvents.RetryClicked -> loadFirstPage(state, stateEmitter)
++
++      GifPageScreenEvents.LoadMoreRequested -> loadMore(state, stateEmitter)
++
++      is GifPageScreenEvents.GifClicked -> emitAction(MediaKeyboardAction.GifSelected(event.gif))
++
++      GifPageScreenEvents.SearchClicked -> emitAction(MediaKeyboardAction.GifSearchClicked)
++    }
++  }
++
++  private suspend fun loadFirstPage(state: GifPageState, stateEmitter: (GifPageState) -> Unit) {
++    stateEmitter(state.copy(isLoading = true, isLoadingMore = false, loadFailed = false))
++
++    when (val result = repository.getGifs(state.selectedQuickSearch.query, 0, PAGE_SIZE)) {
++      is Result.Success -> stateEmitter(
++        state.copy(
++          gifs = result.success.gifs,
++          isLoading = false,
++          isLoadingMore = false,
++          hasMore = result.success.hasMore,
++          loadFailed = false
++        )
++      )
++
++      is Result.Failure -> stateEmitter(
++        state.copy(
++          isLoading = false,
++          isLoadingMore = false,
++          // Nothing is on screen, so there is nothing to append to and nothing to promise.
++          hasMore = false,
++          loadFailed = true
++        )
++      )
++    }
++  }
++
++  private suspend fun loadMore(state: GifPageState, stateEmitter: (GifPageState) -> Unit) {
++    if (!state.hasMore || state.isLoading || state.isLoadingMore) {
++      return
++    }
++
++    stateEmitter(state.copy(isLoadingMore = true))
++
++    // Results already on screen are the offset: the host pages by count, so this is what keeps a
++    // repeated scroll from re-fetching the same page.
++    val offset = state.gifs.size
++
++    when (val result = repository.getGifs(state.selectedQuickSearch.query, offset, PAGE_SIZE)) {
++      is Result.Success -> stateEmitter(
++        state.copy(
++          gifs = state.gifs + result.success.gifs,
++          isLoadingMore = false,
++          hasMore = result.success.hasMore,
++          loadFailed = false
++        )
++      )
++
++      is Result.Failure -> stateEmitter(
++        // The results already on screen stay. Leave hasMore alone so scrolling again asks for the
++        // page that failed rather than stranding the user at the end of the list.
++        state.copy(isLoadingMore = false)
++      )
++    }
++  }
++
++  companion object {
++    private const val TAG = "GifPageViewModel"
++
++    /** How many results a single request asks for. */
++    private const val PAGE_SIZE = 60
++  }
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifQuickSearchOption.kt b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifQuickSearchOption.kt
+new file mode 100644
+index 0000000..723a063
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifQuickSearchOption.kt
+@@ -0,0 +1,27 @@
++/*
++ * Copyright 2026 Signal Messenger, LLC
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++package org.signal.mediakeyboard.screens.gif
++
++import androidx.annotation.StringRes
++
++/**
++ * The gif searches offered as one-tap chips above the results.
++ *
++ * Picking one replaces the results rather than adding to them: it is a fresh search, so it starts
++ * from the first page again.
++ *
++ * @param query The gif search to run. Empty means "whatever the host shows by default".
++ * @param label String resource naming the chip.
++ */
++enum class GifQuickSearchOption(val query: String, @field:StringRes val label: Int) {
++  /** Recently used gifs. What the tab opens on. */
++  LAST("", android.R.string.more),
++
++  YES("yes", android.R.string.yes),
++  NO("no", android.R.string.no),
++  OK("ok", android.R.string.ok),
++  HELLO("hello", android.R.string.hello)
++}
+\ No newline at end of file
+diff --git a/feature/media-keyboard/src/main/java/probethree/ProbeThree.kt b/feature/media-keyboard/src/main/java/probethree/ProbeThree.kt
+new file mode 100644
+index 0000000..3a01cf1
+--- /dev/null
++++ b/feature/media-keyboard/src/main/java/probethree/ProbeThree.kt
+@@ -0,0 +1,3 @@
++package probethree
++
++class ProbeThree
+\ No newline at end of file
+diff --git a/probe/Probe.kt b/probe/Probe.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index c7a7374..aa54a3c 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -1 +1 @@
+-rootProject.name = "signal-media-keyboard-focused-base"
++rootProject.name = "signal-media-keyboard-focused-base"
+\ No newline at end of file
+diff --git a/src/P1.kt b/src/P1.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/main/java/probeone/ProbeOne.kt b/src/main/java/probeone/ProbeOne.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/main/kotlin/probeb/ProbeB.kt b/src/main/kotlin/probeb/ProbeB.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/probee/ProbeE.kt b/src/probee/ProbeE.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/platform/AndroidGraphicsStubs.kt b/stubs/__typecheck__/platform/AndroidGraphicsStubs.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/platform/AndroidNetStubs.kt b/stubs/__typecheck__/platform/AndroidNetStubs.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/platform/AndroidPlatformStubs.kt b/stubs/__typecheck__/platform/AndroidPlatformStubs.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/platform/AndroidUtilLogStubs.kt b/stubs/__typecheck__/platform/AndroidUtilLogStubs.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/platform/AndroidXAnnotationStubs.kt b/stubs/__typecheck__/platform/AndroidXAnnotationStubs.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/platform/AndroidXComposeUiStubs.kt b/stubs/__typecheck__/platform/AndroidXComposeUiStubs.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/platform/AndroidXLifecycleStubs.kt b/stubs/__typecheck__/platform/AndroidXLifecycleStubs.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/ChatMediaKeyboardActionHandler.kt b/stubs/__typecheck__/src/ChatMediaKeyboardActionHandler.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/ChatStickerConfirmationController.kt b/stubs/__typecheck__/src/ChatStickerConfirmationController.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/EmojiKeyboardRepository.kt b/stubs/__typecheck__/src/EmojiKeyboardRepository.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/EventDrivenViewModel.kt b/stubs/__typecheck__/src/EventDrivenViewModel.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/GifKeyboardRepository.kt b/stubs/__typecheck__/src/GifKeyboardRepository.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/GifPageScreenEvents.kt b/stubs/__typecheck__/src/GifPageScreenEvents.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/GifPageState.kt b/stubs/__typecheck__/src/GifPageState.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/GifPageViewModel.kt b/stubs/__typecheck__/src/GifPageViewModel.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/GifQuickSearchOption.kt b/stubs/__typecheck__/src/GifQuickSearchOption.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/MediaKeyboardAction.kt b/stubs/__typecheck__/src/MediaKeyboardAction.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/MediaKeyboardPageViewModel.kt b/stubs/__typecheck__/src/MediaKeyboardPageViewModel.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/MediaKeyboardRepository.kt b/stubs/__typecheck__/src/MediaKeyboardRepository.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/MediaKeyboardScreenEvents.kt b/stubs/__typecheck__/src/MediaKeyboardScreenEvents.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/MediaKeyboardState.kt b/stubs/__typecheck__/src/MediaKeyboardState.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/MediaKeyboardTab.kt b/stubs/__typecheck__/src/MediaKeyboardTab.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/MediaKeyboardViewModel.kt b/stubs/__typecheck__/src/MediaKeyboardViewModel.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/Result.kt b/stubs/__typecheck__/src/Result.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/__typecheck__/src/StickerKeyboardRepository.kt b/stubs/__typecheck__/src/StickerKeyboardRepository.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/stubs/probea/ProbeA.kt b/stubs/probea/ProbeA.kt
+new file mode 100644
+index 0000000..e69de29

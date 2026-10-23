@@ -1,0 +1,1262 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_pages_list",
+  "platform": "arkts",
+  "role": "final",
+  "observationMode": "runtime_state_transition",
+  "runtime": "OpenHarmony API23 EntryAbility/ArkUI device runtime",
+  "device": {
+    "target": "127.0.0.1:10180",
+    "apiLevel": 23
+  },
+  "codeGeneration": {
+    "passed": true,
+    "changedProductionFiles": []
+  },
+  "compile": {
+    "passed": true,
+    "command": [
+      "bash",
+      "build.sh"
+    ],
+    "hapSha256": "36f26f25f1d43c8703747eb91c980d45ce1a12d9fb4e3f511b8493b7655d1908",
+    "hapBytes": 220502
+  },
+  "semantic": {
+    "summary": {
+      "passed": 10,
+      "failed": 0,
+      "notScored": 0,
+      "total": 10
+    },
+    "cases": [
+      {
+        "caseId": "pl_state_001_open_published",
+        "key": "open_published",
+        "traceDigest": "ab38d68738823d160185419031c40e625615826ef79a7cb19402361683a8bbfa",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.aboutToAppear",
+          "PagesController.open",
+          "PagesController.loadTab",
+          "PagesController.buildRows"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "rows": [],
+              "loading": false
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "rows": [
+                1
+              ],
+              "loading": false
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "tabs": [
+            "published",
+            "drafts",
+            "scheduled",
+            "trashed"
+          ],
+          "selectedTab": "published",
+          "rows": [
+            {
+              "id": 1,
+              "thumbnailUrl": "https://media.test/301.jpg"
+            }
+          ],
+          "loading": false,
+          "request": {
+            "entity": "pages",
+            "statuses": [
+              "published",
+              "private"
+            ],
+            "orderBy": "title",
+            "order": "ascending",
+            "pageSize": 20
+          },
+          "effects": [
+            {
+              "name": "resolveFeaturedMedia",
+              "mediaIds": [
+                301
+              ]
+            }
+          ]
+        },
+        "effects": [
+          {
+            "name": "resolveFeaturedMedia",
+            "mediaIds": [
+              301
+            ]
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "no posts request is dispatched",
+            "passed": true,
+            "evidence": "pages"
+          },
+          {
+            "invariant": "thumbnail resolution never removes the page row",
+            "passed": true,
+            "evidence": "[1]"
+          },
+          {
+            "invariant": "the row opens through the existing editor bridge rather than a replacement editor",
+            "passed": true,
+            "evidence": "modern_pages"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "resolveFeaturedMedia",
+              "detail": "301"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_002_refresh_retry",
+        "key": "refresh_retry",
+        "traceDigest": "6de7cfe569d51f89b1f22316ef5664063a98d5440e32c05342d5bbb59d933e0a",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.refresh",
+          "PagesPageOwner.retryRefresh",
+          "PagesController.refresh",
+          "PagesController.loadTab"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "rows": [
+                1
+              ]
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "rows": [
+                1,
+                2
+              ]
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "failure": {
+            "rows": [
+              1
+            ],
+            "refreshing": false,
+            "feedback": "network_error",
+            "retryAvailable": true
+          },
+          "recovery": {
+            "rows": [
+              1,
+              2
+            ],
+            "refreshing": false,
+            "error": null
+          },
+          "requestCount": 2
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "loaded rows remain visible during the failed refresh",
+            "passed": true,
+            "evidence": "[1]"
+          },
+          {
+            "invariant": "retry executes the application-owned refresh body",
+            "passed": true,
+            "evidence": "2 event requests"
+          },
+          {
+            "invariant": "no obsolete collection writes after recovery",
+            "passed": true,
+            "evidence": "[1,2]"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_003_short_search",
+        "key": "short_search",
+        "traceDigest": "995e61c484b35b2b61965f4e38a88b3295541d937ac0c5f8f851d031d3800046",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.openSearch",
+          "PagesPageOwner.updateSearch",
+          "PagesController.openSearch",
+          "PagesController.updateSearch"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "rows": [
+                1
+              ],
+              "searchActive": false
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "surface": "modern_pages",
+              "searchActive": true,
+              "query": "ab",
+              "rows": [],
+              "searchRequestCount": 0
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "searchActive": true,
+          "query": "ab",
+          "rows": [],
+          "searchRequestCount": 0
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "queries shorter than three characters never reach the service leaf",
+            "passed": true,
+            "evidence": "0 search requests"
+          },
+          {
+            "invariant": "the selected tab is retained",
+            "passed": true,
+            "evidence": "published"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_004_debounced_search",
+        "key": "debounced_search",
+        "traceDigest": "9f89aa4565c6dce774688e2519dad5be3296a801d3f83b4591d5497d71b7824e",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.openSearch",
+          "PagesPageOwner.updateSearch",
+          "PagesController.updateSearch",
+          "PagesController.buildRows"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "query": "",
+              "requestCount": 0
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "query": "hello",
+              "requestCount": 1
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "query": "hello",
+          "rows": [
+            {
+              "id": 7,
+              "statusLabel": "scheduled"
+            }
+          ],
+          "searchRequestCount": 1,
+          "request": {
+            "statuses": [
+              "published",
+              "private",
+              "draft",
+              "pending",
+              "scheduled",
+              "trashed"
+            ],
+            "search": "hello",
+            "debounceMs": 250
+          }
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the superseded hel request is not dispatched",
+            "passed": true,
+            "evidence": "1 request"
+          },
+          {
+            "invariant": "search results are flat and independent of the selected tab hierarchy",
+            "passed": true,
+            "evidence": "0"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "drafts"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"drafts\",\"statuses\":[\"draft\",\"pending\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"drafts\",\"statuses\":[\"published\",\"private\",\"draft\",\"pending\",\"scheduled\",\"trashed\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"hello\",\"authorIds\":[]}"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_005_close_search",
+        "key": "close_search",
+        "traceDigest": "0e2d5460b41bd6d4007fe797c565e23351492bd9bf55b480c2aaf266c235be3e",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.closeSearch",
+          "PagesController.closeSearch",
+          "PagesController.loadTab"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "selectedTab": "drafts",
+              "query": "hello",
+              "rows": [
+                7
+              ]
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "surface": "modern_pages",
+              "searchActive": false,
+              "query": "",
+              "selectedTab": "drafts",
+              "rows": [
+                3
+              ],
+              "reloadDelayMs": 0
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "searchActive": false,
+          "query": "",
+          "selectedTab": "drafts",
+          "rows": [
+            3
+          ],
+          "reloadDelayMs": 0
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "closing search does not switch tabs",
+            "passed": true,
+            "evidence": "drafts"
+          },
+          {
+            "invariant": "the obsolete search collection is closed before the tab reload",
+            "passed": true,
+            "evidence": "closed=1,reloads=1"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "drafts"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"drafts\",\"statuses\":[\"draft\",\"pending\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"drafts\",\"statuses\":[\"published\",\"private\",\"draft\",\"pending\",\"scheduled\",\"trashed\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"hello\",\"authorIds\":[]}"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"drafts\",\"statuses\":[\"draft\",\"pending\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_006_author_filter",
+        "key": "author_filter",
+        "traceDigest": "e40176ef1f984119ed9b8be097b782ce62a7fb39f430cb119b8daedb60cd47f6",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.selectAuthor",
+          "PagesController.selectAuthor",
+          "PagesController.loadTab"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "selection": "everyone",
+              "persistedSelection": "everyone"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "surface": "modern_pages",
+              "selection": "me",
+              "persistedSelection": "me",
+              "request": {
+                "authorIds": [
+                  42
+                ]
+              },
+              "reloadCount": 1
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "selection": "me",
+          "persistedSelection": "me",
+          "request": {
+            "authorIds": [
+              42
+            ]
+          },
+          "reloadCount": 1
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "the author identifier is derived from the signed-in account",
+            "passed": true,
+            "evidence": "[42]"
+          },
+          {
+            "invariant": "unrelated preferences remain unchanged",
+            "passed": true,
+            "evidence": "published"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "saveAuthorSelection",
+              "detail": "me"
+            },
+            {
+              "name": "readSignedInAuthorId",
+              "detail": "42"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[42]}"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_007_hierarchy",
+        "key": "published_hierarchy",
+        "traceDigest": "6095529f9b150ff3e1510b758261acb0b151c5c58841fc640d5d10d1b9737be8",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.aboutToAppear",
+          "PagesController.open",
+          "PagesController.buildRows"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "rows": []
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "surface": "modern_pages",
+              "rows": [
+                {
+                  "id": 1,
+                  "indent": 0
+                },
+                {
+                  "id": 2,
+                  "indent": 1
+                },
+                {
+                  "id": 3,
+                  "indent": 2
+                },
+                {
+                  "id": 4,
+                  "indent": 3
+                },
+                {
+                  "id": 5,
+                  "indent": 3
+                },
+                {
+                  "id": 9,
+                  "indent": 0
+                }
+              ]
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "rows": [
+            {
+              "id": 1,
+              "indent": 0
+            },
+            {
+              "id": 2,
+              "indent": 1
+            },
+            {
+              "id": 3,
+              "indent": 2
+            },
+            {
+              "id": 4,
+              "indent": 3
+            },
+            {
+              "id": 5,
+              "indent": 3
+            },
+            {
+              "id": 9,
+              "indent": 0
+            }
+          ]
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "every input page appears exactly once",
+            "passed": true,
+            "evidence": "[1,2,3,4,5,9]"
+          },
+          {
+            "invariant": "missing-parent pages remain visible",
+            "passed": true,
+            "evidence": "[1,2,3,4,5,9]"
+          },
+          {
+            "invariant": "indentation never exceeds three",
+            "passed": true,
+            "evidence": "[0,1,2,3,3,0]"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_008_menu_eligibility",
+        "key": "menu_eligibility",
+        "traceDigest": "3bba9a668dbe840a44191c46d34653b0538ed53c0af84dc30946200b06a39485",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.openMenu",
+          "PagesController.openMenu",
+          "PagesController.menuActions"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "pageId": 11,
+              "status": "published"
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "surface": "modern_pages",
+              "actions": [
+                "view",
+                "set_parent",
+                "set_as_posts_page",
+                "duplicate",
+                "share",
+                "copy_url",
+                "blaze"
+              ],
+              "excludedActions": [
+                "set_as_homepage",
+                "move_to_draft",
+                "trash"
+              ]
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "actions": [
+            "view",
+            "set_parent",
+            "set_as_posts_page",
+            "duplicate",
+            "share",
+            "copy_url",
+            "blaze"
+          ],
+          "excludedActions": [
+            "set_as_homepage",
+            "move_to_draft",
+            "trash"
+          ]
+        },
+        "effects": [],
+        "invariantChecks": [
+          {
+            "invariant": "destructive actions are not rendered for the homepage",
+            "passed": true,
+            "evidence": "[\"view\",\"set_parent\",\"set_as_posts_page\",\"duplicate\",\"share\",\"copy_url\",\"blaze\"]"
+          },
+          {
+            "invariant": "action eligibility is derived from page and site state",
+            "passed": true,
+            "evidence": "[\"view\",\"set_parent\",\"set_as_posts_page\",\"duplicate\",\"share\",\"copy_url\",\"blaze\"]"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readCanManageHomepage",
+              "detail": "true"
+            },
+            {
+              "name": "readBlazeEligible",
+              "detail": "true"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_009_trash_success",
+        "key": "trash_success",
+        "traceDigest": "6a4a7977792c2f3a1d6c01917b5f36d9b60ce7cdbdf2bd9742ae1d8be4bdbf5b",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.chooseTrash",
+          "PagesPageOwner.confirmTrash",
+          "PagesController.chooseTrash",
+          "PagesController.confirmTrash"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "publishedRows": [
+                12
+              ],
+              "trashCalls": 0
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "surface": "modern_pages",
+              "confirmationShown": true,
+              "serviceEffect": {
+                "name": "trashPage",
+                "entity": "pages",
+                "pageId": 12
+              },
+              "publishedRows": [],
+              "trashedRows": [
+                12
+              ],
+              "feedback": "moved_to_trash"
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "confirmationShown": true,
+          "serviceEffect": {
+            "name": "trashPage",
+            "entity": "pages",
+            "pageId": 12
+          },
+          "publishedRows": [],
+          "trashedRows": [
+            12
+          ],
+          "feedback": "moved_to_trash"
+        },
+        "effects": [
+          {
+            "name": "trashPage",
+            "entity": "pages",
+            "pageId": 12
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "the service mutation is not called before confirmation",
+            "passed": true,
+            "evidence": "0 calls"
+          },
+          {
+            "invariant": "the application-owned mutation body is invoked exactly once",
+            "passed": true,
+            "evidence": "1 call"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "trashPage",
+              "detail": "12"
+            }
+          ]
+        }
+      },
+      {
+        "caseId": "pl_state_010_trash_failure_retry",
+        "key": "trash_failure_retry",
+        "traceDigest": "05da7338bbbdf6dfce7a77faaa72dfcdc3bca55477e47b61a308bd66a55aaeed",
+        "status": "pass",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/features/PagesController.ets",
+            "sha256": "83db51b50be4923215c215c631eba0fd73efd0754ac8a58968d93d38d755ff93"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "56af281fe72c8432d044c4cef1fb4a6a1bd5b71c722b54393c2930ed2a4398cb"
+          },
+          {
+            "path": "entry/src/main/ets/pages/PagesPageOwner.ets",
+            "sha256": "080c9fa7fe4a33052f4a90caf22b2e96d57ee16e0336048d7e34547192a601a5"
+          },
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "b0612665d4e79602c49f88228a3ce908294f8fea25e2cd45d14a0425d9cd3f96"
+          }
+        ],
+        "productionBodies": [
+          "PagesPageOwner.chooseTrash",
+          "PagesPageOwner.confirmTrash",
+          "PagesPageOwner.retryTrash",
+          "PagesController.confirmTrash"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "rows": [
+                13
+              ]
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "surface": "modern_pages",
+              "failure": {
+                "publishedRows": [
+                  13
+                ],
+                "feedback": "status_change_error"
+              },
+              "recovery": {
+                "publishedRows": [],
+                "trashedRows": [
+                  13
+                ],
+                "feedback": "moved_to_trash"
+              },
+              "serviceCallCount": 2
+            }
+          }
+        ],
+        "observed": {
+          "surface": "modern_pages",
+          "failure": {
+            "publishedRows": [
+              13
+            ],
+            "feedback": "status_change_error"
+          },
+          "recovery": {
+            "publishedRows": [],
+            "trashedRows": [
+              13
+            ],
+            "feedback": "moved_to_trash"
+          },
+          "serviceCallCount": 2
+        },
+        "effects": [
+          {
+            "name": "trashPage",
+            "entity": "pages",
+            "pageId": 13
+          },
+          {
+            "name": "trashPage",
+            "entity": "pages",
+            "pageId": 13
+          }
+        ],
+        "invariantChecks": [
+          {
+            "invariant": "failure does not optimistically remove the page",
+            "passed": true,
+            "evidence": "[13]"
+          },
+          {
+            "invariant": "retry uses the same page identity",
+            "passed": true,
+            "evidence": "[13,13]"
+          },
+          {
+            "invariant": "only the controlled external leaf supplies outcomes",
+            "passed": true,
+            "evidence": "controlled leaf outcome queue consumed"
+          }
+        ],
+        "runtimeEvidence": {
+          "pageOwnerId": "pages-owner-1",
+          "controllerOwnerId": "pages-controller-1",
+          "pageGeneration": 1,
+          "storeSource": "PagesPageOwner.controller.store",
+          "evaluatorStoreWrites": 0,
+          "detachedControllers": 0,
+          "leafCalls": [
+            {
+              "name": "readSelectedTab",
+              "detail": "published"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "readAuthorSelection",
+              "detail": "everyone"
+            },
+            {
+              "name": "fetchPages",
+              "detail": "{\"entity\":\"pages\",\"tab\":\"published\",\"statuses\":[\"published\",\"private\"],\"orderBy\":\"title\",\"order\":\"ascending\",\"pageSize\":20,\"search\":\"\",\"authorIds\":[]}"
+            },
+            {
+              "name": "trashPage",
+              "detail": "13"
+            },
+            {
+              "name": "trashPage",
+              "detail": "13"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "diagnostics": {
+    "adapter": "device_hilog_probe",
+    "transport": "hdc",
+    "productionEntryExecuted": true,
+    "productionPageLoaded": "pages/Index",
+    "pageOwnershipEnforced": true,
+    "externalLeafLogRequired": true,
+    "draftRecreationEnforced": false
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "taskId": "01_media_keyboard",
+  "observationMode": "runtime_state_transition",
+  "sourceObserverAllowed": false,
+  "candidateSourceParameterRequired": true,
+  "runtimeBoundary": "production MediaKeyboardStore/GifStore/StickerConfirmationController invoked by evaluator adapter",
+  "externalLeaves": ["GifServiceLeaf"],
+  "cases": [
+    {"caseId": "mk_state_001_initialize_tabs", "probe": "MediaKeyboardStore.initialize", "observations": ["state.initialized", "state.availableTabs", "state.selectedTab", "effects.getAvailableTabs"]},
+    {"caseId": "mk_state_002_restrict_fallback", "probe": "MediaKeyboardStore.restrictTabs", "observations": ["state.availableTabs", "state.selectedTab", "state.preferredTab"]},
+    {"caseId": "mk_state_003_lift_restriction", "probe": "MediaKeyboardStore.restrictTabs", "observations": ["state.availableTabs", "state.selectedTab", "state.preferredTab"]},
+    {"caseId": "mk_state_004_tab_clears_query", "probe": "MediaKeyboardStore.selectTab", "observations": ["state.selectedTab", "state.preferredTab", "state.searchActive", "state.searchQuery"]},
+    {"caseId": "mk_state_005_gif_initial_failure", "probe": "GifStore.loadFirstPage", "observations": ["state", "leaf.calls"]},
+    {"caseId": "mk_state_006_gif_retry_recovery", "probe": "GifStore.retry", "observations": ["state", "leaf.calls"]},
+    {"caseId": "mk_state_007_gif_pagination", "probe": "GifStore.loadMore", "observations": ["state", "leaf.calls"]},
+    {"caseId": "mk_state_008_sticker_tap_defers_send", "probe": "ConversationMediaController.tapSticker", "observations": ["state.confirmation", "effects", "absentEffects"]},
+    {"caseId": "mk_state_009_confirmation_cancel", "probe": "ConversationMediaController.cancelConfirmation", "observations": ["state.confirmation", "effects", "absentEffects"]},
+    {"caseId": "mk_state_010_confirmation_send_once", "probe": "ConversationMediaController.confirmSend", "observations": ["state.confirmation", "orderedEffects"]}
+  ],
+  "changedBodyCoverage": [
+    {"path": "feature/media-keyboard/src/main/java/org/signal/mediakeyboard/MediaKeyboardViewModel.kt", "symbol": "applyEvent/restrictTabs", "caseIds": ["mk_state_001_initialize_tabs", "mk_state_002_restrict_fallback", "mk_state_003_lift_restriction", "mk_state_004_tab_clears_query"]},
+    {"path": "feature/media-keyboard/src/main/java/org/signal/mediakeyboard/screens/gif/GifPageViewModel.kt", "symbol": "loadFirstPage/loadNextPage", "caseIds": ["mk_state_005_gif_initial_failure", "mk_state_006_gif_retry_recovery", "mk_state_007_gif_pagination"], "controlledLeaf": "GifServiceLeaf"},
+    {"path": "app/src/main/java/org/thoughtcrime/securesms/conversation/v2/ChatStickerConfirmationController.kt", "symbol": "show/dismiss/send", "caseIds": ["mk_state_008_sticker_tap_defers_send", "mk_state_009_confirmation_cancel", "mk_state_010_confirmation_send_once"]}
+  ],
+  "unscoredPolicy": "compile, binding, transport, or runtime evidence gaps produce not_scored; source presence never produces pass/fail"
+}

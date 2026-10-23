@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wordpress-android",
+  "taskId": "02_unified_support",
+  "title": "Unified bot and Happiness Engineer support",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "baseRef": "26.8",
+    "baseCommit": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+    "finalRef": "26.9",
+    "finalCommit": "510f1cddc186a486ffa9559018578a644d303d96",
+    "featureCommit": "ad1de650a67b426b807e14c46d249924b028ac0c",
+    "ancestry": {
+      "isAncestor": false,
+      "exception": "official_release_branch_shallow_tag_exception",
+      "audit": "Both official tag objects are locally grafted and have no merge-base. The 26.8 tree was directly inspected and contains no WordPress/src/main/java/org/wordpress/android/support/unified path or UnifiedSupportActivity symbol; the 26.9 tree contains the complete target package."
+    }
+  },
+  "releaseNotes": [
+    {
+      "text": "Combined bot/Happiness Engineer chats in Support",
+      "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9"
+    },
+    {
+      "text": "Getting help is simpler with a single conversations flow that combines support bots and Happiness Engineers.",
+      "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9-rc-1"
+    }
+  ],
+  "functionalAreas": [
+    "conversation_list",
+    "conversation_detail",
+    "bot_conversation_creation",
+    "reply_lifecycle",
+    "failure_recovery",
+    "draft_state",
+    "attachment_cleanup"
+  ],
+  "stateSurfaces": [
+    "support_entry",
+    "unified_conversations_page",
+    "unified_support_view_model",
+    "unified_support_repository",
+    "reply_form_store"
+  ],
+  "eventEntrypoints": [
+    "openGetHelp",
+    "refreshConversations",
+    "retryConversations",
+    "openConversation",
+    "createBotConversation",
+    "sendReply",
+    "recreatePage",
+    "switchConversation"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "WordPress/src/main/java/org/wordpress/android/support/unified",
+      "WordPress/src/main/java/org/wordpress/android/support/main/ui/SupportScreen.kt"
+    ],
+    "testPaths": [
+      "WordPress/src/test/java/org/wordpress/android/support/unified/ui/UnifiedSupportViewModelTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/support/unified/repository/UnifiedSupportRepositoryTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/support/unified/util/AttachmentStateValidatorTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/support/unified/util/EncryptedAppLogsUploaderTest.kt"
+    ],
+    "pullRequests": [22946],
+    "commits": ["ad1de650a67b426b807e14c46d249924b028ac0c"]
+  },
+  "nonGoals": [
+    "Changing the remote support protocol",
+    "Live WordPress.com support traffic during evaluation",
+    "Reintroducing separate Ask the Bots or Ask the Happiness Engineers entries",
+    "Pixel-perfect Android-to-ArkUI rendering parity"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawReleaseEvidence": "raw_release_evidence.json",
+    "transitionsDraft": "transitions.draft.json",
+    "transitions": "transitions.json",
+    "observerRules": "observer_rules.json",
+    "arktsBindings": "arkts_bindings.json",
+    "migrationValidation": "migration_validation.json"
+  }
+}

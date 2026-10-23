@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_pages_list",
+  "status": "calibrating",
+  "android": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "baseRef": "26.8",
+    "baseCommit": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+    "finalRef": "26.9",
+    "finalCommit": "510f1cddc186a486ffa9559018578a644d303d96",
+    "releaseBranchException": {
+      "kind": "official_release_branch_shallow_tag_exception",
+      "baseIsAncestor": false,
+      "baseTargetPathPresent": false,
+      "baseSymbolsPresent": false,
+      "verification": "direct git ls-tree and git grep against the immutable 26.8 tag object"
+    }
+  },
+  "canonicalContract": "canonical/transitions.json",
+  "execution": "execution.json",
+  "sourceProjects": {
+    "androidBase": "android/focused-runtime/base",
+    "androidFinal": "android/focused-runtime/final",
+    "arktsBase": "arkts/base",
+    "arktsFinal": "arkts/final"
+  },
+  "sourceClassification": {
+    "upstreamImmutableProductionSlice": [
+      {"path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsListViewModel.kt", "gitBlob": "c4f765cb2cd03502dba57007926a6fc21f879304"},
+      {"path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsTreeBuilder.kt", "gitBlob": "038b5d08f78d69ce1bb781eb2cd4ed8746100591"},
+      {"path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsMenuActions.kt", "gitBlob": "f63c2c64a80ca88fdc9ea69db070384349137e40"},
+      {"path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/screens/PagesRsListScreen.kt", "gitBlob": "03e0dc158bd9524b9fcfdc658a6943fe53303c67"}
+    ],
+    "focusedProduction": ["android/focused-runtime/base/upstream-immutable/WordPress/src/main/java/org/wordpress/android/ui/pages/PagesActivity.kt", "android/focused-runtime/final/upstream-immutable/WordPress/src/main/java/org/wordpress/android/ui/pagesrs"],
+    "evaluatorAdapter": ["android/focused-runtime/evaluator/base-runtime/evaluator/pagesbase/PagesBaseRuntimeMain.kt", "android/focused-runtime/evaluator/final-runtime/evaluator/pages/PagesRuntimeMain.kt", "android/focused-runtime/evaluator/pages-instrumentation/evaluator/pages/instrumentation/SemanticInstrumentation.kt", "android/focused-runtime/evaluator/run_semantic.py"],
+    "agentHarness": {"appMain": "compilation stubs only", "runtimeAdapterSourceSet": "androidTest", "candidateProductionRoot": "src/main/java", "integrityAudit": "../tools/audit_hidden_android_harness.py"},
+    "arktsMigrationProduction": ["arkts/base/entry/src/main/ets", "arkts/final/entry/src/main/ets"]
+  },
+  "moduleMapping": [
+    {"android": "PagesRsListActivity/PagesRsListScreen", "arkts": "Index.ets/PagesPage"},
+    {"android": "PagesRsListViewModel", "arkts": "PagesController.ets"},
+    {"android": "wordpress-rs observable pages collection", "arkts": "PagesStore.ets plus PagesServiceLeaf"}
+  ],
+  "toolchain": {
+    "androidSourceJdk": "21.0 from .java-version",
+    "focusedRuntimeJdk": "21",
+    "openHarmonyApi": 23,
+    "openHarmonySdk": "local DevEco installation; exact package version not executed",
+    "hvigor": "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw",
+    "node": "/Applications/DevEco-Studio.app/Contents/tools/node/bin/node 18.20.1"
+  },
+  "unsupportedPlatformSpecificBehavior": ["Android ActivityLauncher and FluxC editor handoff are represented as navigation effects in ArkTS.", "Live WordPress.com authentication is replaced only at the external service leaf."],
+  "results": "results/manifest.json",
+  "publicationEligible": false
+}

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_media_keyboard",
+  "description": "Platform-neutral media keyboard state transitions",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_001_initialize_tabs",
+      "key": "initialize_tabs",
+      "functionalArea": "tab_availability",
+      "given": {"repositoryTabs": ["GIF", "EMOJI", "STICKER"], "initialTab": null},
+      "event": {"name": "initialize"},
+      "expected": {"state": {"initialized": true, "availableTabs": ["EMOJI", "STICKER", "GIF"], "selectedTab": "EMOJI"}, "effects": [{"name": "getAvailableTabs", "count": 1}]},
+      "invariants": ["tab order follows product order rather than repository iteration order"],
+      "evidence": {"androidProduction": ["MediaKeyboardViewModel.applyEvent", "MediaKeyboardState.availableTabs"], "androidTests": ["MediaKeyboardViewModelTest.initialize - populates available tabs"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_002_restrict_fallback",
+      "key": "restrict_fallback",
+      "functionalArea": "host_tab_restriction",
+      "given": {"offeredTabs": ["EMOJI", "STICKER", "GIF"], "preferredTab": "GIF", "restrictedTo": null},
+      "event": {"name": "restrictTabs", "tabs": ["EMOJI"]},
+      "expected": {"state": {"availableTabs": ["EMOJI"], "selectedTab": "EMOJI", "preferredTab": "GIF"}, "effects": []},
+      "invariants": ["the user's preferred tab is retained while unreachable", "no unavailable tab is exposed"],
+      "evidence": {"androidProduction": ["MediaKeyboardViewModel.restrictTabs", "MediaKeyboardState.selectedTab"], "androidTests": ["MediaKeyboardViewModelTest.restrict tabs - narrows to the given tabs and selects one of them"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_003_lift_restriction",
+      "key": "lift_restriction",
+      "functionalArea": "host_tab_restriction",
+      "given": {"offeredTabs": ["EMOJI", "STICKER", "GIF"], "preferredTab": "GIF", "restrictedTo": ["EMOJI"]},
+      "event": {"name": "restrictTabs", "tabs": null},
+      "expected": {"state": {"availableTabs": ["EMOJI", "STICKER", "GIF"], "selectedTab": "GIF", "preferredTab": "GIF"}, "effects": []},
+      "invariants": ["lifting a temporary restriction restores a still-offered preference"],
+      "evidence": {"androidProduction": ["MediaKeyboardViewModel.restrictTabs", "MediaKeyboardState.selectedTab"], "androidTests": ["MediaKeyboardViewModelTest.restrict tabs - lifting the restriction returns to the tab the user had picked"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_004_tab_clears_query",
+      "key": "tab_clears_query",
+      "functionalArea": "search_state",
+      "given": {"availableTabs": ["EMOJI", "STICKER", "GIF"], "selectedTab": "EMOJI", "searchActive": true, "searchQuery": "cats"},
+      "event": {"name": "selectTab", "tab": "GIF"},
+      "expected": {"state": {"selectedTab": "GIF", "preferredTab": "GIF", "searchActive": true, "searchQuery": ""}, "effects": []},
+      "invariants": ["host-owned search visibility is unchanged by tab selection"],
+      "evidence": {"androidProduction": ["MediaKeyboardViewModel.applyEvent"], "androidTests": ["MediaKeyboardViewModelTest.tab selected - switches tab and clears the query"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_005_gif_initial_failure",
+      "key": "gif_initial_failure",
+      "functionalArea": "failure_recovery",
+      "given": {"gifs": [], "hasMore": true, "repositoryFirstPage": {"result": "network_failure"}},
+      "event": {"name": "loadFirstPage"},
+      "expected": {"state": {"gifs": [], "isLoading": false, "isLoadingMore": false, "hasMore": false, "loadFailed": true}, "effects": [{"name": "getGifs", "query": "", "offset": 0, "limit": 20}]},
+      "invariants": ["failure does not leave a loading flag active"],
+      "evidence": {"androidProduction": ["GifPageViewModel.loadFirstPage"], "androidTests": ["GifPageViewModelTest.initial load failure - sets loadFailed"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_006_gif_retry_recovery",
+      "key": "gif_retry_recovery",
+      "functionalArea": "failure_recovery",
+      "given": {"gifs": [], "loadFailed": true, "hasMore": false, "repositoryFirstPage": {"result": "success", "gifIds": ["g1", "g2"], "hasMore": true}},
+      "event": {"name": "retry"},
+      "expected": {"state": {"gifs": ["g1", "g2"], "isLoading": false, "hasMore": true, "loadFailed": false}, "effects": [{"name": "getGifs", "query": "", "offset": 0, "limit": 20}]},
+      "invariants": ["retry replaces the failed first page rather than appending to it"],
+      "evidence": {"androidProduction": ["GifPageViewModel.RetryClicked", "GifPageViewModel.loadFirstPage"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_007_gif_pagination",
+      "key": "gif_pagination",
+      "functionalArea": "gif_loading",
+      "given": {"gifs": ["g1", "g2"], "hasMore": true, "loadFailed": false, "repositoryNextPage": {"result": "success", "gifIds": ["g3"], "hasMore": false}},
+      "event": {"name": "loadMore"},
+      "expected": {"state": {"gifs": ["g1", "g2", "g3"], "isLoadingMore": false, "hasMore": false, "loadFailed": false}, "effects": [{"name": "getGifs", "query": "", "offset": 2, "limit": 20}]},
+      "invariants": ["existing GIFs remain in order", "the next offset equals the current result count"],
+      "evidence": {"androidProduction": ["GifPageViewModel.loadNextPage"], "androidTests": ["GifPageViewModelTest.load more - appends next page"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_008_sticker_tap_defers_send",
+      "key": "sticker_tap_defers_send",
+      "functionalArea": "sticker_confirmation",
+      "given": {"sticker": {"packId": "pack-1", "packKey": "key-1", "stickerId": 7}, "confirmation": null},
+      "event": {"name": "tapSticker"},
+      "expected": {"state": {"confirmation": {"packId": "pack-1", "stickerId": 7}}, "effects": [{"name": "confirmationVisibility", "value": true}], "absentEffects": ["onSend"]},
+      "invariants": ["a tap cannot invoke the host send callback before confirmation"],
+      "evidence": {"androidProduction": ["StickerPageViewModel.StickerClicked", "ChatStickerConfirmationController.show"], "androidTests": ["StickerPageViewModelTest.sticker clicked - reports the selection without recording a use"]}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_009_confirmation_cancel",
+      "key": "confirmation_cancel",
+      "functionalArea": "sticker_confirmation",
+      "given": {"confirmation": {"packId": "pack-1", "stickerId": 7}},
+      "event": {"name": "cancelStickerConfirmation"},
+      "expected": {"state": {"confirmation": null}, "effects": [{"name": "confirmationVisibility", "value": false}], "absentEffects": ["onSend"]},
+      "invariants": ["canceling returns to the conversation without sending"],
+      "evidence": {"androidProduction": ["ChatStickerConfirmationController.dismiss"], "androidTests": []}
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "mk_state_010_confirmation_send_once",
+      "key": "confirmation_send_once",
+      "functionalArea": "sticker_confirmation",
+      "given": {"confirmation": {"packId": "pack-1", "packKey": "key-1", "stickerId": 7}},
+      "event": {"name": "confirmStickerSend"},
+      "expected": {"state": {"confirmation": null}, "effects": [{"name": "confirmationVisibility", "value": false}, {"name": "onSend", "stickerId": 7, "count": 1}]},
+      "invariants": ["the pending confirmation is cleared before the callback", "one confirmation invokes the host send callback once"],
+      "evidence": {"androidProduction": ["ChatStickerConfirmationController.send"], "androidTests": []}
+    }
+  ]
+}

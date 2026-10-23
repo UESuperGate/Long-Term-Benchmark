@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_unified_support",
+  "status": "calibrating",
+  "android": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "baseRef": "26.8",
+    "baseCommit": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+    "finalRef": "26.9",
+    "finalCommit": "510f1cddc186a486ffa9559018578a644d303d96",
+    "featureCommit": "ad1de650a67b426b807e14c46d249924b028ac0c",
+    "releaseBranchException": {
+      "kind": "official_release_branch_shallow_tag_exception",
+      "baseIsAncestor": false,
+      "baseTargetPathPresent": false,
+      "baseSymbolsPresent": false,
+      "verification": "direct git ls-tree and git grep against the immutable 26.8 tag object"
+    }
+  },
+  "canonicalContract": "canonical/transitions.json",
+  "execution": "execution.json",
+  "sourceProjects": {
+    "androidBase": "android/focused-runtime/base",
+    "androidFinal": "android/focused-runtime/final",
+    "arktsBase": "arkts/base",
+    "arktsFinal": "arkts/final"
+  },
+  "sourceClassification": {
+    "upstreamImmutableProductionSlice": [
+      {"path": "WordPress/src/main/java/org/wordpress/android/support/unified/ui/UnifiedSupportViewModel.kt", "gitBlob": "701e49b45258dad8d341e78780ad14cf6eed6bbc"},
+      {"path": "WordPress/src/main/java/org/wordpress/android/support/unified/repository/UnifiedSupportRepository.kt", "gitBlob": "dfaf05e9997958d1e71c2a3603e9a75e0c6b584a"},
+      {"path": "WordPress/src/main/java/org/wordpress/android/support/unified/ui/UnifiedSupportActivity.kt", "gitBlob": "9e690de124e2dfe5acedcdd90744b9f74dafff01"},
+      {"path": "WordPress/src/main/java/org/wordpress/android/support/unified/ui/UnifiedConversationDetailScreen.kt", "gitBlob": "f8c92d55939f54da8a5eba43a0242e8da4fbcddc"}
+    ],
+    "focusedProduction": ["android/focused-runtime/base/upstream-immutable/WordPress/src/main/java/org/wordpress/android/support/main/ui/SupportViewModel.kt", "android/focused-runtime/final/upstream-immutable/WordPress/src/main/java/org/wordpress/android/support/unified"],
+    "evaluatorAdapter": ["android/focused-runtime/evaluator/base-runtime/evaluator/supportbase/SupportBaseRuntimeMain.kt", "android/focused-runtime/evaluator/final-runtime/evaluator/support/SupportRuntimeMain.kt", "android/focused-runtime/evaluator/final-runtime/evaluator/support/leaf", "android/focused-runtime/evaluator/support-instrumentation/evaluator/support/instrumentation/SemanticInstrumentation.kt", "android/focused-runtime/evaluator/run_semantic.py"],
+    "agentHarness": {"appMain": "compilation stubs only", "runtimeAdapterSourceSet": "androidTest", "candidateProductionRoot": "src/main/java", "integrityAudit": "../tools/audit_hidden_android_harness.py"},
+    "arktsMigrationProduction": ["arkts/base/entry/src/main/ets", "arkts/final/entry/src/main/ets"]
+  },
+  "moduleMapping": [
+    {"android": "SupportScreen/UnifiedSupportActivity", "arkts": "Index.ets/UnifiedSupportPage"},
+    {"android": "UnifiedSupportViewModel", "arkts": "UnifiedSupportController.ets"},
+    {"android": "UnifiedSupportRepository", "arkts": "UnifiedSupportRepository.ets"}
+  ],
+  "toolchain": {
+    "androidSourceJdk": "21.0 from .java-version",
+    "focusedRuntimeJdk": "21",
+    "openHarmonyApi": 23,
+    "openHarmonySdk": "local DevEco installation; exact package version not executed",
+    "hvigor": "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw",
+    "node": "/Applications/DevEco-Studio.app/Contents/tools/node/bin/node 18.20.1"
+  },
+  "unsupportedPlatformSpecificBehavior": ["Android Activity navigation is represented by ArkUI page state.", "Live WordPress.com authentication, upload, and temporary-file I/O are controlled only at declared leaves."],
+  "results": "results/manifest.json",
+  "publicationEligible": false
+}

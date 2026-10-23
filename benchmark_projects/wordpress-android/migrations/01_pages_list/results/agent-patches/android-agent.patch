@@ -1,0 +1,2759 @@
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsFluxCBridge.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsFluxCBridge.kt
+new file mode 100644
+index 0000000..82ef70d
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsFluxCBridge.kt
+@@ -0,0 +1,69 @@
++package org.wordpress.android.ui.pagesrs
++
++/**
++ * Bridge between the pages list and the page collections.
++ *
++ * The bridge owns the pages request path: it opens the collection that matches the request, asks it for a
++ * fresh copy of the rows, stores what the service returned and maps everything onto the models the
++ * screen renders.
++ */
++internal class PageRsFluxCBridge(
++    private val wpApiClientProvider: WpApiClientProvider,
++    private val postStore: PostStore,
++    private val postSqlUtils: PostSqlUtils,
++    private val postMapper: PostRsToFluxCMapper,
++) {
++    /** Opens a collection for [request]. The caller owns it and has to close it. */
++    fun openCollection(request: PageListRequest): ObservableMetadataCollection =
++        CollectionLeaf.factory(request.endpointType, request.filter, request.page)
++
++    /**
++     * Loads the rows of [request].
++     *
++     * The service is queried first so the rows are fresh, then the collection is read back; a collection
++     * that only knows about cached rows therefore still produces the same pages.
++     */
++    suspend fun loadPages(
++        request: PageListRequest,
++        site: SiteModel,
++        context: PageRsSiteContext,
++        collection: ObservableMetadataCollection,
++    ): List<PageRsUiModel> {
++        check(request.endpointType == PostEndpointType.PAGES) {
++            "The pages list can only request pages"
++        }
++
++        collection.refresh()
++        persistRemoteRows(request, site)
++        val items = collection.loadItems()
++        return postMapper.mapPages(items, context)
++    }
++
++    /** Loads the rows of [request] through a collection the bridge opens and closes itself. */
++    suspend fun loadPages(
++        request: PageListRequest,
++        site: SiteModel,
++        context: PageRsSiteContext,
++    ): List<PageRsUiModel> {
++        val collection = openCollection(request)
++        return try {
++            loadPages(request, site, context, collection)
++        } finally {
++            collection.close()
++        }
++    }
++
++    private suspend fun persistRemoteRows(request: PageListRequest, site: SiteModel) {
++        val payload = wpApiClientProvider.getWpApiClient(site)
++            .fetchPosts(site, request.endpointType, request.filter, request.page)
++        if (payload.items.isNotEmpty()) {
++            postSqlUtils.upsertPages(site.id, payload.items)
++        }
++    }
++
++    /** Applies resolved featured image urls; pages without a url stay in the list. */
++    fun applyImageUrls(pages: List<PageRsUiModel>, urls: Map<Long, String>): List<PageRsUiModel> =
++        postMapper.withImageUrls(pages, urls)
++
++    fun postStore(): PostStore = postStore
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsHomepageSettings.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsHomepageSettings.kt
+new file mode 100644
+index 0000000..b1eec58
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsHomepageSettings.kt
+@@ -0,0 +1,74 @@
++package org.wordpress.android.ui.pagesrs
++
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++/**
++ * Resolves which pages a site uses as its homepage and as its posts page.
++ *
++ * The settings decide which actions a page may offer, therefore they are resolved before the list is
++ * rendered and refreshed whenever a page action changes them.
++ */
++internal class PageRsHomepageSettings(
++    private val wpApiClientProvider: WpApiClientProvider,
++    private val dispatcher: Dispatcher,
++) {
++    /** Site homepage settings relevant to the pages list. */
++    data class Settings(
++        val pageOnFront: Long = 0L,
++        val pageForPosts: Long = 0L,
++        val showOnFront: String = SiteModel.SHOW_ON_FRONT_POSTS,
++    ) {
++        fun canManageHomepage(): Boolean = showOnFront == SiteModel.SHOW_ON_FRONT_PAGE
++    }
++
++    private val _settings = MutableStateFlow(Settings())
++    val settings: StateFlow<Settings> = _settings.asStateFlow()
++
++    /** Reads the current settings from the service and caches them. */
++    suspend fun load(site: SiteModel): Settings = dispatcher.dispatch {
++        val payload = wpApiClientProvider.getWpApiClient(site).fetchHomepageSettings(site)
++        val resolved = if (payload.pageOnFront != 0L) {
++            Settings(payload.pageOnFront, payload.pageForPosts, payload.showOnFront)
++        } else {
++            Settings(site.pageOnFront, site.pageForPosts, site.showOnFront)
++        }
++        _settings.value = resolved
++        resolved
++    }
++
++    /** Uses [pageId] as the site homepage. */
++    suspend fun setPageOnFront(site: SiteModel, pageId: Long): Settings = dispatcher.dispatch {
++        val payload = wpApiClientProvider.getWpApiClient(site).updatePageOnFront(site, pageId)
++        val resolved = Settings(
++            pageOnFront = if (payload.pageOnFront != 0L) payload.pageOnFront else pageId,
++            pageForPosts = payload.pageForPosts,
++            showOnFront = if (payload.showOnFront.isNotBlank()) {
++                payload.showOnFront
++            } else {
++                SiteModel.SHOW_ON_FRONT_PAGE
++            },
++        )
++        _settings.value = resolved
++        resolved
++    }
++
++    /** Uses [pageId] as the page the site posts are displayed on. */
++    suspend fun setPageForPosts(site: SiteModel, pageId: Long): Settings = dispatcher.dispatch {
++        val payload = wpApiClientProvider.getWpApiClient(site).updatePageForPosts(site, pageId)
++        val resolved = _settings.value.copy(
++            pageOnFront = payload.pageOnFront,
++            pageForPosts = if (payload.pageForPosts != 0L) payload.pageForPosts else pageId,
++        )
++        _settings.value = resolved
++        resolved
++    }
++
++    /** Restores the cached settings, e.g. after the screen has been recreated. */
++    fun restore(site: SiteModel) {
++        if (_settings.value.pageOnFront == 0L) {
++            _settings.value = Settings(site.pageOnFront, site.pageForPosts, site.showOnFront)
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDataModel.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDataModel.kt
+new file mode 100644
+index 0000000..2b40e6c
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDataModel.kt
+@@ -0,0 +1,177 @@
++package org.wordpress.android.ui.pagesrs
++
++/**
++ * Status of a post/page as exposed by the pages service.
++ *
++ * The pages list is built on top of the shared post data layer, therefore the list only knows about the
++ * subset of statuses a page can be in.
++ */
++enum class PostStatus(val restValue: String, val titleKey: String) {
++    PUBLISHED("publish", "published"),
++    PRIVATE("private", "private"),
++    DRAFT("draft", "draft"),
++    PENDING("pending", "pending"),
++    SCHEDULED("future", "scheduled"),
++    TRASHED("trash", "trashed"),
++    UNKNOWN("unknown", "unknown");
++
++    /** Label rendered next to a page row. */
++    val displayLabel: String
++        get() = titleKey.replaceFirstChar { first -> first.uppercase() }
++
++    /** The tab this status belongs to, or `null` when the status is not listable. */
++    fun defaultTab(): PageRsListTab? = when (this) {
++        PUBLISHED, PRIVATE -> PageRsListTab.PUBLISHED
++        DRAFT, PENDING -> PageRsListTab.DRAFTS
++        SCHEDULED -> PageRsListTab.SCHEDULED
++        TRASHED -> PageRsListTab.TRASHED
++        UNKNOWN -> null
++    }
++
++    companion object {
++        /** Every status a page request can be built for, used by search which spans all tabs. */
++        val ALL_PAGE_STATUSES: List<PostStatus> = listOf(PUBLISHED, PRIVATE, DRAFT, PENDING, SCHEDULED, TRASHED)
++
++        fun fromRestValue(value: String?): PostStatus {
++            val normalized = value?.trim()?.lowercase().orEmpty()
++            return ALL_PAGE_STATUSES.firstOrNull { it.restValue == normalized || it.name.lowercase() == normalized }
++                ?: UNKNOWN
++        }
++    }
++}
++
++/**
++ * Entity the list is scoped to.
++ *
++ * The modern pages screen always requests [PAGES]; posts are a different screen with its own contract.
++ */
++enum class PostEndpointType(val restValue: String) {
++    POSTS("posts"),
++    PAGES("pages"),
++}
++
++/** Ordering applied to a page collection. */
++enum class PostListOrder(val restValue: String) {
++    TITLE("title"),
++    DATE("date"),
++}
++
++/** Direction of a page collection ordering. */
++enum class ListOrder(val restValue: String) {
++    ASC("asc"),
++    DESC("desc"),
++}
++
++/**
++ * Description of a single page collection request.
++ *
++ * This is the exact payload the pages service is queried with; keeping it a value makes the request
++ * inspectable by callers and by the store which has to be able to reproduce a query when a list reloads.
++ */
++data class PostListFilter(
++    val statuses: List<String>,
++    val orderBy: PostListOrder = PostListOrder.TITLE,
++    val order: ListOrder = ListOrder.ASC,
++    val pageSize: UInt = PageRsListTab.PAGE_SIZE,
++    val search: String = "",
++    val authorIds: List<Long> = emptyList(),
++) {
++    companion object {
++        fun forTab(
++            tab: PageRsListTab,
++            search: String = "",
++            authorIds: List<Long> = emptyList(),
++        ) = PostListFilter(
++            statuses = tab.pageStatuses().map(PostStatus::restValue),
++            orderBy = tab.orderBy(),
++            order = tab.order(),
++            pageSize = tab.pageSize,
++            search = search,
++            authorIds = authorIds,
++        )
++
++        /**
++         * Search is not scoped to a single tab: it spans every page status so that a query started from the
++         * drafts tab still finds published pages.
++         */
++        fun forSearch(
++            query: String,
++            authorIds: List<Long> = emptyList(),
++        ) = PostListFilter(
++            statuses = PostStatus.ALL_PAGE_STATUSES.map(PostStatus::restValue),
++            orderBy = PostListOrder.TITLE,
++            order = ListOrder.ASC,
++            pageSize = PageRsListTab.PAGE_SIZE,
++            search = query,
++            authorIds = authorIds,
++        )
++    }
++}
++
++/** A single page row as persisted by the store. */
++data class MetadataItem(
++    val remoteId: Long,
++    val siteId: Int,
++    val localId: Int = 0,
++    val title: String = "",
++    val status: PostStatus = PostStatus.UNKNOWN,
++    val parentId: Long = 0L,
++    val dateMillis: Long = 0L,
++    val featuredImageId: Long = 0L,
++    val authorId: Long = 0L,
++    val authorDisplayName: String? = null,
++    val hasPassword: Boolean = false,
++    val link: String? = null,
++)
++
++/** Paging information of an [ObservableMetadataCollection]. */
++data class ListInfo(
++    val page: UInt = 0u,
++    val pageCount: Int = 1,
++    val canLoadMore: Boolean = false,
++)
++
++/**
++ * A live collection of page rows.
++ *
++ * Collections are owned by whoever opened them and have to be [close]d when they become obsolete: the
++ * underlying store keeps change notifications alive until then.
++ */
++interface ObservableMetadataCollection {
++    /** Requests an up to date copy from the service. */
++    suspend fun refresh()
++
++    /** Returns the rows of the collection, applying ordering, paging and the active filters. */
++    suspend fun loadItems(): List<MetadataItem>
++
++    /** Paging information of the collection. */
++    suspend fun listInfo(): ListInfo
++
++    /** Releases the collection. Closing twice is a no-op. */
++    fun close()
++}
++
++/**
++ * Boundary used to open page collections.
++ *
++ * The application installs a concrete implementation at start-up; everything above only ever talks to
++ * [factory] so the store backed implementation can be swapped without touching the view model.
++ */
++interface CollectionLeaf {
++    val factory: (PostEndpointType, PostListFilter, UInt) -> ObservableMetadataCollection
++
++    companion object {
++        @Volatile
++        private var installed: CollectionLeaf? = null
++
++        /** The installed factory. */
++        val factory: (PostEndpointType, PostListFilter, UInt) -> ObservableMetadataCollection
++            get() = requireNotNull(installed) {
++                "CollectionLeaf.factory has not been installed by the application dependency factory"
++            }.factory
++
++        fun install(leaf: CollectionLeaf) {
++            installed = leaf
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDataSources.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDataSources.kt
+new file mode 100644
+index 0000000..d5d1787
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDataSources.kt
+@@ -0,0 +1,215 @@
++package org.wordpress.android.ui.pagesrs
++
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.flow.Flow
++
++/** Site the pages screen operates on. */
++data class SiteModel(
++    val id: Int = 0,
++    val name: String = "",
++    val url: String = "",
++    val isUsingWpComRestApi: Boolean = true,
++    val isSingleUserSite: Boolean? = null,
++    val hasCapabilityEditOthersPages: Boolean = false,
++    val isWpComAtomic: Boolean = false,
++    val showOnFront: String = SHOW_ON_FRONT_POSTS,
++    val pageOnFront: Long = 0L,
++    val pageForPosts: Long = 0L,
++) {
++    val isUsingPagesForHomepage: Boolean
++        get() = showOnFront == SHOW_ON_FRONT_PAGE && pageOnFront != 0L
++
++    /** A site is treated as multi author when it is known to have more than one user. */
++    val isMultiAuthor: Boolean
++        get() = isSingleUserSite != null && !isSingleUserSite
++
++    /**
++     * Author filtering is only offered on multi author sites the signed in user can contribute pages to.
++     *
++     * This matches the legacy pages list: self hosted sites do not support the author parameter and
++     * single user sites have nothing to filter.
++     */
++    val isAuthorFilterSupported: Boolean
++        get() = isUsingWpComRestApi && hasCapabilityEditOthersPages && isMultiAuthor
++
++    companion object {
++        const val SHOW_ON_FRONT_POSTS = "posts"
++        const val SHOW_ON_FRONT_PAGE = "page"
++    }
++}
++
++/** Signed in account. */
++data class Account(
++    val userId: Long,
++    val displayName: String = "",
++    val avatarUrl: String? = null,
++)
++
++/** Provides the site the application currently works on. */
++interface SelectedSiteRepository {
++    fun getSelectedSite(): SiteModel?
++
++    fun observeSelectedSite(): Flow<SiteModel>
++}
++
++/** Site scoped service handle. */
++interface WpService {
++    val site: SiteModel
++
++    val isUsingWpComRestApi: Boolean get() = site.isUsingWpComRestApi
++
++    /** Page mutations of this site. */
++    val postService: PostService
++}
++
++/** Provides the site scoped service handle. */
++interface WpServiceProvider {
++    fun getWpService(site: SiteModel): WpService
++}
++
++/**
++ * Store dispatch boundary.
++ *
++ * Every write that has to be serialised with the rest of the application state goes through the
++ * dispatcher, mirroring the store action chain.
++ */
++interface Dispatcher {
++    /** Coroutine dispatcher the store actions run on. */
++    val defaultDispatcher: CoroutineDispatcher
++
++    suspend fun <T> dispatch(action: suspend () -> T): T
++}
++
++/** Resolves user facing strings. */
++interface ResourceProvider {
++    fun getString(resId: Int): String
++}
++
++/** Blaze availability of a site. */
++interface BlazeFeatureUtils {
++    fun isBlazeEligibleSite(site: SiteModel): Boolean
++
++    fun trackEntryPointTapped(source: BlazeFlowSource)
++}
++
++/** Entry points that can promote a page to Blaze. */
++enum class BlazeFlowSource(val key: String) {
++    PAGES_LIST("pages_list"),
++}
++
++/** Network availability. */
++interface NetworkUtilsWrapper {
++    fun isNetworkAvailable(): Boolean
++}
++
++/** Signed in account store. */
++interface AccountStore {
++    val account: Account?
++}
++
++/** Persistent application preferences. */
++interface AppPrefsWrapper {
++    /** Persisted author filter of the post/page lists. */
++    var postListAuthorSelection: AuthorFilterSelection
++}
++
++/** Local page cache. */
++interface PostStore {
++    suspend fun getPages(siteId: Int): List<MetadataItem>
++
++    suspend fun upsertPages(siteId: Int, items: List<MetadataItem>)
++
++    suspend fun updatePageStatus(siteId: Int, remoteId: Long, status: PostStatus)
++
++    suspend fun deletePage(siteId: Int, remoteId: Long)
++
++    fun observePages(siteId: Int): Flow<List<MetadataItem>>
++}
++
++/** Low level page row persistence used by the pages list. */
++class PostSqlUtils(private val postStore: PostStore) {
++    /** Stores the rows returned by a collection request. */
++    suspend fun replacePages(siteId: Int, rows: List<MetadataItem>) = postStore.upsertPages(siteId, rows)
++
++    /** Stores the rows fetched from the service. */
++    suspend fun upsertPages(siteId: Int, rows: List<MetadataItem>) = postStore.upsertPages(siteId, rows)
++
++    /** Applies a status change to a stored row. */
++    suspend fun updateStatus(siteId: Int, remoteId: Long, status: PostStatus) =
++        postStore.updatePageStatus(siteId, remoteId, status)
++
++    /** Removes a stored row. */
++    suspend fun deletePage(siteId: Int, remoteId: Long) = postStore.deletePage(siteId, remoteId)
++
++    /** Reads a single stored row. */
++    suspend fun findPage(siteId: Int, remoteId: Long): MetadataItem? =
++        postStore.getPages(siteId).firstOrNull { it.remoteId == remoteId }
++}
++
++/** Payload of a remote page list response. */
++data class PostListPayload(
++    val items: List<MetadataItem>,
++    val page: UInt = 0u,
++    val pageCount: Int = 1,
++) {
++    val canLoadMore: Boolean get() = page + 1u < pageCount.toUInt()
++}
++
++/** Homepage settings of a site. */
++data class HomepageSettingsPayload(
++    val pageOnFront: Long = 0L,
++    val pageForPosts: Long = 0L,
++    val showOnFront: String = SiteModel.SHOW_ON_FRONT_POSTS,
++)
++
++/**
++ * Raw pages client.
++ *
++ * This is the external service leaf the pages list reads and writes pages through.
++ */
++interface WpApiClient {
++    suspend fun fetchPosts(
++        site: SiteModel,
++        endpointType: PostEndpointType,
++        filter: PostListFilter,
++        page: UInt,
++    ): PostListPayload
++
++    suspend fun fetchHomepageSettings(site: SiteModel): HomepageSettingsPayload
++
++    suspend fun updatePageOnFront(site: SiteModel, pageId: Long): HomepageSettingsPayload
++
++    suspend fun updatePageForPosts(site: SiteModel, pageId: Long): HomepageSettingsPayload
++}
++
++/** Provides the [WpApiClient] for a site. */
++interface WpApiClientProvider {
++    fun getWpApiClient(site: SiteModel): WpApiClient
++}
++
++/**
++ * Page mutations.
++ *
++ * Every mutation takes the entity explicitly so a pages screen can never write to posts by accident.
++ */
++interface PostService {
++    suspend fun trashPost(endpointType: PostEndpointType, pageId: Long)
++
++    suspend fun deletePost(endpointType: PostEndpointType, pageId: Long)
++
++    suspend fun updatePostStatus(endpointType: PostEndpointType, pageId: Long, status: PostStatus)
++}
++
++/**
++ * Media leaf used to resolve page featured images.
++ *
++ * Thumbnails are decoration: a missing or failing media call must never remove the page row.
++ */
++interface PostRsRestClient {
++    suspend fun fetchMediaUrls(site: SiteModel, ids: List<Long>, size: Int): Map<Long, String>
++}
++
++/** Analytics sink used by the pages screen. */
++interface AnalyticsTrackerWrapper {
++    fun track(stat: String, site: SiteModel? = null, properties: Map<String, Any?> = emptyMap())
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDefaultDataSources.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDefaultDataSources.kt
+new file mode 100644
+index 0000000..8fb0626
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDefaultDataSources.kt
+@@ -0,0 +1,290 @@
++package org.wordpress.android.ui.pagesrs
++
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.filterNotNull
++import kotlinx.coroutines.flow.map
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++
++/**
++ * Site the application works on.
++ *
++ * The selected site is process wide state, exactly like the site store cache the rest of the application
++ * reads from.
++ */
++class SelectedSiteCache : SelectedSiteRepository {
++    private val selected = MutableStateFlow<SiteModel?>(null)
++
++    override fun getSelectedSite(): SiteModel? = selected.value
++
++    override fun observeSelectedSite(): Flow<SiteModel> = selected.filterNotNull()
++
++    fun select(site: SiteModel) {
++        selected.value = site
++    }
++
++    fun clear() {
++        selected.value = null
++    }
++
++    companion object {
++        val instance: SelectedSiteCache = SelectedSiteCache()
++    }
++}
++
++/** Site scoped service handle backed by the selected site. */
++class WpServiceHandle(
++    override val site: SiteModel,
++    private val serviceProvider: DefaultWpServiceProvider,
++) : WpService {
++    override val postService: PostService get() = serviceProvider.postService
++}
++
++/**
++ * Site scoped services of the application.
++ *
++ * The handle is shared by every screen that works on a site, the same way the stores are.
++ */
++class DefaultWpServiceProvider(
++    @Volatile var postService: PostService = StoreBackedPostService.create(),
++) : WpServiceProvider {
++    override fun getWpService(site: SiteModel): WpService = WpServiceHandle(site, this)
++
++    companion object {
++        val instance: DefaultWpServiceProvider = DefaultWpServiceProvider()
++    }
++}
++
++/** Runs store actions on the background dispatcher. */
++class DefaultDispatcher(
++    override val defaultDispatcher: CoroutineDispatcher = Dispatchers.IO,
++) : Dispatcher {
++    override suspend fun <T> dispatch(action: suspend () -> T): T =
++        withContext(defaultDispatcher) { action() }
++
++    companion object {
++        val instance: DefaultDispatcher = DefaultDispatcher()
++    }
++}
++
++/** Resolves the pages screen strings. */
++class DefaultResourceProvider(
++    private val values: Map<Int, String> = defaultPagesStringValues(),
++) : ResourceProvider {
++    override fun getString(resId: Int): String = values[resId] ?: ""
++
++    companion object {
++        val instance: DefaultResourceProvider = DefaultResourceProvider()
++    }
++}
++
++/** Blaze is offered on WordPress.com Atomic sites. */
++class DefaultBlazeFeatureUtils : BlazeFeatureUtils {
++    override fun isBlazeEligibleSite(site: SiteModel): Boolean = site.isWpComAtomic
++
++    override fun trackEntryPointTapped(source: BlazeFlowSource) = Unit
++
++    companion object {
++        val instance: DefaultBlazeFeatureUtils = DefaultBlazeFeatureUtils()
++    }
++}
++
++/** Network availability. */
++class DefaultNetworkUtilsWrapper(
++    @Volatile var connected: Boolean = true,
++) : NetworkUtilsWrapper {
++    override fun isNetworkAvailable(): Boolean = connected
++
++    companion object {
++        val instance: DefaultNetworkUtilsWrapper = DefaultNetworkUtilsWrapper()
++    }
++}
++
++/** Signed in account store. */
++class DefaultAccountStore(
++    @Volatile override var account: Account? = null,
++) : AccountStore {
++    companion object {
++        val instance: DefaultAccountStore = DefaultAccountStore()
++    }
++}
++
++/**
++ * Persistent application preferences.
++ *
++ * Backed by the process wide preference storage, therefore the persisted author filter survives the
++ * screen being recreated. Only the keys owned by a screen are ever written, unrelated preferences keep
++ * their value.
++ */
++class AppPreferences(
++    private val preferences: MutableMap<String, Any> = processPreferences,
++) : AppPrefsWrapper {
++    override var postListAuthorSelection: AuthorFilterSelection
++        get() = when (val stored = preferences[KEY_AUTHOR_SELECTION]) {
++            is AuthorFilterSelection -> stored
++            is String -> AuthorFilterSelection.fromKey(stored)
++            else -> AuthorFilterSelection.DEFAULT
++        }
++        set(value) {
++            preferences[KEY_AUTHOR_SELECTION] = value
++        }
++
++    /** Read only view of the persisted preferences, used to verify that nothing else was touched. */
++    fun snapshot(): Map<String, Any> = preferences.toMap()
++
++    companion object {
++        const val KEY_AUTHOR_SELECTION = "pages_list_author_selection"
++
++        internal val processPreferences: MutableMap<String, Any> = mutableMapOf()
++    }
++}
++
++/** Analytics sink. */
++class RecordingAnalyticsTracker : AnalyticsTrackerWrapper {
++    private val recorded = mutableListOf<RecordedStat>()
++
++    override fun track(stat: String, site: SiteModel?, properties: Map<String, Any?>) {
++        synchronized(recorded) {
++            recorded += RecordedStat(stat, site?.id, properties.toMap())
++            while (recorded.size > MAX_RECORDED_STATS) {
++                recorded.removeAt(0)
++            }
++        }
++    }
++
++    val recordedStats: List<RecordedStat>
++        get() = synchronized(recorded) { recorded.toList() }
++
++    data class RecordedStat(val stat: String, val siteId: Int?, val properties: Map<String, Any?>)
++
++    companion object {
++        private const val MAX_RECORDED_STATS = 50
++
++        val instance: RecordingAnalyticsTracker = RecordingAnalyticsTracker()
++    }
++}
++
++/**
++ * Local page cache.
++ *
++ * The pages list owns the lifetime of its rows: a service response is written here and the rendered list
++ * is reduced from the store, which is what keeps trashing and other mutations consistent across tabs.
++ */
++class InMemoryPostStore : PostStore {
++    private val mutex = Mutex()
++    private val pagesBySite = mutableMapOf<Int, MutableMap<Long, MetadataItem>>()
++    private val revisions = MutableStateFlow(0)
++
++    override suspend fun getPages(siteId: Int): List<MetadataItem> = mutex.withLock {
++        pagesBySite[siteId]?.values?.toList().orEmpty()
++    }
++
++    override suspend fun upsertPages(siteId: Int, items: List<MetadataItem>) {
++        mutex.withLock {
++            val sitePages = pagesBySite.getOrPut(siteId) { mutableMapOf() }
++            items.forEach { sitePages[it.remoteId] = it }
++        }
++        revisions.value += 1
++    }
++
++    override suspend fun updatePageStatus(siteId: Int, remoteId: Long, status: PostStatus) {
++        mutex.withLock {
++            val page = pagesBySite[siteId]?.get(remoteId) ?: return@withLock
++            pagesBySite[siteId]?.put(remoteId, page.copy(status = status))
++        }
++        revisions.value += 1
++    }
++
++    override suspend fun deletePage(siteId: Int, remoteId: Long) {
++        mutex.withLock { pagesBySite[siteId]?.remove(remoteId) }
++        revisions.value += 1
++    }
++
++    override fun observePages(siteId: Int): Flow<List<MetadataItem>> = revisions.map { getPages(siteId) }
++
++    companion object {
++        val instance: InMemoryPostStore = InMemoryPostStore()
++    }
++}
++
++/**
++ * Page collection backed by the local store.
++ *
++ * Filtering, ordering and paging of a collection happen here, so the same request always produces the
++ * same rows.
++ */
++class PostStoreCollection(
++    private val postStore: PostStore,
++    private val siteProvider: SelectedSiteRepository,
++    private val endpointType: PostEndpointType,
++    private val filter: PostListFilter,
++    private val page: UInt,
++) : ObservableMetadataCollection {
++    private val mutex = Mutex()
++    private var closed = false
++
++    override suspend fun refresh() {
++        check(!closed) { "Collection has already been closed" }
++        // The store is the single source of truth for the list: a refresh only invalidates what the
++        // collection may serve from cache, the rows themselves are written by the bridge.
++    }
++
++    override suspend fun loadItems(): List<MetadataItem> {
++        check(!closed) { "Collection has already been closed" }
++        val site = siteProvider.getSelectedSite() ?: return emptyList()
++        val statuses = filter.statuses.toSet()
++
++        return postStore.getPages(site.id)
++            .asSequence()
++            .filter { it.status.restValue in statuses }
++            .filter { filter.authorIds.isEmpty() || it.authorId in filter.authorIds }
++            .filter { filter.search.isBlank() || it.title.contains(filter.search, ignoreCase = true) }
++            .let { matching ->
++                when (filter.orderBy) {
++                    PostListOrder.TITLE -> matching.sortedBy { it.title.lowercase() }
++                    PostListOrder.DATE -> matching.sortedBy { it.dateMillis }
++                }
++            }
++            .toList()
++    }
++
++    override suspend fun listInfo(): ListInfo = mutex.withLock {
++        val site = siteProvider.getSelectedSite() ?: return@withLock ListInfo(page = page)
++        val statuses = filter.statuses.toSet()
++        val matching = postStore.getPages(site.id).count { it.status.restValue in statuses }
++        val pageSize = filter.pageSize.toInt().coerceAtLeast(1)
++        val pageCount = if (matching == 0) 1 else (matching + pageSize - 1) / pageSize
++        ListInfo(page = page, pageCount = pageCount, canLoadMore = page + 1u < pageCount.toUInt())
++    }
++
++    override fun close() {
++        closed = true
++    }
++}
++
++/**
++ * Collection leaf the application installs.
++ *
++ * Opening a collection is the only way the pages list reaches the page rows, which keeps the request
++ * path in one place.
++ */
++class PostStoreCollectionLeaf(
++    private val postStore: PostStore,
++    private val siteProvider: SelectedSiteRepository,
++) : CollectionLeaf {
++    override val factory: (PostEndpointType, PostListFilter, UInt) -> ObservableMetadataCollection =
++        { endpointType, filter, page ->
++            PostStoreCollection(postStore, siteProvider, endpointType, filter, page)
++        }
++
++    companion object {
++        fun create(
++            postStore: PostStore = InMemoryPostStore.instance,
++            siteProvider: SelectedSiteRepository = SelectedSiteCache.instance,
++        ): PostStoreCollectionLeaf = PostStoreCollectionLeaf(postStore, siteProvider)
++    }
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDefaultLeaves.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDefaultLeaves.kt
+new file mode 100644
+index 0000000..cbd6657
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDefaultLeaves.kt
+@@ -0,0 +1,139 @@
++package org.wordpress.android.ui.pagesrs
++
++/**
++ * Pages client that serves the locally known page rows.
++ *
++ * It keeps the pages request path complete when the site cannot be reached and lets the store stay the
++ * single source of truth for the rendered list. A site backed installation swaps in the REST backed
++ * client.
++ */
++class StoreBackedWpApiClient(
++    private val postStore: PostStore,
++    private val siteProvider: SelectedSiteRepository,
++) : WpApiClient {
++    override suspend fun fetchPosts(
++        site: SiteModel,
++        endpointType: PostEndpointType,
++        filter: PostListFilter,
++        page: UInt,
++    ): PostListPayload {
++        val statuses = filter.statuses.toSet()
++        val pageSize = filter.pageSize.toInt().coerceAtLeast(1)
++        val pageOffset = page.toInt().coerceAtLeast(0) * pageSize
++
++        val matching = postStore.getPages(site.id)
++            .filter { it.status.restValue in statuses }
++            .filter { filter.authorIds.isEmpty() || it.authorId in filter.authorIds }
++            .filter { filter.search.isBlank() || it.title.contains(filter.search, ignoreCase = true) }
++            .let { rows ->
++                when (filter.orderBy) {
++                    PostListOrder.TITLE -> rows.sortedBy { it.title.lowercase() }
++                    PostListOrder.DATE -> rows.sortedBy { it.dateMillis }
++                }
++            }
++
++        val windowed = if (pageOffset >= matching.size) emptyList() else matching.drop(pageOffset).take(pageSize)
++        val pageCount = if (matching.isEmpty()) 1 else (matching.size + pageSize - 1) / pageSize
++        return PostListPayload(items = windowed, page = page, pageCount = pageCount)
++    }
++
++    override suspend fun fetchHomepageSettings(site: SiteModel): HomepageSettingsPayload =
++        HomepageSettingsPayload(
++            pageOnFront = site.pageOnFront,
++            pageForPosts = site.pageForPosts,
++            showOnFront = site.showOnFront,
++        )
++
++    override suspend fun updatePageOnFront(site: SiteModel, pageId: Long): HomepageSettingsPayload =
++        HomepageSettingsPayload(
++            pageOnFront = pageId,
++            pageForPosts = site.pageForPosts,
++            showOnFront = SiteModel.SHOW_ON_FRONT_PAGE,
++        )
++
++    override suspend fun updatePageForPosts(site: SiteModel, pageId: Long): HomepageSettingsPayload =
++        HomepageSettingsPayload(
++            pageOnFront = site.pageOnFront,
++            pageForPosts = pageId,
++            showOnFront = site.showOnFront,
++        )
++
++    companion object {
++        fun create(
++            postStore: PostStore = InMemoryPostStore.instance,
++            siteProvider: SelectedSiteRepository = SelectedSiteCache.instance,
++        ): StoreBackedWpApiClient = StoreBackedWpApiClient(postStore, siteProvider)
++    }
++}
++
++/** Provides the pages client of the application. */
++class SingleWpApiClientProvider(
++    @Volatile var wpApiClient: WpApiClient = StoreBackedWpApiClient.create(),
++) : WpApiClientProvider {
++    override fun getWpApiClient(site: SiteModel): WpApiClient = wpApiClient
++
++    companion object {
++        val instance: SingleWpApiClientProvider = SingleWpApiClientProvider()
++    }
++}
++
++/**
++ * Page mutations.
++ *
++ * Mutations are applied to the store so that the list stays consistent even when the request that
++ * triggered them is not repeated.
++ */
++class StoreBackedPostService(
++    private val postStore: PostStore,
++    private val siteProvider: SelectedSiteRepository,
++) : PostService {
++    override suspend fun trashPost(endpointType: PostEndpointType, pageId: Long) =
++        updateStatus(endpointType, pageId, PostStatus.TRASHED)
++
++    override suspend fun deletePost(endpointType: PostEndpointType, pageId: Long) {
++        val siteId = siteProvider.getSelectedSite()?.id ?: return
++        requirePages(endpointType)
++        postStore.deletePage(siteId, pageId)
++    }
++
++    override suspend fun updatePostStatus(
++        endpointType: PostEndpointType,
++        pageId: Long,
++        status: PostStatus,
++    ) = updateStatus(endpointType, pageId, status)
++
++    private suspend fun updateStatus(endpointType: PostEndpointType, pageId: Long, status: PostStatus) {
++        val siteId = siteProvider.getSelectedSite()?.id ?: return
++        requirePages(endpointType)
++        postStore.updatePageStatus(siteId, pageId, status)
++    }
++
++    private fun requirePages(endpointType: PostEndpointType) {
++        check(endpointType == PostEndpointType.PAGES) { "The pages screen can only mutate pages" }
++    }
++
++    companion object {
++        fun create(
++            postStore: PostStore = InMemoryPostStore.instance,
++            siteProvider: SelectedSiteRepository = SelectedSiteCache.instance,
++        ): StoreBackedPostService = StoreBackedPostService(postStore, siteProvider)
++    }
++}
++
++/** Media service of the application, used to resolve page featured images. */
++class DefaultMediaRestClient(
++    @Volatile var delegate: PostRsRestClient = UnknownMediaUrlsRestClient,
++) : PostRsRestClient {
++    override suspend fun fetchMediaUrls(site: SiteModel, ids: List<Long>, size: Int): Map<Long, String> =
++        delegate.fetchMediaUrls(site, ids, size)
++
++    companion object {
++        val instance: DefaultMediaRestClient = DefaultMediaRestClient()
++    }
++}
++
++/** Media leaf that resolves only what is already known. */
++object UnknownMediaUrlsRestClient : PostRsRestClient {
++    override suspend fun fetchMediaUrls(site: SiteModel, ids: List<Long>, size: Int): Map<Long, String> =
++        emptyMap()
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDependencyFactory.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDependencyFactory.kt
+new file mode 100644
+index 0000000..767e9da
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsDependencyFactory.kt
+@@ -0,0 +1,55 @@
++package org.wordpress.android.ui.pagesrs
++
++/**
++ * Builds the object graph of the modern pages screen.
++ *
++ * The activity owns the factory, which keeps the view model free of construction details and gives the
++ * external leaves a single place to be replaced.
++ */
++internal class PagesRsDependencyFactory(
++    private val selectedSiteRepository: SelectedSiteRepository = SelectedSiteCache.instance,
++    private val serviceProvider: WpServiceProvider = DefaultWpServiceProvider.instance,
++    private val dispatcher: Dispatcher = DefaultDispatcher.instance,
++    private val wpApiClientProvider: WpApiClientProvider = SingleWpApiClientProvider.instance,
++    private val restClient: PostRsRestClient = DefaultMediaRestClient.instance,
++    private val resourceProvider: ResourceProvider = DefaultResourceProvider.instance,
++    private val postStore: PostStore = InMemoryPostStore.instance,
++    private val blazeFeatureUtils: BlazeFeatureUtils = DefaultBlazeFeatureUtils.instance,
++    private val networkUtilsWrapper: NetworkUtilsWrapper = DefaultNetworkUtilsWrapper.instance,
++    private val accountStore: AccountStore = DefaultAccountStore.instance,
++    private val appPrefsWrapper: AppPrefsWrapper = AppPreferences(),
++    private val analyticsTracker: AnalyticsTrackerWrapper = RecordingAnalyticsTracker.instance,
++) {
++    /** The collection leaf the view model opens page collections through. */
++    fun collectionLeaf(): CollectionLeaf = PostStoreCollectionLeaf.create(postStore, selectedSiteRepository)
++
++    private val postSqlUtils: PostSqlUtils by lazy { PostSqlUtils(postStore) }
++
++    private val postMapper: PostRsToFluxCMapper by lazy { PostRsToFluxCMapper() }
++
++    fun homepageSettings(): PageRsHomepageSettings =
++        PageRsHomepageSettings(wpApiClientProvider = wpApiClientProvider, dispatcher = dispatcher)
++
++    fun fluxCBridge(): PageRsFluxCBridge = PageRsFluxCBridge(
++        wpApiClientProvider = wpApiClientProvider,
++        postStore = postStore,
++        postSqlUtils = postSqlUtils,
++        postMapper = postMapper,
++    )
++
++    fun listViewModel(): PagesRsListViewModel = PagesRsListViewModel(
++        selectedSiteRepository = selectedSiteRepository,
++        serviceProvider = serviceProvider,
++        dispatcher = dispatcher,
++        restClient = restClient,
++        resourceProvider = resourceProvider,
++        postStore = postStore,
++        homepageSettings = homepageSettings(),
++        blazeFeatureUtils = blazeFeatureUtils,
++        fluxCBridge = fluxCBridge(),
++        networkUtilsWrapper = networkUtilsWrapper,
++        accountStore = accountStore,
++        appPrefsWrapper = appPrefsWrapper,
++        analyticsTracker = analyticsTracker,
++    )
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsListViewModel.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsListViewModel.kt
+new file mode 100644
+index 0000000..6cd8b39
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsListViewModel.kt
+@@ -0,0 +1,801 @@
++package org.wordpress.android.ui.pagesrs
++
++import androidx.lifecycle.ViewModel
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableSharedFlow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withTimeoutOrNull
++
++/**
++ * State holder of the modern pages screen.
++ *
++ * The view model owns the four tab collections, the search collection and the author filter, and it is
++ * the only place where a request is created: the screen renders what the view model reduced.
++ */
++internal class PagesRsListViewModel(
++    private val selectedSiteRepository: SelectedSiteRepository,
++    private val serviceProvider: WpServiceProvider,
++    private val dispatcher: Dispatcher,
++    private val restClient: PostRsRestClient,
++    private val resourceProvider: ResourceProvider,
++    private val postStore: PostStore,
++    private val homepageSettings: PageRsHomepageSettings,
++    private val blazeFeatureUtils: BlazeFeatureUtils,
++    private val fluxCBridge: PageRsFluxCBridge,
++    private val networkUtilsWrapper: NetworkUtilsWrapper,
++    private val accountStore: AccountStore,
++    private val appPrefsWrapper: AppPrefsWrapper,
++    private val analyticsTracker: AnalyticsTrackerWrapper,
++) : ViewModel() {
++    private val scope = CoroutineScope(SupervisorJob() + dispatcher.defaultDispatcher)
++
++    private val _tabStates = MutableStateFlow(initialTabStates())
++    val tabStates = _tabStates.asStateFlow()
++
++    private val _isSearchActive = MutableStateFlow(false)
++    val isSearchActive = _isSearchActive.asStateFlow()
++
++    private val _searchQuery = MutableStateFlow("")
++    val searchQuery = _searchQuery.asStateFlow()
++
++    private val _searchState = MutableStateFlow<PageTabUiState>(PageTabUiState.Ready(emptyList()))
++    val searchState = _searchState.asStateFlow()
++
++    private val _searchPages = MutableStateFlow<List<PageRsUiModel>>(emptyList())
++
++    private val _authorFilter = MutableStateFlow(AuthorFilterSelection.DEFAULT)
++    val authorFilter = _authorFilter.asStateFlow()
++
++    private val _isAuthorFilterVisible = MutableStateFlow(false)
++    val isAuthorFilterVisible = _isAuthorFilterVisible.asStateFlow()
++
++    private val _pendingConfirmation = MutableStateFlow<PageRsListConfirmation?>(null)
++    val pendingConfirmation = _pendingConfirmation.asStateFlow()
++
++    private val _snackbarMessages = MutableSharedFlow<SnackbarMessage>(
++        extraBufferCapacity = SNACKBAR_BUFFER,
++    )
++    val snackbarMessages: Flow<SnackbarMessage> = _snackbarMessages
++
++    private val _editorRequests = MutableSharedFlow<PageRsEditorRequest>(extraBufferCapacity = REQUEST_BUFFER)
++    val editorRequests: Flow<PageRsEditorRequest> = _editorRequests
++
++    private val _navigationRequests =
++        MutableSharedFlow<PageRsNavigationRequest>(extraBufferCapacity = REQUEST_BUFFER)
++    val navigationRequests: Flow<PageRsNavigationRequest> = _navigationRequests
++
++    private val _renderedPages = MutableStateFlow<List<PageRsUiModel>>(emptyList())
++    val renderedPages = _renderedPages.asStateFlow()
++
++    private val _renderedRows = MutableStateFlow<List<PageRsListItem>>(emptyList())
++    val renderedRows = _renderedRows.asStateFlow()
++
++    private val _renderedMenuActions = MutableStateFlow<Map<Long, List<PageRsMenuAction>>>(emptyMap())
++    val renderedMenuActions = _renderedMenuActions.asStateFlow()
++
++    private val _siteContext = MutableStateFlow(PageRsSiteContext(SiteModel(), 0L, 0L, false, false))
++
++    private var site: SiteModel? = null
++    private var siteResolved = false
++    private var activeTab = PageRsListTab.PUBLISHED
++
++    private val stateLock = Any()
++    private val tabJobs = mutableMapOf<PageRsListTab, Job>()
++    private val tabGenerations = mutableMapOf<PageRsListTab, Int>()
++    private var searchGeneration = 0
++    private var searchJob: Job? = null
++    private var actionJob: Job? = null
++    private var mediaJob: Job? = null
++    private var homepageJob: Job? = null
++    private var lastFailedConfirmation: PageRsListConfirmation? = null
++
++    private val tabCollections = mutableMapOf<PageRsListTab, ObservableMetadataCollection>()
++    private var searchCollection: ObservableMetadataCollection? = null
++    private val resolvedMediaIds = mutableSetOf<Long>()
++
++    // region public screen events
++
++    /** Opens [tab] through the normal Pages entry and loads its pages. */
++    fun initTab(tab: PageRsListTab) {
++        resolveSite()
++        val tabChanged = activeTab != tab
++        activeTab = tab
++        if (tabChanged) trackTabPressed(tab)
++        if (_isSearchActive.value) {
++            // Opening a tab always returns to the tab list.
++            resetSearchState()
++        }
++        loadTab(tab, isUserRefresh = false)
++    }
++
++    /** Reloads [tab]; the retry affordance of a failed request runs exactly the same body. */
++    fun refreshTab(tab: PageRsListTab, isUserRefresh: Boolean = false) {
++        resolveSite()
++        loadTab(tab, isUserRefresh)
++    }
++
++    /** Enters search mode; the search field is usable right away. */
++    fun onSearchOpen() {
++        resolveSite()
++        if (_isSearchActive.value) return
++
++        searchJob?.cancel()
++        closeSearchCollection()
++        nextSearchGeneration()
++        _isSearchActive.value = true
++        resetSearchState()
++        site?.let { analyticsTracker.track(PagesRsAnalyticsStats.PAGES_SEARCH_ACCESSED, it) }
++    }
++
++    /** Applies a new search query, dispatching at most one request per settled query. */
++    fun onSearchQueryChanged(query: String, activeTab: PageRsListTab) {
++        resolveSite()
++        this.activeTab = activeTab
++        _searchQuery.value = query
++
++        searchJob?.cancel()
++        val trimmed = query.trim()
++        if (trimmed.length < MIN_SEARCH_QUERY_LENGTH) {
++            // Not enough input: the result area stays empty and the service is never asked.
++            closeSearchCollection()
++            nextSearchGeneration()
++            _searchPages.value = emptyList()
++            _searchState.value = PageTabUiState.Ready(emptyList())
++            render()
++            return
++        }
++
++        val currentSite = site ?: return
++        val generation = nextSearchGeneration()
++        searchJob = scope.launch {
++            delay(SEARCH_DEBOUNCE_MS)
++            if (!isActiveSearch(generation)) return@launch
++            loadSearchResults(currentSite, trimmed, generation)
++        }
++    }
++
++    /** Leaves search mode and restores [activeTab]. */
++    fun onSearchClose(activeTab: PageRsListTab) {
++        searchJob?.cancel()
++        // The obsolete search collection is closed before the tab it replaced is reloaded.
++        closeSearchCollection()
++        nextSearchGeneration()
++        _isSearchActive.value = false
++        resetSearchState()
++        initTab(activeTab)
++    }
++
++    /** Persists a new author filter and reloads the list with the new author. */
++    fun onAuthorFilterChanged(
++        selection: AuthorFilterSelection,
++        activeTab: PageRsListTab,
++    ) {
++        resolveSite()
++        val currentSite = site ?: return
++        this.activeTab = activeTab
++        if (!currentSite.isAuthorFilterSupported) return
++
++        _authorFilter.value = selection
++        appPrefsWrapper.postListAuthorSelection = selection
++        analyticsTracker.track(
++            PagesRsAnalyticsStats.PAGES_LIST_AUTHOR_FILTER_CHANGED,
++            currentSite,
++            mapOf("author_filter_selection" to selection.key),
++        )
++
++        // The author is part of the query, therefore the collections holding the previous query are
++        // obsolete and are closed before their replacements are opened.
++        closeTabCollection(activeTab)
++        searchJob?.cancel()
++        closeSearchCollection()
++
++        val query = _searchQuery.value.trim()
++        if (_isSearchActive.value && query.length >= MIN_SEARCH_QUERY_LENGTH) {
++            val generation = nextSearchGeneration()
++            searchJob = scope.launch {
++                delay(SEARCH_DEBOUNCE_MS)
++                if (!isActiveSearch(generation)) return@launch
++                loadSearchResults(currentSite, query, generation)
++            }
++        } else {
++            loadTab(activeTab, isUserRefresh = false)
++        }
++        render()
++    }
++
++    /** Opens a page through the existing editor bridge. */
++    fun openPage(remotePageId: Long, tab: PageRsListTab) {
++        resolveSite()
++        activeTab = tab
++        val currentSite = site ?: return
++        val page = findPage(remotePageId)
++        if (page == null) {
++            emitSnackbar(SnackbarMessage(string(PagesRsStrings.PAGES_OPEN_ERROR)))
++            return
++        }
++        val settings = homepageSettings.settings.value
++        if (page.remoteId != 0L && page.remoteId == settings.pageForPosts) {
++            emitSnackbar(SnackbarMessage(string(PagesRsStrings.PAGES_IS_POSTS_PAGE_WARNING)))
++            return
++        }
++        _editorRequests.tryEmit(PageRsEditorRequest(currentSite.id, page.remoteId, page.localId))
++    }
++
++    /** Handles a menu action; state changing and destructive actions only raise a confirmation. */
++    fun onPageMenuAction(remotePageId: Long, action: PageRsMenuAction) {
++        resolveSite()
++        val page = findPage(remotePageId) ?: return
++        analyticsTracker.track(
++            PagesRsAnalyticsStats.PAGES_OPTIONS_PRESSED,
++            site,
++            mapOf("option_name" to action.key),
++        )
++
++        val confirmation = PageRsListConfirmation.forAction(action, page)
++        if (confirmation != null) {
++            _pendingConfirmation.value = confirmation
++            return
++        }
++
++        when (action) {
++            PageRsMenuAction.VIEW_PAGE -> openPage(remotePageId, activeTab)
++            PageRsMenuAction.SET_PARENT -> _navigationRequests.tryEmit(PageRsNavigationRequest.SetParent(page))
++            PageRsMenuAction.COPY -> _navigationRequests.tryEmit(PageRsNavigationRequest.Copy(page))
++            PageRsMenuAction.SHARE -> _navigationRequests.tryEmit(PageRsNavigationRequest.Share(page))
++            PageRsMenuAction.PROMOTE_WITH_BLAZE -> {
++                blazeFeatureUtils.trackEntryPointTapped(BlazeFlowSource.PAGES_LIST)
++                _navigationRequests.tryEmit(PageRsNavigationRequest.PromoteWithBlaze(page))
++            }
++            else -> Unit
++        }
++    }
++
++    /** Runs the confirmed page mutation. */
++    fun onConfirmPendingAction() {
++        val confirmation = _pendingConfirmation.value ?: return
++        _pendingConfirmation.value = null
++        performConfirmation(confirmation)
++    }
++
++    /** Runs the action a snackbar offers, e.g. retrying a failed mutation or a failed load. */
++    fun onSnackbarAction(action: SnackbarAction?) {
++        when (action) {
++            null -> Unit
++            is SnackbarAction.RetryPageAction -> {
++                val failed = lastFailedConfirmation
++                if (failed != null && failed.pageId == action.pageId && failed.action == action.action) {
++                    // The retry targets the very same page identity.
++                    performConfirmation(failed)
++                }
++            }
++            SnackbarAction.RetryListAction -> refreshTab(activeTab, isUserRefresh = true)
++        }
++    }
++
++    // endregion
++
++    // region rendering
++
++    /** Pages currently backing the rendered list. */
++    private fun currentPages(): List<PageRsUiModel> =
++        if (_isSearchActive.value) _searchPages.value else _tabStates.value[activeTab]?.pages.orEmpty()
++
++    /**
++     * Rebuilds the rendered rows from the current state.
++     *
++     * The published tab is rendered as a hierarchy, everything else stays flat.
++     */
++    private fun render() {
++        val context = _siteContext.value
++        val pages = currentPages()
++        val rows = buildRows(
++            pages = pages,
++            applyHierarchy = !_isSearchActive.value && activeTab.isHierarchyEnabled(),
++            pageOnFront = context.pageOnFront,
++            pageForPosts = context.pageForPosts,
++        )
++        _renderedPages.value = pages
++        _renderedRows.value = rows
++        _renderedMenuActions.value = rows.associate { row -> row.page.remoteId to row.actions }
++    }
++
++    fun renderedRowFor(remotePageId: Long): PageRsListItem? =
++        _renderedRows.value.firstOrNull { row -> row.page.remoteId == remotePageId }
++
++    fun menuActionsFor(remotePageId: Long): List<PageRsMenuAction> =
++        _renderedMenuActions.value[remotePageId].orEmpty()
++
++    fun tabState(tab: PageRsListTab): PageTabUiState = _tabStates.value[tab] ?: PageTabUiState.Loading()
++
++    fun currentTab(): PageRsListTab = activeTab
++
++    fun homepagePageOnFront(): Long = _siteContext.value.pageOnFront
++
++    fun homepagePageForPosts(): Long = _siteContext.value.pageForPosts
++
++    // endregion
++
++    // region loading
++
++    private fun loadTab(tab: PageRsListTab, isUserRefresh: Boolean) {
++        val currentSite = site ?: return
++        val generation = nextTabGeneration(tab)
++        tabJobs[tab]?.cancel()
++        closeTabCollection(tab)
++
++        // The state is reduced before the request starts, so the tab never stays on a stale state.
++        reduceTabState(tab) { previous ->
++            if (previous.pages.isEmpty()) PageTabUiState.Loading() else PageTabUiState.Refreshing(previous.pages)
++        }
++        render()
++
++        tabJobs[tab] = scope.launch {
++            val request = pageRequestForTab(tab)
++            val collection = CloseGuard(fluxCBridge.openCollection(request))
++            setTabCollection(tab, collection)
++            try {
++                val pages = fluxCBridge.loadPages(request, currentSite, _siteContext.value, collection)
++                if (!isCurrentTabGeneration(tab, generation)) return@launch
++                reduceTabState(tab) { PageTabUiState.Ready(pages) }
++                render()
++                resolveFeaturedImages(pages, tab, generation)
++            } catch (cancellation: CancellationException) {
++                throw cancellation
++            } catch (error: Throwable) {
++                if (!isCurrentTabGeneration(tab, generation)) return@launch
++                // The rows that were loaded before stay visible, the failure is represented by the state.
++                reduceTabState(tab) { previous ->
++                    PageTabUiState.Error(
++                        pages = previous.pages,
++                        errorMessage = messageOf(error, PagesRsStrings.PAGES_ERROR_LOADING),
++                    )
++                }
++                render()
++                if (isUserRefresh) {
++                    emitSnackbar(SnackbarMessage(string(PagesRsStrings.PAGES_ERROR_LOADING)))
++                }
++            } finally {
++                closeTabCollection(tab, collection)
++            }
++        }
++    }
++
++    private suspend fun loadSearchResults(
++        currentSite: SiteModel,
++        query: String,
++        generation: Int,
++    ) {
++        closeSearchCollection()
++        val request = searchRequest(query)
++        val collection = CloseGuard(fluxCBridge.openCollection(request))
++        setSearchCollection(collection)
++        _searchState.value = PageTabUiState.Refreshing(_searchPages.value)
++
++        try {
++            val pages = fluxCBridge.loadPages(request, currentSite, _siteContext.value, collection)
++            if (!isActiveSearch(generation)) return
++            _searchPages.value = pages
++            _searchState.value = PageTabUiState.Ready(pages)
++            render()
++            resolveFeaturedImages(pages, null, generation)
++        } catch (cancellation: CancellationException) {
++            throw cancellation
++        } catch (error: Throwable) {
++            if (!isActiveSearch(generation)) return
++            _searchState.value = PageTabUiState.Error(
++                pages = _searchPages.value,
++                errorMessage = messageOf(error, PagesRsStrings.PAGES_ERROR_LOADING),
++            )
++            render()
++        } finally {
++            closeSearchCollection(collection)
++        }
++    }
++
++    private fun pageRequestForTab(tab: PageRsListTab) = PageListRequest(
++        endpointType = PostEndpointType.PAGES,
++        filter = PostListFilter.forTab(tab, authorIds = authorIdsFor(_authorFilter.value)),
++    )
++
++    private fun searchRequest(query: String) = PageListRequest(
++        endpointType = PostEndpointType.PAGES,
++        filter = PostListFilter.forSearch(query, authorIds = authorIdsFor(_authorFilter.value)),
++    )
++
++    /**
++     * Resolves featured images of pages that do not have one yet.
++     *
++     * Media is decoration: a slow or failing media call never removes the page row.
++     */
++    private fun resolveFeaturedImages(pages: List<PageRsUiModel>, tab: PageRsListTab?, generation: Int) {
++        val currentSite = site ?: return
++        val known = synchronized(stateLock) { resolvedMediaIds.toSet() }
++        val missing = pages.asSequence()
++            .map(PageRsUiModel::featuredImageId)
++            .filter { featuredImageId -> featuredImageId != 0L && featuredImageId !in known }
++            .distinct()
++            .toList()
++        if (missing.isEmpty()) return
++
++        mediaJob?.cancel()
++        mediaJob = scope.launch {
++            val urls = try {
++                restClient.fetchMediaUrls(currentSite, missing, FEATURED_IMAGE_THUMBNAIL_SIZE)
++            } catch (cancellation: CancellationException) {
++                throw cancellation
++            } catch (_: Throwable) {
++                emptyMap()
++            }
++            if (urls.isEmpty()) return@launch
++            synchronized(stateLock) { resolvedMediaIds += missing }
++
++            if (tab != null) {
++                if (!isCurrentTabGeneration(tab, generation)) return@launch
++                reduceTabState(tab) { state -> state.withPages(fluxCBridge.applyImageUrls(state.pages, urls)) }
++            } else {
++                if (!isActiveSearch(generation)) return@launch
++                _searchPages.update { pages -> fluxCBridge.applyImageUrls(pages, urls) }
++            }
++            render()
++        }
++    }
++
++    // endregion
++
++    // region page actions
++
++    private fun performConfirmation(confirmation: PageRsListConfirmation) {
++        val currentSite = site ?: return
++        if (!networkUtilsWrapper.isNetworkAvailable()) {
++            lastFailedConfirmation = confirmation
++            emitSnackbar(retryMessage(confirmation, string(PagesRsStrings.PAGES_ERROR_NO_NETWORK)))
++            return
++        }
++
++        actionJob?.cancel()
++        actionJob = scope.launch {
++            try {
++                when (confirmation) {
++                    is PageRsListConfirmation.SetAsHomepage ->
++                        applyHomepageSettings(homepageSettings.setPageOnFront(currentSite, confirmation.pageId))
++
++                    is PageRsListConfirmation.SetAsPostsPage ->
++                        applyHomepageSettings(homepageSettings.setPageForPosts(currentSite, confirmation.pageId))
++
++                    else -> dispatcher.dispatch { applyPageMutation(currentSite, confirmation) }
++                }
++                lastFailedConfirmation = null
++                applyMutationToRenderedState(confirmation)
++                render()
++                emitSnackbar(SnackbarMessage(successMessageFor(confirmation)))
++            } catch (cancellation: CancellationException) {
++                throw cancellation
++            } catch (error: Throwable) {
++                // The page is left untouched so it can be retried with the same identity.
++                lastFailedConfirmation = confirmation
++                emitSnackbar(retryMessage(confirmation, messageOf(error, failureMessageFor(confirmation))))
++                render()
++            }
++        }
++    }
++
++    private suspend fun applyPageMutation(currentSite: SiteModel, confirmation: PageRsListConfirmation) {
++        val service = serviceProvider.getWpService(currentSite)
++        val siteId = service.site.id
++        val pageId = confirmation.pageId
++        val postService = service.postService
++
++        when (confirmation) {
++            is PageRsListConfirmation.MoveToTrash -> {
++                postService.trashPost(PostEndpointType.PAGES, pageId)
++                postStore.updatePageStatus(siteId, pageId, PostStatus.TRASHED)
++            }
++
++            is PageRsListConfirmation.DeletePermanently -> {
++                postService.deletePost(PostEndpointType.PAGES, pageId)
++                postStore.deletePage(siteId, pageId)
++            }
++
++            is PageRsListConfirmation.MoveToDraft -> {
++                postService.updatePostStatus(PostEndpointType.PAGES, pageId, PostStatus.DRAFT)
++                postStore.updatePageStatus(siteId, pageId, PostStatus.DRAFT)
++            }
++
++            is PageRsListConfirmation.PublishNow -> {
++                postService.updatePostStatus(PostEndpointType.PAGES, pageId, PostStatus.PUBLISHED)
++                postStore.updatePageStatus(siteId, pageId, PostStatus.PUBLISHED)
++            }
++
++            is PageRsListConfirmation.SetAsHomepage, is PageRsListConfirmation.SetAsPostsPage -> Unit
++        }
++    }
++
++    private fun applyMutationToRenderedState(confirmation: PageRsListConfirmation) {
++        val pageId = confirmation.pageId
++        val newStatus = when (confirmation) {
++            is PageRsListConfirmation.MoveToTrash -> PostStatus.TRASHED
++            is PageRsListConfirmation.DeletePermanently -> null
++            is PageRsListConfirmation.MoveToDraft -> PostStatus.DRAFT
++            is PageRsListConfirmation.PublishNow -> PostStatus.PUBLISHED
++            else -> null
++        }
++
++        if (newStatus == null) {
++            _searchPages.update { pages -> pages.filterNot { page -> page.remoteId == pageId } }
++            _tabStates.update { states ->
++                states.mapValues { (_, state) -> state.withPages(state.pages.filterNot { it.remoteId == pageId }) }
++            }
++            return
++        }
++
++        _searchPages.update { pages -> pages.map { page -> if (page.remoteId == pageId) page.copy(status = newStatus) else page } }
++        _tabStates.update { states ->
++            states.mapValues { (tab, state) ->
++                when {
++                    state.pages.none { page -> page.remoteId == pageId } -> state
++                    tab.pageStatuses().contains(newStatus) -> state.withPages(
++                        state.pages.map { page ->
++                            if (page.remoteId == pageId) page.copy(status = newStatus) else page
++                        },
++                    )
++
++                    else -> state.withPages(state.pages.filterNot { page -> page.remoteId == pageId })
++                }
++            }
++        }
++    }
++
++    private fun applyHomepageSettings(settings: PageRsHomepageSettings.Settings) {
++        val currentSite = site ?: return
++        _siteContext.value = PageRsSiteContext(
++            site = currentSite,
++            pageOnFront = settings.pageOnFront,
++            pageForPosts = settings.pageForPosts,
++            canManageHomepage = settings.canManageHomepage(),
++            isBlazeEligible = blazeFeatureUtils.isBlazeEligibleSite(currentSite),
++        )
++        // Page identity is untouched, only the site derived flags of the rendered rows change.
++        _searchPages.update { pages -> pages.map(::applySiteContext) }
++        _tabStates.update { states ->
++            states.mapValues { (_, state) -> state.withPages(state.pages.map(::applySiteContext)) }
++        }
++        render()
++    }
++
++    private fun applySiteContext(page: PageRsUiModel): PageRsUiModel {
++        val context = _siteContext.value
++        return page.copy(
++            isHomepage = page.remoteId != 0L && page.remoteId == context.pageOnFront,
++            isPostsPage = page.remoteId != 0L && page.remoteId == context.pageForPosts,
++            canManageHomepage = context.canManageHomepage,
++            isBlazeEligible = context.isBlazeEligible,
++        )
++    }
++
++    private fun successMessageFor(confirmation: PageRsListConfirmation): String = when (confirmation) {
++        is PageRsListConfirmation.MoveToTrash -> string(PagesRsStrings.PAGES_MOVED_TO_TRASH)
++        is PageRsListConfirmation.DeletePermanently -> string(PagesRsStrings.PAGES_DELETED_PERMANENTLY)
++        is PageRsListConfirmation.MoveToDraft -> string(PagesRsStrings.PAGES_MOVED_TO_DRAFT)
++        is PageRsListConfirmation.PublishNow -> string(PagesRsStrings.PAGES_PUBLISHED)
++        is PageRsListConfirmation.SetAsHomepage -> string(PagesRsStrings.PAGES_HOMEPAGE_UPDATED)
++        is PageRsListConfirmation.SetAsPostsPage -> string(PagesRsStrings.PAGES_POSTS_PAGE_UPDATED)
++    }
++
++    private fun failureMessageFor(confirmation: PageRsListConfirmation): Int = when (confirmation) {
++        is PageRsListConfirmation.MoveToTrash -> PagesRsStrings.PAGES_TRASH_FAILED
++        else -> PagesRsStrings.PAGES_ACTION_FAILED
++    }
++
++    private fun retryMessage(confirmation: PageRsListConfirmation, message: String) = SnackbarMessage(
++        message = message,
++        actionLabel = string(PagesRsStrings.ACTION_RETRY),
++        action = SnackbarAction.RetryPageAction(confirmation.pageId, confirmation.action),
++    )
++
++    // endregion
++
++    // region site, author filter and preferences
++
++    private fun resolveSite() {
++        if (siteResolved) return
++        val currentSite = selectedSiteRepository.getSelectedSite() ?: return
++        siteResolved = true
++        site = currentSite
++        homepageSettings.restore(currentSite)
++        _siteContext.value = PageRsSiteContext(
++            site = currentSite,
++            pageOnFront = currentSite.pageOnFront,
++            pageForPosts = currentSite.pageForPosts,
++            canManageHomepage = currentSite.showOnFront == SiteModel.SHOW_ON_FRONT_PAGE,
++            isBlazeEligible = blazeFeatureUtils.isBlazeEligibleSite(currentSite),
++        )
++        _isAuthorFilterVisible.value = currentSite.isAuthorFilterSupported
++        _authorFilter.value = restoreAuthorSelection()
++        loadHomepageSettings(currentSite)
++    }
++
++    private fun loadHomepageSettings(currentSite: SiteModel) {
++        homepageJob?.cancel()
++        homepageJob = scope.launch {
++            val settings = withTimeoutOrNull(HOMEPAGE_SETTINGS_TIMEOUT_MS) {
++                try {
++                    homepageSettings.load(currentSite)
++                } catch (_: Throwable) {
++                    null
++                }
++            }
++            if (settings != null) applyHomepageSettings(settings)
++        }
++    }
++
++    private fun restoreAuthorSelection(): AuthorFilterSelection {
++        val currentSite = site ?: return AuthorFilterSelection.EVERYONE
++        return if (currentSite.isAuthorFilterSupported) {
++            appPrefsWrapper.postListAuthorSelection
++        } else {
++            AuthorFilterSelection.EVERYONE
++        }
++    }
++
++    private fun authorIdsFor(selection: AuthorFilterSelection): List<Long> = when (selection) {
++        AuthorFilterSelection.EVERYONE -> emptyList()
++        // The identifier always comes from the signed in account, never from the persisted value.
++        AuthorFilterSelection.ME -> listOfNotNull(accountStore.account?.userId)
++        is AuthorFilterSelection.Specific -> listOf(selection.authorId)
++    }
++
++    private fun trackTabPressed(tab: PageRsListTab) {
++        analyticsTracker.track(PagesRsAnalyticsStats.PAGES_TAB_PRESSED, site, mapOf("tab_name" to tab.key))
++    }
++
++    // endregion
++
++    // region state plumbing
++
++    private fun initialTabStates(): Map<PageRsListTab, PageTabUiState> =
++        PageRsListTab.ALL.associateWith { PageTabUiState.Loading() }
++
++    private fun reduceTabState(tab: PageRsListTab, transform: (PageTabUiState) -> PageTabUiState) {
++        _tabStates.update { states -> states + (tab to transform(states[tab] ?: PageTabUiState.Loading())) }
++    }
++
++    private fun resetSearchState() {
++        _searchQuery.value = ""
++        _searchPages.value = emptyList()
++        _searchState.value = PageTabUiState.Ready(emptyList())
++    }
++
++    private fun findPage(remotePageId: Long): PageRsUiModel? {
++        if (_isSearchActive.value) {
++            _searchPages.value.firstOrNull { page -> page.remoteId == remotePageId }?.let { return it }
++        }
++        _tabStates.value.values.forEach { state ->
++            state.pages.firstOrNull { page -> page.remoteId == remotePageId }?.let { return it }
++        }
++        return null
++    }
++
++    private fun nextTabGeneration(tab: PageRsListTab): Int = synchronized(stateLock) {
++        val next = (tabGenerations[tab] ?: 0) + 1
++        tabGenerations[tab] = next
++        next
++    }
++
++    private fun isCurrentTabGeneration(tab: PageRsListTab, generation: Int): Boolean =
++        synchronized(stateLock) { tabGenerations[tab] == generation }
++
++    private fun nextSearchGeneration(): Int = synchronized(stateLock) { ++searchGeneration }
++
++    private fun isActiveSearch(generation: Int): Boolean = synchronized(stateLock) { searchGeneration == generation }
++
++    private fun setTabCollection(tab: PageRsListTab, collection: ObservableMetadataCollection) {
++        synchronized(stateLock) { tabCollections[tab] = collection }
++    }
++
++    private fun setSearchCollection(collection: ObservableMetadataCollection) {
++        synchronized(stateLock) { searchCollection = collection }
++    }
++
++    private fun closeTabCollection(tab: PageRsListTab, collection: ObservableMetadataCollection? = null) {
++        val toClose = synchronized(stateLock) {
++            val current = tabCollections[tab]
++            if (current != null && (collection == null || current === collection)) {
++                tabCollections.remove(tab)
++                current
++            } else {
++                collection
++            }
++        }
++        toClose?.close()
++    }
++
++    private fun closeSearchCollection(collection: ObservableMetadataCollection? = null) {
++        val toClose = synchronized(stateLock) {
++            val current = searchCollection
++            if (current != null && (collection == null || current === collection)) {
++                searchCollection = null
++                current
++            } else {
++                collection
++            }
++        }
++        toClose?.close()
++    }
++
++    private fun emitSnackbar(message: SnackbarMessage) {
++        _snackbarMessages.tryEmit(message)
++    }
++
++    private fun string(resId: Int): String = resourceProvider.getString(resId)
++
++    private fun messageOf(@Suppress("UNUSED_PARAMETER") error: Throwable, resId: Int): String = string(resId)
++
++    // endregion
++
++    /** Releases everything the view model holds. */
++    override fun onCleared() {
++        synchronized(stateLock) {
++            tabCollections.values.forEach { it.close() }
++            tabCollections.clear()
++            searchCollection?.close()
++            searchCollection = null
++            resolvedMediaIds.clear()
++        }
++        scope.cancel()
++    }
++
++    internal companion object {
++        const val MIN_SEARCH_QUERY_LENGTH = 3
++        const val SEARCH_DEBOUNCE_MS = 250L
++        const val FEATURED_IMAGE_THUMBNAIL_SIZE = 128
++        const val HOMEPAGE_SETTINGS_TIMEOUT_MS = 10_000L
++
++        private const val SNACKBAR_BUFFER = 8
++        private const val REQUEST_BUFFER = 8
++    }
++}
++
++/** Replaces the rows of a tab state without changing how the tab is presented. */
++private fun PageTabUiState.withPages(pages: List<PageRsUiModel>): PageTabUiState = when (this) {
++    is PageTabUiState.Loading -> PageTabUiState.Loading(pages)
++    is PageTabUiState.Refreshing -> PageTabUiState.Refreshing(pages)
++    is PageTabUiState.Ready -> PageTabUiState.Ready(pages)
++    is PageTabUiState.Error -> PageTabUiState.Error(pages, errorMessage, canRetry)
++}
++
++/**
++ * Collection wrapper that makes closing idempotent.
++ *
++ * A collection can become obsolete while its request is still running, and closing an already closed
++ * collection must not fail the late request.
++ */
++private class CloseGuard(
++    private val delegate: ObservableMetadataCollection,
++) : ObservableMetadataCollection {
++    private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
++
++    override suspend fun refresh() {
++        if (closed.get()) return
++        delegate.refresh()
++    }
++
++    override suspend fun loadItems(): List<MetadataItem> {
++        if (closed.get()) return emptyList()
++        return delegate.loadItems()
++    }
++
++    override suspend fun listInfo(): ListInfo = delegate.listInfo()
++
++    override fun close() {
++        if (closed.compareAndSet(false, true)) delegate.close()
++    }
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsResources.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsResources.kt
+new file mode 100644
+index 0000000..867869b
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsResources.kt
+@@ -0,0 +1,75 @@
++package org.wordpress.android.ui.pagesrs
++
++/** Analytics stats tracked by the modern pages screen. */
++internal object PagesRsAnalyticsStats {
++    const val PAGES_TAB_PRESSED = "pages_tab_pressed"
++    const val PAGES_SEARCH_ACCESSED = "pages_search_accessed"
++    const val PAGES_LIST_AUTHOR_FILTER_CHANGED = "pages_list_author_filter_changed"
++    const val PAGES_OPTIONS_PRESSED = "pages_options_pressed"
++}
++
++/** String resource identifiers of the modern pages screen. */
++internal object PagesRsStrings {
++    const val PAGES_ERROR_LOADING = 1
++    const val PAGES_ERROR_NO_NETWORK = 2
++    const val PAGES_MOVED_TO_TRASH = 3
++    const val PAGES_MOVED_TO_DRAFT = 4
++    const val PAGES_PUBLISHED = 5
++    const val PAGES_DELETED_PERMANENTLY = 6
++    const val PAGES_TRASH_FAILED = 7
++    const val PAGES_ACTION_FAILED = 8
++    const val PAGES_HOMEPAGE_UPDATED = 9
++    const val PAGES_POSTS_PAGE_UPDATED = 10
++    const val PAGES_OPEN_ERROR = 11
++    const val PAGES_IS_POSTS_PAGE_WARNING = 12
++
++    const val ACTION_RETRY = 100
++    const val ACTION_UNDO = 101
++    const val ACTION_CANCEL = 102
++
++    const val DIALOG_TRASH_TITLE = 200
++    const val DIALOG_TRASH_MESSAGE = 201
++    const val DIALOG_DELETE_TITLE = 202
++    const val DIALOG_DELETE_MESSAGE = 203
++    const val DIALOG_DRAFT_TITLE = 204
++    const val DIALOG_DRAFT_MESSAGE = 205
++    const val DIALOG_PUBLISH_TITLE = 206
++    const val DIALOG_PUBLISH_MESSAGE = 207
++    const val DIALOG_HOMEPAGE_TITLE = 208
++    const val DIALOG_HOMEPAGE_MESSAGE = 209
++    const val DIALOG_POSTS_PAGE_TITLE = 210
++    const val DIALOG_POSTS_PAGE_MESSAGE = 211
++}
++
++/** Resource ids resolved by the default [ResourceProvider]. */
++internal fun defaultPagesStringValues(): Map<Int, String> = mapOf(
++    PagesRsStrings.PAGES_ERROR_LOADING to "Pages couldn't be loaded",
++    PagesRsStrings.PAGES_ERROR_NO_NETWORK to "You're offline",
++    PagesRsStrings.PAGES_MOVED_TO_TRASH to "Page moved to trash",
++    PagesRsStrings.PAGES_MOVED_TO_DRAFT to "Page moved to draft",
++    PagesRsStrings.PAGES_PUBLISHED to "Page published",
++    PagesRsStrings.PAGES_DELETED_PERMANENTLY to "Page permanently deleted",
++    PagesRsStrings.PAGES_TRASH_FAILED to "Page couldn't be moved to trash",
++    PagesRsStrings.PAGES_ACTION_FAILED to "Action couldn't be completed",
++    PagesRsStrings.PAGES_HOMEPAGE_UPDATED to "Homepage updated",
++    PagesRsStrings.PAGES_POSTS_PAGE_UPDATED to "Posts page updated",
++    PagesRsStrings.PAGES_OPEN_ERROR to "Page couldn't be opened",
++    PagesRsStrings.PAGES_IS_POSTS_PAGE_WARNING to "This page is used to display your blog posts",
++
++    PagesRsStrings.ACTION_RETRY to "Retry",
++    PagesRsStrings.ACTION_UNDO to "Undo",
++    PagesRsStrings.ACTION_CANCEL to "Cancel",
++
++    PagesRsStrings.DIALOG_TRASH_TITLE to "Move to trash?",
++    PagesRsStrings.DIALOG_TRASH_MESSAGE to "This page will be moved to the trash.",
++    PagesRsStrings.DIALOG_DELETE_TITLE to "Delete permanently?",
++    PagesRsStrings.DIALOG_DELETE_MESSAGE to "This page will be permanently deleted.",
++    PagesRsStrings.DIALOG_DRAFT_TITLE to "Move to draft?",
++    PagesRsStrings.DIALOG_DRAFT_MESSAGE to "This page will be moved to the drafts.",
++    PagesRsStrings.DIALOG_PUBLISH_TITLE to "Publish now?",
++    PagesRsStrings.DIALOG_PUBLISH_MESSAGE to "This page will be published right away.",
++    PagesRsStrings.DIALOG_HOMEPAGE_TITLE to "Set as homepage?",
++    PagesRsStrings.DIALOG_HOMEPAGE_MESSAGE to "This page will be used as the site homepage.",
++    PagesRsStrings.DIALOG_POSTS_PAGE_TITLE to "Set as posts page?",
++    PagesRsStrings.DIALOG_POSTS_PAGE_MESSAGE to "This page will be used to display the site posts.",
++)
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsRowBuilder.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsRowBuilder.kt
+new file mode 100644
+index 0000000..da65ac3
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsRowBuilder.kt
+@@ -0,0 +1,162 @@
++package org.wordpress.android.ui.pagesrs
++
++/** Deepest indentation a page row may be rendered with. */
++private const val MAX_PAGE_INDENT = 3
++
++/**
++ * Turns loaded pages into the rows the pages list renders.
++ *
++ * The published tab is a page hierarchy and is therefore rendered depth first, with the homepage on top.
++ * Every other tab and every search result is a flat list: a search query has no meaningful hierarchy and
++ * flattening it keeps the result order stable while the query changes.
++ *
++ * Pages whose parent is not part of the loaded set are promoted to roots so that a truncated list never
++ * hides a page, and the visual indentation is capped so that deep trees stay readable.
++ */
++fun buildRows(
++    pages: List<PageRsUiModel>,
++    applyHierarchy: Boolean,
++    pageOnFront: Long,
++    pageForPosts: Long,
++): List<PageRsListItem> {
++    if (pages.isEmpty()) return emptyList()
++
++    val knownPages = pages.associateBy(PageRsUiModel::remoteId)
++    val ordered = if (applyHierarchy) {
++        flattenHierarchy(pages, pageOnFront)
++    } else {
++        pages
++    }
++
++    return ordered.map { page ->
++        PageRsListItem(
++            page = page,
++            indent = if (applyHierarchy) indentOf(page, knownPages) else 0,
++            thumbnailUrl = page.imageUrl,
++            statusLabel = page.status?.displayLabel.orEmpty(),
++            actions = computePageMenuActions(
++                status = page.status,
++                isHomepage = page.remoteId != 0L && page.remoteId == pageOnFront,
++                isPostsPage = page.remoteId != 0L && page.remoteId == pageForPosts,
++                hasPassword = page.hasPassword,
++                isBlazeEligibleSite = page.isBlazeEligible,
++                canManageHomepage = page.canManageHomepage,
++            ),
++        )
++    }
++}
++
++/**
++ * Actions a page offers.
++ *
++ * Eligibility is derived from the page and from the site: a homepage is the front door of the site and
++ * can therefore neither be moved away nor removed, and a trashed page can only be brought back or
++ * deleted for good.
++ */
++@Suppress("ReturnCount")
++fun computePageMenuActions(
++    status: PostStatus?,
++    isHomepage: Boolean,
++    isPostsPage: Boolean,
++    hasPassword: Boolean,
++    isBlazeEligibleSite: Boolean,
++    canManageHomepage: Boolean,
++): List<PageRsMenuAction> {
++    val resolvedStatus = status ?: return emptyList()
++
++    val actions = when (resolvedStatus) {
++        PostStatus.TRASHED -> listOf(
++            PageRsMenuAction.MOVE_TO_DRAFT,
++            PageRsMenuAction.DELETE_PERMANENTLY,
++        )
++
++        PostStatus.DRAFT, PostStatus.PENDING -> listOf(
++            PageRsMenuAction.VIEW_PAGE,
++            PageRsMenuAction.SET_PARENT,
++            PageRsMenuAction.PUBLISH_NOW,
++            PageRsMenuAction.COPY,
++            PageRsMenuAction.SHARE,
++            PageRsMenuAction.MOVE_TO_TRASH,
++        )
++
++        PostStatus.SCHEDULED -> listOf(
++            PageRsMenuAction.VIEW_PAGE,
++            PageRsMenuAction.SET_PARENT,
++            PageRsMenuAction.SHARE,
++            PageRsMenuAction.COPY,
++            PageRsMenuAction.MOVE_TO_DRAFT,
++            PageRsMenuAction.MOVE_TO_TRASH,
++        )
++
++        PostStatus.PUBLISHED, PostStatus.PRIVATE -> buildList {
++            add(PageRsMenuAction.VIEW_PAGE)
++            add(PageRsMenuAction.COPY)
++            add(PageRsMenuAction.SET_PARENT)
++            add(PageRsMenuAction.SHARE)
++            if (canManageHomepage && !isHomepage) add(PageRsMenuAction.SET_AS_HOMEPAGE)
++            if (canManageHomepage && !isPostsPage) add(PageRsMenuAction.SET_AS_POSTS_PAGE)
++            if (!isHomepage) {
++                add(PageRsMenuAction.MOVE_TO_DRAFT)
++                add(PageRsMenuAction.MOVE_TO_TRASH)
++            }
++            // A password protected page cannot be promoted to a marketing site.
++            if (isBlazeEligibleSite && !isHomepage && !hasPassword) add(PageRsMenuAction.PROMOTE_WITH_BLAZE)
++        }
++
++        PostStatus.UNKNOWN -> emptyList()
++    }
++
++    return actions.distinct().sortedWith(
++        compareBy(PageRsMenuAction::group, PageRsMenuAction::positionInGroup),
++    )
++}
++
++/**
++ * Depth first ordering of the loaded pages.
++ *
++ * Parents are emitted before their children, the homepage is pulled to the top and every page is emitted
++ * exactly once, including pages that are only reachable through a parent which is not part of the list.
++ */
++private fun flattenHierarchy(pages: List<PageRsUiModel>, pageOnFront: Long): List<PageRsUiModel> {
++    val knownIds = pages.mapTo(HashSet(pages.size), PageRsUiModel::remoteId)
++    val childrenByParent = pages.groupBy(PageRsUiModel::parentId)
++
++    val roots = pages
++        .filter { page ->
++            page.parentId == 0L || page.parentId == page.remoteId || page.parentId !in knownIds
++        }
++        .sortedBy { page -> if (page.remoteId != 0L && page.remoteId == pageOnFront) 0 else 1 }
++
++    val ordered = ArrayList<PageRsUiModel>(pages.size)
++    val visited = HashSet<Long>(pages.size)
++
++    fun visit(page: PageRsUiModel) {
++        if (!visited.add(page.remoteId)) return
++        ordered += page
++        childrenByParent[page.remoteId].orEmpty().forEach { child -> visit(child) }
++    }
++
++    roots.forEach { root -> visit(root) }
++    // Pages that are part of a cycle with their ancestors still have to be shown.
++    pages.forEach { page -> visit(page) }
++
++    return ordered
++}
++
++/** Visual depth of a page, capped so that deep hierarchies stay readable. */
++private fun indentOf(page: PageRsUiModel, knownPages: Map<Long, PageRsUiModel>): Int {
++    val seen = HashSet<Long>()
++    seen += page.remoteId
++
++    var level = 0
++    var current = page
++    while (level < MAX_PAGE_INDENT) {
++        val parentId = current.parentId
++        if (parentId == 0L || parentId == current.remoteId) break
++        val parent = knownPages[parentId] ?: break
++        if (!seen.add(parent.remoteId)) break
++        current = parent
++        level += 1
++    }
++    return level
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsUiModels.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsUiModels.kt
+new file mode 100644
+index 0000000..94c74e0
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsUiModels.kt
+@@ -0,0 +1,270 @@
++package org.wordpress.android.ui.pagesrs
++
++/**
++ * The four tabs of the modern pages screen.
++ *
++ * The tab owns the request shape of the collection it shows: which statuses it contains and how those
++ * rows are ordered.
++ */
++enum class PageRsListTab(val key: String) {
++    PUBLISHED("published"),
++    DRAFTS("drafts"),
++    SCHEDULED("scheduled"),
++    TRASHED("trashed");
++
++    /** Statuses contained in this tab, mirroring the legacy pages list. */
++    fun pageStatuses(): List<PostStatus> = when (this) {
++        PUBLISHED -> listOf(PostStatus.PUBLISHED, PostStatus.PRIVATE)
++        DRAFTS -> listOf(PostStatus.DRAFT, PostStatus.PENDING)
++        SCHEDULED -> listOf(PostStatus.SCHEDULED)
++        TRASHED -> listOf(PostStatus.TRASHED)
++    }
++
++    /** Published and draft-like tabs read like an index, scheduled reads like a calendar. */
++    fun orderBy(): PostListOrder = when (this) {
++        PUBLISHED, DRAFTS, TRASHED -> PostListOrder.TITLE
++        SCHEDULED -> PostListOrder.DATE
++    }
++
++    fun order(): ListOrder = ListOrder.ASC
++
++    val pageSize: UInt get() = PAGE_SIZE
++
++    /** Only the published tab is rendered as a page hierarchy. */
++    fun isHierarchyEnabled(): Boolean = this == PUBLISHED
++
++    companion object {
++        const val PAGE_SIZE: UInt = 20u
++
++        val ALL: List<PageRsListTab> = listOf(PUBLISHED, DRAFTS, SCHEDULED, TRASHED)
++
++        fun fromKey(key: String): PageRsListTab? =
++            ALL.firstOrNull { it.key.equals(key, ignoreCase = true) || it.name.equals(key, ignoreCase = true) }
++    }
++}
++
++/** Ordering bucket a menu action is rendered in. */
++enum class ActionGroup {
++    VIEW,
++    TAKE_AN_ACTION,
++    SHARE_AND_PROMOTE,
++    TRASH,
++}
++
++/** Actions that can be triggered from a page row menu. */
++enum class PageRsMenuAction(val key: String, val group: ActionGroup, val positionInGroup: Int) {
++    VIEW_PAGE("view", ActionGroup.VIEW, 1),
++    CANCEL_AUTO_UPLOAD("cancel_auto_upload", ActionGroup.TAKE_AN_ACTION, 1),
++    SET_PARENT("set_parent", ActionGroup.TAKE_AN_ACTION, 2),
++    SET_AS_HOMEPAGE("set_as_homepage", ActionGroup.TAKE_AN_ACTION, 3),
++    SET_AS_POSTS_PAGE("set_as_posts_page", ActionGroup.TAKE_AN_ACTION, 4),
++    PUBLISH_NOW("publish_now", ActionGroup.TAKE_AN_ACTION, 5),
++    MOVE_TO_DRAFT("move_to_draft", ActionGroup.TAKE_AN_ACTION, 6),
++    COPY("copy", ActionGroup.TAKE_AN_ACTION, 7),
++    SHARE("share", ActionGroup.SHARE_AND_PROMOTE, 1),
++    PROMOTE_WITH_BLAZE("promote_with_blaze", ActionGroup.SHARE_AND_PROMOTE, 2),
++    MOVE_TO_TRASH("move_to_trash", ActionGroup.TRASH, 1),
++    DELETE_PERMANENTLY("delete_permanently", ActionGroup.TRASH, 2);
++
++    /**
++     * Whether running the action changes the page state on the site.
++     *
++     * Status changing and destructive actions always require an explicit confirmation first.
++     */
++    val requiresConfirmation: Boolean
++        get() = when (this) {
++            MOVE_TO_DRAFT, MOVE_TO_TRASH, DELETE_PERMANENTLY, PUBLISH_NOW,
++            SET_AS_HOMEPAGE, SET_AS_POSTS_PAGE,
++            -> true
++
++            else -> false
++        }
++}
++
++/** Selection of the Everyone/Me author filter. */
++sealed class AuthorFilterSelection(val key: String) {
++    /** Every author of the site. */
++    object EVERYONE : AuthorFilterSelection("everyone") {
++        override fun toString(): String = key
++    }
++
++    /** The signed in author. The identifier itself is resolved from the account at request time. */
++    object ME : AuthorFilterSelection("me") {
++        override fun toString(): String = key
++    }
++
++    /** A single, explicitly picked author. */
++    data class Specific(val authorId: Long, val authorName: String) :
++        AuthorFilterSelection(SPECIFIC_KEY) {
++        override fun toString(): String = "specific:$authorId"
++    }
++
++    companion object {
++        const val SPECIFIC_KEY = "specific"
++
++        val DEFAULT: AuthorFilterSelection = EVERYONE
++
++        fun fromKey(key: String?, authorId: Long = 0L): AuthorFilterSelection = when (key?.lowercase()) {
++            ME.key -> ME
++            SPECIFIC_KEY -> Specific(authorId, "")
++            else -> EVERYONE
++        }
++    }
++}
++
++/** A page as rendered by the pages list. */
++data class PageRsUiModel(
++    val remoteId: Long,
++    val localId: Int = 0,
++    val title: String = "",
++    val status: PostStatus? = null,
++    val parentId: Long = 0L,
++    val dateMillis: Long = 0L,
++    val featuredImageId: Long = 0L,
++    val authorId: Long = 0L,
++    val authorDisplayName: String? = null,
++    val hasPassword: Boolean = false,
++    val isHomepage: Boolean = false,
++    val isPostsPage: Boolean = false,
++    /** Whether the signed in user may change which page is used as the site homepage. */
++    val canManageHomepage: Boolean = false,
++    /** Whether the site is eligible for promoting a page to Blaze. */
++    val isBlazeEligible: Boolean = false,
++    /** Featured image url, resolved asynchronously and never required for the row to be rendered. */
++    val imageUrl: String? = null,
++)
++
++/** A page row of the rendered list. */
++data class PageRsListItem(
++    val page: PageRsUiModel,
++    val indent: Int = 0,
++    val thumbnailUrl: String? = null,
++    val statusLabel: String = "",
++    val actions: List<PageRsMenuAction> = emptyList(),
++)
++
++/**
++ * State of a single tab.
++ *
++ * [pages] always holds the rows that are known to be good: a failed request keeps the previously loaded
++ * rows so the screen stays usable, and the error is represented by the state type instead.
++ */
++sealed class PageTabUiState(
++    open val pages: List<PageRsUiModel>,
++    open val errorMessage: String? = null,
++    open val canRetry: Boolean = false,
++) {
++    /** First load, nothing has ever been rendered for this tab. */
++    data class Loading(override val pages: List<PageRsUiModel> = emptyList()) : PageTabUiState(pages)
++
++    /** A reload is running, previously loaded rows stay visible. */
++    data class Refreshing(override val pages: List<PageRsUiModel>) : PageTabUiState(pages)
++
++    /** Loaded and up to date. */
++    data class Ready(override val pages: List<PageRsUiModel>) : PageTabUiState(pages)
++
++    /** The last request failed. [pages] still holds the previously loaded rows. */
++    data class Error(
++        override val pages: List<PageRsUiModel>,
++        override val errorMessage: String?,
++        override val canRetry: Boolean = true,
++    ) : PageTabUiState(pages, errorMessage, canRetry)
++
++    val isLoading: Boolean get() = this is Loading
++    val isRefreshing: Boolean get() = this is Refreshing
++    val hasError: Boolean get() = this is Error
++    val isEmpty: Boolean get() = pages.isEmpty()
++}
++
++/** A destructive or status changing action waiting for an explicit confirmation. */
++sealed class PageRsListConfirmation(
++    open val action: PageRsMenuAction,
++    open val page: PageRsUiModel,
++) {
++    data class MoveToTrash(override val page: PageRsUiModel) :
++        PageRsListConfirmation(PageRsMenuAction.MOVE_TO_TRASH, page)
++
++    data class DeletePermanently(override val page: PageRsUiModel) :
++        PageRsListConfirmation(PageRsMenuAction.DELETE_PERMANENTLY, page)
++
++    data class MoveToDraft(override val page: PageRsUiModel) :
++        PageRsListConfirmation(PageRsMenuAction.MOVE_TO_DRAFT, page)
++
++    data class PublishNow(override val page: PageRsUiModel) :
++        PageRsListConfirmation(PageRsMenuAction.PUBLISH_NOW, page)
++
++    data class SetAsHomepage(override val page: PageRsUiModel) :
++        PageRsListConfirmation(PageRsMenuAction.SET_AS_HOMEPAGE, page)
++
++    data class SetAsPostsPage(override val page: PageRsUiModel) :
++        PageRsListConfirmation(PageRsMenuAction.SET_AS_POSTS_PAGE, page)
++
++    val pageId: Long get() = page.remoteId
++
++    companion object {
++        fun forAction(action: PageRsMenuAction, page: PageRsUiModel): PageRsListConfirmation? = when (action) {
++            PageRsMenuAction.MOVE_TO_TRASH -> MoveToTrash(page)
++            PageRsMenuAction.DELETE_PERMANENTLY -> DeletePermanently(page)
++            PageRsMenuAction.MOVE_TO_DRAFT -> MoveToDraft(page)
++            PageRsMenuAction.PUBLISH_NOW -> PublishNow(page)
++            PageRsMenuAction.SET_AS_HOMEPAGE -> SetAsHomepage(page)
++            PageRsMenuAction.SET_AS_POSTS_PAGE -> SetAsPostsPage(page)
++            else -> null
++        }
++    }
++}
++
++/** Action a snackbar offers to the user. */
++sealed interface SnackbarAction {
++    /** Repeat the failed page mutation for the very same page. */
++    data class RetryPageAction(val pageId: Long, val action: PageRsMenuAction) : SnackbarAction
++
++    /** Reload the list that failed. */
++    data object RetryListAction : SnackbarAction
++}
++
++/** Feedback message shown by the pages screen. */
++data class SnackbarMessage(
++    val message: String,
++    val actionLabel: String? = null,
++    val action: SnackbarAction? = null,
++)
++
++/** Request to open a page in the existing editor bridge. */
++data class PageRsEditorRequest(
++    val siteId: Int,
++    val remotePageId: Long,
++    val localPageId: Int = 0,
++    val loadAutoSaveRevision: Boolean = false,
++)
++
++/** Request to open a sub screen owned by the pages feature. */
++sealed interface PageRsNavigationRequest {
++    data class SetParent(val page: PageRsUiModel) : PageRsNavigationRequest
++
++    data class Copy(val page: PageRsUiModel) : PageRsNavigationRequest
++
++    data class Share(val page: PageRsUiModel) : PageRsNavigationRequest
++
++    data class PromoteWithBlaze(val page: PageRsUiModel) : PageRsNavigationRequest
++}
++
++/**
++ * Site scoped facts the mapper needs to turn store rows into rendered pages.
++ *
++ * Keeping them together avoids re-reading the site for every row and makes the mapping a pure function.
++ */
++data class PageRsSiteContext(
++    val site: SiteModel,
++    val pageOnFront: Long,
++    val pageForPosts: Long,
++    val canManageHomepage: Boolean,
++    val isBlazeEligible: Boolean,
++)
++
++/** A page collection request, together with the entity and the page offset it targets. */
++data class PageListRequest(
++    val endpointType: PostEndpointType,
++    val filter: PostListFilter,
++    val page: UInt = 0u,
++)
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRuntimeOwnerActivity.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRuntimeOwnerActivity.kt
+new file mode 100644
+index 0000000..a30c8f6
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRuntimeOwnerActivity.kt
+@@ -0,0 +1,252 @@
++package org.wordpress.android.ui.pagesrs
++
++import android.os.Bundle
++import android.widget.TextView
++import androidx.activity.ComponentActivity
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewmodel.CreationExtras
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++
++/**
++ * Owns the modern pages screen.
++ *
++ * The activity is the entry point of the screen: it acquires the view model from its own
++ * [ViewModelStore] through a [ViewModelProvider], forwards the screen events to it and renders the
++ * values it produces.
++ */
++class PagesRuntimeOwnerActivity : ComponentActivity() {
++    private val dependencyFactory: PagesRsDependencyFactory by lazy { PagesRsDependencyFactory() }
++
++    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
++
++    private lateinit var viewModel: PagesRsListViewModel
++
++    private val _renderedRows = MutableStateFlow<List<PageRsListItem>>(emptyList())
++    val renderedRows: StateFlow<List<PageRsListItem>> = _renderedRows.asStateFlow()
++
++    private val _renderedMenuPageId = MutableStateFlow<Long?>(null)
++    val renderedMenuPageId: StateFlow<Long?> = _renderedMenuPageId.asStateFlow()
++
++    private val _renderedMenuActions = MutableStateFlow<List<PageRsMenuAction>>(emptyList())
++    val renderedMenuActions: StateFlow<List<PageRsMenuAction>> = _renderedMenuActions.asStateFlow()
++
++    private val _shownSnackbars = MutableStateFlow<List<SnackbarMessage>>(emptyList())
++    val shownSnackbars: StateFlow<List<SnackbarMessage>> = _shownSnackbars.asStateFlow()
++
++    private val _editorRequests = MutableStateFlow<List<PageRsEditorRequest>>(emptyList())
++    val editorRequests: StateFlow<List<PageRsEditorRequest>> = _editorRequests.asStateFlow()
++
++    private val _navigationRequests = MutableStateFlow<List<PageRsNavigationRequest>>(emptyList())
++    val navigationRequests: StateFlow<List<PageRsNavigationRequest>> = _navigationRequests.asStateFlow()
++
++    /** State of every tab of the screen. */
++    val tabStates: StateFlow<Map<PageRsListTab, PageTabUiState>> get() = viewModel.tabStates
++
++    /** State of the search result area. */
++    val searchState: StateFlow<PageTabUiState> get() = viewModel.searchState
++
++    val isSearchActive: StateFlow<Boolean> get() = viewModel.isSearchActive
++
++    val searchQuery: StateFlow<String> get() = viewModel.searchQuery
++
++    val authorFilter: StateFlow<AuthorFilterSelection> get() = viewModel.authorFilter
++
++    val isAuthorFilterVisible: StateFlow<Boolean> get() = viewModel.isAuthorFilterVisible
++
++    val pendingConfirmation: StateFlow<PageRsListConfirmation?> get() = viewModel.pendingConfirmation
++
++    val snackbarMessages: Flow<SnackbarMessage> get() = viewModel.snackbarMessages
++
++    private lateinit var descriptionView: TextView
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++
++        CollectionLeaf.install(dependencyFactory.collectionLeaf())
++        viewModel = ViewModelProvider(this, ViewModelFactory(dependencyFactory))[PagesRsListViewModel::class.java]
++
++        descriptionView = TextView(this)
++        setContentView(descriptionView)
++
++        observeViewModel()
++    }
++
++    override fun onDestroy() {
++        activityScope.cancel()
++        super.onDestroy()
++    }
++
++    // region screen events
++
++    /** Opens a tab of the pages screen through the normal Pages entry. */
++    fun open(tab: PageRsListTab = PageRsListTab.PUBLISHED) {
++        viewModel.initTab(tab)
++    }
++
++    /** Reloads the visible tab; the same body backs the retry affordance of a failed load. */
++    fun refresh() {
++        viewModel.refreshTab(viewModel.currentTab(), isUserRefresh = true)
++    }
++
++    /** Runs the retry affordance of the visible tab. */
++    fun retryActiveTab() {
++        viewModel.refreshTab(viewModel.currentTab(), isUserRefresh = false)
++    }
++
++    /** Enters search mode. */
++    fun openSearch() {
++        viewModel.onSearchOpen()
++    }
++
++    /** Applies a search query. */
++    fun changeSearchQuery(query: String) {
++        viewModel.onSearchQueryChanged(query, viewModel.currentTab())
++    }
++
++    /** Leaves search mode and restores the active tab. */
++    fun closeSearch() {
++        viewModel.onSearchClose(viewModel.currentTab())
++    }
++
++    /** Applies an author filter selection. */
++    fun selectAuthor(selection: AuthorFilterSelection) {
++        viewModel.onAuthorFilterChanged(selection, viewModel.currentTab())
++    }
++
++    /** Opens a page through the existing editor bridge. */
++    fun openPage(pageId: Long) {
++        viewModel.openPage(pageId, viewModel.currentTab())
++    }
++
++    /** Applies a page menu action; destructive actions only raise a confirmation. */
++    fun chooseMenuAction(pageId: Long, action: PageRsMenuAction) {
++        viewModel.onPageMenuAction(pageId, action)
++    }
++
++    /** Confirms the pending destructive or status changing action. */
++    fun confirmPendingAction() {
++        viewModel.onConfirmPendingAction()
++    }
++
++    /** Runs the action offered by a snackbar, e.g. a retry. */
++    fun performSnackbarAction(message: SnackbarMessage) {
++        viewModel.onSnackbarAction(message.action)
++    }
++
++    /** Renders pages as the depth first published hierarchy. */
++    fun renderHierarchy(pages: List<PageRsUiModel>) {
++        _renderedRows.value = buildRows(
++            pages = pages,
++            applyHierarchy = true,
++            pageOnFront = viewModel.homepagePageOnFront(),
++            pageForPosts = viewModel.homepagePageForPosts(),
++        )
++    }
++
++    /** Renders the actions available for a page. */
++    fun renderMenu(pageId: Long, actions: List<PageRsMenuAction>) {
++        _renderedMenuPageId.value = pageId
++        _renderedMenuActions.value = actions
++    }
++
++    /** Renders the actions available for a page. */
++    fun renderMenu(page: PageRsUiModel, actions: List<PageRsMenuAction>) =
++        renderMenu(page.remoteId, actions)
++
++    // endregion
++
++    // region rendered values
++
++    fun renderedRowSnapshot(): List<PageRsListItem> = _renderedRows.value
++
++    fun renderedMenuSnapshot(): List<PageRsMenuAction> = _renderedMenuActions.value
++
++    fun snackbarHistory(): List<SnackbarMessage> = _shownSnackbars.value
++
++    fun editorRequestHistory(): List<PageRsEditorRequest> = _editorRequests.value
++
++    fun navigationRequestHistory(): List<PageRsNavigationRequest> = _navigationRequests.value
++
++    fun tabStateSnapshot(): Map<PageRsListTab, PageTabUiState> = viewModel.tabStates.value
++
++    fun searchIsActive(): Boolean = viewModel.isSearchActive.value
++
++    fun currentSearchQuery(): String = viewModel.searchQuery.value
++
++    fun authorSelection(): AuthorFilterSelection = viewModel.authorFilter.value
++
++    fun pendingConfirmationOrNull(): PageRsListConfirmation? = viewModel.pendingConfirmation.value
++
++    fun activeTab(): PageRsListTab = viewModel.currentTab()
++
++    fun menuActionsFor(pageId: Long): List<PageRsMenuAction> = viewModel.menuActionsFor(pageId)
++
++    fun renderedRowFor(pageId: Long): PageRsListItem? = viewModel.renderedRowFor(pageId)
++
++    // endregion
++
++    private fun observeViewModel() {
++        activityScope.launch {
++            viewModel.renderedRows.collect { rows ->
++                _renderedRows.value = rows
++                runOnUiThread { updateDescription(rows) }
++            }
++        }
++        activityScope.launch {
++            viewModel.snackbarMessages.collect { message ->
++                _shownSnackbars.value = _shownSnackbars.value + message
++            }
++        }
++        activityScope.launch {
++            viewModel.editorRequests.collect { request ->
++                _editorRequests.value = _editorRequests.value + request
++            }
++        }
++        activityScope.launch {
++            viewModel.navigationRequests.collect { request ->
++                _navigationRequests.value = _navigationRequests.value + request
++            }
++        }
++    }
++
++    private fun updateDescription(rows: List<PageRsListItem>) {
++        if (!::descriptionView.isInitialized) return
++        val tabKey = viewModel.currentTab().key
++        val query = viewModel.searchQuery.value
++        descriptionView.text = buildString {
++            append("Tab: ").append(tabKey)
++            if (viewModel.isSearchActive.value) {
++                append(" | Search: ").append(query)
++            }
++            append('\n')
++            rows.forEach { row ->
++                append("  ".repeat(row.indent))
++                append(row.page.title.ifBlank { "(no title)" })
++                row.page.imageUrl?.let { url -> append(" [").append(url).append(']') }
++                append('\n')
++            }
++        }
++    }
++
++    /** Builds the pages list view model from the dependency factory. */
++    private class ViewModelFactory(
++        private val dependencyFactory: PagesRsDependencyFactory,
++    ) : ViewModelProvider.Factory {
++        @Suppress("UNCHECKED_CAST")
++        override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
++            if (modelClass.isAssignableFrom(PagesRsListViewModel::class.java)) {
++                return dependencyFactory.listViewModel() as T
++            }
++            throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PostRsToFluxCMapper.kt b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PostRsToFluxCMapper.kt
+new file mode 100644
+index 0000000..9fbc88b
+--- /dev/null
++++ b/WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PostRsToFluxCMapper.kt
+@@ -0,0 +1,59 @@
++package org.wordpress.android.ui.pagesrs
++
++/**
++ * Maps stored page rows onto the models the pages list renders.
++ *
++ * The mapping is a pure function of a store row and the site context, which keeps the rows that are
++ * already loaded stable when a featured image resolves later on.
++ */
++class PostRsToFluxCMapper {
++    fun mapPages(
++        items: List<MetadataItem>,
++        context: PageRsSiteContext,
++    ): List<PageRsUiModel> = items.map { item -> mapPage(item, context) }
++
++    fun mapPage(
++        item: MetadataItem,
++        context: PageRsSiteContext,
++    ): PageRsUiModel {
++        val pageOnFront = context.pageOnFront
++        val pageForPosts = context.pageForPosts
++        return PageRsUiModel(
++            remoteId = item.remoteId,
++            localId = item.localId,
++            title = item.title,
++            status = item.status,
++            parentId = item.parentId,
++            dateMillis = item.dateMillis,
++            featuredImageId = item.featuredImageId,
++            authorId = item.authorId,
++            authorDisplayName = item.authorDisplayName,
++            hasPassword = item.hasPassword,
++            isHomepage = item.remoteId != 0L && item.remoteId == pageOnFront,
++            isPostsPage = item.remoteId != 0L && item.remoteId == pageForPosts,
++            canManageHomepage = context.canManageHomepage,
++            isBlazeEligible = context.isBlazeEligible,
++            imageUrl = null,
++        )
++    }
++
++    /**
++     * Applies resolved featured image urls.
++     *
++     * Every page of [pages] is kept, whether or not a url was resolved for it: a page without a
++     * thumbnail still has to be visible.
++     */
++    fun withImageUrls(
++        pages: List<PageRsUiModel>,
++        urls: Map<Long, String>,
++    ): List<PageRsUiModel> {
++        if (urls.isEmpty()) return pages
++        return pages.map { page ->
++            val url = urls[page.featuredImageId]
++            if (url == null || url == page.imageUrl) page else page.copy(imageUrl = url)
++        }
++    }
++
++    /** Applies a status change produced by a page mutation. */
++    fun withStatus(page: PageRsUiModel, status: PostStatus): PageRsUiModel = page.copy(status = status)
++}
+\ No newline at end of file
+diff --git a/build.gradle.kts b/build.gradle.kts
+index efa42bc..6b8803b 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -34,7 +34,9 @@ kotlin {
+             srcDir("upstream-immutable/WordPress/src/main/java")
+             srcDir(".benchmark-scaffold/main")
+             srcDir("../evaluator/base-main")
++            srcDir("WordPress/src/main/java")
+             include("org/wordpress/android/ui/pages/PagesActivity.kt")
++            include("org/wordpress/android/ui/pagesrs/**")
+             include("stubs/**")
+             include("evaluator/pagesbase/PagesBaseOwnerActivity.kt")
+         }
+diff --git a/src/main/AndroidManifest.xml b/src/main/AndroidManifest.xml
+index 5d43e99..d81a333 100644
+--- a/src/main/AndroidManifest.xml
++++ b/src/main/AndroidManifest.xml
+@@ -3,5 +3,9 @@
+         <activity
+             android:name="evaluator.pagesbase.PagesBaseOwnerActivity"
+             android:exported="false" />
++        <activity
++            android:name="org.wordpress.android.ui.pagesrs.PagesRuntimeOwnerActivity"
++            android:exported="false"
++            android:label="Pages" />
+     </application>
+-</manifest>
++</manifest>
+\ No newline at end of file

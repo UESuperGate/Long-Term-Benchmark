@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_hybrid_search",
+  "canonicalContract": "transitions.json",
+  "runtime": "native ArkUI HybridSearchPageStore and HybridSearchViewModel",
+  "cases": [
+    {
+      "caseId": "hs_enable_supported",
+      "traceDigest": "4a40e97dae8265ae8671fc7311814d4eb0d944d0d388ee4cbb9397329f84b1ad",
+      "fixture": "fr test-group page with persisted opt-out",
+      "eventEntrypoint": "HybridSearchPageStore.enable",
+      "observations": [
+        "mode",
+        "persisted hybridEnabled",
+        "query"
+      ]
+    },
+    {
+      "caseId": "hs_concurrent_dispatch",
+      "traceDigest": "4185cf4fa61d08b1c6bf3aa1739f1f0adc61e1f0b77b2ccab3e8707e718df24b",
+      "fixture": "held lexical and semantic HTTP leaves",
+      "eventEntrypoint": "HybridSearchPageStore.submit -> HybridSearchViewModel.search",
+      "observations": [
+        "loading state",
+        "both leaf starts before release"
+      ]
+    },
+    {
+      "caseId": "hs_both_sources_lexical_first",
+      "traceDigest": "fa678df6d6a8f13c20be57fac2acc0002328ca32b71a423e876511369433e2e6",
+      "fixture": "controlled successful HTTP leaves and lexicalsemantic group",
+      "eventEntrypoint": "HybridSearchViewModel.search",
+      "observations": [
+        "prefix/full-text calls",
+        "deduplicated lexical titles",
+        "sections order"
+      ]
+    },
+    {
+      "caseId": "hs_both_sources_semantic_first",
+      "traceDigest": "b1d81aecbe17b2a5febfc45310b1d709f2354c51045c0fcb85adcf58359fdd96",
+      "fixture": "controlled successful HTTP leaves and semanticlexical group",
+      "eventEntrypoint": "HybridSearchViewModel.search",
+      "observations": [
+        "semantic and lexical titles",
+        "sections order"
+      ]
+    },
+    {
+      "caseId": "hs_lexical_failure_fallback",
+      "traceDigest": "788cf2f1283ad1fbac6f6d57867f3fc1596c3295004e518e6a37bb8485092d8b",
+      "fixture": "failing lexical leaf and successful semantic leaf",
+      "eventEntrypoint": "HybridSearchViewModel.search",
+      "observations": [
+        "semantic-only success",
+        "lexical_empty notice"
+      ]
+    },
+    {
+      "caseId": "hs_semantic_failure_fallback",
+      "traceDigest": "6ea21993f25e97064eb3c5997d4543ece57d5568ce6e333570bda43d70c5d36b",
+      "fixture": "successful lexical leaf and failing semantic leaf",
+      "eventEntrypoint": "HybridSearchViewModel.search",
+      "observations": [
+        "lexical-only success",
+        "semantic_empty notice"
+      ]
+    },
+    {
+      "caseId": "hs_both_fail",
+      "traceDigest": "ba92aebfc368cf977348f9dc67ddc07bf38c0a080792fb6db5d19478418e5d4e",
+      "fixture": "both HTTP leaves fail",
+      "eventEntrypoint": "HybridSearchViewModel.search",
+      "observations": [
+        "error state",
+        "retry button eligibility",
+        "query preservation"
+      ]
+    },
+    {
+      "caseId": "hs_retry_recovers",
+      "traceDigest": "cdd6c19368e6d40f22c9ced6a961c3fbf72bb853f993ee9e35abab511dd67bcb",
+      "fixture": "error established through submit, then recovered leaves",
+      "eventEntrypoint": "HybridSearchPageStore.retry",
+      "observations": [
+        "second leaf attempts",
+        "success state",
+        "same page ownership"
+      ]
+    },
+    {
+      "caseId": "hs_feedback_mapping",
+      "traceDigest": "5fd63d15f2a19b90de926d12143f94f208b6bdc62f46c6b834c43e9facc253ef",
+      "fixture": "success established through submit",
+      "eventEntrypoint": "HybridSearchPageStore.rate",
+      "observations": [
+        "rating state",
+        "feedback payload leaf",
+        "unchanged results"
+      ]
+    },
+    {
+      "caseId": "hs_opt_out",
+      "traceDigest": "b7ef6993b052c1dfe4a7c24da42b39073bf7718a62ae53ff6b0dda3a0f162af6",
+      "fixture": "enabled success state established through page events",
+      "eventEntrypoint": "HybridSearchPageStore.optOut",
+      "observations": [
+        "standard mode",
+        "persisted opt-out",
+        "preserved query"
+      ]
+    }
+  ]
+}

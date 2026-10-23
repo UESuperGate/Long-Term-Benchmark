@@ -1,0 +1,7 @@
+# ArkTS native runtime test design
+
+The final ArkUI page owns HybridSearchPageStore and HybridSearchViewModel. Base and final publish the same `HybridPageOwner` integration ABI, and an arbitrary candidate binds it through `Index.createRuntimeOwner`. The evaluator controls only the JSON transport beneath the production HttpSearchLeaf plus the external feedback and standard-search leaves. It mounts the original page, holds both HTTP completions to prove concurrent start, and then releases success or failure responses. Assertions read page-store sections and state, reopened persisted opt-out, retry reachability, captured feedback payloads, transport call logs, production URL mapping, and production response mapping.
+
+Retry and feedback setup must run through submit on the mounted page. Derived loading, error, and success state must never be assigned by the fixture. The base HAP retains a working standard search page but has no hybrid view model or semantic cards.
+
+The role-neutral hidden adapter accepts the untouched base without inspecting filenames or selecting a base/final implementation. Its case branch mounts the candidate page owner; the normal branch preserves the candidate lifecycle body. API23 EntryAbility/ArkUI calibration produced base `0/10` and final `10/10`, and the untouched-base no-change run produced `0/10`, all with zero `not_scored` rows. Every final HTTP effect is backed by a controlled transport call made through the real HttpSearchLeaf.

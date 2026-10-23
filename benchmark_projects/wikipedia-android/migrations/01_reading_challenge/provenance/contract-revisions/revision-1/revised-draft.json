@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_reading_challenge",
+  "description": "Platform-neutral reading challenge transitions driven by an evaluator-supplied clock",
+  "cases": [
+    {
+      "caseId": "rc_before_start",
+      "key": "before_start",
+      "traceSchemaVersion": 2,
+      "functionalArea": "date_gated_lifecycle",
+      "given": {"clockDate": "2026-05-10", "preferences": {"enrolled": false, "streak": 0, "lastReadDate": null}},
+      "event": {"name": "refreshChallengeSurface"},
+      "expected": {"state": {"name": "not_live_yet", "streak": 0}, "persistence": {"unchanged": true}, "effects": []},
+      "invariants": ["clockDate is evaluator input, not persisted production state", "no challenge preference is mutated"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.resolveState"], "androidTests": ["returns NotLiveYet before start date"]}
+    },
+    {
+      "caseId": "rc_start_not_enrolled",
+      "key": "start_not_enrolled",
+      "traceSchemaVersion": 2,
+      "functionalArea": "date_gated_lifecycle",
+      "given": {"clockDate": "2026-05-11", "preferences": {"enrolled": false, "streak": 0, "lastReadDate": null}},
+      "event": {"name": "refreshChallengeSurface"},
+      "expected": {"state": {"name": "not_enrolled", "streak": 0}, "persistence": {"unchanged": true}, "effects": []},
+      "invariants": ["the start date is inside the active window", "no read is synthesized"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.resolveState"], "androidTests": ["returns NotEnrolled on start date since challenge is Live"]}
+    },
+    {
+      "caseId": "rc_enroll",
+      "key": "enroll",
+      "traceSchemaVersion": 2,
+      "functionalArea": "persistent_streak",
+      "given": {"clockDate": "2026-05-11", "preferences": {"enrolled": false, "streak": 0, "lastReadDate": null}},
+      "event": {"name": "enroll"},
+      "expected": {"state": {"name": "enrolled_not_started", "streak": 0}, "persistence": {"enrolled": true, "enrollmentDate": "2026-05-11"}, "effects": ["heartbeat_requested", "widget_update_requested"]},
+      "invariants": ["enrollment does not count as an article read", "streak remains zero"],
+      "evidence": {"androidProduction": ["ReadingChallengeOnboardingActivity", "ReadingChallengeWidgetRepository.resolveState"], "androidTests": ["returns EnrolledNotStarted on start date with zero streak"]}
+    },
+    {
+      "caseId": "rc_first_read",
+      "key": "first_read",
+      "traceSchemaVersion": 2,
+      "functionalArea": "article_read_entrypoint",
+      "given": {"clockDate": "2026-05-11", "preferences": {"enrolled": true, "streak": 0, "lastReadDate": null, "enrollmentDate": "2026-05-11"}},
+      "event": {"name": "openArticle", "article": "Ada_Lovelace"},
+      "expected": {"state": {"name": "streak_read_today", "streak": 1}, "persistence": {"streak": 1, "lastReadDate": "2026-05-11"}, "effects": ["heartbeat_requested", "widget_update_requested"]},
+      "invariants": ["the application article entrypoint invokes the challenge store", "exactly one heartbeat and one widget request follow the qualifying read"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.updateOnArticleRead"], "androidTests": ["hasReadToday returns true when lastReadDate matches currentDate"]}
+    },
+    {
+      "caseId": "rc_duplicate_same_day",
+      "key": "duplicate_same_day",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {"clockDate": "2026-05-11", "preferences": {"enrolled": true, "streak": 1, "lastReadDate": "2026-05-11"}},
+      "event": {"name": "openArticle", "article": "Grace_Hopper"},
+      "expected": {"state": {"name": "streak_read_today", "streak": 1}, "persistence": {"streak": 1, "lastReadDate": "2026-05-11"}, "effects": []},
+      "invariants": ["a calendar day contributes at most one increment", "no duplicate widget or heartbeat request is emitted"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.hasReadToday", "ReadingChallengeWidgetRepository.updateOnArticleRead"], "androidTests": []}
+    },
+    {
+      "caseId": "rc_next_day_continues",
+      "key": "next_day_continues",
+      "traceSchemaVersion": 2,
+      "functionalArea": "persistent_streak",
+      "given": {"clockDate": "2026-05-12", "preferences": {"enrolled": true, "streak": 1, "lastReadDate": "2026-05-11"}},
+      "event": {"name": "openArticle", "article": "Computer"},
+      "expected": {"state": {"name": "streak_read_today", "streak": 2}, "persistence": {"streak": 2, "lastReadDate": "2026-05-12"}, "effects": ["heartbeat_requested", "widget_update_requested"]},
+      "invariants": ["a one-day interval preserves the active streak", "last-read date advances to the evaluator clock date"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.hasActiveStreak", "ReadingChallengeWidgetRepository.updateOnArticleRead"], "androidTests": ["streak does not reset when lastReadDate is exactly yesterday"]}
+    },
+    {
+      "caseId": "rc_gap_resets",
+      "key": "gap_resets",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {"clockDate": "2026-05-14", "preferences": {"enrolled": true, "streak": 3, "lastReadDate": "2026-05-12"}},
+      "event": {"name": "refreshChallengeSurface"},
+      "expected": {"state": {"name": "enrolled_not_started", "streak": 0}, "persistence": {"streak": 0, "lastReadDate": "2026-05-12"}, "effects": []},
+      "invariants": ["only an incomplete streak is reset", "refresh does not manufacture an article read"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.recalculateStreakIfNeeded"], "androidTests": ["streak resets when lastReadDate is more than 1 day ago during challenge"]}
+    },
+    {
+      "caseId": "rc_read_after_reset",
+      "key": "read_after_reset",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {"clockDate": "2026-05-14", "preferences": {"enrolled": true, "streak": 3, "lastReadDate": "2026-05-12"}},
+      "setup": [{"name": "refreshChallengeSurface"}],
+      "event": {"name": "openArticle", "article": "Recovery"},
+      "expected": {"state": {"name": "streak_read_today", "streak": 1}, "persistence": {"streak": 1, "lastReadDate": "2026-05-14"}, "effects": ["heartbeat_requested", "widget_update_requested"]},
+      "invariants": ["the stale streak is reset before the new read increments", "recovery starts at one rather than four"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.recalculateStreakIfNeeded", "ReadingChallengeWidgetRepository.updateOnArticleRead"], "androidTests": ["streak resets when lastReadDate is more than 1 day ago during challenge"]}
+    },
+    {
+      "caseId": "rc_goal_completion",
+      "key": "goal_completion",
+      "traceSchemaVersion": 2,
+      "functionalArea": "persistent_streak",
+      "given": {"clockDate": "2026-06-04", "preferences": {"enrolled": true, "streak": 24, "lastReadDate": "2026-06-03"}},
+      "event": {"name": "openArticle", "article": "Wikipedia"},
+      "expected": {"state": {"name": "challenge_completed", "streak": 25}, "persistence": {"streak": 25, "lastReadDate": "2026-06-04"}, "effects": ["heartbeat_requested", "widget_update_requested"]},
+      "invariants": ["the goal state is reached at 25", "the persisted streak and rendered completion state agree"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.READING_STREAK_GOAL", "ReadingChallengeWidgetRepository.resolveState"], "androidTests": ["returns ChallengeCompleted when streak reaches goal in mid challenge", "streak does not reset after completion"]}
+    },
+    {
+      "caseId": "rc_post_end_broken_rejected",
+      "key": "post_end_broken_rejected",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {"clockDate": "2026-06-20", "preferences": {"enrolled": true, "streak": 10, "lastReadDate": "2026-06-18"}},
+      "event": {"name": "openArticle", "article": "Too_late"},
+      "expected": {"state": {"name": "challenge_concluded_incomplete", "streak": 10}, "persistence": {"streak": 10, "lastReadDate": "2026-06-18"}, "effects": []},
+      "invariants": ["a broken post-end streak cannot restart", "nonqualifying reads emit no widget or heartbeat request"],
+      "evidence": {"androidProduction": ["ReadingChallengeWidgetRepository.hasActiveStreak", "ReadingChallengeWidgetRepository.updateOnArticleRead"], "androidTests": ["return ChallengeConcludedIncomplete on day after END_DATE when streak is broken"]}
+    }
+  ]
+}

@@ -1,0 +1,718 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index ee7864e..d6661cf 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -1,3 +1,7 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+-    <application android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+-</manifest>
++    <application android:theme="@android:style/Theme.Material.Light.NoActionBar">
++        <activity
++            android:name="org.wikipedia.widgets.readingchallenge.ReadingChallengeOnboardingActivity"
++            android:exported="false" />
++    </application>
++</manifest>
+\ No newline at end of file
+diff --git a/app/src/main/action/kotlin/org/wikipedia/page/PageLoadCompleteActionPrefix.kt b/app/src/main/action/kotlin/org/wikipedia/page/PageLoadCompleteActionPrefix.kt
+index 2c67ee6..77f878f 100644
+--- a/app/src/main/action/kotlin/org/wikipedia/page/PageLoadCompleteActionPrefix.kt
++++ b/app/src/main/action/kotlin/org/wikipedia/page/PageLoadCompleteActionPrefix.kt
+@@ -2,8 +2,20 @@ package org.wikipedia.page
+ 
+ import android.content.Context
+ import java.time.LocalDate
++import org.wikipedia.widgets.readingchallenge.ReadingChallengeWidgetRepository
+ 
+-/** The pre-feature page-load prefix has no reading-challenge dispatch. */
++/**
++ * Article page-load entry point for the reading challenge.
++ *
++ * Every completed article load is offered to the challenge store, which decides on its own whether
++ * the read qualifies for the daily streak.
++ */
+ class PageLoadCompleteActionPrefix(context: Context) {
+-    suspend fun onPageLoadComplete(currentDate: LocalDate) = Unit
+-}
++
++    private val repository = ReadingChallengeWidgetRepository(context)
++
++    /** Offers the completed page load to the reading challenge. */
++    suspend fun onPageLoadComplete(currentDate: LocalDate) {
++        repository.updateOnArticleRead(currentDate)
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeEnrollmentAction.kt b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeEnrollmentAction.kt
+new file mode 100644
+index 0000000..052005f
+--- /dev/null
++++ b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeEnrollmentAction.kt
+@@ -0,0 +1,49 @@
++package org.wikipedia.widgets.readingchallenge
++
++import android.content.Context
++import java.time.LocalDate
++import org.wikipedia.settings.Prefs
++
++/**
++ * The eligible "Join" branch of the reading-challenge onboarding.
++ *
++ * Joining is only offered while the challenge window is running and only for a reader who is not
++ * enrolled yet. It persists the enrollment with a zero streak and a zeroed read history, because
++ * joining the challenge is not an article read, and then refreshes the challenge surfaces.
++ */
++class ReadingChallengeEnrollmentAction(context: Context) {
++
++    private val context: Context = context.applicationContext ?: context
++
++    init {
++        // Enrollment persists into the same store the repository owns; make sure it is connected.
++        Prefs.attach(this.context)
++    }
++
++    /** Enrolls this reader for [currentDate] when the challenge is live and enrollment applies. */
++    suspend fun enroll(currentDate: LocalDate) {
++        if (!commitEnrollment(currentDate)) {
++            return
++        }
++        ReadingChallengeWidgetRepository(context).updateWidgetsAndSendAnalytics()
++    }
++
++    /** Returns whether the enrollment was newly persisted. */
++    private fun commitEnrollment(currentDate: LocalDate): Boolean = synchronized(this) {
++        if (Prefs.readingChallengeEnrolled) {
++            // Already joined: keep the streak that is being built rather than restarting it.
++            return@synchronized false
++        }
++        if (currentDate.isBefore(ReadingChallengeWidgetRepository.effectiveStartDate()) ||
++            currentDate.isAfter(ReadingChallengeWidgetRepository.effectiveEndDate())
++        ) {
++            // Joining outside the challenge window is not an eligible branch.
++            return@synchronized false
++        }
++        Prefs.readingChallengeStreak = 0
++        Prefs.readingChallengeLastReadDate = ""
++        Prefs.readingChallengeEnrollmentDate = currentDate.toString()
++        Prefs.readingChallengeEnrolled = true
++        true
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeOnboardingActivity.kt b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeOnboardingActivity.kt
+new file mode 100644
+index 0000000..aa39454
+--- /dev/null
++++ b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeOnboardingActivity.kt
+@@ -0,0 +1,102 @@
++package org.wikipedia.widgets.readingchallenge
++
++import android.app.Activity
++import android.graphics.Color
++import android.os.Bundle
++import android.view.Gravity
++import android.widget.Button
++import android.widget.LinearLayout
++import android.widget.TextView
++import java.time.LocalDate
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.launch
++import org.wikipedia.settings.Prefs
++
++/**
++ * Onboarding screen that offers joining the daily article-reading challenge.
++ *
++ * The screen is shown once while the challenge is live and the reader has not joined yet; joining
++ * is handed to [ReadingChallengeEnrollmentAction], which owns eligibility and persistence. The
++ * challenge surface itself is rendered by the widget and the article page, which read the state
++ * from [ReadingChallengeWidgetRepository].
++ */
++class ReadingChallengeOnboardingActivity : Activity() {
++
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        if (!ReadingChallengeWidgetRepository.shouldShowOnboardingDialog()) {
++            finish()
++            return
++        }
++        // The prompt counts as shown as soon as it is presented.
++        Prefs.readingChallengeOnboardingShown = true
++        setContentView(buildContentView())
++    }
++
++    override fun onDestroy() {
++        scope.cancel()
++        super.onDestroy()
++    }
++
++    private fun buildContentView(): LinearLayout {
++        val padding = (resources.displayMetrics.density * 24).toInt()
++        val content = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            gravity = Gravity.CENTER
++            setPadding(padding, padding, padding, padding)
++        }
++        content.addView(
++            TextView(this).apply {
++                text = TITLE_TEXT
++                textSize = 22f
++                setTextColor(Color.BLACK)
++                gravity = Gravity.CENTER
++            }
++        )
++        content.addView(
++            TextView(this).apply {
++                text = String.format(
++                    SUBTITLE_TEXT,
++                    ReadingChallengeWidgetRepository.READING_STREAK_GOAL
++                )
++                textSize = 16f
++                setTextColor(Color.DKGRAY)
++                gravity = Gravity.CENTER
++            }
++        )
++        content.addView(
++            Button(this).apply {
++                text = JOIN_TEXT
++                setOnClickListener { onJoinClicked() }
++            }
++        )
++        content.addView(
++            Button(this).apply {
++                text = DISMISS_TEXT
++                setOnClickListener { finish() }
++            }
++        )
++        return content
++    }
++
++    private fun onJoinClicked() {
++        val currentDate = LocalDate.now()
++        scope.launch {
++            ReadingChallengeEnrollmentAction(this@ReadingChallengeOnboardingActivity)
++                .enroll(currentDate)
++            finish()
++        }
++    }
++
++    companion object {
++        private const val TITLE_TEXT = "Reading Challenge"
++        private const val SUBTITLE_TEXT = "Read one article a day for %d days."
++        private const val JOIN_TEXT = "Join"
++        private const val DISMISS_TEXT = "Not now"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeState.kt b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeState.kt
+new file mode 100644
+index 0000000..aac4c10
+--- /dev/null
++++ b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeState.kt
+@@ -0,0 +1,90 @@
++package org.wikipedia.widgets.readingchallenge
++
++import java.time.LocalDate
++
++/**
++ * Lifecycle of the daily article-reading challenge as it is resolved for a single calendar day.
++ *
++ * The challenge runs over a fixed, date-gated window:
++ *
++ *  * before [ReadingChallengeWidgetRepository.START_DATE] nothing is live yet ([NotLiveYet]);
++ *  * between the start date and [ReadingChallengeWidgetRepository.END_DATE] the challenge is
++ *    running and readers may enroll and build a streak;
++ *  * for a short buffer after the end date only a streak that is still alive can continue, any
++ *    other streak is concluded and can no longer be restarted;
++ *  * after the buffer the challenge is removed ([ChallengeRemoved]).
++ */
++sealed interface ReadingChallengeState {
++
++    /** Stable name of the state, used by the surfaces that render the challenge. */
++    val stateName: String
++
++    /** Preferences have not been read yet and no state could be resolved. */
++    object Loading : ReadingChallengeState {
++        override val stateName: String get() = "Loading"
++    }
++
++    /** The challenge window has not opened yet. */
++    object NotLiveYet : ReadingChallengeState {
++        override val stateName: String get() = "NotLiveYet"
++    }
++
++    /** The challenge is running but this reader has not joined it. */
++    object NotEnrolled : ReadingChallengeState {
++        override val stateName: String get() = "NotEnrolled"
++    }
++
++    /** Joined, but no day of the streak has been completed yet (fresh join or after a reset). */
++    object EnrolledNotStarted : ReadingChallengeState {
++        override val stateName: String get() = "EnrolledNotStarted"
++    }
++
++    /** A streak is running and the reader still has to read an article today. */
++    data class StreakOngoingNeedsReading(val streak: Int) : ReadingChallengeState {
++        override val stateName: String get() = "StreakOngoingNeedsReading"
++    }
++
++    /** A streak is running and today's article has already been read. */
++    data class StreakOngoingReadToday(val streak: Int) : ReadingChallengeState {
++        override val stateName: String get() = "StreakOngoingReadToday"
++    }
++
++    /** The streak goal was reached; this is terminal and the streak is never reset again. */
++    object ChallengeCompleted : ReadingChallengeState {
++        override val stateName: String get() = "ChallengeCompleted"
++    }
++
++    /** The challenge ended, the streak broke and the recorded streak is below the goal. */
++    data class ChallengeConcludedIncomplete(val streak: Int) : ReadingChallengeState {
++        override val stateName: String get() = "ChallengeConcludedIncomplete"
++    }
++
++    /** The challenge ended without the reader ever holding a streak. */
++    object ChallengeConcludedNoStreak : ReadingChallengeState {
++        override val stateName: String get() = "ChallengeConcludedNoStreak"
++    }
++
++    /** The conclusion buffer has elapsed and the challenge is no longer shown. */
++    object ChallengeRemoved : ReadingChallengeState {
++        override val stateName: String get() = "ChallengeRemoved"
++    }
++}
++
++/**
++ * Reader-owned challenge facts for [currentDate].
++ *
++ * @param currentDate the calendar day the facts are evaluated against. It is always supplied by
++ * the caller so that date evaluation never depends on a production-stored "today".
++ * @param enabled whether this reader is enrolled in the challenge.
++ * @param currentStreak the persisted number of consecutive completed reading days.
++ * @param hasReadToday whether an article has already been counted for [currentDate].
++ * @param hasActiveStreak whether the streak is still alive, i.e. the previous day (or today) was
++ * read and a read today would still extend the same streak.
++ */
++data class ReadingChallengeUserData(
++    val currentDate: LocalDate,
++    val enabled: Boolean,
++    val currentStreak: Int,
++    val hasReadToday: Boolean,
++    val hasActiveStreak: Boolean
++)
+\ No newline at end of file
+diff --git a/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeWidgetRepository.kt b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeWidgetRepository.kt
+new file mode 100644
+index 0000000..8462680
+--- /dev/null
++++ b/app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeWidgetRepository.kt
+@@ -0,0 +1,300 @@
++package org.wikipedia.widgets.readingchallenge
++
++import android.appwidget.AppWidgetManager
++import android.content.ComponentName
++import android.content.Context
++import android.content.Intent
++import android.content.SharedPreferences
++import androidx.glance.appwidget.updateAll
++import androidx.preference.PreferenceManager
++import java.time.LocalDate
++import java.time.format.DateTimeParseException
++import java.time.temporal.ChronoUnit
++import kotlinx.coroutines.channels.awaitClose
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.callbackFlow
++import org.wikipedia.WikipediaApp
++import org.wikipedia.settings.Prefs
++
++/**
++ * Application-owned owner of the daily article-reading challenge.
++ *
++ * The repository is the single place that decides whether a day counts as a qualifying read, keeps
++ * the persistent streak consistent, persists it, resolves the reader-facing state and dispatches
++ * the widget/analytics effects. Everything outside of it is a leaf: preference storage, the widget
++ * host and the analytics transport.
++ *
++ * Dates never come from stored production state: every entry point that needs to reason about
++ * "today" takes it from the caller.
++ */
++class ReadingChallengeWidgetRepository(context: Context) {
++
++    private val context: Context = context.applicationContext ?: context
++
++    init {
++        // Every challenge surface goes through this repository, so make sure the preference store
++        // the repository owns is connected before any state is resolved.
++        Prefs.attach(this.context)
++    }
++
++    /**
++     * Emits the resolved challenge state and re-emits it whenever the reading-challenge
++     * preferences change, for example right after a qualifying article read.
++     */
++    fun observeState(): Flow<ReadingChallengeState> = callbackFlow {
++        val preferences = PreferenceManager.getDefaultSharedPreferences(context)
++        fun emitCurrentState() {
++            val currentDate = LocalDate.now()
++            recalculateStreakIfNeeded(currentDate)
++            trySend(resolveState(readUserData(currentDate)))
++        }
++        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
++            emitCurrentState()
++        }
++        preferences.registerOnSharedPreferenceChangeListener(listener)
++        emitCurrentState()
++        awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
++    }
++
++    /** Whether an article has already been counted for [currentDate]. */
++    fun hasReadToday(currentDate: LocalDate): Boolean =
++        Prefs.readingChallengeLastReadDate == currentDate.toString()
++
++    /**
++     * Whether the persisted streak is still alive on [currentDate], which is the case when the
++     * reader already read today or read on the immediately preceding day.
++     */
++    fun hasActiveStreak(currentDate: LocalDate): Boolean {
++        if (Prefs.readingChallengeStreak <= 0) {
++            return false
++        }
++        val lastReadDate = Prefs.readingChallengeLastReadDate.toLocalDateOrNull() ?: return false
++        return !lastReadDate.isBefore(currentDate.minusDays(1))
++    }
++
++    /** Reads the persisted challenge facts for [currentDate] without changing them. */
++    fun readUserData(currentDate: LocalDate): ReadingChallengeUserData = ReadingChallengeUserData(
++        currentDate = currentDate,
++        enabled = Prefs.readingChallengeEnrolled,
++        currentStreak = Prefs.readingChallengeStreak,
++        hasReadToday = hasReadToday(currentDate),
++        hasActiveStreak = hasActiveStreak(currentDate)
++    )
++
++    /** Pure state resolution for already gathered reader facts. */
++    fun resolveState(userData: ReadingChallengeUserData): ReadingChallengeState {
++        val currentDate = userData.currentDate
++        if (currentDate.isBefore(effectiveStartDate())) {
++            return ReadingChallengeState.NotLiveYet
++        }
++        if (currentDate.isAfter(effectiveRemoveDate())) {
++            return ReadingChallengeState.ChallengeRemoved
++        }
++        if (!userData.enabled) {
++            return ReadingChallengeState.NotEnrolled
++        }
++        if (userData.currentStreak >= READING_STREAK_GOAL) {
++            return ReadingChallengeState.ChallengeCompleted
++        }
++        if (currentDate.isAfter(effectiveEndDate())) {
++            // Conclusion buffer: only a streak that is still alive may keep going, a broken streak
++            // is concluded for good and reading cannot restart it.
++            if (!userData.hasActiveStreak) {
++                return if (userData.currentStreak > 0) {
++                    ReadingChallengeState.ChallengeConcludedIncomplete(userData.currentStreak)
++                } else {
++                    ReadingChallengeState.ChallengeConcludedNoStreak
++                }
++            }
++        } else if (!userData.hasActiveStreak && !userData.hasReadToday) {
++            // No active streak during the challenge: either a fresh join or a streak that a missed
++            // day reset back to zero.
++            return ReadingChallengeState.EnrolledNotStarted
++        }
++        return if (userData.hasReadToday) {
++            ReadingChallengeState.StreakOngoingReadToday(userData.currentStreak)
++        } else {
++            ReadingChallengeState.StreakOngoingNeedsReading(userData.currentStreak)
++        }
++    }
++
++    /**
++     * Drops a streak that missed more than one day while the challenge was still running. Reached
++     * goals are terminal, and a streak that breaks after the challenge ended is concluded instead
++     * of reset, because it can no longer be recovered by reading again.
++     */
++    fun recalculateStreakIfNeeded(currentDate: LocalDate) {
++        synchronized(this) { resetBrokenStreak(currentDate) }
++    }
++
++    /** Refreshes the widget and reports the current state to analytics. */
++    suspend fun updateWidgetsAndSendAnalytics() {
++        requestWidgetUpdate()
++        val userData = readUserData(LocalDate.now())
++        ReadingChallengeAnalyticsHelper.sendHeartbeatEvent(resolveState(userData))
++    }
++
++    /**
++     * Entry point for opening an article. A day contributes at most one streak increment and only
++     * when the reader is enrolled and the streak may actually continue; otherwise nothing is
++     * persisted and no effect is dispatched.
++     */
++    suspend fun updateOnArticleRead(currentDate: LocalDate) {
++        val userData = synchronized(this) { recordArticleRead(currentDate) } ?: return
++        requestWidgetUpdate()
++        ReadingChallengeAnalyticsHelper.sendHeartbeatEvent(resolveState(userData))
++    }
++
++    /** Hands the re-render request to the widget host, which is an external leaf. */
++    private suspend fun requestWidgetUpdate() {
++        ReadingChallengeWidget().updateAll(context)
++    }
++
++    /**
++     * Applies a qualifying read and returns the resulting reader facts, or `null` when the read
++     * does not qualify and must be ignored without any persistence or effect.
++     */
++    private fun recordArticleRead(currentDate: LocalDate): ReadingChallengeUserData? {
++        if (!isArticleReadQualifying(currentDate)) {
++            return null
++        }
++        Prefs.readingChallengeStreak = Prefs.readingChallengeStreak + 1
++        Prefs.readingChallengeLastReadDate = currentDate.toString()
++        return readUserData(currentDate)
++    }
++
++    /**
++     * Whether a read on [currentDate] advances the challenge.
++     *
++     * The stale streak is recalculated first, so a read that recovers from a missed day starts the
++     * streak again at one instead of extending the abandoned one.
++     */
++    private fun isArticleReadQualifying(currentDate: LocalDate): Boolean {
++        if (!Prefs.readingChallengeEnrolled) {
++            return false
++        }
++        if (currentDate.isBefore(effectiveStartDate()) || currentDate.isAfter(effectiveRemoveDate())) {
++            return false
++        }
++        resetBrokenStreak(currentDate)
++        if (hasReadToday(currentDate)) {
++            // A calendar day contributes at most one increment.
++            return false
++        }
++        if (currentDate.isAfter(effectiveEndDate()) && !hasActiveStreak(currentDate)) {
++            // After the challenge ended only a still-running streak may continue.
++            return false
++        }
++        return true
++    }
++
++    private fun resetBrokenStreak(currentDate: LocalDate) {
++        val streak = Prefs.readingChallengeStreak
++        if (streak <= 0 || streak >= READING_STREAK_GOAL) {
++            // Nothing to reset, and a reached goal is terminal.
++            return
++        }
++        val lastReadDate = Prefs.readingChallengeLastReadDate.toLocalDateOrNull() ?: return
++        if (ChronoUnit.DAYS.between(lastReadDate, currentDate) <= 1) {
++            return
++        }
++        if (currentDate.isAfter(effectiveEndDate())) {
++            // The streak broke after the challenge ended; it is concluded, not recoverable.
++            return
++        }
++        Prefs.readingChallengeStreak = 0
++    }
++
++    companion object {
++
++        /** Number of consecutive reading days that completes the challenge. */
++        const val READING_STREAK_GOAL: Int = 25
++
++        /** Intent extra that carries the "join the challenge" action into the onboarding screen. */
++        const val INTENT_EXTRA_READING_CHALLENGE_JOIN: String = "reading_challenge_join"
++
++        /** Intent extra that marks a widget tap on a completed challenge. */
++        const val INTENT_EXTRA_READING_CHALLENGE_REWARD: String = "reading_challenge_reward"
++
++        /** First day of the challenge window, as an ISO local date. */
++        const val READING_CHALLENGE_START_DATE: String = "2026-05-11"
++
++        /** Last day of the challenge window, as an ISO local date. */
++        const val READING_CHALLENGE_END_DATE: String = "2026-06-04"
++
++        /** Days the concluded challenge stays available after the challenge window closed. */
++        const val READING_CHALLENGE_BUFFER_DAYS: Long = 21L
++
++        val START_DATE: LocalDate = LocalDate.parse(READING_CHALLENGE_START_DATE)
++
++        val END_DATE: LocalDate = LocalDate.parse(READING_CHALLENGE_END_DATE)
++
++        /** First day on which a concluded challenge is no longer shown at all. */
++        val REMOVE_DATE: LocalDate = END_DATE.plusDays(READING_CHALLENGE_BUFFER_DAYS)
++
++        /** Start date in effect, allowing a stored schedule to override the built-in default. */
++        internal fun effectiveStartDate(): LocalDate =
++            Prefs.readingChallengeStartDate.toLocalDateOrNull() ?: START_DATE
++
++        /** End date in effect, allowing a stored schedule to override the built-in default. */
++        internal fun effectiveEndDate(): LocalDate =
++            Prefs.readingChallengeEndDate.toLocalDateOrNull() ?: END_DATE
++
++        /** Removal date in effect, derived from the end date in effect. */
++        internal fun effectiveRemoveDate(): LocalDate =
++            effectiveEndDate().plusDays(READING_CHALLENGE_BUFFER_DAYS)
++
++        /** Whether the challenge widget is currently hosted by the system. */
++        fun isWidgetInstalled(): Boolean {
++            val context = try {
++                WikipediaApp.instance
++            } catch (e: Throwable) {
++                null
++            } ?: return false
++            return try {
++                val provider = ComponentName(context, ReadingChallengeWidgetReceiver::class.java)
++                AppWidgetManager.getInstance(context).getAppWidgetIds(provider)
++                    ?.any { id -> id >= 0 } == true
++            } catch (e: Throwable) {
++                // Widget host queries are a leaf; an unavailable host simply means "not installed".
++                false
++            }
++        }
++
++        /** Whether the join dialog should still be offered to this reader. */
++        fun shouldShowOnboardingDialog(): Boolean = isJoinDialogDue()
++
++        /** Whether the widget install prompt should still be offered to this reader. */
++        fun shouldShowWidgetInstallDialog(): Boolean =
++            isJoinDialogDue() && !isWidgetInstalled()
++
++        /** Whether the completed-challenge reward should be presented for [intent]. */
++        fun shouldShowReward(intent: Intent): Boolean {
++            if (!intent.getBooleanExtra(INTENT_EXTRA_READING_CHALLENGE_REWARD, false)) {
++                return false
++            }
++            return Prefs.readingChallengeEnrolled &&
++                Prefs.readingChallengeStreak >= READING_STREAK_GOAL
++        }
++
++        private fun isJoinDialogDue(): Boolean {
++            if (Prefs.readingChallengeOnboardingShown || Prefs.readingChallengeEnrolled) {
++                return false
++            }
++            val currentDate = LocalDate.now()
++            return !currentDate.isBefore(effectiveStartDate()) &&
++                !currentDate.isAfter(effectiveRemoveDate())
++        }
++    }
++}
++
++private fun String.toLocalDateOrNull(): LocalDate? {
++    if (isBlank()) {
++        return null
++    }
++    return try {
++        LocalDate.parse(this)
++    } catch (e: DateTimeParseException) {
++        null
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/page/PageActivity.kt b/app/src/main/upstream/kotlin/org/wikipedia/page/PageActivity.kt
+index 0ae6bb0..d62e647 100644
+--- a/app/src/main/upstream/kotlin/org/wikipedia/page/PageActivity.kt
++++ b/app/src/main/upstream/kotlin/org/wikipedia/page/PageActivity.kt
+@@ -91,6 +91,7 @@ import org.wikipedia.views.ViewUtil
+ import org.wikipedia.watchlist.WatchlistExpiry
+ import org.wikipedia.yearinreview.YearInReviewDialog
+ import org.wikipedia.yearinreview.YearInReviewViewModel
++import java.time.LocalDate
+ import java.util.Locale
+ 
+ class PageActivity : BaseActivity(), PageFragment.Callback, LinkPreviewDialog.LoadPageCallback, FrameLayoutNavMenuTriggerer.Callback {
+@@ -420,6 +421,18 @@ class PageActivity : BaseActivity(), PageFragment.Callback, LinkPreviewDialog.Lo
+         removeTransitionAnimState()
+         maybeShowThemeTooltip()
+         updateSearchHint()
++        updateReadingChallengeStreak()
++    }
++
++    /**
++     * Offers the completed article load to the reading challenge, which decides on its own whether
++     * the read qualifies for the daily streak.
++     */
++    private fun updateReadingChallengeStreak() {
++        lifecycleScope.launch {
++            PageLoadCompleteActionPrefix(this@PageActivity)
++                .onPageLoadComplete(LocalDate.now())
++        }
+     }
+ 
+     override fun onPageDismissBottomSheet() {
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/widgets/readingchallenge/ReadingChallengePageActionPrefix.kt b/app/src/main/upstream/kotlin/org/wikipedia/widgets/readingchallenge/ReadingChallengePageActionPrefix.kt
+index 4aff54f..a1ecb91 100644
+--- a/app/src/main/upstream/kotlin/org/wikipedia/widgets/readingchallenge/ReadingChallengePageActionPrefix.kt
++++ b/app/src/main/upstream/kotlin/org/wikipedia/widgets/readingchallenge/ReadingChallengePageActionPrefix.kt
+@@ -4,23 +4,59 @@ import android.content.Context
+ import java.time.LocalDate
+ import org.wikipedia.page.PageLoadCompleteActionPrefix
+ 
++/** Rendered summary of the challenge surface for the current calendar day. */
+ data class ReadingChallengePageSnapshot(
+     val featureAvailable: Boolean,
+     val stateName: String,
+     val streak: Int
+ )
+ 
+-/** Same application entry ABI as final, backed by the pre-feature page behavior. */
++/**
++ * Application entry point for the reading-challenge surface.
++ *
++ * Everything a reader can do with the challenge arrives here: refreshing the surface, joining, and
++ * opening an article. State resolution, streak maintenance, persistence and effect dispatch are
++ * owned by [ReadingChallengeWidgetRepository]; this class only wires the surface to it.
++ */
+ class ReadingChallengePageActionPrefix(context: Context) {
++
++    private val repository = ReadingChallengeWidgetRepository(context)
++    private val enrollmentAction = ReadingChallengeEnrollmentAction(context)
+     private val pageLoadComplete = PageLoadCompleteActionPrefix(context)
+ 
+-    fun refreshChallengeSurface(currentDate: LocalDate) = Unit
+-    suspend fun enroll(currentDate: LocalDate) = Unit
+-    suspend fun openArticle(currentDate: LocalDate) = pageLoadComplete.onPageLoadComplete(currentDate)
++    /**
++     * Re-evaluates the persistent streak for the current day, which is what drops a streak that
++     * missed a day. Refreshing never manufactures an article read.
++     */
++    fun refreshChallengeSurface(currentDate: LocalDate) {
++        repository.recalculateStreakIfNeeded(currentDate)
++    }
++
++    /** Joins the challenge through the eligible enrollment branch. */
++    suspend fun enroll(currentDate: LocalDate) {
++        enrollmentAction.enroll(currentDate)
++    }
+ 
+-    fun snapshot(currentDate: LocalDate) = ReadingChallengePageSnapshot(
+-        featureAvailable = false,
+-        stateName = "common_page_loaded",
+-        streak = 0
+-    )
++    /** Opening an article goes through the page-load entry point. */
++    suspend fun openArticle(currentDate: LocalDate) {
++        pageLoadComplete.onPageLoadComplete(currentDate)
++    }
++
++    /** The state the challenge surface renders for the current day. */
++    fun snapshot(currentDate: LocalDate): ReadingChallengePageSnapshot {
++        repository.recalculateStreakIfNeeded(currentDate)
++        val userData = repository.readUserData(currentDate)
++        val state = repository.resolveState(userData)
++        return ReadingChallengePageSnapshot(
++            featureAvailable = state.isChallengeAvailable,
++            stateName = state.stateName,
++            streak = userData.currentStreak
++        )
++    }
+ }
++
++/** Whether the challenge is something the surface should offer at all. */
++private val ReadingChallengeState.isChallengeAvailable: Boolean
++    get() = this !is ReadingChallengeState.Loading &&
++        this !is ReadingChallengeState.NotLiveYet &&
++        this !is ReadingChallengeState.ChallengeRemoved
+\ No newline at end of file

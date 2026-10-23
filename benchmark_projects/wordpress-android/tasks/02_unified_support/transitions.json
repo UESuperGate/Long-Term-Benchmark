@@ -1,0 +1,575 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_unified_support",
+  "description": "Platform-neutral transitions for the unified support flow introduced in WordPress Android 26.9",
+  "cases": [
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_001_list_success",
+      "key": "list_success",
+      "functionalArea": "conversation_list",
+      "given": {
+        "featureEnabled": true,
+        "signedIn": true,
+        "serviceConversations": [
+          {
+            "id": 1,
+            "type": "bot",
+            "status": "bot"
+          },
+          {
+            "id": 2,
+            "type": "happiness_engineer",
+            "status": "open"
+          }
+        ]
+      },
+      "event": {
+        "name": "openGetHelp"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "entryLabel": "get_help",
+        "loading": false,
+        "error": null,
+        "rows": [
+          {
+            "id": 1,
+            "presentation": "bot"
+          },
+          {
+            "id": 2,
+            "presentation": "ticket",
+            "status": "open"
+          }
+        ],
+        "serviceEffect": {
+          "name": "loadUnifiedConversations"
+        }
+      },
+      "invariants": [
+        "bot and Happiness Engineer conversations share one ordered list",
+        "the retired separate entries are not rendered"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportActivity",
+          "UnifiedSupportRepository.loadConversations"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.init loads conversations from the repository"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "18dd18668828eb51baeda278ba21eca7de4e3cb4a0831abac521333ac6ab0d10"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_002_list_failure",
+      "key": "list_failure",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "surface": "unified_support",
+        "serviceOutcome": "network_error"
+      },
+      "event": {
+        "name": "openGetHelp"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "loading": false,
+        "error": "general",
+        "emptyState": false,
+        "rows": []
+      },
+      "invariants": [
+        "a failed request is not represented as an empty successful list",
+        "the repository body reaches the controlled service leaf"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportRepository.loadConversations",
+          "ConversationsSupportViewModel.init"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.init surfaces error state when repository cannot load conversations"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "0b73df10540b118c0772b0d257fd918fb75d06f7ae2746c890ad81acb7724a4c"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_003_list_retry",
+      "key": "list_retry",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "surface": "unified_support",
+        "state": {
+          "error": "general",
+          "rows": []
+        },
+        "serviceOutcome": [
+          {
+            "error": "network_error"
+          },
+          {
+            "conversations": [
+              {
+                "id": 3,
+                "type": "bot",
+                "status": "bot"
+              }
+            ]
+          }
+        ]
+      },
+      "event": {
+        "name": "retryConversations"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "error": null,
+        "rows": [
+          {
+            "id": 3,
+            "presentation": "bot"
+          }
+        ],
+        "requestCount": 2
+      },
+      "invariants": [
+        "retry uses the same unified repository path",
+        "recovery replaces the error state without recreating separate support flows"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "ConversationsSupportViewModel.refreshConversations",
+          "UnifiedSupportRepository.loadConversations"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.init loads conversations from the repository"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "4cafa1b1d794961cbae1fa2790b966d90aa8a7bdf6e18c4471e4d2aa594c6d02"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_004_new_bot_success",
+      "key": "new_bot_success",
+      "functionalArea": "bot_conversation_creation",
+      "given": {
+        "surface": "unified_support",
+        "selectedConversation": null,
+        "draft": "How do I publish?",
+        "serviceReply": {
+          "conversationId": 44,
+          "botMessageId": 101,
+          "text": "Here is how."
+        }
+      },
+      "event": {
+        "name": "createBotConversationAndSend"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "selectedConversation": {
+          "id": 44,
+          "type": "bot",
+          "messages": [
+            {
+              "author": "user",
+              "text": "How do I publish?"
+            },
+            {
+              "author": "bot",
+              "text": "Here is how."
+            }
+          ]
+        },
+        "listFirstId": 44,
+        "draft": "",
+        "sending": false,
+        "serviceEffect": {
+          "name": "createBotConversation",
+          "botId": "jetpack-workflow-chat_mobile_support",
+          "message": "How do I publish?"
+        }
+      },
+      "invariants": [
+        "the local user question remains exactly once",
+        "the application-owned create mapping executes before the service leaf response is consumed"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportViewModel.onCreateNewBotConversationClick",
+          "UnifiedSupportViewModel.sendReply",
+          "UnifiedSupportRepository.createNewBotConversation"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.sendReply on a new conversation creates it and keeps the local question"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "2c3edb76eafc8ee409c6769843024de3b0312175ee89ff23dcc970d7e805754c"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_005_reply_success",
+      "key": "reply_success",
+      "functionalArea": "reply_lifecycle",
+      "given": {
+        "surface": "unified_support",
+        "conversation": {
+          "id": 5,
+          "messages": [
+            10
+          ],
+          "canAcceptReply": true
+        },
+        "draft": "Please help",
+        "attachments": [
+          "image-a"
+        ],
+        "includeAppLogs": true,
+        "serviceReplyMessages": [
+          10,
+          11,
+          12
+        ]
+      },
+      "event": {
+        "name": "sendReply"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "selectedMessages": [
+          10,
+          11,
+          12
+        ],
+        "listConversationId": 5,
+        "draft": "",
+        "attachments": [],
+        "includeAppLogs": false,
+        "sending": false,
+        "effects": [
+          {
+            "name": "uploadEncryptedLogs"
+          },
+          {
+            "name": "createTempAttachments",
+            "inputs": [
+              "image-a"
+            ]
+          },
+          {
+            "name": "replyToUnifiedConversation",
+            "conversationId": 5,
+            "message": "Please help"
+          },
+          {
+            "name": "removeTempAttachments"
+          }
+        ]
+      },
+      "invariants": [
+        "the input is cleared while the request is pending",
+        "temporary files are removed after completion",
+        "the list and selected detail refer to the same conversation identity"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportViewModel.sendReply",
+          "UnifiedSupportRepository.replyToConversation"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.sendReply updates selected conversation and list on success",
+          "UnifiedSupportViewModelTest.sendReply sends attachments as temp files and removes them afterwards"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "9dec1476d40d74ff028f8a2003c5eaa50e1f8c4f3a712e4afc341c131bd14a83"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_006_offline_reply",
+      "key": "offline_reply",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "surface": "unified_support",
+        "conversation": {
+          "id": 6,
+          "messages": [
+            20
+          ],
+          "canAcceptReply": true
+        },
+        "draft": "Still there?",
+        "network": "offline"
+      },
+      "event": {
+        "name": "sendReply"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "selectedMessages": [
+          20
+        ],
+        "draft": "Still there?",
+        "error": "offline",
+        "sending": false,
+        "repositoryCallCount": 0
+      },
+      "invariants": [
+        "offline detection occurs before optimistic insertion",
+        "the user's draft remains retryable"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportViewModel.sendReply"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.sendReply sets OFFLINE error and does not call repository when network is unavailable"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "d04192c31e81584b8786de3e02eab6d53bbcfa34714a2f8cb4d5c2940207fff0"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_007_reply_failure",
+      "key": "reply_failure",
+      "functionalArea": "failure_recovery",
+      "given": {
+        "surface": "unified_support",
+        "conversation": {
+          "id": 7,
+          "messages": [
+            30
+          ],
+          "canAcceptReply": true
+        },
+        "draft": "Retry me",
+        "attachments": [
+          "image-b"
+        ],
+        "serviceOutcome": "error"
+      },
+      "event": {
+        "name": "sendReply"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "pending": {
+          "draft": "",
+          "messageIds": [
+            30,
+            "optimistic"
+          ]
+        },
+        "settled": {
+          "draft": "Retry me",
+          "messageIds": [
+            30
+          ],
+          "error": "general",
+          "sending": false
+        },
+        "effects": [
+          {
+            "name": "replyToUnifiedConversation",
+            "conversationId": 7
+          },
+          {
+            "name": "removeTempAttachments"
+          }
+        ]
+      },
+      "invariants": [
+        "only the optimistic message is rolled back",
+        "pre-existing messages remain unchanged",
+        "temporary files are removed on failure"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportViewModel.rollbackOptimisticMessage",
+          "UnifiedSupportViewModel.rollbackInputMessage"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.sendReply rolls back the optimistic message and sets error when reply fails",
+          "UnifiedSupportViewModelTest.sendReply restores the input message when the reply fails"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "1e2ce66f6270a84486a64275b03c9f1e92b3409932e8e91d023bc4045ca7a671"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_008_concurrent_guard",
+      "key": "concurrent_guard",
+      "functionalArea": "reply_lifecycle",
+      "given": {
+        "surface": "unified_support",
+        "conversation": {
+          "id": 8,
+          "messages": [],
+          "canAcceptReply": true
+        },
+        "network": "online",
+        "firstReplyCompletion": "held"
+      },
+      "event": {
+        "name": "sendReplyTwice",
+        "messages": [
+          "first",
+          "second"
+        ]
+      },
+      "expected": {
+        "surface": "unified_support",
+        "sendingWhileHeld": true,
+        "repositoryCallCountWhileHeld": 1,
+        "sentMessages": [
+          "first"
+        ]
+      },
+      "invariants": [
+        "the sending guard is set before asynchronous work begins",
+        "the second event cannot reach the repository or external leaf"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportViewModel.sendReply isSendingReply guard"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.sendReply appends an optimistic user message while sending"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "cd70ed11575fa23ffa8ea2f64107132701892cfb013937fac5076181f435f326"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_009_draft_lifecycle",
+      "key": "draft_lifecycle",
+      "functionalArea": "draft_state",
+      "given": {
+        "surface": "unified_support",
+        "selectedConversationId": 9,
+        "replyForm": {
+          "message": "draft-a",
+          "attachments": [
+            "a"
+          ],
+          "includeAppLogs": true,
+          "sheetVisible": true
+        }
+      },
+      "event": {
+        "name": "recreateThenOpenConversation",
+        "conversationId": 10
+      },
+      "expected": {
+        "surface": "unified_support",
+        "afterRecreate": {
+          "selectedConversationId": 9,
+          "message": "draft-a",
+          "attachments": [
+            "a"
+          ],
+          "includeAppLogs": true,
+          "sheetVisible": true
+        },
+        "afterSwitch": {
+          "selectedConversationId": 10,
+          "message": "",
+          "attachments": [],
+          "includeAppLogs": false,
+          "sheetVisible": false
+        }
+      },
+      "invariants": [
+        "page recreation reuses the production view model",
+        "draft state from conversation 9 never appears in conversation 10"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedSupportActivity savedInstanceState guard",
+          "UnifiedSupportViewModel.onConversationOpened"
+        ],
+        "androidTests": [
+          "UnifiedSupportViewModelTest.clearReplyForm resets the reply form to defaults"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "1349727592ea881e911c68f4388b19164526f1cceea5e67626021bffa62de642"
+    },
+    {
+      "traceSchemaVersion": 2,
+      "caseId": "us_state_010_detail_affordances",
+      "key": "detail_affordances",
+      "functionalArea": "conversation_detail",
+      "given": {
+        "surface": "unified_support",
+        "conversations": [
+          {
+            "id": 11,
+            "status": "bot",
+            "canAcceptReply": true
+          },
+          {
+            "id": 12,
+            "status": "open",
+            "canAcceptReply": true
+          },
+          {
+            "id": 13,
+            "status": "closed",
+            "canAcceptReply": false
+          }
+        ]
+      },
+      "event": {
+        "name": "renderConversationDetails"
+      },
+      "expected": {
+        "surface": "unified_support",
+        "affordances": [
+          {
+            "id": 11,
+            "composer": "inline_chat",
+            "typingIndicatorSupported": true
+          },
+          {
+            "id": 12,
+            "composer": "reply_sheet_button",
+            "closedBanner": false
+          },
+          {
+            "id": 13,
+            "composer": "none",
+            "closedBanner": true
+          }
+        ]
+      },
+      "invariants": [
+        "affordances derive from status and reply capability",
+        "closed tickets cannot dispatch replies"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "UnifiedConversationDetailScreen ConversationBottomBar",
+          "UnifiedConversation.isBot"
+        ],
+        "androidTests": [
+          "PR 22946 testing instructions for bot, HE, and closed conversations"
+        ]
+      },
+      "taskId": "02_unified_support",
+      "traceDigest": "01ee6493887cc44f74a55c91fbe00fa0db95b21c1900e78fde000c6ed0ec5e74"
+    }
+  ],
+  "owner": "evaluator"
+}

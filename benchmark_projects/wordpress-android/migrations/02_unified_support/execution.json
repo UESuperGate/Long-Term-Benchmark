@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_unified_support",
+  "android": {
+    "environment": {
+      "JAVA_HOME": "/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home"
+    },
+    "baseProject": "android/focused-runtime/base",
+    "finalProject": "android/focused-runtime/final",
+    "buildCommand": ["bash", "build.sh"],
+    "semanticCommand": ["python3", "android/focused-runtime/evaluator/run_semantic.py", "--project", "{project}", "--role", "{role}", "--output", "{output}", "--contract", "canonical/transitions.json"],
+    "agentPrepareCommand": ["python3", "{migration}/../tools/prepare_agent_harness.py", "--platform", "android", "--task-id", "02_unified_support", "--project", "{project}", "--migration", "{migration}"],
+    "agentScaffoldCommand": ["python3", "{migration}/../tools/prepare_visible_scaffold.py", "--task-id", "02_unified_support", "--project", "{project}", "--migration", "{migration}"],
+    "agentVisibleBuildCommand": ["bash", "{migration}/../tools/build_android_agent_visible.sh", "{project}"],
+    "agentBuildCommand": ["bash", "{migration}/../tools/build_android_agent_harness.sh", "{project}"],
+    "agentSemanticCommand": ["python3", "{migration}/android/focused-runtime/evaluator/run_semantic.py", "--project", "{project}", "--role", "agent", "--output", "{output}", "--contract", "{migration}/canonical/transitions.json"],
+    "reportRelativePath": "verification/android-{role}.json",
+    "runtimeBoundary": "API37 evaluator-owned instrumentation invokes immutable upstream Unified Support view-model, repository, and attachment methods; the 26.8 base uses the real SupportViewModel common entry and proves the unified action prefix absent."
+  },
+  "arkts": {
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": ["bash", "build.sh"],
+    "semanticCommand": ["python3", "arkts/evaluator/run_device_semantic.py", "--project", "{project}", "--role", "{role}", "--output", "{output}", "--contract", "canonical/transitions.json"],
+    "agentPrepareCommand": ["python3", "{migration}/../tools/prepare_agent_harness.py", "--platform", "arkts", "--task-id", "02_unified_support", "--project", "{project}", "--migration", "{migration}"],
+    "agentVisibleBuildCommand": ["bash", "{migration}/../tools/build_arkts_api23.sh", "{project}"],
+    "agentBuildCommand": ["bash", "{migration}/../tools/build_arkts_api23.sh", "{project}"],
+    "agentSemanticCommand": ["python3", "{migration}/arkts/evaluator/run_device_semantic.py", "--project", "{project}", "--role", "agent", "--output", "{output}", "--contract", "{migration}/canonical/transitions.json"],
+    "reportRelativePath": "verification/arkts-{role}.json",
+    "runtimeBoundary": "OpenHarmony API23 HAP launches EntryAbility and pages/Index; the hidden device probe invokes the candidate UnifiedSupportController/store/repository and observes runtime transitions through HDC hilog."
+  },
+  "resultPolicy": "Android scoring requires API37 ART instrumentation and ArkTS scoring requires API23 ArkVM EntryAbility/ArkUI execution. Host/JVM runs are debug-only. Agent commands are declared but remain not_scored until the main evaluator runs them."
+}

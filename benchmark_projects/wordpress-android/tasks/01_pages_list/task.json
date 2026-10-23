@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wordpress-android",
+  "taskId": "01_pages_list",
+  "title": "Modern pages list lifecycle and actions",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wordpress-mobile/WordPress-Android.git",
+    "baseRef": "26.8",
+    "baseCommit": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+    "finalRef": "26.9",
+    "finalCommit": "510f1cddc186a486ffa9559018578a644d303d96",
+    "ancestry": {
+      "isAncestor": false,
+      "exception": "official_release_branch_shallow_tag_exception",
+      "audit": "Both official tag objects are locally grafted and have no merge-base. The 26.8 tree was directly inspected and contains neither WordPress/src/main/java/org/wordpress/android/ui/pagesrs nor any RS_PAGES_LIST/PagesRsListActivity symbol; the 26.9 tree contains the complete target package."
+    }
+  },
+  "releaseNotes": [
+    {
+      "text": "Enabled new Pages list with updated features",
+      "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9"
+    },
+    {
+      "text": "The new Pages list adds search, an author filter, page hierarchy, featured image thumbnails, a quick-create button, and a full set of page actions.",
+      "source": "https://github.com/wordpress-mobile/WordPress-Android/releases/tag/26.9-rc-1"
+    }
+  ],
+  "functionalAreas": [
+    "list_loading",
+    "failure_recovery",
+    "search",
+    "author_filter_persistence",
+    "hierarchy",
+    "page_actions",
+    "featured_media"
+  ],
+  "stateSurfaces": [
+    "pages_list_page",
+    "pages_list_view_model",
+    "observable_pages_store",
+    "preferences_store",
+    "page_service_bridge"
+  ],
+  "eventEntrypoints": [
+    "openPages",
+    "refreshPublished",
+    "retryPublished",
+    "changeSearchQuery",
+    "closeSearch",
+    "selectAuthor",
+    "openPageMenu",
+    "confirmTrash",
+    "retryTrash",
+    "resolveFeaturedImage"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "WordPress/src/main/java/org/wordpress/android/ui/pagesrs",
+      "WordPress/src/main/java/org/wordpress/android/ui/ActivityLauncher.java",
+      "WordPress/src/main/java/org/wordpress/android/ui/prefs/experimentalfeatures"
+    ],
+    "testPaths": [
+      "WordPress/src/test/java/org/wordpress/android/ui/pagesrs/PagesRsListViewModelTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/pagesrs/PageRsTreeBuilderTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/pagesrs/PageRsMenuActionsTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/pagesrs/PageRsHomepageSettingsTest.kt",
+      "WordPress/src/test/java/org/wordpress/android/ui/pagesrs/PageRsFluxCBridgeTest.kt"
+    ],
+    "pullRequests": [22936, 22950, 22966, 22978, 22989, 22999],
+    "commits": [
+      "ff597e007df4fcb3721e07ea7e61ce755119ff7e",
+      "91a8a1b",
+      "75f9510dfa7d332f7e5cc020e6107197e073dc57",
+      "bf01de3951735b36d3753bde58cb4f0f2d5660ea",
+      "a99ac705f4822dc6e81b29b7e32d583f1faeb854",
+      "a665982d5eb3b1d56bc9314e691be82e1b9e89c0"
+    ]
+  },
+  "nonGoals": [
+    "Changing the existing editor implementation",
+    "Replacing the legacy pages list when the feature is disabled or unsupported",
+    "Live WordPress.com network access during evaluation",
+    "Pixel-perfect Android-to-ArkUI rendering parity"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawReleaseEvidence": "raw_release_evidence.json",
+    "transitionsDraft": "transitions.draft.json",
+    "transitions": "transitions.json",
+    "observerRules": "observer_rules.json",
+    "arktsBindings": "arkts_bindings.json",
+    "migrationValidation": "migration_validation.json"
+  }
+}

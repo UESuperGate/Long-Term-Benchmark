@@ -1,0 +1,1994 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_hybrid_search",
+  "platform": "arkts",
+  "role": "base",
+  "observationMode": "runtime_state_transition",
+  "runtime": "api23_entryability_arkui_device",
+  "codeGeneration": {
+    "passed": null,
+    "changedProductionFiles": []
+  },
+  "compile": {
+    "passed": true,
+    "command": [
+      "hvigorw",
+      "--mode",
+      "module",
+      "-p",
+      "product=default",
+      "-p",
+      "module=entry@default",
+      "assembleHap",
+      "--no-daemon"
+    ],
+    "artifacts": [
+      {
+        "path": "entry/build/default/outputs/default/entry-default-unsigned.hap",
+        "sha256": "030af6ef667f8372163e82d80e52abb6c3257fd01cc66a6ddd0281a9f91aa1d4",
+        "bytes": 139180
+      }
+    ]
+  },
+  "semantic": {
+    "passed": 0,
+    "failed": 10,
+    "notScored": 0,
+    "total": 10,
+    "cases": [
+      {
+        "caseId": "hs_enable_supported",
+        "key": "enable_supported",
+        "traceDigest": "4a40e97dae8265ae8671fc7311814d4eb0d944d0d388ee4cbb9397329f84b1ad",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "openHybridSearch"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657118518",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657118518",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657118518",
+          "state": {
+            "mode": "standard",
+            "phase": "idle",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the current query is preserved",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657118518",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657118518",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "no HTTP request is started until search submission",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657118518",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657118518",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_concurrent_dispatch",
+        "key": "concurrent_dispatch",
+        "traceDigest": "4185cf4fa61d08b1c6bf3aa1739f1f0adc61e1f0b77b2ccab3e8707e718df24b",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearch"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657122914",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657122914",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657122914",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "both requests start before either held completion is released",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657122914",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657122914",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "the production view model owns both dispatches",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657122914",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657122914",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_both_sources_lexical_first",
+        "key": "both_sources_lexical_first",
+        "traceDigest": "fa678df6d6a8f13c20be57fac2acc0002328ca32b71a423e876511369433e2e6",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearchAndComplete"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657125839",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657125839",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657125839",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "lexical duplicates are removed",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657125839",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657125839",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "semantic results remain semantic cards",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657125839",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657125839",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "lexical appears before semantic for this group",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657125839",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657125839",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_both_sources_semantic_first",
+        "key": "both_sources_semantic_first",
+        "traceDigest": "b1d81aecbe17b2a5febfc45310b1d709f2354c51045c0fcb85adcf58359fdd96",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearchAndComplete"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657129096",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657129096",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657129096",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "both source groups remain present",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657129096",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657129096",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "semantic appears before lexical for this group",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657129096",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657129096",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_lexical_failure_fallback",
+        "key": "lexical_failure_fallback",
+        "traceDigest": "788cf2f1283ad1fbac6f6d57867f3fc1596c3295004e518e6a37bb8485092d8b",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearchAndComplete"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657132065",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657132065",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657132065",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "a lexical failure does not discard semantic results",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657132065",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657132065",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "the page stays retry-capable",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657132065",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657132065",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_semantic_failure_fallback",
+        "key": "semantic_failure_fallback",
+        "traceDigest": "6ea21993f25e97064eb3c5997d4543ece57d5568ce6e333570bda43d70c5d36b",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearchAndComplete"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657135566",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657135566",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657135566",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "a semantic failure does not discard lexical results",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657135566",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657135566",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "semantic cards are absent",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657135566",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657135566",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_both_fail",
+        "key": "both_fail",
+        "traceDigest": "ba92aebfc368cf977348f9dc67ddc07bf38c0a080792fb6db5d19478418e5d4e",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearchAndComplete"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657137249",
+              "state": {
+                "mode": "standard",
+                "phase": "idle",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657137249",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657137249",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "partial success is not fabricated",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657137249",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657137249",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "the current query remains available for retry",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657137249",
+                "state": {
+                  "mode": "standard",
+                  "phase": "idle",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657137249",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_retry_recovers",
+        "key": "retry_recovers",
+        "traceDigest": "cdd6c19368e6d40f22c9ced6a961c3fbf72bb853f993ee9e35abab511dd67bcb",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearchAndComplete",
+          "retryAndComplete"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657139336",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657139336",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657139336",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "retry uses the surviving production page and view model",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657139336",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657139336",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "both leaves are invoked again",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657139336",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657139336",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_feedback_mapping",
+        "key": "feedback_mapping",
+        "traceDigest": "5fd63d15f2a19b90de926d12143f94f208b6bdc62f46c6b834c43e9facc253ef",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "submitSearchAndComplete",
+          "rateSemanticResult"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657141345",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657141345",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657141345",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "rating does not reorder or remove results",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657141345",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657141345",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "the production page converts zero-based UI position to one-based telemetry position",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657141345",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657141345",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      },
+      {
+        "caseId": "hs_opt_out",
+        "key": "opt_out",
+        "traceDigest": "b7ef6993b052c1dfe4a7c24da42b39073bf7718a62ae53ff6b0dda3a0f162af6",
+        "status": "fail",
+        "productionSources": [
+          {
+            "path": "entry/src/main/ets/entryability/EntryAbility.ets",
+            "sha256": "1cc4068c11519ed08c9cd62e294678fe9561867d58860258b19516b0cc1ce524"
+          },
+          {
+            "path": "entry/src/main/ets/integration/HybridPageIntegration.ets",
+            "sha256": "e3d347988b0c0a1c2aa4d8ecfbc6c21167f3fc64a2f02bd90b89939a7f74fc50"
+          },
+          {
+            "path": "entry/src/main/ets/pages/Index.ets",
+            "sha256": "c0914fb26b1e3351fa7051926015fb7fe580ca55c5f2317658f5f2a2bf7f38c0"
+          }
+        ],
+        "invokedProductionMethods": [
+          "openHybridSearch",
+          "submitSearchAndComplete",
+          "turnOffHybridSearch"
+        ],
+        "checkpoints": [
+          {
+            "label": "before",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657142823",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          },
+          {
+            "label": "after",
+            "state": {
+              "featureAvailable": false,
+              "pageOwnerId": "Index:1792657142823",
+              "state": {
+                "mode": "standard",
+                "phase": "standard_success",
+                "query": "Paris",
+                "sections": [],
+                "lexicalTitles": [],
+                "semanticTitles": [],
+                "retryAvailable": false
+              },
+              "persistence": {
+                "hybridEnabled": true
+              }
+            }
+          }
+        ],
+        "observed": {
+          "featureAvailable": false,
+          "pageOwnerId": "Index:1792657142823",
+          "state": {
+            "mode": "standard",
+            "phase": "standard_success",
+            "query": "Paris",
+            "sections": [],
+            "lexicalTitles": [],
+            "semanticTitles": [],
+            "retryAvailable": false
+          },
+          "persistence": {
+            "hybridEnabled": true
+          },
+          "effects": [],
+          "leafCalls": []
+        },
+        "invariantChecks": [
+          {
+            "invariant": "the current query is preserved",
+            "passed": true,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657142823",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657142823",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          },
+          {
+            "invariant": "future hybrid eligibility is disabled by the persisted preference",
+            "passed": false,
+            "evidence": {
+              "before": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657142823",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "after": {
+                "featureAvailable": false,
+                "pageOwnerId": "Index:1792657142823",
+                "state": {
+                  "mode": "standard",
+                  "phase": "standard_success",
+                  "query": "Paris",
+                  "sections": [],
+                  "lexicalTitles": [],
+                  "semanticTitles": [],
+                  "retryAvailable": false
+                },
+                "persistence": {
+                  "hybridEnabled": true
+                }
+              },
+              "effects": []
+            }
+          }
+        ],
+        "transitionExecuted": true,
+        "runtimeBoundaryChecks": [
+          {
+            "check": "one mounted Index owner supplies before, event, and after state",
+            "passed": true
+          },
+          {
+            "check": "observed state is read from the page-owned HybridSearchPageStore",
+            "passed": true
+          },
+          {
+            "check": "every controlled transport call has the production HttpSearchLeaf URL mapping",
+            "passed": true
+          },
+          {
+            "check": "reported HTTP effects are backed by controlled transport call records",
+            "passed": true
+          },
+          {
+            "check": "semantic transport payloads are mapped to section-qualified titles by HttpSearchLeaf",
+            "passed": true
+          }
+        ],
+        "deviceEvidence": {
+          "serial": "127.0.0.1:10180",
+          "apiLevel": 23,
+          "entryAbility": "EntryAbility",
+          "surface": "ArkUI"
+        }
+      }
+    ]
+  },
+  "diagnostics": {
+    "adapter": "ready",
+    "transport": "hdc_entryability_hilog",
+    "deviceSerial": "127.0.0.1:10180",
+    "deviceApi": 23,
+    "runtimeCompile": {
+      "passed": true
+    },
+    "sourceObserver": false
+  }
+}

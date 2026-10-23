@@ -1,0 +1,1488 @@
+diff --git a/entry/src/main/ets/integration/HybridPageIntegration.ets b/entry/src/main/ets/integration/HybridPageIntegration.ets
+index 20a429e..779ee21 100644
+--- a/entry/src/main/ets/integration/HybridPageIntegration.ets
++++ b/entry/src/main/ets/integration/HybridPageIntegration.ets
+@@ -1,40 +1,30 @@
+ import { common } from '@kit.AbilityKit';
++import {
++  FeedbackLeaf,
++  FeedbackPayload,
++  HybridSearchSettings,
++  HybridSearchState,
++  StandardSearchLeaf
++} from '../model/HybridSearchModels';
+ 
+-export interface HybridIntegrationSettings {
+-  language: string;
+-  experimentGroup: string;
+-  remoteEnabled: boolean;
+-  hybridEnabled: boolean;
+-  query: string;
+-}
+-
+-export interface HybridIntegrationState {
+-  phase: string;
+-  lexicalTitles: string[];
+-  semanticTitles: string[];
+-  retryAvailable: boolean;
+-  notice?: string;
+-}
+-
+-export interface HybridIntegrationFeedbackPayload {
+-  elementId: string;
+-  query: string;
+-  position: number;
+-  title: string;
+-}
++/**
++ * Composition-boundary contracts for the search page.
++ *
++ * These names are the page-facing aliases of the hybrid search model
++ * contracts, so a page mounted through this boundary hands the production
++ * page store the very same settings, feedback and standard-search leaves it
++ * uses at runtime.
++ */
++export type HybridIntegrationSettings = HybridSearchSettings;
++export type HybridIntegrationState = HybridSearchState;
++export type HybridIntegrationFeedbackPayload = FeedbackPayload;
++export type HybridIntegrationFeedbackLeaf = FeedbackLeaf;
++export type HybridIntegrationStandardSearchLeaf = StandardSearchLeaf;
+ 
+ export interface HybridIntegrationJsonTransport {
+   getJson(url: string): Promise<Record<string, Object>>;
+ }
+ 
+-export interface HybridIntegrationFeedbackLeaf {
+-  submit(payload: HybridIntegrationFeedbackPayload): Promise<void>;
+-}
+-
+-export interface HybridIntegrationStandardSearchLeaf {
+-  request(query: string): void;
+-}
+-
+ export interface HybridIntegrationInput {
+   settings: HybridIntegrationSettings;
+   transport: HybridIntegrationJsonTransport;
+diff --git a/entry/src/main/ets/model/HttpSearchLeaf.ets b/entry/src/main/ets/model/HttpSearchLeaf.ets
+new file mode 100644
+index 0000000..a63de4c
+--- /dev/null
++++ b/entry/src/main/ets/model/HttpSearchLeaf.ets
+@@ -0,0 +1,205 @@
++import { http } from '@kit.NetworkKit';
++import { SearchHttpLeaf } from './HybridSearchModels';
++
++/**
++ * Production lexical and semantic HTTP transport.
++ *
++ * This is a controlled external leaf: the request construction and the
++ * response mapping belong to the application, while the socket belongs to the
++ * platform. The three methods mirror the three sources the hybrid view model
++ * dispatches: a prefix search, a full-text search, and a semantic search.
++ */
++
++const LEXICAL_LIMIT: number = 20;
++const SEMANTIC_LIMIT: number = 20;
++
++interface MediaWikiSearchHit {
++  title?: string;
++}
++
++interface MediaWikiQueryContainer {
++  search?: MediaWikiSearchHit[];
++  prefixsearch?: MediaWikiSearchHit[];
++}
++
++interface MediaWikiSearchResponse {
++  query?: MediaWikiQueryContainer;
++}
++
++interface SemanticMatch {
++  section_header?: string;
++  section_index?: number;
++}
++
++interface SemanticPageHit {
++  key?: string;
++  title?: string;
++  description?: string;
++  excerpt?: string;
++  match?: SemanticMatch;
++}
++
++interface SemanticSearchResponse {
++  pages?: SemanticPageHit[];
++}
++
++/**
++ * Byte-level transport used by {@link HttpSearchLeaf}. Defaults to the
++ * platform HTTP client; the page substitutes a controlled transport when a
++ * deterministic HTTP source is supplied at the composition boundary.
++ */
++export interface SearchJsonTransport {
++  getText(url: string): Promise<string>;
++}
++
++/** Default transport: the HarmonyOS HTTP client. */
++export class NetworkSearchTransport implements SearchJsonTransport {
++  async getText(url: string): Promise<string> {
++    const client = http.createHttp();
++    try {
++      const response = await client.request(url, { method: http.RequestMethod.GET });
++      return response.result as string;
++    } finally {
++      client.destroy();
++    }
++  }
++}
++
++export class HttpSearchLeaf implements SearchHttpLeaf {
++  private baseUrl: string;
++  private transport: SearchJsonTransport;
++
++  constructor(baseUrl?: string, transport?: SearchJsonTransport) {
++    this.baseUrl = baseUrl === undefined ? '' : baseUrl;
++    this.transport = transport === undefined ? new NetworkSearchTransport() : transport;
++  }
++
++  /** Prefix (title-prefix) lexical search. */
++  async prefix(query: string, language: string): Promise<string[]> {
++    const lang = HttpSearchLeaf.normalizeLanguage(language);
++    const url = `${this.apiUrl(lang)}?action=query&format=json&formatversion=2&list=prefixsearch`
++      + `&psnamespace=0&pslimit=${LEXICAL_LIMIT}&psoffset=0`
++      + `&pssearch=${encodeURIComponent(query)}`;
++    const body = await this.transport.getText(url);
++    // `list=prefixsearch` reports its hits under `query.prefixsearch`; some
++    // deployments mirror the full-text key, so both are accepted.
++    return HttpSearchLeaf.mapLexical(body, 'prefixsearch');
++  }
++
++  /** Full-text lexical search. */
++  async fullText(query: string, language: string): Promise<string[]> {
++    const lang = HttpSearchLeaf.normalizeLanguage(language);
++    const url = `${this.apiUrl(lang)}?action=query&format=json&formatversion=2&list=search`
++      + `&srnamespace=0&srlimit=${LEXICAL_LIMIT}&sroffset=0`
++      + `&srsearch=${encodeURIComponent(query)}`;
++    const body = await this.transport.getText(url);
++    return HttpSearchLeaf.mapLexical(body, 'search');
++  }
++
++  /** Semantic search returning section-anchored titles. */
++  async semantic(query: string, language: string): Promise<string[]> {
++    const lang = HttpSearchLeaf.normalizeLanguage(language);
++    const url = `${this.restUrl(lang)}/w/rest.php/v1/search/page?q=${encodeURIComponent(query)}`
++      + `&limit=${SEMANTIC_LIMIT}`;
++    const body = await this.transport.getText(url);
++    return HttpSearchLeaf.mapSemantic(body);
++  }
++
++  private apiUrl(language: string): string {
++    return `https://${language}.wikipedia.org/w/api.php`;
++  }
++
++  private restUrl(language: string): string {
++    if (this.baseUrl.length > 0) {
++      return this.baseUrl;
++    }
++    return `https://${language}.wikipedia.org`;
++  }
++
++  private static normalizeLanguage(language: string): string {
++    const value = language === undefined || language === null ? '' : language.trim().toLowerCase();
++    return value.length === 0 ? 'en' : value;
++  }
++
++  /** Maps a MediaWiki search payload into lexical titles. */
++  private static mapLexical(body: string, primaryKey: string): string[] {
++    const titles: string[] = [];
++    const parsed = JSON.parse(body) as MediaWikiSearchResponse;
++    const query = parsed.query;
++    if (query === undefined || query === null) {
++      return titles;
++    }
++    let hits = query.search;
++    if (primaryKey === 'prefixsearch') {
++      hits = query.prefixsearch;
++      if (hits === undefined || hits === null) {
++        hits = query.search;
++      }
++    }
++    if (hits === undefined || hits === null) {
++      return titles;
++    }
++    for (let index = 0; index < hits.length; index++) {
++      const hit = hits[index];
++      if (hit === undefined || hit === null) {
++        continue;
++      }
++      const title = hit.title;
++      if (title === undefined || title === null) {
++        continue;
++      }
++      const trimmed = title.trim();
++      if (trimmed.length > 0 && titles.indexOf(trimmed) < 0) {
++        titles.push(trimmed);
++      }
++    }
++    return titles;
++  }
++
++  /** Maps a semantic payload into section-anchored semantic titles. */
++  private static mapSemantic(body: string): string[] {
++    const titles: string[] = [];
++    const parsed = JSON.parse(body) as SemanticSearchResponse;
++    const pages = parsed.pages;
++    if (pages === undefined || pages === null) {
++      return titles;
++    }
++    for (let index = 0; index < pages.length; index++) {
++      const page = pages[index];
++      if (page === undefined || page === null) {
++        continue;
++      }
++      const title = HttpSearchLeaf.pageTitle(page);
++      if (title.length === 0) {
++        continue;
++      }
++      const section = HttpSearchLeaf.pageSection(page);
++      const display = section.length === 0 ? title : `${title}#${section}`;
++      if (titles.indexOf(display) < 0) {
++        titles.push(display);
++      }
++    }
++    return titles;
++  }
++
++  private static pageTitle(page: SemanticPageHit): string {
++    if (page.title !== undefined && page.title !== null) {
++      return page.title.trim();
++    }
++    if (page.key !== undefined && page.key !== null) {
++      return page.key.trim();
++    }
++    return '';
++  }
++
++  private static pageSection(page: SemanticPageHit): string {
++    const match = page.match;
++    if (match === undefined || match === null) {
++      return '';
++    }
++    if (match.section_header !== undefined && match.section_header !== null) {
++      return match.section_header.trim();
++    }
++    return '';
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/HybridSearchModels.ets b/entry/src/main/ets/model/HybridSearchModels.ets
+new file mode 100644
+index 0000000..a9aef1a
+--- /dev/null
++++ b/entry/src/main/ets/model/HybridSearchModels.ets
+@@ -0,0 +1,218 @@
++/**
++ * Shared contracts for the Wikipedia hybrid search experience.
++ *
++ * A reader who is eligible for the lexical/semantic experiment submits a single
++ * query and receives two result sources from it. Everything in this file is a
++ * stable application contract: the page store owns the composition, the view
++ * model owns the concurrency and the merge, and the transports below are the
++ * external leaves that the rest of the application is allowed to substitute.
++ */
++
++/** Page phases shared by the hybrid flow and the standard search fallback. */
++export const HYBRID_PHASE_IDLE: string = 'idle';
++export const HYBRID_PHASE_LOADING: string = 'loading';
++export const HYBRID_PHASE_SUCCESS: string = 'success';
++export const HYBRID_PHASE_ERROR: string = 'error';
++export const HYBRID_PHASE_STANDARD_SUCCESS: string = 'standard_success';
++
++/** Search modes owned by the page store. */
++export const MODE_STANDARD: string = 'standard';
++export const MODE_HYBRID: string = 'hybrid';
++
++/** Identifiers of the two result groups rendered on the page. */
++export const LEXICAL_SOURCE_ID: string = 'lexical';
++export const SEMANTIC_SOURCE_ID: string = 'semantic';
++
++/** Experiment assignments that receive the hybrid result page. */
++export const EXPERIMENT_GROUP_LEXICAL_FIRST: string = 'lexicalsemantic';
++export const EXPERIMENT_GROUP_SEMANTIC_FIRST: string = 'semanticlexical';
++
++/** Feedback element ids produced when a reader rates a semantic result. */
++export const SEMANTIC_POSITIVE_ELEMENT_ID: string = 'hybrid_search_semantic_positive';
++export const SEMANTIC_NEGATIVE_ELEMENT_ID: string = 'hybrid_search_semantic_negative';
++
++/** Notices rendered when a source group cannot contribute results. */
++export const NOTICE_SEMANTIC_UNAVAILABLE: string =
++  'Semantic results are not available for this search. Showing lexical results only.';
++export const NOTICE_LEXICAL_UNAVAILABLE: string =
++  'Lexical results are not available for this search. Showing semantic results only.';
++export const NOTICE_NO_RESULTS: string = 'No results were found for this search.';
++export const NOTICE_BOTH_SOURCES_FAILED: string =
++  'Lexical and semantic search are both unavailable. Check your connection and retry.';
++
++/** Languages the hybrid search rollout is enabled for. */
++const SUPPORTED_HYBRID_LANGUAGES: string[] = [
++  'ar', 'az', 'bg', 'bn', 'bs', 'ca', 'cs', 'cy', 'da', 'de', 'el', 'en', 'eo', 'es', 'et', 'eu',
++  'fa', 'fi', 'fr', 'ga', 'gl', 'he', 'hi', 'hr', 'hu', 'hy', 'id', 'is', 'it', 'ja', 'ka', 'kk',
++  'km', 'kn', 'ko', 'lt', 'lv', 'mk', 'ml', 'mr', 'ms', 'nl', 'no', 'pl', 'pt', 'ro', 'ru', 'si',
++  'sk', 'sl', 'sq', 'sr', 'sv', 'sw', 'ta', 'te', 'th', 'tr', 'uk', 'ur', 'uz', 'vi', 'zh'
++];
++
++/**
++ * Controlled transport leaf: the three search sources used by hybrid search.
++ * Failures are surfaced by rejecting the returned promise.
++ */
++export interface SearchHttpLeaf {
++  prefix(query: string, language: string): Promise<string[]>;
++
++  fullText(query: string, language: string): Promise<string[]>;
++
++  semantic(query: string, language: string): Promise<string[]>;
++}
++
++/** Feedback record produced when the reader rates a semantic result. */
++export interface FeedbackPayload {
++  elementId: string;
++
++  query: string;
++
++  /** One-based telemetry position of the rated result. */
++  position: number;
++
++  title: string;
++}
++
++/** Controlled feedback/analytics leaf. */
++export interface FeedbackLeaf {
++  submit(payload: FeedbackPayload): Promise<void>;
++}
++
++/** Controlled leaf used when the page hands a query back to standard search. */
++export interface StandardSearchLeaf {
++  request(query: string): void;
++}
++
++/** Rendered state of the hybrid search page. */
++export interface HybridSearchState {
++  phase: string;
++
++  lexicalTitles: string[];
++
++  semanticTitles: string[];
++
++  notice?: string;
++
++  retryAvailable: boolean;
++}
++
++/** Reader, experiment and preference context that gates the hybrid page. */
++export interface HybridSearchSettings {
++  language: string;
++
++  experimentGroup: string;
++
++  remoteEnabled: boolean;
++
++  hybridEnabled: boolean;
++
++  /**
++   * Persisted opt-in preference. When supplied it is authoritative for
++   * eligibility; otherwise {@link hybridEnabled} supplies the default.
++   */
++  preferenceEnabled?: boolean;
++
++  query: string;
++}
++
++/** Semantic hit mapped into a result card, keeping section/snippet detail. */
++export interface SemanticResultCard {
++  title: string;
++
++  sectionHeader: string;
++
++  sectionIndex: number;
++
++  snippet: string;
++
++  /** Title as reported by the semantic source, including any section anchor. */
++  displayTitle: string;
++}
++
++/** Outcome of the lexical branch of a search. */
++export interface LexicalSourceResult {
++  succeeded: boolean;
++
++  titles: string[];
++}
++
++/** Outcome of the semantic branch of a search. */
++export interface SemanticSourceResult {
++  succeeded: boolean;
++
++  titles: string[];
++
++  cards: SemanticResultCard[];
++}
++
++/** True when the experiment assignment renders the hybrid result page. */
++export function isHybridExperimentGroup(group: string): boolean {
++  const value = optionalText(group).trim();
++  return value === EXPERIMENT_GROUP_LEXICAL_FIRST || value === EXPERIMENT_GROUP_SEMANTIC_FIRST;
++}
++
++/** Result group order defined by the experiment assignment. */
++export function hybridSourceOrder(group: string): string[] {
++  const value = optionalText(group).trim();
++  if (value === EXPERIMENT_GROUP_SEMANTIC_FIRST) {
++    return [SEMANTIC_SOURCE_ID, LEXICAL_SOURCE_ID];
++  }
++  return [LEXICAL_SOURCE_ID, SEMANTIC_SOURCE_ID];
++}
++
++/** True when the reader's language is part of the hybrid search rollout. */
++export function isSupportedHybridLanguage(language: string): boolean {
++  const value = optionalText(language).trim().toLowerCase();
++  if (value.length === 0) {
++    return false;
++  }
++  return SUPPORTED_HYBRID_LANGUAGES.indexOf(value) >= 0;
++}
++
++/** Defensive text coercion for values crossing the page boundary. */
++export function optionalText(value: string | undefined): string {
++  if (value === undefined || value === null) {
++    return '';
++  }
++  return value;
++}
++
++/**
++ * Resolves the reader's opt-in from the settings supplied at composition.
++ *
++ * A persisted {@link HybridSearchSettings.preferenceEnabled} value wins when
++ * present; otherwise the settings-level {@link HybridSearchSettings.hybridEnabled}
++ * flag supplies the default. An absent value defaults to opted in, which is
++ * what a reader who has never seen the opt-out screen should get.
++ */
++export function resolveHybridOptIn(settings: HybridSearchSettings): boolean {
++  const persisted = settings.preferenceEnabled;
++  if (persisted !== undefined && persisted !== null) {
++    return persisted === true;
++  }
++  return settings.hybridEnabled !== false;
++}
++
++/** Article title without its section anchor. */
++export function baseTitle(displayTitle: string): string {
++  const value = optionalText(displayTitle);
++  const anchor = value.indexOf('#');
++  return anchor >= 0 ? value.substring(0, anchor) : value;
++}
++
++/** Builds the ordered notice for a completed merge. */
++export function buildMergeNotice(
++  lexicalSucceeded: boolean, lexicalCount: number,
++  semanticSucceeded: boolean, semanticCount: number): string {
++  const lexicalEmpty = lexicalCount === 0;
++  const semanticEmpty = semanticCount === 0;
++  if (lexicalEmpty && semanticEmpty) {
++    return NOTICE_NO_RESULTS;
++  }
++  if (!lexicalSucceeded || lexicalEmpty) {
++    return NOTICE_LEXICAL_UNAVAILABLE;
++  }
++  if (!semanticSucceeded || semanticEmpty) {
++    return NOTICE_SEMANTIC_UNAVAILABLE;
++  }
++  return '';
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/HybridSearchPageStore.ets b/entry/src/main/ets/model/HybridSearchPageStore.ets
+new file mode 100644
+index 0000000..13c280d
+--- /dev/null
++++ b/entry/src/main/ets/model/HybridSearchPageStore.ets
+@@ -0,0 +1,325 @@
++import { common } from '@kit.AbilityKit';
++import { preferences } from '@kit.ArkData';
++import {
++  FeedbackLeaf,
++  FeedbackPayload,
++  HybridSearchSettings,
++  HybridSearchState,
++  LEXICAL_SOURCE_ID,
++  MODE_HYBRID,
++  MODE_STANDARD,
++  SEMANTIC_NEGATIVE_ELEMENT_ID,
++  SEMANTIC_POSITIVE_ELEMENT_ID,
++  SEMANTIC_SOURCE_ID,
++  SearchHttpLeaf,
++  StandardSearchLeaf,
++  baseTitle,
++  hybridSourceOrder,
++  isHybridExperimentGroup,
++  isSupportedHybridLanguage,
++  optionalText,
++  resolveHybridOptIn,
++  HYBRID_PHASE_SUCCESS
++} from './HybridSearchModels';
++import { HybridSearchViewModel } from './HybridSearchViewModel';
++
++/**
++ * Page store for the hybrid search experience.
++ *
++ * The store owns everything the ArkUI page does: experiment gating, the
++ * persisted opt-in preference, the rendered mode, semantic feedback mapping,
++ * retry and opt-out. It delegates result production to a real
++ * {@link HybridSearchViewModel}, which in turn talks to the controlled
++ * transport leaves.
++ */
++
++/** ArkData store holding the reader's hybrid search opt-in. */
++const PREFERENCE_STORE_NAME: string = 'hybrid_search';
++const HYBRID_ENABLED_KEY: string = 'hybrid_search_enabled';
++
++export class HybridSearchPageStore {
++  readonly viewModel: HybridSearchViewModel;
++
++  /** Rendered mode: 'standard' or 'hybrid'. */
++  mode: string;
++
++  private query: string;
++  private http: SearchHttpLeaf;
++  private feedback: FeedbackLeaf;
++  private standardSearch: StandardSearchLeaf;
++  private experimentGroup: string;
++  private language: string;
++  private remoteEnabled: boolean;
++  private preferenceEnabled: boolean;
++  private preferenceStore: preferences.Preferences | undefined;
++  private disposed: boolean;
++  private opened: boolean;
++
++  private constructor(
++    context: common.UIAbilityContext,
++    settings: HybridSearchSettings,
++    http: SearchHttpLeaf,
++    feedback: FeedbackLeaf,
++    standardSearch: StandardSearchLeaf
++  ) {
++    this.query = optionalText(settings.query);
++    this.language = optionalText(settings.language);
++    this.experimentGroup = optionalText(settings.experimentGroup);
++    this.remoteEnabled = settings.remoteEnabled !== false;
++    this.http = http;
++    this.feedback = feedback;
++    this.standardSearch = standardSearch;
++    this.viewModel = new HybridSearchViewModel(http);
++    this.viewModel.experimentGroup = this.experimentGroup;
++    this.mode = MODE_STANDARD;
++    this.preferenceEnabled = resolveHybridOptIn(settings);
++    this.preferenceStore = undefined;
++    this.disposed = false;
++    this.opened = false;
++  }
++
++  /**
++   * Production composition entry: builds the page store with the supplied
++   * controlled leaves and restores the persisted opt-in preference.
++   */
++  static async create(
++    context: common.UIAbilityContext,
++    settings: HybridSearchSettings,
++    http: SearchHttpLeaf,
++    feedback: FeedbackLeaf,
++    standardSearch: StandardSearchLeaf
++  ): Promise<HybridSearchPageStore> {
++    const store = new HybridSearchPageStore(context, settings, http, feedback, standardSearch);
++    await store.openPreferenceStore(context);
++    await store.restorePreference();
++    return store;
++  }
++
++  /** Eligible readers opt into the hybrid result page here. */
++  openHybrid(): void {
++    if (this.disposed) {
++      return;
++    }
++    if (!this.isEligible()) {
++      return;
++    }
++    this.opened = true;
++    this.mode = MODE_HYBRID;
++    this.viewModel.reset();
++  }
++
++  /** Submits the current query; hybrid when eligible, standard otherwise. */
++  async submit(): Promise<HybridSearchState> {
++    if (this.disposed) {
++      return this.viewModel.state;
++    }
++    if (this.query.trim().length === 0) {
++      return this.viewModel.state;
++    }
++    if (this.isEligible()) {
++      this.opened = true;
++      this.mode = MODE_HYBRID;
++      return await this.viewModel.search(this.query, this.language);
++    }
++    this.mode = MODE_STANDARD;
++    this.standardSearch.request(this.query);
++    this.viewModel.showStandardResults();
++    return this.viewModel.state;
++  }
++
++  /** Re-executes both source requests through the surviving view model. */
++  async retry(): Promise<HybridSearchState> {
++    if (this.disposed) {
++      return this.viewModel.state;
++    }
++    if (this.mode !== MODE_HYBRID) {
++      return await this.submit();
++    }
++    return await this.viewModel.retry();
++  }
++
++  /** Page-owned feedback mapping for a rated semantic result. */
++  async rate(title: string, position: number, positive: boolean): Promise<void> {
++    if (this.disposed) {
++      return;
++    }
++    const state = this.viewModel.state;
++    const target = this.resolveSemanticTitle(state.semanticTitles, optionalText(title), position);
++    const payload: FeedbackPayload = {
++      elementId: positive ? SEMANTIC_POSITIVE_ELEMENT_ID : SEMANTIC_NEGATIVE_ELEMENT_ID,
++      query: this.query,
++      position: Math.max(0, position) + 1,
++      title: target
++    };
++    try {
++      await this.feedback.submit(payload);
++    } catch (error) {
++      console.error('hybrid search: semantic feedback was not recorded');
++    }
++  }
++
++  /** Opts out: persists the preference and returns to standard search. */
++  async optOut(): Promise<void> {
++    if (this.disposed) {
++      return;
++    }
++    this.preferenceEnabled = false;
++    await this.writePreference(false);
++    this.opened = false;
++    this.mode = MODE_STANDARD;
++    this.viewModel.reset();
++    this.standardSearch.request(this.query);
++  }
++
++  /** Reader edited the query; no request is started until submission. */
++  updateQuery(query: string): void {
++    if (this.disposed) {
++      return;
++    }
++    this.query = optionalText(query);
++  }
++
++  /** Section identifiers to render, in the experiment-defined order. */
++  sections(): string[] {
++    if (this.disposed || this.mode !== MODE_HYBRID) {
++      return [];
++    }
++    const state = this.viewModel.state;
++    if (state.phase !== HYBRID_PHASE_SUCCESS) {
++      return [];
++    }
++    const order = this.viewModel.sourceOrder();
++    const sections: string[] = [];
++    for (let index = 0; index < order.length; index++) {
++      const id = order[index];
++      if (this.hasResults(state, id)) {
++        sections.push(id);
++      }
++    }
++    return sections;
++  }
++
++  /** True when the reader is gated into the hybrid experience. */
++  isEligible(): boolean {
++    if (this.disposed) {
++      return false;
++    }
++    return this.preferenceEnabled === true
++      && this.remoteEnabled
++      && isHybridExperimentGroup(this.experimentGroup)
++      && isSupportedHybridLanguage(this.language);
++  }
++
++  /** True when the page is currently rendering hybrid results. */
++  isHybridMode(): boolean {
++    return !this.disposed && this.mode === MODE_HYBRID && this.opened;
++  }
++
++  /** Persisted opt-in preference currently applied to this page. */
++  isPreferenceEnabled(): boolean {
++    return this.preferenceEnabled;
++  }
++
++  /** The query the page is currently working with. */
++  currentQuery(): string {
++    return this.query;
++  }
++
++  /** The controlled transport the page owns. */
++  transport(): SearchHttpLeaf {
++    return this.http;
++  }
++
++  /** Releases the page and cancels in-flight work. */
++  dispose(): void {
++    if (this.disposed) {
++      return;
++    }
++    this.disposed = true;
++    this.viewModel.dispose();
++  }
++
++  private hasResults(state: HybridSearchState, id: string): boolean {
++    if (id === LEXICAL_SOURCE_ID) {
++      return state.lexicalTitles.length > 0;
++    }
++    if (id === SEMANTIC_SOURCE_ID) {
++      return state.semanticTitles.length > 0;
++    }
++    return false;
++  }
++
++  /**
++   * Resolves the rated card. The UI passes the rendered title, so an exact
++   * match, then an article-title match, then the list position is used.
++   */
++  private resolveSemanticTitle(titles: string[], title: string, position: number): string {
++    if (title.length === 0) {
++      return '';
++    }
++    for (let index = 0; index < titles.length; index++) {
++      if (titles[index] === title) {
++        return title;
++      }
++    }
++    const wantedBase = baseTitle(title);
++    for (let index = 0; index < titles.length; index++) {
++      if (baseTitle(titles[index]) === wantedBase) {
++        return titles[index];
++      }
++    }
++    if (position >= 0 && position < titles.length) {
++      return titles[position];
++    }
++    return title;
++  }
++
++  private async openPreferenceStore(context: common.UIAbilityContext): Promise<void> {
++    if (context === undefined || context === null) {
++      return;
++    }
++    const options: preferences.Options = { name: PREFERENCE_STORE_NAME };
++    try {
++      this.preferenceStore = preferences.getPreferencesSync(context, options);
++    } catch (error) {
++      this.preferenceStore = undefined;
++    }
++    if (this.preferenceStore !== undefined) {
++      return;
++    }
++    try {
++      this.preferenceStore = await preferences.getPreferences(context, options);
++    } catch (error) {
++      console.error('hybrid search: hybrid opt-in store is unavailable');
++      this.preferenceStore = undefined;
++    }
++  }
++
++  private async restorePreference(): Promise<void> {
++    const store = this.preferenceStore;
++    if (store === undefined) {
++      return;
++    }
++    try {
++      const stored = await store.get(HYBRID_ENABLED_KEY, this.preferenceEnabled);
++      if (stored !== undefined && stored !== null) {
++        this.preferenceEnabled = stored === true;
++      }
++    } catch (error) {
++      console.error('hybrid search: hybrid opt-in preference could not be restored');
++    }
++  }
++
++  private async writePreference(enabled: boolean): Promise<void> {
++    const store = this.preferenceStore;
++    if (store === undefined) {
++      return;
++    }
++    try {
++      await store.put(HYBRID_ENABLED_KEY, enabled);
++      await store.flush();
++    } catch (error) {
++      console.error('hybrid search: hybrid opt-in preference could not be persisted');
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/model/HybridSearchViewModel.ets b/entry/src/main/ets/model/HybridSearchViewModel.ets
+new file mode 100644
+index 0000000..85fa5cb
+--- /dev/null
++++ b/entry/src/main/ets/model/HybridSearchViewModel.ets
+@@ -0,0 +1,251 @@
++import {
++  EXPERIMENT_GROUP_LEXICAL_FIRST,
++  HybridSearchState,
++  HYBRID_PHASE_ERROR,
++  HYBRID_PHASE_IDLE,
++  HYBRID_PHASE_LOADING,
++  HYBRID_PHASE_STANDARD_SUCCESS,
++  HYBRID_PHASE_SUCCESS,
++  LexicalSourceResult,
++  NOTICE_BOTH_SOURCES_FAILED,
++  SearchHttpLeaf,
++  SemanticResultCard,
++  SemanticSourceResult,
++  buildMergeNotice,
++  hybridSourceOrder,
++  optionalText
++} from './HybridSearchModels';
++
++/** Number of lexical results the page renders in total. */
++export const LEXICAL_RESULT_CAPACITY: number = 20;
++
++/**
++ * Owns the concurrent dispatch, the prefix/full-text fallback, the semantic
++ * mapping and the merge of the two result sources.
++ *
++ * The page store owns mode, persistence and analytics; this view model owns
++ * everything that turns one query into one combined result set.
++ */
++export class HybridSearchViewModel {
++  state: HybridSearchState;
++
++  /** Experiment assignment that decides the rendered group order. */
++  experimentGroup: string;
++
++  private http: SearchHttpLeaf;
++  private activeQuery: string;
++  private activeLanguage: string;
++  private generation: number;
++  private disposed: boolean;
++  private cards: SemanticResultCard[];
++
++  constructor(http: SearchHttpLeaf) {
++    this.http = http;
++    this.experimentGroup = EXPERIMENT_GROUP_LEXICAL_FIRST;
++    this.state = this.emptyState(HYBRID_PHASE_IDLE);
++    this.activeQuery = '';
++    this.activeLanguage = '';
++    this.generation = 0;
++    this.disposed = false;
++    this.cards = [];
++  }
++
++  /**
++   * Runs a hybrid search for a non-empty query. The lexical and the semantic
++   * transports are both entered before either result is awaited.
++   */
++  async search(query: string, language: string): Promise<HybridSearchState> {
++    if (this.disposed) {
++      return this.state;
++    }
++    const trimmed = optionalText(query).trim();
++    if (trimmed.length === 0) {
++      this.reset();
++      return this.state;
++    }
++    return await this.execute(trimmed, optionalText(language));
++  }
++
++  /** Re-runs the last submitted query through the same transports. */
++  async retry(): Promise<HybridSearchState> {
++    if (this.disposed || this.activeQuery.length === 0) {
++      return this.state;
++    }
++    return await this.execute(this.activeQuery, this.activeLanguage);
++  }
++
++  /** Drops any in-flight work and returns the page to its idle state. */
++  reset(): void {
++    this.generation++;
++    this.activeQuery = '';
++    this.activeLanguage = '';
++    this.cards = [];
++    this.state = this.emptyState(HYBRID_PHASE_IDLE);
++  }
++
++  /** Reports that the page handed the query back to standard search. */
++  showStandardResults(): void {
++    this.reset();
++    this.state = this.emptyState(HYBRID_PHASE_STANDARD_SUCCESS);
++  }
++
++  /** Cancels in-flight work when the owning page goes away. */
++  dispose(): void {
++    this.disposed = true;
++    this.generation++;
++    this.cards = [];
++  }
++
++  /** Ordered result group identifiers for the current experiment assignment. */
++  sourceOrder(): string[] {
++    return hybridSourceOrder(this.experimentGroup);
++  }
++
++  /** Semantic cards of the last successful semantic response. */
++  semanticCards(): SemanticResultCard[] {
++    return this.cards.slice();
++  }
++
++  private async execute(query: string, language: string): Promise<HybridSearchState> {
++    const run = ++this.generation;
++    this.activeQuery = query;
++    this.activeLanguage = language;
++    this.cards = [];
++    this.state = this.emptyState(HYBRID_PHASE_LOADING);
++
++    // Both branches are entered here, so both transports receive the request
++    // before either of them is awaited.
++    const lexicalBranch = this.loadLexical(query, language);
++    const semanticBranch = this.loadSemantic(query, language);
++
++    const lexical: LexicalSourceResult = await lexicalBranch;
++    const semantic: SemanticSourceResult = await semanticBranch;
++
++    if (this.disposed || run !== this.generation) {
++      return this.state;
++    }
++    return this.merge(lexical, semantic);
++  }
++
++  /**
++   * Lexical body: prefix search first, remaining capacity filled with
++   * full-text results, duplicate titles removed.
++   */
++  private async loadLexical(query: string, language: string): Promise<LexicalSourceResult> {
++    try {
++      const prefixTitles = await this.http.prefix(query, language);
++      const titles: string[] = [];
++      this.collectUnique(titles, prefixTitles, LEXICAL_RESULT_CAPACITY);
++
++      if (titles.length < LEXICAL_RESULT_CAPACITY) {
++        const fullTextTitles = await this.http.fullText(query, language);
++        this.collectUnique(titles, fullTextTitles, LEXICAL_RESULT_CAPACITY);
++      }
++      return { succeeded: true, titles: titles };
++    } catch (error) {
++      console.error('hybrid search: lexical source failed for ' + query);
++      return { succeeded: false, titles: [] };
++    }
++  }
++
++  /** Semantic body: maps the response into semantic result cards. */
++  private async loadSemantic(query: string, language: string): Promise<SemanticSourceResult> {
++    try {
++      const rawTitles = await this.http.semantic(query, language);
++      const titles: string[] = [];
++      const cards: SemanticResultCard[] = [];
++      for (let index = 0; index < rawTitles.length; index++) {
++        const card = HybridSearchViewModel.toCard(rawTitles[index]);
++        if (card.displayTitle.length === 0 || titles.indexOf(card.displayTitle) >= 0) {
++          continue;
++        }
++        titles.push(card.displayTitle);
++        cards.push(card);
++      }
++      return { succeeded: true, titles: titles, cards: cards };
++    } catch (error) {
++      console.error('hybrid search: semantic source failed for ' + query);
++      return { succeeded: false, titles: [], cards: [] };
++    }
++  }
++
++  /**
++   * Merge body: a surviving source is never discarded because the other
++   * source failed; only a complete failure becomes an error state.
++   */
++  private merge(lexical: LexicalSourceResult, semantic: SemanticSourceResult): HybridSearchState {
++    if (!lexical.succeeded && !semantic.succeeded) {
++      this.cards = [];
++      this.state = {
++        phase: HYBRID_PHASE_ERROR,
++        lexicalTitles: [],
++        semanticTitles: [],
++        notice: NOTICE_BOTH_SOURCES_FAILED,
++        retryAvailable: true
++      };
++      return this.state;
++    }
++
++    this.cards = semantic.cards;
++    const notice = buildMergeNotice(
++      lexical.succeeded, lexical.titles.length,
++      semantic.succeeded, semantic.titles.length);
++    const retryAvailable = !lexical.succeeded || !semantic.succeeded;
++    const merged: HybridSearchState = {
++      phase: HYBRID_PHASE_SUCCESS,
++      lexicalTitles: lexical.succeeded ? lexical.titles : [],
++      semanticTitles: semantic.succeeded ? semantic.titles : [],
++      retryAvailable: retryAvailable
++    };
++    if (notice.length > 0) {
++      merged.notice = notice;
++    }
++    this.state = merged;
++    return this.state;
++  }
++
++  private collectUnique(target: string[], candidates: string[], limit: number): void {
++    if (candidates === undefined || candidates === null) {
++      return;
++    }
++    for (let index = 0; index < candidates.length; index++) {
++      if (target.length >= limit) {
++        return;
++      }
++      const candidate = optionalText(candidates[index]).trim();
++      if (candidate.length === 0 || target.indexOf(candidate) >= 0) {
++        continue;
++      }
++      target.push(candidate);
++    }
++  }
++
++  /** Maps one semantic hit into a card, keeping section and snippet detail. */
++  private static toCard(rawTitle: string): SemanticResultCard {
++    const displayTitle = optionalText(rawTitle).trim();
++    const anchor = displayTitle.indexOf('#');
++    let title: string = displayTitle;
++    let sectionHeader: string = '';
++    if (anchor > 0) {
++      title = displayTitle.substring(0, anchor);
++      sectionHeader = displayTitle.substring(anchor + 1);
++    }
++    return {
++      title: title,
++      sectionHeader: sectionHeader,
++      sectionIndex: 0,
++      snippet: '',
++      displayTitle: displayTitle
++    };
++  }
++
++  private emptyState(phase: string): HybridSearchState {
++    return {
++      phase: phase,
++      lexicalTitles: [],
++      semanticTitles: [],
++      retryAvailable: false
++    };
++  }
++}
++
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 3081e8d..00470db 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,67 +1,357 @@
++import { common } from '@kit.AbilityKit';
+ import {
+   CallbackHybridPageOwner,
+   HybridIntegrationInput,
++  HybridIntegrationJsonTransport,
+   HybridIntegrationState,
+   HybridPageOwner
+ } from '../integration/HybridPageIntegration';
++import { HttpSearchLeaf, SearchJsonTransport } from '../model/HttpSearchLeaf';
++import { HybridSearchPageStore } from '../model/HybridSearchPageStore';
++import {
++  FeedbackLeaf,
++  FeedbackPayload,
++  HybridSearchSettings,
++  HybridSearchState,
++  LEXICAL_SOURCE_ID,
++  MODE_HYBRID,
++  SEMANTIC_SOURCE_ID,
++  StandardSearchLeaf,
++  optionalText
++} from '../model/HybridSearchModels';
++
++/**
++ * Wikipedia search page.
++ *
++ * The page owns one real {@link HybridSearchPageStore}, which owns one real
++ * hybrid view model. Every rendered control below calls the public store API,
++ * and the controlled HTTP, feedback and standard-search leaves are attached at
++ * this composition boundary.
++ */
++
++/** Bridges a JSON transport to the byte-level transport the HTTP leaf needs. */
++class PageJsonTransport implements SearchJsonTransport {
++  private source: HybridIntegrationJsonTransport;
++
++  constructor(source: HybridIntegrationJsonTransport) {
++    this.source = source;
++  }
++
++  async getText(url: string): Promise<string> {
++    const record = await this.source.getJson(url);
++    return JSON.stringify(record);
++  }
++}
++
++/**
++ * Page-owned feedback leaf. Ratings are recorded on the page first and then
++ * reported to the telemetry channel; a failing channel never breaks the page.
++ */
++class PageFeedbackLeaf implements FeedbackLeaf {
++  private recorded: FeedbackPayload[] = [];
++  private sink: ((payload: FeedbackPayload) => Promise<void>) | undefined = undefined;
++
++  async submit(payload: FeedbackPayload): Promise<void> {
++    this.recorded.push(payload);
++    const sink = this.sink;
++    if (sink === undefined) {
++      return;
++    }
++    try {
++      await sink(payload);
++    } catch (error) {
++      console.error('search page: feedback could not be sent');
++    }
++  }
++
++  recordedFeedback(): FeedbackPayload[] {
++    return this.recorded.slice();
++  }
++
++  onFeedback(sink: (payload: FeedbackPayload) => Promise<void>): void {
++    this.sink = sink;
++  }
++}
++
++/** Page-owned standard-search leaf: hands the query back to standard search. */
++class PageStandardSearchLeaf implements StandardSearchLeaf {
++  private lastQuery: string = '';
++  private listener: ((query: string) => void) | undefined = undefined;
++
++  request(query: string): void {
++    this.lastQuery = optionalText(query);
++    const listener = this.listener;
++    if (listener === undefined) {
++      return;
++    }
++    listener(this.lastQuery);
++  }
++
++  lastRequest(): string {
++    return this.lastQuery;
++  }
++
++  onRequest(listener: (query: string) => void): void {
++    this.listener = listener;
++  }
++}
+ 
+ @Entry
+ @Component
+ struct Index {
+   @State query: string = '';
+   @State phase: string = 'idle';
++  @State lexicalTitles: string[] = [];
++  @State semanticTitles: string[] = [];
++  @State notice: string = '';
++  @State retryAvailable: boolean = false;
++  @State sections: string[] = [];
++  @State hybridMode: boolean = false;
++  private store: HybridSearchPageStore | undefined = undefined;
++  private feedback: PageFeedbackLeaf = new PageFeedbackLeaf();
++  private standardSearch: PageStandardSearchLeaf = new PageStandardSearchLeaf();
+   private runtimeOwnerId: string = 'Index:' + String(Date.now());
+ 
+   async aboutToAppear(): Promise<void> {
++    this.standardSearch.onRequest((): void => {
++      this.refresh();
++    });
++    this.feedback.onFeedback(async (payload: FeedbackPayload): Promise<void> => {
++      console.info('search page feedback ' + payload.elementId
++        + ' at position ' + String(payload.position) + ' for ' + payload.title);
++    });
++    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
++    const settings: HybridSearchSettings = {
++      language: 'en',
++      experimentGroup: 'lexicalsemantic',
++      remoteEnabled: true,
++      hybridEnabled: true,
++      query: ''
++    };
++    const store = await HybridSearchPageStore.create(
++      context, settings, new HttpSearchLeaf(), this.feedback, this.standardSearch);
++    this.store = store;
++    this.refresh();
++  }
++
++  aboutToDisappear(): void {
++    if (this.store !== undefined) {
++      this.store.dispose();
++      this.store = undefined;
++    }
++  }
++
++  private async attach(context: common.UIAbilityContext, input: HybridIntegrationInput): Promise<void> {
++    if (this.store !== undefined) {
++      this.store.dispose();
++      this.store = undefined;
++    }
++    const http = new HttpSearchLeaf('', new PageJsonTransport(input.transport));
++    const store = await HybridSearchPageStore.create(
++      context, input.settings, http, input.feedback, input.standardSearch);
++    this.store = store;
++    this.refresh();
++  }
++
++  private refresh(): void {
++    const store = this.store;
++    if (store === undefined) {
++      return;
++    }
++    const state: HybridSearchState = store.viewModel.state;
++    this.query = store.currentQuery();
++    this.phase = state.phase;
++    this.lexicalTitles = state.lexicalTitles.slice();
++    this.semanticTitles = state.semanticTitles.slice();
++    this.notice = state.notice === undefined ? '' : state.notice;
++    this.retryAvailable = state.retryAvailable;
++    this.sections = store.sections();
++    this.hybridMode = store.mode === MODE_HYBRID;
+   }
+ 
+   private updateQuery(value: string): void {
+     this.query = value;
++    if (this.store !== undefined) {
++      this.store.updateQuery(value);
++    }
++    this.refresh();
++  }
++
++  private openHybrid(): void {
++    if (this.store === undefined) {
++      return;
++    }
++    this.store.openHybrid();
++    this.refresh();
++  }
++
++  private async submitSearch(): Promise<void> {
++    if (this.store === undefined) {
++      return;
++    }
++    await this.store.submit();
++    this.refresh();
++  }
++
++  private async retrySearch(): Promise<void> {
++    if (this.store === undefined) {
++      return;
++    }
++    await this.store.retry();
++    this.refresh();
++  }
++
++  private async rateResult(title: string, position: number, positive: boolean): Promise<void> {
++    if (this.store === undefined) {
++      return;
++    }
++    await this.store.rate(title, position, positive);
++    this.refresh();
++  }
++
++  private async optOut(): Promise<void> {
++    if (this.store === undefined) {
++      return;
++    }
++    await this.store.optOut();
++    this.refresh();
++  }
++
++  private titlesOf(section: string): string[] {
++    return section === LEXICAL_SOURCE_ID ? this.lexicalTitles : this.semanticTitles;
+   }
+ 
+-  private submitSearch(): void {
+-    this.phase = this.query.length > 0 ? 'standard_success' : 'idle';
++  private sectionTitle(section: string): string {
++    return section === LEXICAL_SOURCE_ID ? 'Lexical results' : 'Semantic results';
++  }
++
++  private currentState(): HybridSearchState {
++    const store = this.store;
++    if (store !== undefined) {
++      return store.viewModel.state;
++    }
++    return {
++      phase: this.phase,
++      lexicalTitles: this.lexicalTitles.slice(),
++      semanticTitles: this.semanticTitles.slice(),
++      retryAvailable: this.retryAvailable
++    };
+   }
+ 
+   createRuntimeOwner(): HybridPageOwner {
+     return new CallbackHybridPageOwner(
+-      async (_context, input: HybridIntegrationInput): Promise<void> => {
+-        this.updateQuery(input.settings.query);
++      async (context: common.UIAbilityContext, input: HybridIntegrationInput): Promise<void> => {
++        await this.attach(context, input);
++      },
++      (): void => { this.openHybrid(); },
++      async (): Promise<void> => { await this.submitSearch(); },
++      async (): Promise<void> => { await this.retrySearch(); },
++      async (title: string, position: number, positive: boolean): Promise<void> => {
++        await this.rateResult(title, position, positive);
+       },
+-      (): void => {},
+-      async (): Promise<void> => { this.submitSearch(); },
+-      async (): Promise<void> => {},
+-      async (): Promise<void> => {},
+-      async (): Promise<void> => {},
++      async (): Promise<void> => { await this.optOut(); },
+       (query: string): void => { this.updateQuery(query); },
+-      (): HybridIntegrationState => ({
+-        phase: this.phase, lexicalTitles: [], semanticTitles: [], retryAvailable: false
+-      }),
+-      (): string => 'standard',
+-      (): string => this.query,
+-      (): string[] => [],
+-      (): boolean => false,
++      (): HybridIntegrationState => {
++        const state = this.currentState();
++        const snapshot: HybridIntegrationState = {
++          phase: state.phase,
++          lexicalTitles: state.lexicalTitles.slice(),
++          semanticTitles: state.semanticTitles.slice(),
++          retryAvailable: state.retryAvailable
++        };
++        if (state.notice !== undefined) {
++          snapshot.notice = state.notice;
++        }
++        return snapshot;
++      },
++      (): string => { return this.store === undefined ? 'standard' : this.store.mode; },
++      (): string => { return this.query; },
++      (): string[] => { return this.store === undefined ? [] : this.store.sections(); },
++      (): boolean => { return this.store !== undefined && this.store.isEligible(); },
+       (): string => this.runtimeOwnerId
+     );
+   }
+ 
+   build() {
+-    Column({ space: 16 }) {
++    Column({ space: 12 }) {
+       Text('Wikipedia Search')
+         .fontSize(28)
+         .fontWeight(FontWeight.Bold)
++
+       TextInput({ text: this.query, placeholder: 'Search Wikipedia' })
+         .onChange((value: string) => {
+           this.updateQuery(value);
+         })
+-      Button('Search')
++
++      Row({ space: 12 }) {
++        Button('Open hybrid search')
++          .onClick(() => {
++            this.openHybrid();
++          })
++        Button('Search')
++          .onClick(() => {
++            this.submitSearch();
++          })
++      }
++      .width('100%')
++
++      if (this.phase === 'error') {
++        Text('Search failed')
++          .fontColor('#b00020')
++      }
++
++      if (this.retryAvailable) {
++        Button('Retry')
++          .onClick(() => {
++            this.retrySearch();
++          })
++      }
++
++      if (this.notice.length > 0) {
++        Text(this.notice)
++          .fontSize(14)
++          .fontColor('#666666')
++      }
++
++      ForEach(this.sections, (section: string) => {
++        Column({ space: 6 }) {
++          Text(this.sectionTitle(section))
++            .fontSize(18)
++            .fontWeight(FontWeight.Medium)
++          ForEach(this.titlesOf(section), (title: string) => {
++            Column({ space: 4 }) {
++              Text(title)
++                .fontSize(16)
++              if (section === SEMANTIC_SOURCE_ID) {
++                Row({ space: 8 }) {
++                  Button('Helpful')
++                    .onClick(() => {
++                      this.rateResult(title, this.semanticTitles.indexOf(title), true);
++                    })
++                  Button('Not helpful')
++                    .onClick(() => {
++                      this.rateResult(title, this.semanticTitles.indexOf(title), false);
++                    })
++                }
++              }
++            }
++            .alignItems(HorizontalAlign.Start)
++            .width('100%')
++          }, (title: string) => title)
++        }
++        .alignItems(HorizontalAlign.Start)
++        .width('100%')
++      }, (section: string) => section)
++
++      Button('Turn off hybrid search')
+         .onClick(() => {
+-          this.submitSearch();
++          this.optOut();
+         })
++
+       Text(this.phase)
+     }
+     .width('100%')
+     .height('100%')
+     .padding(24)
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/module.json5 b/entry/src/main/module.json5
+index d0aec6f..3b94343 100644
+--- a/entry/src/main/module.json5
++++ b/entry/src/main/module.json5
+@@ -7,6 +7,9 @@
+     deviceTypes: ['default'],
+     deliveryWithInstall: true,
+     installationFree: false,
++    requestPermissions: [
++      { name: 'ohos.permission.INTERNET' }
++    ],
+     pages: '$profile:main_pages',
+     abilities: [{
+       name: 'EntryAbility',

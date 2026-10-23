@@ -1,0 +1,1015 @@
+diff --git a/app/src/main/java/org/wikipedia/search/ContractShapeCheck.kt b/app/src/main/java/org/wikipedia/search/ContractShapeCheck.kt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/app/src/main/java/org/wikipedia/search/SearchResultsFragment.kt b/app/src/main/java/org/wikipedia/search/SearchResultsFragment.kt
+new file mode 100644
+index 0000000..4927e02
+--- /dev/null
++++ b/app/src/main/java/org/wikipedia/search/SearchResultsFragment.kt
+@@ -0,0 +1,325 @@
++package org.wikipedia.search
++
++import android.app.Activity
++import android.os.Bundle
++import android.view.LayoutInflater
++import android.view.View
++import android.view.ViewGroup
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.ComposeView
++import androidx.core.net.toUri
++import androidx.fragment.app.Fragment
++import androidx.fragment.app.viewModels
++import org.wikipedia.Constants
++import org.wikipedia.R
++import org.wikipedia.activity.FragmentUtil
++import org.wikipedia.analytics.eventplatform.BreadCrumbLogEvent
++import org.wikipedia.compose.theme.BaseTheme
++import org.wikipedia.dataclient.WikiSite
++import org.wikipedia.extensions.RuntimeInstrument
++import org.wikipedia.extensions.instrument
++import org.wikipedia.history.HistoryEntry
++import org.wikipedia.page.PageTitle
++import org.wikipedia.readinglist.LongPressMenu
++import org.wikipedia.settings.Prefs
++import org.wikipedia.util.FeedbackUtil
++import org.wikipedia.util.UriUtil
++
++/**
++ * Search results page.
++ *
++ * The fragment hosts both result modes: the paged standard search and, for
++ * readers the hybrid search experiment runs for, the combined lexical and
++ * semantic result list. It owns the mode of the page, the wiring of the rendered
++ * screen and every interaction that leaves the page - analytics, feedback and
++ * the persisted hybrid search opt in.
++ */
++class SearchResultsFragment : Fragment(), HybridSearchPageEffects {
++
++    private val viewModel: SearchResultsViewModel by lazy {
++        // The hosting search fragment owns the view model; fall back to a locally
++        // scoped one when the page is hosted on its own.
++        runCatching { viewModels<SearchResultsViewModel>().value }
++            .getOrElse { SearchResultsViewModel() }
++    }
++
++    private var showing = false
++
++    var showHybridSearch = false
++
++    val isShowing: Boolean
++        get() = showing
++
++    override fun onCreateView(
++        inflater: LayoutInflater,
++        container: ViewGroup?,
++        savedInstanceState: Bundle?
++    ): View {
++        val composeView = ComposeView(requireContext())
++        composeView.setContent {
++            BaseTheme {
++                if (showHybridSearch) {
++                    renderHybridSearchResults()
++                } else {
++                    renderSearchResults()
++                }
++            }
++        }
++        return composeView
++    }
++
++    override fun onDestroyView() {
++        // The view model outlives the view, so only view scoped state is released here.
++        super.onDestroyView()
++    }
++
++    fun show() {
++        showing = true
++    }
++
++    fun hide() {
++        showing = false
++    }
++
++    fun setInvokeSource(invokeSource: Constants.InvokeSource) {
++        viewModel.invokeSource = invokeSource
++    }
++
++    /**
++     * Runs a search for [term]. In hybrid mode both search sources are queried,
++     * otherwise the paged standard search is refreshed.
++     */
++    fun startSearch(term: String?, force: Boolean, resetHybridSearch: Boolean) {
++        if (resetHybridSearch) {
++            viewModel.resetHybridSearchState()
++        }
++        val previousTerm = viewModel.searchTerm.value
++        viewModel.updateSearchTerm(term)
++        if (term.isNullOrEmpty()) {
++            return
++        }
++        if (showHybridSearch && viewModel.isHybridSearchAvailable()) {
++            if (force || term != previousTerm) {
++                viewModel.loadHybridSearchResults()
++            }
++        } else {
++            viewModel.refreshSearchResults()
++        }
++    }
++
++    private fun renderSearchResults() {
++        SearchResultsScreen(
++            viewModel = viewModel,
++            modifier = Modifier.fillMaxSize(),
++            onNavigateToTitle = { pageTitle, inNewTab, position, location ->
++                navigateToResult(pageTitle, inNewTab, position, location)
++            },
++            onItemLongClick = { view, result, position ->
++                showResultLongPressMenu(view, result, position)
++            },
++            onSemanticSearchClick = { term, _, position ->
++                onSemanticSearchRequested(term, position)
++            },
++            onCloseSearch = { hide() },
++            onRetrySearch = { viewModel.refreshSearchResults() },
++            onLanguageClick = { position -> onLanguageRowSelected(position) },
++            onLoading = { enabled -> onLoadingChanged(enabled) },
++            onNoResults = { onLoadingChanged(false) }
++        )
++    }
++
++    private fun renderHybridSearchResults() {
++        HybridSearchResultsScreen(
++            viewModel = viewModel,
++            modifier = Modifier.fillMaxSize(),
++            onNavigateToTitle = { pageTitle, inNewTab, position, location ->
++                navigateToResult(pageTitle, inNewTab, position, location)
++            },
++            onSemanticCardImpression = { result, position ->
++                onSemanticCardImpression(result, position)
++            },
++            onSemanticItemClick = { pageTitle, inNewTab, isSemantic, position, location ->
++                onSemanticResultSelected(pageTitle, inNewTab, isSemantic, position, location)
++            },
++            onItemLongClick = { view, result, position ->
++                showResultLongPressMenu(view, result, position)
++            },
++            onInfoClick = { openHybridSearchInfo() },
++            onTurnOffExperimentClick = { term -> onTurnOffHybridSearch(term) },
++            onCloseSearch = { hide() },
++            onRetrySearch = { retryHybridSearch() },
++            onLoading = { enabled -> onLoadingChanged(enabled) },
++            onRatingClick = { positive, pageTitle, position ->
++                onSemanticResultRated(positive, pageTitle, position)
++            },
++            onLexicalResultsEmpty = { onSourceResultsEmpty(lexical = true) },
++            onSemanticResultsEmpty = { onSourceResultsEmpty(lexical = false) },
++            onError = { throwable -> onHybridSearchError(throwable) }
++        )
++    }
++
++    /** Enters hybrid mode for the query that is on screen. */
++    private fun onSemanticSearchRequested(term: String, position: Int) {
++        if (!viewModel.isHybridSearchAvailable()) {
++            return
++        }
++        showHybridSearch = true
++        startSearch(term.ifEmpty { viewModel.searchTerm.value.orEmpty() }, force = true, resetHybridSearch = true)
++    }
++
++    /** Runs both sources again after a failed or partial search. */
++    private fun retryHybridSearch() {
++        if (showHybridSearch && viewModel.isHybridSearchAvailable()) {
++            viewModel.loadHybridSearchResults()
++        } else {
++            viewModel.refreshSearchResults()
++        }
++    }
++
++    /**
++     * Opts the reader out of the experiment: the preference is persisted, the page
++     * leaves hybrid mode and the query is handed back to standard search.
++     */
++    private fun onTurnOffHybridSearch(term: String) {
++        showHybridSearch = false
++        persistHybridSearchPreference(false)
++        startSearch(term, force = true, resetHybridSearch = true)
++        callback()?.setSearchText(term)
++    }
++
++    /**
++     * Sends the rating of a semantic card to analytics. Positions are zero based
++     * in the rendered list and one based in telemetry.
++     */
++    private fun onSemanticResultRated(positive: Boolean, pageTitle: PageTitle, position: Int) {
++        instrument()?.submitInteraction(
++            name = "click",
++            elementId = if (positive) {
++                HybridSearchPageActionPrefix.FEEDBACK_POSITIVE
++            } else {
++                HybridSearchPageActionPrefix.FEEDBACK_NEGATIVE
++            },
++            pageData = pageTitle,
++            actionContext = viewModel.getEventActionContext() + mapOf(
++                HybridSearchPageActionPrefix.FEEDBACK_POSITION to position + 1
++            )
++        )
++    }
++
++    /** Maps the semantic card that is shown to a result position. */
++    private fun onSemanticCardImpression(result: SearchResult, position: Int) {
++        instrument()?.submitInteraction(
++            name = "impression",
++            elementId = "semantic_search_result",
++            pageData = result.pageTitle,
++            actionContext = viewModel.getEventActionContext() + mapOf(
++                HybridSearchPageActionPrefix.FEEDBACK_POSITION to position + 1
++            )
++        )
++    }
++
++    private fun onSemanticResultSelected(
++        pageTitle: PageTitle,
++        inNewTab: Boolean,
++        isSemantic: Boolean,
++        position: Int,
++        location: Any?
++    ) {
++        instrument()?.submitInteraction(
++            name = "click",
++            elementId = "semantic_search_result",
++            pageData = pageTitle,
++            actionContext = viewModel.getEventActionContext() + mapOf(
++                HybridSearchPageActionPrefix.FEEDBACK_POSITION to position + 1
++            )
++        )
++        navigateToResult(pageTitle, inNewTab, position, location)
++    }
++
++    private fun navigateToResult(pageTitle: PageTitle, inNewTab: Boolean, position: Int, location: Any?) {
++        BreadCrumbLogEvent.logMap(requireContext(), viewModel.getBreadcrumbActionContext())
++        callback()?.navigateToTitle(pageTitle, inNewTab, position, location)
++    }
++
++    private fun showResultLongPressMenu(view: View, result: SearchResult, position: Int) {
++        LongPressMenu(view, callback()).show(HistoryEntry(result.pageTitle, HistoryEntry.SOURCE_SEARCH))
++    }
++
++    private fun onLanguageRowSelected(position: Int) {
++        (requireParentFragment() as? SearchFragment)?.setUpLanguageScroll(position)
++    }
++
++    private fun onLoadingChanged(enabled: Boolean) {
++        callback()?.onSearchProgressBar(enabled)
++    }
++
++    /** Explains a source that returned nothing while the other one answered. */
++    private fun onSourceResultsEmpty(lexical: Boolean) {
++        val activity = activityOrNull() ?: return
++        FeedbackUtil.showMessage(
++            activity,
++            if (lexical) {
++                R.string.hybrid_lexical_search_results_empty
++            } else {
++                R.string.hybrid_search_results_empty
++            }
++        )
++    }
++
++    private fun onHybridSearchError(throwable: Throwable) {
++        val activity = activityOrNull() ?: return
++        FeedbackUtil.showMessage(activity, R.string.hybrid_search_results_empty)
++    }
++
++    private fun openHybridSearchInfo() {
++        val activity = activityOrNull() ?: return
++        UriUtil.visitInExternalBrowser(activity, HYBRID_SEARCH_INFO_URL.toUri())
++    }
++
++    /** Rating of a semantic card requested by the page owner. */
++    override fun submitFeedback(payload: Map<String, Any>) {
++        val title = payload[HybridSearchPageActionPrefix.FEEDBACK_TITLE]?.toString().orEmpty()
++        if (title.isEmpty()) {
++            return
++        }
++        val position = (payload[HybridSearchPageActionPrefix.FEEDBACK_POSITION] as? Number)?.toInt() ?: 0
++        val positive = payload[HybridSearchPageActionPrefix.FEEDBACK_ELEMENT_ID]?.toString() ==
++            HybridSearchPageActionPrefix.FEEDBACK_POSITIVE
++        onSemanticResultRated(
++            positive,
++            PageTitle(title, WikiSite.forLanguageCode(viewModel.languageCode.value)),
++            position
++        )
++    }
++
++    /** Hands the query that is on screen back to standard search. */
++    override fun requestStandardSearch(query: String) {
++        showHybridSearch = false
++        startSearch(query, force = true, resetHybridSearch = true)
++        callback()?.setSearchText(query)
++    }
++
++    private fun callback(): SearchResultCallback? =
++        FragmentUtil.getCallback(this, SearchResultCallback::class.java)
++
++    private fun activityOrNull(): Activity? = try {
++        requireActivity()
++    } catch (e: Exception) {
++        null
++    }
++
++    private fun instrument(): RuntimeInstrument? = activityOrNull()?.instrument
++
++    private fun persistHybridSearchPreference(enabled: Boolean) {
++        try {
++            Prefs.isHybridSearchEnabled = enabled
++        } catch (e: Exception) {
++            // The preference store is not available; the page state still changes.
++        }
++    }
++
++    companion object {
++        private const val HYBRID_SEARCH_INFO_URL = "https://meta.wikimedia.org/wiki/Wikipedia_Search"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/java/org/wikipedia/search/SemanticSearchService.kt b/app/src/main/java/org/wikipedia/search/SemanticSearchService.kt
+new file mode 100644
+index 0000000..9ae0922
+--- /dev/null
++++ b/app/src/main/java/org/wikipedia/search/SemanticSearchService.kt
+@@ -0,0 +1,107 @@
++package org.wikipedia.search
++
++import kotlinx.serialization.Serializable
++import org.wikipedia.dataclient.ServiceFactory
++import org.wikipedia.dataclient.WikiSite
++import org.wikipedia.page.PageTitle
++import retrofit2.http.GET
++import retrofit2.http.Query
++
++/**
++ * A single section level hit produced by the semantic search backend.
++ *
++ * [title] is the article the hit belongs to and [sectionHeader] names the matched
++ * section inside that article. Section hits that are addressed as a single
++ * `Article#Section` string (as returned by the wiki semantic search) are split
++ * while the response is mapped, so the rest of the app only ever sees the split
++ * form.
++ */
++@Serializable
++class SemanticSearchResult(
++    val title: String = "",
++    val sectionHeader: String = "",
++    val sectionIndex: Int = 0,
++    val sectionText: String = "",
++    val url: String = ""
++) {
++
++    /** Article part of the hit. */
++    val articleTitle: String
++        get() = title.substringBefore(SECTION_SEPARATOR)
++
++    /** Section part of the hit, empty when the hit addresses a whole article. */
++    val matchedSectionHeader: String
++        get() = when {
++            sectionHeader.isNotEmpty() -> sectionHeader
++            title.contains(SECTION_SEPARATOR) -> title.substringAfter(SECTION_SEPARATOR)
++            else -> ""
++        }
++
++    /** Maps the hit onto the result model rendered as a semantic result card. */
++    fun toSearchResult(wikiSite: WikiSite): SearchResult = SearchResult(
++        pageTitle = PageTitle(articleTitle, wikiSite, matchedSectionHeader),
++        searchResultType = SearchResult.SearchResultType.SEMANTIC,
++        snippet = sectionText
++    )
++
++    companion object {
++        /** Separates the article from the section in `Article#Section` addresses. */
++        const val SECTION_SEPARATOR = '#'
++
++        /** Builds a hit from an `Article#Section` addressed wiki page title. */
++        fun fromPageTitle(pageTitle: String, sectionIndex: Int, sectionText: String = ""): SemanticSearchResult =
++            SemanticSearchResult(
++                title = pageTitle.substringBefore(SECTION_SEPARATOR),
++                sectionHeader = pageTitle.substringAfter(SECTION_SEPARATOR, ""),
++                sectionIndex = sectionIndex,
++                sectionText = sectionText
++            )
++    }
++}
++
++/** Response of a semantic search request. */
++@Serializable
++class SemanticSearchResults(
++    val languageCode: String = "",
++    val query: String = "",
++    val results: List<SemanticSearchResult> = emptyList()
++)
++
++/**
++ * Transport used by the semantic half of a hybrid search.
++ *
++ * The application owns request selection (which query, how many hits, which
++ * table and whether section text is included) and the mapping of the response
++ * onto semantic result cards; the transport itself only performs the request.
++ */
++interface SemanticSearchService {
++
++    @GET("semantic")
++    suspend fun search(
++        @Query("q") query: String,
++        @Query("limit") count: Int,
++        @Query("table") table: String,
++        @Query("include_text") includeText: Boolean
++    ): SemanticSearchResults
++
++    companion object {
++        const val BASE_URL = "https://api.wikimedia.org/service/search/v1"
++
++        /** Table holding the section level content served by the semantic endpoint. */
++        const val SEMANTIC_TABLE = "semantic_sections"
++
++        fun create(wikiSite: WikiSite): SemanticSearchService =
++            ServiceFactory.get(wikiSite, BASE_URL, SemanticSearchService::class.java)
++    }
++}
++
++/**
++ * Identifier of a hybrid search card: the article title, extended with the
++ * section header for section level (semantic) hits.
++ */
++val SearchResult.hybridSearchIdentifier: String
++    get() {
++        val section = pageTitle.fragment
++        return if (section.isEmpty()) pageTitle.prefixedText
++        else "${pageTitle.prefixedText}${SemanticSearchResult.SECTION_SEPARATOR}$section"
++    }
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/search/HybridSearchPageActionPrefix.kt b/app/src/main/upstream/kotlin/org/wikipedia/search/HybridSearchPageActionPrefix.kt
+index 6802bb2..31df055 100644
+--- a/app/src/main/upstream/kotlin/org/wikipedia/search/HybridSearchPageActionPrefix.kt
++++ b/app/src/main/upstream/kotlin/org/wikipedia/search/HybridSearchPageActionPrefix.kt
+@@ -1,6 +1,8 @@
+ package org.wikipedia.search
+ 
+ import org.wikipedia.Constants
++import org.wikipedia.WikipediaApp
++import org.wikipedia.settings.Prefs
+ 
+ interface HybridSearchPageEffects {
+     fun submitFeedback(payload: Map<String, Any>)
+@@ -19,32 +21,158 @@ data class HybridSearchPageSnapshot(
+     val notice: String?
+ )
+ 
+-/** Same application entry ABI as final, backed by the pre-feature search page. */
++/**
++ * Application owned entry point of the hybrid search page.
++ *
++ * The page owns when hybrid mode is entered and left, when the current query is
++ * dispatched to the two search sources, when a failed search is retried, when a
++ * semantic card is rated and when the reader opts out. Everything that has to do
++ * with getting results lives in [SearchResultsViewModel]; everything that leaves
++ * the page (feedback, going back to standard search, the persisted opt in) is an
++ * effect of the hosting screen.
++ */
+ class HybridSearchPageActionPrefix(
+     private val effects: HybridSearchPageEffects,
+-    private val viewModel: SearchResultsViewModel = SearchResultsViewModel()
++    val viewModel: SearchResultsViewModel = SearchResultsViewModel()
+ ) {
++
++    private var mode = MODE_STANDARD
++
+     init {
+         viewModel.invokeSource = Constants.InvokeSource.SEARCH
+-        viewModel.updateLanguageCode("fr")
+-        viewModel.updateSearchTerm("Paris")
+-    }
+-
+-    fun openHybridSearch() = Unit
+-    fun submitSearch() = viewModel.refreshSearchResults()
+-    fun retry() = viewModel.refreshSearchResults()
+-    fun rateSemanticResult(position: Int, positive: Boolean) = Unit
+-    fun turnOffHybridSearch() = Unit
+-
+-    fun snapshot() = HybridSearchPageSnapshot(
+-        featureAvailable = false,
+-        mode = "standard",
+-        phase = "idle",
+-        query = viewModel.searchTerm.value.orEmpty(),
+-        sections = listOf("lexical"),
+-        lexicalTitles = emptyList(),
+-        semanticTitles = emptyList(),
+-        retryAvailable = false,
+-        notice = null
+-    )
+-}
++        viewModel.updateLanguageCode(currentLanguageCode())
++        viewModel.updateSearchTerm(INITIAL_SEARCH_TERM)
++    }
++
++    /** Enters hybrid mode for readers the experiment is running for. */
++    fun openHybridSearch() {
++        if (!viewModel.isHybridSearchAvailable()) {
++            return
++        }
++        mode = MODE_HYBRID
++        viewModel.resetHybridSearchState()
++    }
++
++    /** Dispatches the current query; hybrid mode answers with both search sources. */
++    fun submitSearch() {
++        if (isHybridMode()) {
++            mode = MODE_HYBRID
++            viewModel.loadHybridSearchResults()
++        } else {
++            viewModel.refreshSearchResults()
++        }
++    }
++
++    /** Runs both sources again on the page that is still showing the query. */
++    fun retry() {
++        submitSearch()
++    }
++
++    /**
++     * Reports the rating of the semantic card at the given list position. The
++     * rating never changes the results that are on screen.
++     */
++    fun rateSemanticResult(position: Int, positive: Boolean) {
++        val target = viewModel.semanticResults().getOrNull(position) ?: return
++        effects.submitFeedback(
++            mapOf(
++                FEEDBACK_ELEMENT_ID to if (positive) FEEDBACK_POSITIVE else FEEDBACK_NEGATIVE,
++                FEEDBACK_QUERY to viewModel.searchTerm.value.orEmpty(),
++                FEEDBACK_POSITION to position,
++                FEEDBACK_TITLE to target.hybridSearchIdentifier
++            )
++        )
++    }
++
++    /**
++     * Leaves hybrid mode for good: the opt out is persisted and the query that is
++     * on screen is handed back to standard search.
++     */
++    fun turnOffHybridSearch() {
++        val query = viewModel.searchTerm.value.orEmpty()
++        mode = MODE_STANDARD
++        viewModel.resetHybridSearchState()
++        persistHybridSearchPreference(false)
++        effects.requestStandardSearch(query)
++    }
++
++    fun snapshot(): HybridSearchPageSnapshot {
++        val hybridMode = isHybridMode()
++        return HybridSearchPageSnapshot(
++            featureAvailable = viewModel.isHybridSearchAvailable(),
++            mode = mode,
++            phase = viewModel.hybridSearchPhase.value.key,
++            query = viewModel.searchTerm.value.orEmpty(),
++            sections = if (hybridMode) resultSections() else listOf(LEXICAL_SECTION),
++            lexicalTitles = if (hybridMode) {
++                viewModel.lexicalResults().map { it.hybridSearchIdentifier }
++            } else {
++                emptyList()
++            },
++            semanticTitles = if (hybridMode) {
++                viewModel.semanticResults().map { it.hybridSearchIdentifier }
++            } else {
++                emptyList()
++            },
++            retryAvailable = hybridMode && viewModel.isHybridSearchRetryAvailable(),
++            notice = emptySourceNotice()
++        )
++    }
++
++    /** True while the page shows hybrid results or the reader may still get them. */
++    private fun isHybridMode(): Boolean = mode == MODE_HYBRID || viewModel.isHybridSearchAvailable()
++
++    /** Result groups rendered by the page, in the order defined by the experiment. */
++    private fun resultSections(): List<String> =
++        if (viewModel.isSemanticSectionFirst) {
++            listOf(SEMANTIC_SECTION, LEXICAL_SECTION)
++        } else {
++            listOf(LEXICAL_SECTION, SEMANTIC_SECTION)
++        }
++
++    /** Explains a source that returned nothing while the other one answered. */
++    private fun emptySourceNotice(): String? {
++        if (!isHybridMode() || viewModel.hybridSearchPhase.value != HybridSearchPhase.SUCCESS) {
++            return null
++        }
++        return when {
++            viewModel.isLexicalResultsEmpty() -> LEXICAL_RESULTS_EMPTY
++            viewModel.isSemanticResultsEmpty() -> SEMANTIC_RESULTS_EMPTY
++            else -> null
++        }
++    }
++
++    private fun currentLanguageCode(): String =
++        WikipediaApp.instance.languageState.appLanguageCode.ifEmpty { INITIAL_LANGUAGE_CODE }
++
++    private fun persistHybridSearchPreference(enabled: Boolean) {
++        try {
++            Prefs.isHybridSearchEnabled = enabled
++        } catch (e: Exception) {
++            // The preference store is not available; the page state still changes.
++        }
++    }
++
++    companion object {
++        const val MODE_STANDARD = "standard"
++        const val MODE_HYBRID = "hybrid"
++
++        const val LEXICAL_SECTION = "lexical"
++        const val SEMANTIC_SECTION = "semantic"
++
++        const val LEXICAL_RESULTS_EMPTY = "lexical_results_empty"
++        const val SEMANTIC_RESULTS_EMPTY = "semantic_results_empty"
++
++        const val FEEDBACK_ELEMENT_ID = "elementId"
++        const val FEEDBACK_QUERY = "query"
++        const val FEEDBACK_POSITION = "position"
++        const val FEEDBACK_TITLE = "title"
++        const val FEEDBACK_POSITIVE = "thumb_up"
++        const val FEEDBACK_NEGATIVE = "thumb_down"
++
++        private const val INITIAL_LANGUAGE_CODE = "fr"
++
++        /** Query the search page opens with; typing replaces it. */
++        private const val INITIAL_SEARCH_TERM = "Paris"
++    }
++}
+\ No newline at end of file
+diff --git a/app/src/main/upstream/kotlin/org/wikipedia/search/SearchResultsViewModel.kt b/app/src/main/upstream/kotlin/org/wikipedia/search/SearchResultsViewModel.kt
+index e4b9fe5..4a09771 100644
+--- a/app/src/main/upstream/kotlin/org/wikipedia/search/SearchResultsViewModel.kt
++++ b/app/src/main/upstream/kotlin/org/wikipedia/search/SearchResultsViewModel.kt
+@@ -10,17 +10,67 @@ import androidx.paging.cachedIn
+ import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.ExperimentalCoroutinesApi
+ import kotlinx.coroutines.FlowPreview
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.async
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.flow.MutableSharedFlow
+ import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.SharedFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asSharedFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ import kotlinx.coroutines.flow.combine
+ import kotlinx.coroutines.flow.debounce
+ import kotlinx.coroutines.flow.flatMapLatest
++import kotlinx.coroutines.launch
+ import org.wikipedia.Constants
++import org.wikipedia.dataclient.ServiceFactory
++import org.wikipedia.dataclient.WikiSite
++import org.wikipedia.dataclient.mwapi.MwQueryPage
++import org.wikipedia.settings.Prefs
++import org.wikipedia.util.UiState
++
++/** Lifecycle of the hybrid search results shown by the search page. */
++enum class HybridSearchPhase(val key: String) {
++    IDLE("idle"),
++    LOADING("loading"),
++    SUCCESS("success"),
++    ERROR("error")
++}
++
++/** Outcome of one source (lexical or semantic) of a hybrid search. */
++data class HybridSearchSourceOutcome(
++    val results: List<SearchResult>? = null,
++    val error: Throwable? = null
++) {
++
++    /** A source succeeded when it answered, even when it returned nothing. */
++    val succeeded: Boolean get() = error == null
++
++    val isEmpty: Boolean get() = results.isNullOrEmpty()
++}
++
++/** Outcomes of both sources of the most recent hybrid search. */
++data class HybridSearchSources(
++    val lexical: HybridSearchSourceOutcome = HybridSearchSourceOutcome(),
++    val semantic: HybridSearchSourceOutcome = HybridSearchSourceOutcome()
++) {
++
++    val anySucceeded: Boolean get() = lexical.succeeded || semantic.succeeded
++
++    val allSucceeded: Boolean get() = lexical.succeeded && semantic.succeeded
++
++    val firstError: Throwable? get() = lexical.error ?: semantic.error
++}
+ 
+ class SearchResultsViewModel : ViewModel() {
+ 
+     private val batchSize = 20
++    private val semanticBatchSize = 20
+     private val delayMillis = 200L
++
++    private val hybridSearchAbCTest = HybridSearchAbCTest()
++
+     var countsPerLanguageCode = mutableListOf<Pair<String, Int>>()
+ 
+     lateinit var invokeSource: Constants.InvokeSource
+@@ -28,10 +78,29 @@ class SearchResultsViewModel : ViewModel() {
+     private val _searchTerm = MutableStateFlow<String?>(null)
+     var searchTerm = _searchTerm.asStateFlow()
+ 
+-    private var _languageCode = MutableStateFlow<String?>(null)
++    private val _searchTermForLogging = MutableSharedFlow<String?>(replay = 1, extraBufferCapacity = 8)
++    var searchTermForLogging: SharedFlow<String?> = _searchTermForLogging.asSharedFlow()
++
++    private val _lexicalResultsForLogging = MutableStateFlow<List<SearchResult>?>(null)
++    var lexicalResultsForLogging: StateFlow<List<SearchResult>?> = _lexicalResultsForLogging.asStateFlow()
++
++    private val _languageCode = MutableStateFlow("")
+     var languageCode = _languageCode.asStateFlow()
+ 
+-    private var _refreshSearchResults = MutableStateFlow(0)
++    private val _hybridSearchResultState =
++        MutableStateFlow<UiState<List<SearchResult>>>(UiState.Loading)
++    val hybridSearchResultState: StateFlow<UiState<List<SearchResult>>> =
++        _hybridSearchResultState.asStateFlow()
++
++    private val _hybridSearchPhase = MutableStateFlow(HybridSearchPhase.IDLE)
++    val hybridSearchPhase: StateFlow<HybridSearchPhase> = _hybridSearchPhase.asStateFlow()
++
++    private val _hybridSearchSources = MutableStateFlow(HybridSearchSources())
++    val hybridSearchSources: StateFlow<HybridSearchSources> = _hybridSearchSources.asStateFlow()
++
++    private val _refreshSearchResults = MutableStateFlow(0)
++
++    private var hybridSearchJob: Job? = null
+ 
+     @OptIn(
+         FlowPreview::class,
+@@ -55,6 +124,7 @@ class SearchResultsViewModel : ViewModel() {
+ 
+     fun updateSearchTerm(term: String?) {
+         _searchTerm.value = term
++        _searchTermForLogging.tryEmit(term)
+     }
+ 
+     fun updateLanguageCode(code: String) {
+@@ -65,6 +135,241 @@ class SearchResultsViewModel : ViewModel() {
+         _refreshSearchResults.value += 1
+     }
+ 
++    /** Experiment bucket the reader is assigned to; it also defines the result order. */
++    val getTestGroup: String
++        get() = hybridSearchAbCTest.getGroupName()
++
++    /** True when the remote experiment is running for the language that is searched. */
++    val isHybridSearchExperimentOn: Boolean
++        get() {
++            val language = _languageCode.value
++            return language.isNotEmpty() && hybridSearchAbCTest.isHybridSearchEnabled(language)
++        }
++
++    /** Persisted reader opt in; readers are opted in until they opt out. */
++    val isHybridSearchPreferenceEnabled: Boolean
++        get() = try {
++            Prefs.isHybridSearchEnabled
++        } catch (e: Exception) {
++            DEFAULT_HYBRID_SEARCH_PREFERENCE
++        }
++
++    /**
++     * Hybrid search is offered when the experiment is running for the searched
++     * language and the reader has not opted out.
++     */
++    fun isHybridSearchAvailable(): Boolean =
++        isHybridSearchExperimentOn && isHybridSearchPreferenceEnabled && _languageCode.value.isNotEmpty()
++
++    /** Results of the search currently displayed, in the order defined by the experiment. */
++    private fun mergedResults(): List<SearchResult> =
++        (_hybridSearchResultState.value as? UiState.Success)?.data.orEmpty()
++
++    fun lexicalResults(): List<SearchResult> =
++        mergedResults().filter { it.type == SearchResult.SearchResultType.SEARCH }
++
++    fun semanticResults(): List<SearchResult> =
++        mergedResults().filter { it.type == SearchResult.SearchResultType.SEMANTIC }
++
++    fun isLexicalResultsEmpty(): Boolean =
++        _hybridSearchSources.value.lexical.isEmpty && semanticResults().isNotEmpty()
++
++    fun isSemanticResultsEmpty(): Boolean =
++        _hybridSearchSources.value.semantic.isEmpty && lexicalResults().isNotEmpty()
++
++    /**
++     * A retry is offered whenever the previous search could not be completed for
++     * both sources, which keeps the page recoverable after a partial failure.
++     */
++    fun isHybridSearchRetryAvailable(): Boolean = when (_hybridSearchPhase.value) {
++        HybridSearchPhase.ERROR -> true
++        HybridSearchPhase.SUCCESS -> !_hybridSearchSources.value.allSucceeded
++        else -> false
++    }
++
++    fun resetHybridSearchState() {
++        hybridSearchJob?.cancel()
++        hybridSearchJob = null
++        _hybridSearchPhase.value = HybridSearchPhase.IDLE
++        _hybridSearchSources.value = HybridSearchSources()
++        _hybridSearchResultState.value = UiState.Loading
++        _lexicalResultsForLogging.value = null
++    }
++
++    /**
++     * Runs a hybrid search for the current term and language: the lexical and the
++     * semantic source are dispatched concurrently and merged once both have
++     * answered. A source that fails never discards the results of the other one;
++     * only two failing sources move the page into the error state.
++     */
++    fun loadHybridSearchResults() {
++        val term = _searchTerm.value
++        val language = _languageCode.value
++        if (term.isNullOrEmpty() || language.isEmpty()) {
++            // Nothing to search for, so no request is dispatched at all.
++            return
++        }
++        _hybridSearchPhase.value = HybridSearchPhase.LOADING
++        _hybridSearchResultState.value = UiState.Loading
++        _hybridSearchSources.value = HybridSearchSources()
++        _searchTermForLogging.tryEmit(term)
++        // A newer search replaces the one that is still running.
++        hybridSearchJob?.cancel()
++        hybridSearchJob = viewModelScope.launch {
++            coroutineScope {
++                val lexicalRequest = async { fetchLexicalResults(term, language) }
++                val semanticRequest = async { fetchSemanticResults(term, language) }
++                val sources = HybridSearchSources(
++                    lexical = lexicalRequest.await().toSourceOutcome(),
++                    semantic = semanticRequest.await().toSourceOutcome()
++                )
++                _hybridSearchSources.value = sources
++                _lexicalResultsForLogging.value = sources.lexical.results
++                if (sources.anySucceeded) {
++                    _hybridSearchResultState.value = UiState.Success(
++                        mergeResults(
++                            sources.lexical.results.orEmpty(),
++                            sources.semantic.results.orEmpty()
++                        )
++                    )
++                    _hybridSearchPhase.value = HybridSearchPhase.SUCCESS
++                } else {
++                    _hybridSearchResultState.value = UiState.Error(
++                        sources.firstError ?: IllegalStateException("Hybrid search failed")
++                    )
++                    _hybridSearchPhase.value = HybridSearchPhase.ERROR
++                }
++            }
++        }
++    }
++
++    /** Groups the sources in the order defined by the experiment bucket. */
++    private fun mergeResults(
++        lexicalResults: List<SearchResult>,
++        semanticResults: List<SearchResult>
++    ): List<SearchResult> =
++        if (isSemanticSectionFirst) semanticResults + lexicalResults else lexicalResults + semanticResults
++
++    /** True when the experiment bucket shows the semantic section before the lexical one. */
++    val isSemanticSectionFirst: Boolean
++        get() {
++            val group = getTestGroup.lowercase()
++            val semantic = group.indexOf(SEMANTIC_GROUP_KEY)
++            val lexical = group.indexOf(LEXICAL_GROUP_KEY)
++            return semantic >= 0 && (lexical < 0 || semantic < lexical)
++        }
++
++    /**
++     * Lexical source: prefix search first, the remaining capacity of the batch is
++     * filled with full text results. Titles returned by both requests appear once.
++     */
++    private suspend fun fetchLexicalResults(term: String, language: String): Result<List<SearchResult>> =
++        runSourceRequest {
++            val wikiSite = WikiSite.forLanguageCode(language)
++            val service = ServiceFactory.get(wikiSite)
++            val results = LinkedHashMap<String, SearchResult>()
++            val prefixPages = service.prefixSearchResponse(term, batchSize, 0).body()
++                ?.query
++                ?.pages
++                .orEmpty()
++                .sortedBy { it.index }
++            prefixPages.forEach { page ->
++                page.toSearchResult(wikiSite)?.let { results.putIfAbsent(it.pageTitle.prefixedText, it) }
++            }
++            val remainingCapacity = batchSize - results.size
++            if (remainingCapacity > 0) {
++                val fullTextPages = service.fullTextSearch(term, remainingCapacity, prefixPages.size)
++                    ?.query
++                    ?.pages
++                    .orEmpty()
++                    .sortedBy { it.index }
++                fullTextPages.forEach { page ->
++                    page.toSearchResult(wikiSite)?.let { results.putIfAbsent(it.pageTitle.prefixedText, it) }
++                }
++            }
++            results.values.toList()
++        }
++
++    /**
++     * Semantic source: section level hits of the semantic search service and of
++     * the wiki semantic search are merged, so a language that is not served by
++     * the service still contributes semantic cards. The source only fails when
++     * neither transport answers.
++     */
++    private suspend fun fetchSemanticResults(term: String, language: String): Result<List<SearchResult>> =
++        coroutineScope {
++            val wikiSite = WikiSite.forLanguageCode(language)
++            val serviceRequest = async {
++                runSourceRequest {
++                    SemanticSearchService.create(wikiSite)
++                        .search(term, semanticBatchSize, SemanticSearchService.SEMANTIC_TABLE, true)
++                        .results
++                        .map { it.toSearchResult(wikiSite) }
++                }
++            }
++            val wikiRequest = async {
++                runSourceRequest {
++                    ServiceFactory.get(wikiSite)
++                        .fullTextSearchResponse(term, semanticBatchSize, 0, true)
++                        .body()
++                        ?.query
++                        ?.pages
++                        .orEmpty()
++                        .sortedBy { it.index }
++                        .map { SemanticSearchResult.fromPageTitle(it.title, it.index, it.description.orEmpty()) }
++                        .map { it.toSearchResult(wikiSite) }
++                }
++            }
++            val serviceOutcome = serviceRequest.await()
++            val wikiOutcome = wikiRequest.await()
++            val results = LinkedHashMap<String, SearchResult>()
++            wikiOutcome.getOrNull()?.forEach { results.putIfAbsent(it.hybridSearchIdentifier, it) }
++            serviceOutcome.getOrNull()?.forEach { results.putIfAbsent(it.hybridSearchIdentifier, it) }
++            val errors = listOfNotNull(wikiOutcome.exceptionOrNull(), serviceOutcome.exceptionOrNull())
++            if (results.isEmpty() && errors.isNotEmpty()) {
++                Result.failure(errors.first())
++            } else {
++                Result.success(results.values.toList())
++            }
++        }
++
++    private fun MwQueryPage.toSearchResult(wikiSite: WikiSite): SearchResult? =
++        if (title.isEmpty()) null else SearchResult(this, wikiSite, null, SearchResult.SearchResultType.SEARCH)
++
++    private fun Result<List<SearchResult>>.toSourceOutcome(): HybridSearchSourceOutcome =
++        HybridSearchSourceOutcome(
++            results = getOrNull(),
++            error = exceptionOrNull()
++        )
++
++    private suspend fun <T> runSourceRequest(block: suspend () -> T): Result<T> = try {
++        Result.success(block())
++    } catch (e: CancellationException) {
++        throw e
++    } catch (e: Throwable) {
++        Result.failure(e)
++    }
++
++    /** Analytics context of the current search, shared by every interaction logged from it. */
++    fun getEventActionContext(): Map<String, Any> {
++        val sources = _hybridSearchSources.value
++        return mapOf(
++            "query" to (_searchTerm.value ?: ""),
++            "language" to _languageCode.value,
++            "experiment_group" to getTestGroup,
++            "hybrid_search" to isHybridSearchAvailable(),
++            "lexical_result_count" to (sources.lexical.results?.size ?: 0),
++            "semantic_result_count" to (sources.semantic.results?.size ?: 0)
++        )
++    }
++
++    /** Breadcrumb context of the current search. */
++    fun getBreadcrumbActionContext(): Map<String, String> = mapOf(
++        "query" to (_searchTerm.value ?: ""),
++        "language" to _languageCode.value,
++        "experiment_group" to getTestGroup
++    )
++
+     class SearchResultsPagingSource(
+         private val searchTerm: String?,
+         private val languageCode: String?,
+@@ -105,4 +410,12 @@ class SearchResultsViewModel : ViewModel() {
+             return null
+         }
+     }
+-}
++
++    companion object {
++        private const val LEXICAL_GROUP_KEY = "lexical"
++        private const val SEMANTIC_GROUP_KEY = "semantic"
++
++        /** Readers take part in the experiment until they opt out. */
++        private const val DEFAULT_HYBRID_SEARCH_PREFERENCE = true
++    }
++}
+\ No newline at end of file

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_reading_challenge",
+  "workingDirectory": ".",
+  "android": {
+    "baseProject": "android/native/base",
+    "finalProject": "android/native/final",
+    "buildCommand": ["bash", "{project}/build.sh"],
+    "semanticCommand": ["python3", "evaluator/run_android_semantics.py", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "agentPrepareCommand": ["python3", "{migration}/../tools/prepare_agent_harness.py", "--platform", "android", "--task-id", "01_reading_challenge", "--project", "{project}", "--migration", "{migration}"],
+    "agentScaffoldCommand": ["python3", "{migration}/../tools/prepare_visible_scaffold.py", "--task-id", "01_reading_challenge", "--project", "{project}", "--migration", "{migration}"],
+    "agentVisibleBuildCommand": ["bash", "{migration}/../tools/build_android_agent_visible.sh", "{project}"],
+    "agentBuildCommand": ["bash", "{migration}/../tools/build_android_agent_harness.sh", "{project}"],
+    "agentSemanticCommand": ["python3", "{migration}/../tools/run_android_agent_semantics.py", "--project", "{project}", "--migration", "{migration}", "--output", "{output}"],
+    "reportRelativePath": "results/android-{role}.json"
+  },
+  "arkts": {
+    "baseProject": "arkts/base",
+    "finalProject": "arkts/final",
+    "buildCommand": ["python3", "{migration}/../tools/build_arkts_calibration.py", "--project", "{project}", "--migration", "{migration}", "--task-id", "01_reading_challenge"],
+    "semanticCommand": ["python3", "evaluator/run_arkts_semantics.py", "--project", "{project}", "--role", "{role}", "--output", "{output}"],
+    "agentPrepareCommand": ["python3", "{migration}/../tools/prepare_agent_harness.py", "--platform", "arkts", "--task-id", "01_reading_challenge", "--project", "{project}", "--migration", "{migration}"],
+    "agentVisibleBuildCommand": ["bash", "{migration}/../tools/build_arkts_api23.sh", "{project}"],
+    "agentBuildCommand": ["bash", "{migration}/../tools/build_arkts_agent_harness.sh", "{project}"],
+    "agentSemanticCommand": ["python3", "{migration}/evaluator/run_arkts_semantics.py", "--project", "{project}", "--role", "agent", "--output", "{output}"],
+    "reportRelativePath": "results/arkts-{role}.json"
+  },
+  "placeholderPolicy": "Calibration requires API37 Android Instrumentation and API23 EntryAbility/ArkUI device reports. Agent placeholders remain not_scored until the deferred agent run; hidden harness injection occurs only after the agent exits."
+}

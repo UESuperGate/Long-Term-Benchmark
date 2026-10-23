@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "projectId": "wikipedia-android",
+  "taskId": "01_reading_challenge",
+  "title": "Reading challenge lifecycle",
+  "status": "accepted",
+  "android": {
+    "repository": "https://github.com/wikimedia/apps-android-wikipedia.git",
+    "baseRef": "r/50579-r-2026-04-14",
+    "baseCommit": "b74f202c37c50d9136a6bc9b632b47336ad21645",
+    "finalRef": "r/50585-r-2026-05-06",
+    "finalCommit": "f730d59705224aca1c8d96a6dfec3cf46264abde",
+    "featureCommit": "52102be0fa169c5969fb999a4f2d9a61ef8ffc8d",
+    "pullRequest": "https://github.com/wikimedia/apps-android-wikipedia/pull/6367"
+  },
+  "releaseNotes": [
+    {
+      "text": "The release interval introduces the Reading Challenge widget, enrollment flow, persistent daily streak tracking, challenge completion and post-challenge states.",
+      "source": "https://github.com/wikimedia/apps-android-wikipedia/commit/52102be0fa169c5969fb999a4f2d9a61ef8ffc8d"
+    }
+  ],
+  "functionalAreas": [
+    "date_gated_lifecycle",
+    "persistent_streak",
+    "article_read_entrypoint",
+    "widget_state",
+    "failure_recovery"
+  ],
+  "stateSurfaces": [
+    "reading challenge preferences",
+    "reading challenge repository",
+    "widget state"
+  ],
+  "eventEntrypoints": [
+    "enroll",
+    "open article",
+    "refresh widget state"
+  ],
+  "evidence": {
+    "productionPaths": [
+      "app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeWidgetRepository.kt",
+      "app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeState.kt",
+      "app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeWidget.kt",
+      "app/src/main/java/org/wikipedia/settings/Prefs.kt"
+    ],
+    "testPaths": [
+      "app/src/test/java/org/wikipedia/widget/ReadingChallengeWidgetRepositoryTest.kt"
+    ],
+    "commits": [
+      "52102be0fa169c5969fb999a4f2d9a61ef8ffc8d",
+      "36c5590",
+      "7f54a97"
+    ]
+  },
+  "nonGoals": [
+    "Changing article rendering or reading-history behavior",
+    "Testing Android Glance pixel layout",
+    "Replacing the application clock or mutating production date state",
+    "Live analytics or widget-host services"
+  ],
+  "handoff": {
+    "requirement": "requirement.md",
+    "evidence": "evidence.json",
+    "rawEvidence": "raw_release_evidence.json",
+    "transitionDraft": "transitions.draft.json",
+    "transitions": "transitions.json",
+    "observerRules": "observer_rules.json",
+    "arktsBindings": "arkts_bindings.json",
+    "migrationValidation": "migration_validation.json"
+  }
+}

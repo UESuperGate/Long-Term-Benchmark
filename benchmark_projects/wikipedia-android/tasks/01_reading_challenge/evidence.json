@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_reading_challenge",
+  "baseAbsence": {
+    "path": "app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeWidgetRepository.kt",
+    "atCommit": "b74f202c37c50d9136a6bc9b632b47336ad21645",
+    "status": "missing",
+    "semanticBoundary": "The base article-open path has no reading-challenge store, streak persistence, or widget state surface."
+  },
+  "finalProduction": [
+    {
+      "path": "app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeWidgetRepository.kt",
+      "sha256": "d680a1fc929885eeec27854654ca020547a606a0d90cf6270a4f4e298e64ddfa",
+      "symbols": ["resolveState", "hasActiveStreak", "recalculateStreakIfNeeded", "updateOnArticleRead"],
+      "facts": [
+        "Goal is 25 qualifying days.",
+        "Default active dates are 2026-05-11 through 2026-06-18 inclusive.",
+        "A gap greater than one day resets an incomplete streak during the active window.",
+        "After the end date, a broken streak cannot restart; an active streak may continue until removal.",
+        "A qualifying read persists the date and increment before widget and analytics effects."
+      ]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/widgets/readingchallenge/ReadingChallengeState.kt",
+      "sha256": "d0b3a592303bf443d9e7d9775194ba010245be14cd173b148a66760906063849",
+      "symbols": ["ReadingChallengeState", "ReadingChallengeUserData"]
+    },
+    {
+      "path": "app/src/main/java/org/wikipedia/settings/Prefs.kt",
+      "symbols": ["readingChallengeStreak", "readingChallengeEnrolled", "readingChallengeLastReadDate", "readingChallengeEnrollmentDate"]
+    }
+  ],
+  "finalTests": [
+    {
+      "path": "app/src/test/java/org/wikipedia/widget/ReadingChallengeWidgetRepositoryTest.kt",
+      "coveredFacts": [
+        "start and end boundaries",
+        "goal completion",
+        "missed-day reset",
+        "post-end active and broken streak behavior",
+        "completion prevents reset"
+      ]
+    }
+  ],
+  "externalLeaves": [
+    {
+      "name": "widget host update",
+      "boundary": "ReadingChallengeWidget.updateAll",
+      "policy": "controlled leaf; assert invocation after the application-owned store body"
+    },
+    {
+      "name": "analytics transport",
+      "boundary": "ReadingChallengeAnalyticsHelper transport",
+      "policy": "controlled leaf; assert heartbeat dispatch after state resolution"
+    }
+  ],
+  "clockPolicy": {
+    "kind": "evaluator_input",
+    "rule": "Supply a fixed Clock/LocalDate provider to the focused runtime; never mutate production preferences to force a date."
+  }
+}

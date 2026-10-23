@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_hybrid_search",
+  "status": "calibrating",
+  "source": {
+    "repository": "https://github.com/wikimedia/apps-android-wikipedia.git",
+    "baseRef": "r/50566-r-2026-02-04",
+    "baseCommit": "6a085362ecf74ff69a3abf689038ba2882976c07",
+    "finalRef": "r/50574-r-2026-03-20",
+    "finalCommit": "2c086856d4840f854fb9fb456ae3b4db055f1183",
+    "featureCommit": "af457ff7ae17cf2acdd14da991abe76e032fc28f",
+    "branchException": {"mergeBase": "76ceafa9b0edcb5d3a60ab337b907dfca552c0d8", "baseOnlyCommits": 2, "finalOnlyCommits": 117}
+  },
+  "toolchains": {
+    "androidFocusedRuntime": {"language": "Kotlin/JVM 2.1.20 on Java 17", "build": "project-local build.sh with Gradle Kotlin plugin", "buildAttempted": true},
+    "arkts": {"sdkApi": 23, "hvigorPlugin": "6.0.0", "buildAttempted": true, "deviceRunAttempted": true, "deviceRunResult": "blocked_no_hdc_target"}
+  },
+  "moduleMapping": [
+    {"android": "SearchResultsFragment page ownership", "arkts": "entry/src/main/ets/pages/Index.ets and HybridSearchPageStore.ets"},
+    {"android": "SearchResultsViewModel.loadHybridSearchResults", "arkts": "HybridSearchViewModel.search"},
+    {"android": "ServiceFactory lexical/semantic calls", "arkts": "SearchHttpLeaf and HttpSearchLeaf"},
+    {"android": "Prefs.isHybridSearchEnabled", "arkts": "ArkData preferences hybridEnabled"},
+    {"android": "onRatingClick telemetry mapping", "arkts": "HybridSearchPageStore.rate plus FeedbackLeaf"}
+  ],
+  "unsupportedPlatformSpecificBehavior": [
+    "Android Compose card pixel rendering is represented by ArkUI lists with equivalent group order.",
+    "TestKitchen transport is represented by a feedback leaf after page-owned payload mapping."
+  ],
+  "canonicalContract": "canonical/transitions.json",
+  "androidSourceOwnership": "android/source_ownership.json",
+  "execution": "execution.json",
+  "validation": {
+    "expectedPolarity": {"androidBase": "0/10", "androidFinal": "10/10", "arktsBase": "0/10", "arktsFinal": "10/10"},
+    "current": "android_calibrated_arkts_not_scored"
+  }
+}

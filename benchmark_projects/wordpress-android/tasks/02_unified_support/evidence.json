@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_unified_support",
+  "boundaryAudit": {
+    "baseTree": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+    "finalTree": "510f1cddc186a486ffa9559018578a644d303d96",
+    "localRepository": "_sources/wordpress-android",
+    "ancestorCheck": "failed because both official tag commits are grafted shallow roots",
+    "mergeBase": null,
+    "exception": "official release-branch snapshots",
+    "directBaseChecks": [
+      "git ls-tree -r --name-only 20d41cdcd693e381a8c823ec2c93fc39efc9cf0c -- WordPress/src/main/java/org/wordpress/android/support/unified returned no paths",
+      "git grep UnifiedSupportActivity/support.unified at 20d41cdcd693e381a8c823ec2c93fc39efc9cf0c returned no matches"
+    ],
+    "directFinalChecks": [
+      "26.9 contains 21 production files under support/unified and four focused unit-test files",
+      "the official PR page identifies ad1de650a67b426b807e14c46d249924b028ac0c as the merge commit"
+    ]
+  },
+  "resolvedConstants": {
+    "botStatus": {"value": "bot", "source": "UnifiedConversation.STATUS_BOT"},
+    "newConversationId": {"value": 0, "source": "UnifiedSupportViewModel.NEW_CONVERSATION_ID"},
+    "botId": {"value": "jetpack-workflow-chat_mobile_support", "source": "UnifiedSupportRepository.BOT_ID"},
+    "attachmentLimitBytes": {"value": 20971520, "source": "AttachmentStateValidator.MAX_TOTAL_SIZE_BYTES"}
+  },
+  "productionTrace": [
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/support/unified/ui/UnifiedSupportViewModel.kt",
+      "blob": "701e49b45258dad8d341e78780ad14cf6eed6bbc",
+      "symbols": ["init", "onCreateNewBotConversationClick", "sendReply", "rollbackInputMessage", "rollbackOptimisticMessage", "onConversationOpened"]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/support/unified/repository/UnifiedSupportRepository.kt",
+      "blob": "dfaf05e9997958d1e71c2a3603e9a75e0c6b584a",
+      "symbols": ["loadConversations", "loadConversation", "createNewBotConversation", "replyToConversation", "toUnifiedConversation"]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/support/unified/ui/UnifiedSupportActivity.kt",
+      "blob": "9e690de124e2dfe5acedcdd90744b9f74dafff01",
+      "symbols": ["onCreate", "UnifiedSupportNavHost"]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/support/unified/ui/UnifiedConversationDetailScreen.kt",
+      "blob": "f8c92d55939f54da8a5eba43a0242e8da4fbcddc",
+      "symbols": ["UnifiedConversationDetailScreen", "ConversationBottomBar"]
+    }
+  ],
+  "upstreamTests": [
+    "UnifiedSupportViewModelTest: list init/error, new bot creation, optimistic reply, success, offline, null/throw rollback, app logs, attachment temp-file cleanup, form reset/restore/newer-text preservation",
+    "UnifiedSupportRepositoryTest: bot endpoint request and response mapping, error to null",
+    "AttachmentStateValidatorTest: 20 MiB aggregate cap, rejection, removal, and revalidation",
+    "EncryptedAppLogsUploaderTest: application-owned encrypted log upload mapping"
+  ],
+  "changedBodyCoverage": [
+    {
+      "body": "UnifiedSupportRepository load/create/reply methods and response mappers",
+      "cases": ["us_state_001_list_success", "us_state_002_list_failure", "us_state_003_list_retry", "us_state_004_new_bot_success", "us_state_005_reply_success", "us_state_007_reply_failure", "us_state_008_concurrent_guard"],
+      "externalLeaf": "WordPressSupportServiceLeaf",
+      "requiredRuntimeEvidence": "page-owned view-model call, repository body invocation, exact leaf arguments, held completion, mapped before/after state"
+    },
+    {
+      "body": "UnifiedSupportViewModel optimistic update, rollback, reply-form and cleanup lifecycle",
+      "cases": ["us_state_004_new_bot_success", "us_state_005_reply_success", "us_state_006_offline_reply", "us_state_007_reply_failure", "us_state_008_concurrent_guard", "us_state_009_draft_lifecycle"],
+      "externalLeaf": "network/upload/temp-file leaves only",
+      "requiredRuntimeEvidence": "original body invocation and ordered state/effect frames"
+    }
+  ],
+  "inputDomainAudit": {
+    "conversationType": "status and canAcceptReply come from mapped service conversation data",
+    "offline": "network availability is a declared external leaf checked before optimistic mutation",
+    "sendFailure": "the repository body executes and its controlled service leaf returns an error/null",
+    "draft": "text and attachment changes are established through public view-model events"
+  }
+}

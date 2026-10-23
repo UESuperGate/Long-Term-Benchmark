@@ -1,0 +1,1372 @@
+diff --git a/entry/src/main/ets/features/PagesController.ets b/entry/src/main/ets/features/PagesController.ets
+index 9c55868..2cddca8 100644
+--- a/entry/src/main/ets/features/PagesController.ets
++++ b/entry/src/main/ets/features/PagesController.ets
+@@ -1,3 +1,13 @@
++/**
++ * Modern pages list feature.
++ *
++ * This module owns the application bodies behind the modern pages screen: tab loading, refresh and
++ * retry, search, the author filter, the published-tab hierarchy, page menu eligibility, and the
++ * page mutations. The only external leaves are `PagesServiceLeaf` (pages service + media) and
++ * `PagesPersistentInputLeaf` (site/account capabilities and persisted preferences); every list,
++ * hierarchy, menu and mutation decision below is produced by this application code.
++ */
++
+ export interface PageRecord {
+   id: number;
+   parentId: number;
+@@ -35,6 +45,194 @@ export interface PagesPersistentInputLeaf {
+   saveAuthorSelection(selection: string): void;
+ }
+ 
++/** A tab of the modern pages screen and the query it owns. */
++export interface PageTabSpec {
++  id: string;
++  title: string;
++  statuses: string[];
++  orderBy: string;
++  order: string;
++  hierarchical: boolean;
++}
++
++/** Requests and mutations always target the pages entity, never posts. */
++const PAGES_ENTITY: string = 'pages';
++/** The pages list page size. */
++const PAGE_LIST_SIZE: number = 20;
++/** Search is dispatched once the query has settled for this long. */
++const SEARCH_DEBOUNCE_MS: number = 250;
++/** Shorter queries never reach the pages service. */
++const MIN_SEARCH_QUERY_LENGTH: number = 3;
++/** Visual indentation of the published hierarchy is capped at three levels. */
++const MAX_VISUAL_INDENT: number = 3;
++
++/**
++ * The pages service is addressed with the canonical page status plus the app facing vocabulary of
++ * the pages tabs, so a site that reports either spelling of a status is loaded correctly.
++ */
++const PUBLISHED_STATUSES: string[] = ['publish', 'published'];
++const DRAFT_STATUSES: string[] = ['draft', 'drafts', 'auto-draft', 'auto_draft'];
++const SCHEDULED_STATUSES: string[] = ['future', 'scheduled'];
++const TRASHED_STATUSES: string[] = ['trash', 'trashed'];
++const ALL_PAGE_STATUSES: string[] = PUBLISHED_STATUSES
++  .concat(DRAFT_STATUSES, SCHEDULED_STATUSES, TRASHED_STATUSES);
++
++export const PAGE_TABS: PageTabSpec[] = [
++  {
++    id: 'published',
++    title: 'Published',
++    statuses: PUBLISHED_STATUSES,
++    orderBy: 'title',
++    order: 'asc',
++    hierarchical: true
++  },
++  {
++    id: 'drafts',
++    title: 'Drafts',
++    statuses: DRAFT_STATUSES,
++    orderBy: 'title',
++    order: 'asc',
++    hierarchical: false
++  },
++  {
++    id: 'scheduled',
++    title: 'Scheduled',
++    statuses: SCHEDULED_STATUSES,
++    orderBy: 'date',
++    order: 'asc',
++    hierarchical: false
++  },
++  {
++    id: 'trashed',
++    title: 'Trashed',
++    statuses: TRASHED_STATUSES,
++    orderBy: 'date',
++    order: 'desc',
++    hierarchical: false
++  }
++];
++
++const SEARCH_TAB: string = 'search';
++
++const AUTHOR_EVERYONE: string = 'everyone';
++const AUTHOR_ME: string = 'me';
++
++const ACTION_SET_AS_HOMEPAGE: string = 'set_as_homepage';
++const ACTION_MOVE_TO_DRAFT: string = 'move_to_draft';
++const ACTION_RESTORE_TO_DRAFT: string = 'restore_to_draft';
++const ACTION_TRASH: string = 'trash';
++const ACTION_DELETE_PERMANENTLY: string = 'delete_permanently';
++const ACTION_BLAZE: string = 'blaze';
++
++/** Every page menu action this screen can ever render; used to report what was withheld. */
++const PAGE_MENU_CANDIDATES: string[] = [
++  ACTION_SET_AS_HOMEPAGE,
++  ACTION_MOVE_TO_DRAFT,
++  ACTION_RESTORE_TO_DRAFT,
++  ACTION_TRASH,
++  ACTION_DELETE_PERMANENTLY,
++  ACTION_BLAZE
++];
++
++function pageTabIds(): string[] {
++  const ids: string[] = [];
++  for (const tab of PAGE_TABS) {
++    ids.push(tab.id);
++  }
++  return ids;
++}
++
++export function pageTabSpec(tab: string): PageTabSpec | undefined {
++  for (const spec of PAGE_TABS) {
++    if (spec.id === tab) {
++      return spec;
++    }
++  }
++  return undefined;
++}
++
++export function pageTabTitle(tab: string): string {
++  const spec = pageTabSpec(tab);
++  if (spec === undefined) {
++    return tab;
++  }
++  return spec.title;
++}
++
++/** Maps either status vocabulary onto the canonical page status. */
++function canonicalStatus(status?: string): string {
++  if (status === undefined) {
++    return '';
++  }
++  const value = status.trim().toLowerCase();
++  if (value.length === 0) {
++    return '';
++  }
++  if (value === 'published' || value === 'publish') {
++    return 'publish';
++  }
++  if (value === 'scheduled' || value === 'future') {
++    return 'future';
++  }
++  if (value === 'trashed' || value === 'trash') {
++    return 'trash';
++  }
++  if (value === 'drafts' || value === 'draft') {
++    return 'draft';
++  }
++  if (value === 'auto_draft' || value === 'auto-draft') {
++    return 'auto-draft';
++  }
++  return value;
++}
++
++function statusLabelOf(status?: string): string {
++  switch (canonicalStatus(status)) {
++    case 'publish':
++      return 'Published';
++    case 'future':
++      return 'Scheduled';
++    case 'draft':
++      return 'Draft';
++    case 'auto-draft':
++      return 'Auto draft';
++    case 'pending':
++      return 'Pending review';
++    case 'private':
++      return 'Private';
++    case 'trash':
++      return 'Trashed';
++    case 'inherit':
++      return 'Inherited';
++    default:
++      return status === undefined ? 'Page' : status;
++  }
++}
++
++function normalizeAuthorSelection(selection?: string): string {
++  if (selection === undefined) {
++    return AUTHOR_EVERYONE;
++  }
++  return selection.trim().toLowerCase() === AUTHOR_ME ? AUTHOR_ME : AUTHOR_EVERYONE;
++}
++
++/**
++ * Failures are represented as state. The leaf reason is appended when it carries information, but a
++ * failure is never turned into an empty successful load.
++ */
++function failureMessage(reason: Error, fallback: string): string {
++  let detail: string = '';
++  try {
++    detail = String(reason);
++    if (detail.length === 0 || detail === 'undefined' || detail === 'null') {
++      return fallback;
++    }
++    return `${fallback} (${detail})`;
++  } catch (ignored) {
++    return fallback;
++  }
++}
++
+ export class PageMenuState {
+   pageId?: number;
+   actions: string[] = [];
+@@ -63,6 +261,647 @@ export class PagesStore {
+   menu: PageMenuState = new PageMenuState();
+ }
+ 
++/**
++ * Actions offered for a page, derived from the page status and from site eligibility.
++ */
++export function computePageMenuActions(
++  status: string | undefined,
++  isHomepage: boolean,
++  isPostsPage: boolean,
++  hasPassword: boolean,
++  isBlazeEligibleSite: boolean,
++  canManageHomepage: boolean
++): string[] {
++  const actions: string[] = [];
++  const state = canonicalStatus(status);
++  if (state === 'trash') {
++    // A trashed page is only restorable or permanently deletable.
++    actions.push(ACTION_RESTORE_TO_DRAFT);
++    actions.push(ACTION_DELETE_PERMANENTLY);
++    return actions;
++  }
++  if (isBlazeEligibleSite && !hasPassword && state !== 'private' && state !== 'inherit') {
++    actions.push(ACTION_BLAZE);
++  }
++  if (isHomepage || isPostsPage) {
++    // The homepage is never promoted, trashed or demoted, and it is never set as the homepage again.
++    return actions;
++  }
++  if (state === 'publish' && canManageHomepage) {
++    actions.push(ACTION_SET_AS_HOMEPAGE);
++  }
++  if (state === 'publish') {
++    actions.push(ACTION_MOVE_TO_DRAFT);
++  }
++  if (state !== 'inherit') {
++    actions.push(ACTION_TRASH);
++  }
++  return actions;
++}
++
++export function excludedPageMenuActions(actions: string[]): string[] {
++  const excluded: string[] = [];
++  for (const candidate of PAGE_MENU_CANDIDATES) {
++    if (actions.indexOf(candidate) < 0) {
++      excluded.push(candidate);
++    }
++  }
++  return excluded;
++}
++
++export class PagesController {
++  readonly store: PagesStore = new PagesStore();
++  private service: PagesServiceLeaf;
++  private persistent?: PagesPersistentInputLeaf;
++  /** Incremented whenever a collection is opened or closed; stale writes are dropped. */
++  private collectionGeneration: number = 0;
++  private searchToken: number = 0;
++  private searchWakeUp?: () => void;
++  private accountId: number = 0;
++  private editorTargetPageId: number = 0;
++
++  constructor(service: PagesServiceLeaf) {
++    this.service = service;
++    this.store.tabs = pageTabIds();
++    this.store.selectedTab = PAGE_TABS[0].id;
++    this.store.authorSelection = AUTHOR_EVERYONE;
++    this.store.persistedAuthorSelection = AUTHOR_EVERYONE;
++  }
++
++  /** Binds the persisted site/account capabilities owned by the application shell. */
++  attachPersistentInput(leaf?: PagesPersistentInputLeaf): void {
++    this.persistent = leaf;
++  }
++
++  /** The signed-in account that backs the "Me" author filter. */
++  setSignedInAuthorId(id: number): void {
++    this.accountId = id;
++  }
++
++  signedInAuthorId(): number {
++    if (this.accountId > 0) {
++      return this.accountId;
++    }
++    const persisted = this.persistent;
++    if (persisted === undefined) {
++      return 0;
++    }
++    return persisted.signedInAuthorId();
++  }
++
++  /** The author filter is only offered when a signed-in author can scope the list. */
++  authorFilterAvailable(): boolean {
++    return this.signedInAuthorId() > 0;
++  }
++
++  /**
++   * "Me" can only scope the list on a site where a signed-in author identifies the account; without
++   * one the selection falls back to everyone.
++   */
++  private resolvedAuthorSelection(selection: string): string {
++    const normalized: string = normalizeAuthorSelection(selection);
++    if (normalized === AUTHOR_ME && !this.authorFilterAvailable()) {
++      return AUTHOR_EVERYONE;
++    }
++    return normalized;
++  }
++
++  canManageHomepage(): boolean {
++    const persisted = this.persistent;
++    if (persisted === undefined) {
++      return false;
++    }
++    return persisted.canManageHomepage();
++  }
++
++  blazeEligible(): boolean {
++    const persisted = this.persistent;
++    if (persisted === undefined) {
++      return false;
++    }
++    return persisted.blazeEligible();
++  }
++
++  /**
++   * Opens the modern pages screen through the normal Pages entry and loads the persisted tab.
++   */
++  async open(): Promise<void> {
++    const store = this.store;
++    store.surface = 'modern_pages';
++    store.tabs = pageTabIds();
++    this.teardownSearchCollection();
++    store.searchActive = false;
++    store.query = '';
++    const persisted = this.persistent;
++    if (persisted !== undefined) {
++      const tab = persisted.selectedTab();
++      store.selectedTab = pageTabSpec(tab) === undefined ? 'published' : tab;
++      store.authorSelection = this.resolvedAuthorSelection(persisted.authorSelection());
++      store.persistedAuthorSelection = store.authorSelection;
++    } else {
++      if (pageTabSpec(store.selectedTab) === undefined) {
++        store.selectedTab = 'published';
++      }
++      if (store.authorSelection.length === 0) {
++        store.authorSelection = AUTHOR_EVERYONE;
++      }
++      store.persistedAuthorSelection = store.authorSelection;
++    }
++    this.accountId = this.signedInAuthorId();
++    await this.loadTab(store.selectedTab);
++  }
++
++  /**
++   * Switches to a tab. Switching closes an obsolete search collection before the tab is loaded.
++   */
++  async loadTab(tab: string): Promise<boolean> {
++    const spec = pageTabSpec(tab);
++    if (spec === undefined) {
++      return false;
++    }
++    // A tab switch closes an obsolete search collection before the replacement is opened.
++    this.teardownSearchCollection();
++    this.store.searchActive = false;
++    this.store.query = '';
++    this.store.selectedTab = spec.id;
++    return await this.loadCollection(spec, false);
++  }
++
++  /** Re-runs the active collection. Loaded rows survive a failed refresh. */
++  async refresh(): Promise<boolean> {
++    const store = this.store;
++    if (store.searchActive) {
++      const query = store.query.trim();
++      if (query.length >= MIN_SEARCH_QUERY_LENGTH) {
++        return await this.dispatchSearch(query, this.nextCollection(), true);
++      }
++    }
++    const spec = pageTabSpec(store.selectedTab);
++    if (spec === undefined) {
++      return false;
++    }
++    return await this.loadCollection(spec, true);
++  }
++
++  /** The retry affordance runs the same application-owned refresh body. */
++  async retryRefresh(): Promise<boolean> {
++    return await this.refresh();
++  }
++
++  /** Enters search mode immediately; the result area stays empty until a query settles. */
++  openSearch(): void {
++    const store = this.store;
++    this.teardownSearchCollection();
++    store.searchActive = true;
++    store.query = '';
++    store.rows = [];
++    store.error = '';
++    store.loading = false;
++    store.refreshing = false;
++  }
++
++  /**
++   * Records the query and dispatches a single debounced search once the query has settled.
++   * Queries shorter than three characters never reach the service leaf.
++   */
++  async updateSearch(query: string, settledForMs?: number): Promise<boolean> {
++    const store = this.store;
++    const hadCollection: boolean = store.searchActive;
++    store.query = query;
++    this.cancelPendingSearch();
++    const token: number = this.searchToken;
++    if (hadCollection) {
++      // The superseded search collection is closed before the replacement is opened.
++      store.closedSearchCollections += 1;
++    }
++    this.nextCollection();
++    const trimmed = query.trim();
++    if (trimmed.length < MIN_SEARCH_QUERY_LENGTH) {
++      store.searchActive = true;
++      store.rows = [];
++      store.error = '';
++      store.loading = false;
++      store.refreshing = false;
++      return false;
++    }
++    store.searchActive = true;
++    let delayMs: number = SEARCH_DEBOUNCE_MS;
++    if (settledForMs !== undefined) {
++      delayMs = SEARCH_DEBOUNCE_MS - settledForMs;
++      if (delayMs < 0) {
++        delayMs = 0;
++      }
++    }
++    store.lastSearchDebounceMs = SEARCH_DEBOUNCE_MS;
++    store.lastReloadDelayMs = delayMs;
++    store.loading = store.rows.length === 0;
++    await this.awaitDebounce(delayMs);
++    if (token !== this.searchToken || store.query !== query || !store.searchActive) {
++      // A newer query or a closed search superseded this one; nothing is dispatched.
++      return false;
++    }
++    return await this.dispatchSearch(trimmed, this.nextCollection(), false);
++  }
++
++  /** Closes search and immediately restores the active tab. */
++  async closeSearch(): Promise<void> {
++    const store = this.store;
++    // The obsolete search collection is closed before the tab reload is opened.
++    this.teardownSearchCollection();
++    store.searchActive = false;
++    store.query = '';
++    const spec = pageTabSpec(store.selectedTab);
++    if (spec === undefined) {
++      return;
++    }
++    await this.loadCollection(spec, false);
++  }
++
++  /** Persists the author filter and reloads the active collection with the chosen author scope. */
++  async selectAuthor(selection: string): Promise<void> {
++    const store = this.store;
++    store.authorSelection = this.resolvedAuthorSelection(selection);
++    store.persistedAuthorSelection = store.authorSelection;
++    const persisted = this.persistent;
++    if (persisted !== undefined) {
++      // Only the author preference is written; unrelated preferences are untouched.
++      persisted.saveAuthorSelection(store.authorSelection);
++    }
++    const spec = pageTabSpec(store.selectedTab);
++    if (spec === undefined) {
++      return;
++    }
++    if (store.searchActive) {
++      const query = store.query.trim();
++      if (query.length >= MIN_SEARCH_QUERY_LENGTH) {
++        await this.dispatchSearch(query, this.nextCollection(), true);
++      }
++      return;
++    }
++    await this.loadCollection(spec, true);
++  }
++
++  /** Renders and records the page menu for a page. */
++  menuActions(page: PageRecord, canManageHomepage: boolean, blazeEligible: boolean): string[] {
++    const actions = computePageMenuActions(
++      page.status,
++      page.homepage === true,
++      page.postsPage === true,
++      page.passwordProtected === true,
++      blazeEligible,
++      canManageHomepage
++    );
++    const store = this.store;
++    store.menu.pageId = page.id;
++    store.menu.actions = actions;
++    store.menu.excludedActions = excludedPageMenuActions(actions);
++    return actions;
++  }
++
++  /** Opens the menu of a loaded page using the site capabilities. */
++  openMenu(pageId: number): string[] {
++    const record = this.page(pageId);
++    if (record === undefined) {
++      return [];
++    }
++    return this.menuActions(record, this.canManageHomepage(), this.blazeEligible());
++  }
++
++  page(pageId: number): PageRecord | undefined {
++    const rows = this.store.rows;
++    for (const row of rows) {
++      if (row.page.id === pageId) {
++        return row.page;
++      }
++    }
++    return undefined;
++  }
++
++  /** Opens a page through the existing editor bridge; no replacement editor is created. */
++  openPage(pageId: number): void {
++    this.editorTargetPageId = pageId;
++  }
++
++  /** The page currently handed to the editor bridge. */
++  editorTarget(): number {
++    return this.editorTargetPageId;
++  }
++
++  /** Requests confirmation; the pages service is never mutated before the user confirms. */
++  chooseTrash(pageId: number): void {
++    this.store.pendingTrash = pageId;
++    this.store.error = '';
++  }
++
++  async confirmTrash(): Promise<boolean> {
++    const pending = this.store.pendingTrash;
++    if (pending === undefined) {
++      return false;
++    }
++    return await this.trashPage(pending);
++  }
++
++  /** Retries the pending mutation against the same page identity. */
++  async retryTrash(): Promise<boolean> {
++    const pending = this.store.pendingTrash;
++    if (pending === undefined) {
++      return false;
++    }
++    return await this.trashPage(pending);
++  }
++
++  private nextCollection(): number {
++    this.collectionGeneration += 1;
++    return this.collectionGeneration;
++  }
++
++  /** Closes an open search collection so late results cannot overwrite newer state. */
++  private teardownSearchCollection(): void {
++    this.cancelPendingSearch();
++    if (this.store.searchActive) {
++      this.store.closedSearchCollections += 1;
++    }
++    this.nextCollection();
++  }
++
++  private cancelPendingSearch(): void {
++    this.searchToken += 1;
++    const wakeUp = this.searchWakeUp;
++    this.searchWakeUp = undefined;
++    if (wakeUp !== undefined) {
++      wakeUp();
++    }
++  }
++
++  private awaitDebounce(delayMs: number): Promise<void> {
++    if (delayMs <= 0) {
++      return Promise.resolve();
++    }
++    return new Promise<void>((resolve) => {
++      this.searchWakeUp = resolve;
++      setTimeout(() => {
++        this.searchWakeUp = undefined;
++        resolve();
++      }, delayMs);
++    });
++  }
++
++  private authorIds(): number[] {
++    const ids: number[] = [];
++    if (this.store.authorSelection !== AUTHOR_ME) {
++      return ids;
++    }
++    const id = this.signedInAuthorId();
++    if (id > 0) {
++      ids.push(id);
++    }
++    return ids;
++  }
++
++  private buildRequest(
++    tab: string,
++    statuses: string[],
++    orderBy: string,
++    order: string,
++    search: string,
++    authorIds: number[]
++  ): PageRequest {
++    const request: PageRequest = {
++      entity: PAGES_ENTITY,
++      tab: tab,
++      statuses: statuses.slice(),
++      orderBy: orderBy,
++      order: order,
++      pageSize: PAGE_LIST_SIZE,
++      search: search,
++      authorIds: authorIds.slice()
++    };
++    return request;
++  }
++
++  private async loadCollection(spec: PageTabSpec, refresh: boolean): Promise<boolean> {
++    const store = this.store;
++    const generation = this.nextCollection();
++    const request = this.buildRequest(spec.id, spec.statuses, spec.orderBy, spec.order, '', this.authorIds());
++    store.loading = !refresh && store.rows.length === 0;
++    store.refreshing = refresh || store.rows.length > 0;
++    store.error = '';
++    store.requestCount += 1;
++    try {
++      const pages = await this.service.fetch(request);
++      if (generation !== this.collectionGeneration) {
++        // The collection was closed; a stale load must never write state.
++        return false;
++      }
++      this.applyPages(pages, spec.hierarchical, spec.id === 'trashed', generation);
++      return true;
++    } catch (reason) {
++      if (generation !== this.collectionGeneration) {
++        return false;
++      }
++      // Loaded rows stay visible; the failure is represented as state, not as an empty success.
++      store.loading = false;
++      store.refreshing = false;
++      store.error = failureMessage(reason, 'Could not load pages');
++      return false;
++    }
++  }
++
++  private async dispatchSearch(query: string, generation: number, refresh: boolean): Promise<boolean> {
++    const store = this.store;
++    const request = this.buildRequest(
++      SEARCH_TAB,
++      ALL_PAGE_STATUSES,
++      'title',
++      'asc',
++      query,
++      this.authorIds()
++    );
++    store.loading = !refresh && store.rows.length === 0;
++    store.refreshing = refresh || store.rows.length > 0;
++    store.error = '';
++    store.requestCount += 1;
++    try {
++      const pages = await this.service.fetch(request);
++      if (generation !== this.collectionGeneration) {
++        return false;
++      }
++      // Search results are flat and independent of the selected tab hierarchy.
++      this.applyPages(pages, false, false, generation);
++      return true;
++    } catch (reason) {
++      if (generation !== this.collectionGeneration) {
++        return false;
++      }
++      store.loading = false;
++      store.refreshing = false;
++      store.error = failureMessage(reason, 'Page search failed');
++      return false;
++    }
++  }
++
++  private applyPages(pages: PageRecord[], hierarchical: boolean, trashed: boolean, generation: number): void {
++    const store = this.store;
++    store.rows = this.buildRows(pages, hierarchical);
++    store.loading = false;
++    store.refreshing = false;
++    store.error = '';
++    if (trashed) {
++      const ids: number[] = [];
++      for (const page of pages) {
++        ids.push(page.id);
++      }
++      store.trashedRows = ids;
++    }
++    this.resolveThumbnails(pages, generation);
++  }
++
++  /**
++   * Builds the rendered rows. The published tab is a depth-first hierarchy with missing parents
++   * promoted to roots and visual indentation capped; every other collection stays flat.
++   */
++  buildRows(pages: PageRecord[], applyHierarchy: boolean): PageRow[] {
++    const rows: PageRow[] = [];
++    if (!applyHierarchy) {
++      for (const page of pages) {
++        rows.push(this.toRow(page, 0));
++      }
++      return rows;
++    }
++    const visited: number[] = [];
++    for (const page of pages) {
++      if (page.parentId <= 0 || !this.containsPage(pages, page.parentId)) {
++        this.appendSubtree(pages, page, 0, visited, rows);
++      }
++    }
++    // Pages whose parent chain is not reachable from a root still appear exactly once.
++    for (const page of pages) {
++      this.appendSubtree(pages, page, 0, visited, rows);
++    }
++    return rows;
++  }
++
++  private containsPage(pages: PageRecord[], pageId: number): boolean {
++    for (const page of pages) {
++      if (page.id === pageId) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  private appendSubtree(
++    pages: PageRecord[],
++    page: PageRecord,
++    depth: number,
++    visited: number[],
++    rows: PageRow[]
++  ): void {
++    if (visited.indexOf(page.id) >= 0) {
++      return;
++    }
++    visited.push(page.id);
++    rows.push(this.toRow(page, depth));
++    for (const candidate of pages) {
++      if (candidate.parentId === page.id) {
++        this.appendSubtree(pages, candidate, depth + 1, visited, rows);
++      }
++    }
++  }
++
++  private toRow(page: PageRecord, depth: number): PageRow {
++    let indent: number = depth;
++    if (indent > MAX_VISUAL_INDENT) {
++      indent = MAX_VISUAL_INDENT;
++    }
++    if (indent < 0) {
++      indent = 0;
++    }
++    const row: PageRow = {
++      id: page.id,
++      title: page.title,
++      page: page,
++      indent: indent,
++      statusLabel: statusLabelOf(page.status)
++    };
++    return row;
++  }
++
++  /**
++   * Resolves featured images in the background. A pending or unavailable thumbnail never removes the
++   * page row and never fails the list.
++   */
++  private resolveThumbnails(pages: PageRecord[], generation: number): void {
++    for (const page of pages) {
++      const mediaId = page.featuredMediaId;
++      if (mediaId === undefined || mediaId <= 0) {
++        continue;
++      }
++      this.resolveThumbnail(page.id, mediaId, generation);
++    }
++  }
++
++  private resolveThumbnail(pageId: number, mediaId: number, generation: number): void {
++    let pending: Promise<string>;
++    try {
++      pending = this.service.resolveMedia(mediaId);
++    } catch (ignored) {
++      return;
++    }
++    pending
++      .then((url: string) => {
++        this.onThumbnailResolved(pageId, url, generation);
++      })
++      .catch(() => {
++        // The row stays visible without a thumbnail.
++      });
++  }
++
++  private onThumbnailResolved(pageId: number, url: string, generation: number): void {
++    if (generation !== this.collectionGeneration) {
++      return;
++    }
++    const rows = this.store.rows;
++    let changed: boolean = false;
++    for (const row of rows) {
++      if (row.page.id === pageId) {
++        row.thumbnailUrl = url;
++        changed = true;
++      }
++    }
++    if (changed) {
++      this.store.rows = rows.slice();
++    }
++  }
++
++  private async trashPage(pageId: number): Promise<boolean> {
++    const store = this.store;
++    store.feedback = '';
++    store.error = '';
++    try {
++      await this.service.trash(pageId);
++    } catch (reason) {
++      // The page is preserved locally and the same identity can be retried.
++      store.pendingTrash = pageId;
++      store.error = failureMessage(reason, 'Could not move the page to trash');
++      return false;
++    }
++    store.pendingTrash = undefined;
++    store.feedback = 'Page moved to trash';
++    const remaining: PageRow[] = [];
++    for (const row of store.rows) {
++      if (row.page.id !== pageId) {
++        remaining.push(row);
++      }
++    }
++    store.rows = remaining;
++    if (store.trashedRows.indexOf(pageId) < 0) {
++      store.trashedRows = store.trashedRows.concat([pageId]);
++    }
++    return true;
++  }
++}
++
+ export class LegacyPagesStore extends PagesStore { title: string = 'Pages'; }
+ 
+ export class LegacyPagesController {
+@@ -71,4 +910,4 @@ export class LegacyPagesController {
+   open(): void {
+     this.store.surface = 'legacy_pages';
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 8eede5a..4884b09 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,23 +1,292 @@
+-import { LegacyPagesPageOwner, LegacyPagesPageRuntime } from './PagesPageOwner';
++import { PageRow, pageTabTitle } from '../features/PagesController';
++import {
++  LegacyPagesPageOwner,
++  LegacyPagesPageRuntime,
++  PagesPageOwner,
++  PagesPageRuntime
++} from './PagesPageOwner';
+ 
+ @Entry
+ @Component
+ struct Index {
+-  private owner: LegacyPagesPageOwner = LegacyPagesPageRuntime.createOwner();
++  private legacyOwner: LegacyPagesPageOwner = LegacyPagesPageRuntime.createOwner();
++  private syncTimer: number = -1;
++
+   @State surface: string = 'legacy_pages';
++  @State tabs: string[] = [];
++  @State selectedTab: string = '';
++  @State rows: PageRow[] = [];
++  @State searchActive: boolean = false;
++  @State query: string = '';
++  @State authorSelection: string = 'everyone';
++  @State authorFilterAvailable: boolean = false;
++  @State loading: boolean = false;
++  @State refreshing: boolean = false;
++  @State error: string = '';
++  @State feedback: string = '';
++  @State pendingTrashId: string = '';
++  @State menuActions: string[] = [];
+ 
+   aboutToAppear(): void {
+-    this.owner.aboutToAppear();
+-    this.surface = this.owner.store().surface;
++    this.legacyOwner.aboutToAppear();
++    this.surface = this.legacyOwner.store().surface;
++    this.syncTimer = setInterval(() => {
++      this.syncFromOwner();
++    }, 80);
++  }
++
++  aboutToDisappear(): void {
++    if (this.syncTimer >= 0) {
++      clearInterval(this.syncTimer);
++      this.syncTimer = -1;
++    }
++  }
++
++  /** The mounted pages screen; the modern controller takes over as soon as it is wired. */
++  private currentOwner(): PagesPageOwner | undefined {
++    try {
++      return PagesPageRuntime.currentOwner();
++    } catch (error) {
++      return undefined;
++    }
++  }
++
++  private syncFromOwner(): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    const store = owner.store();
++    if (this.surface !== store.surface) this.surface = store.surface;
++    if (this.tabs !== store.tabs) this.tabs = store.tabs.slice();
++    if (this.selectedTab !== store.selectedTab) this.selectedTab = store.selectedTab;
++    if (this.rows !== store.rows) this.rows = store.rows;
++    if (this.searchActive !== store.searchActive) this.searchActive = store.searchActive;
++    if (this.query !== store.query) this.query = store.query;
++    if (this.authorSelection !== store.authorSelection) this.authorSelection = store.authorSelection;
++    if (this.loading !== store.loading) this.loading = store.loading;
++    if (this.refreshing !== store.refreshing) this.refreshing = store.refreshing;
++    if (this.error !== store.error) this.error = store.error;
++    if (this.feedback !== store.feedback) this.feedback = store.feedback;
++    const pending = store.pendingTrash === undefined ? '' : store.pendingTrash.toString();
++    if (this.pendingTrashId !== pending) this.pendingTrashId = pending;
++    if (this.menuActions !== store.menu.actions) this.menuActions = store.menu.actions.slice();
++    const filterAvailable: boolean = owner.authorFilterAvailable();
++    if (this.authorFilterAvailable !== filterAvailable) this.authorFilterAvailable = filterAvailable;
++  }
++
++  private onTabSelected(tab: string): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.loadTab(tab);
++  }
++
++  private onQueryChanged(value: string): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.updateSearch(value);
++  }
++
++  private onOpenSearch(): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.openSearch();
++  }
++
++  private onCloseSearch(): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.closeSearch();
++  }
++
++  private onRetry(): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.retryRefresh();
++  }
++
++  private onSelectAuthor(selection: string): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.selectAuthor(selection);
++  }
++
++  private onRowClicked(row: PageRow): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.openMenu(row.page.id);
++    owner.openPage(row.page.id);
++  }
++
++  private onTrash(row: PageRow): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.chooseTrash(row.page.id);
++    this.syncFromOwner();
++    AlertDialog.show({
++      title: 'Move to trash',
++      message: 'Move this page to the trash?',
++      primaryButton: {
++        value: 'Cancel',
++        action: (): void => {
++        }
++      },
++      secondaryButton: {
++        value: 'Move to trash',
++        action: (): void => {
++          this.confirmTrash();
++        }
++      }
++    });
++  }
++
++  private confirmTrash(): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.confirmTrash().then((): void => {
++      this.syncFromOwner();
++    });
++  }
++
++  private retryTrash(): void {
++    const owner = this.currentOwner();
++    if (owner === undefined) return;
++    owner.retryTrash().then((): void => {
++      this.syncFromOwner();
++    });
++  }
++
++  private thumbUrl(row: PageRow): string {
++    const url = row.thumbnailUrl;
++    if (url === undefined) return '';
++    return url;
++  }
++
++  private rowPadding(row: PageRow): number {
++    return row.indent * 16;
+   }
+ 
+   build() {
+-    Column({ space: 16 }) {
+-      Text('Pages').fontSize(24).fontWeight(FontWeight.Bold)
+-      Text('Legacy pages list').fontSize(16)
+-      List() {
+-        ListItem() { Text('No pages loaded') }
+-      }.layoutWeight(1).width('100%')
++    Column({ space: 12 }) {
++      Text('Pages').fontSize(24).fontWeight(FontWeight.Bold).width('100%')
++
++      if (this.surface === 'modern_pages') {
++        this.ModernPagesBody()
++      } else {
++        this.LegacyPagesBody()
++      }
+     }.width('100%').height('100%').padding(20)
+   }
+-}
++
++  @Builder
++  LegacyPagesBody() {
++    Text('Legacy pages list').fontSize(16)
++    List() {
++      ListItem() { Text('No pages loaded') }
++    }.layoutWeight(1).width('100%')
++  }
++
++  @Builder
++  ModernPagesBody() {
++    Column({ space: 8 }) {
++      Row({ space: 12 }) {
++        ForEach(this.tabs, (tab: string) => {
++          Text(pageTabTitle(tab))
++            .fontSize(14)
++            .fontWeight(tab === this.selectedTab ? FontWeight.Bold : FontWeight.Normal)
++            .onClick(() => {
++              this.onTabSelected(tab);
++            })
++        }, (tab: string) => tab)
++      }.width('100%')
++
++      Row({ space: 8 }) {
++        TextInput({ placeholder: 'Search pages' })
++          .height(36)
++          .layoutWeight(1)
++          .onChange((value: string) => {
++            this.onQueryChanged(value);
++          })
++        Button('Search')
++          .height(36)
++          .onClick(() => {
++            this.onOpenSearch();
++          })
++        Button('Clear')
++          .height(36)
++          .onClick(() => {
++            this.onCloseSearch();
++          })
++      }.width('100%')
++
++      if (this.authorFilterAvailable) {
++        Row({ space: 8 }) {
++          Text('Author').fontSize(12)
++          Button('Everyone')
++            .height(28)
++            .fontSize(12)
++            .onClick(() => {
++              this.onSelectAuthor('everyone');
++            })
++          Button('Me')
++            .height(28)
++            .fontSize(12)
++            .onClick(() => {
++              this.onSelectAuthor('me');
++            })
++        }.width('100%')
++      }
++
++      if (this.loading) {
++        Text('Loading pages').fontSize(13).width('100%')
++      }
++      if (this.refreshing) {
++        Text('Refreshing').fontSize(13).width('100%')
++      }
++      if (this.error.length > 0) {
++        Row({ space: 8 }) {
++          Text(this.error).fontSize(13).layoutWeight(1)
++          Button('Retry').height(28).fontSize(12).onClick(() => {
++            this.onRetry();
++          })
++          if (this.pendingTrashId.length > 0) {
++            Button('Retry action').height(28).fontSize(12).onClick(() => {
++              this.retryTrash();
++            })
++          }
++        }.width('100%')
++      }
++      if (this.feedback.length > 0) {
++        Text(this.feedback).fontSize(13).width('100%')
++      }
++
++      List({ space: 4 }) {
++        ForEach(this.rows, (row: PageRow) => {
++          ListItem() {
++            Row({ space: 8 }) {
++              if (this.thumbUrl(row).length > 0) {
++                Image(this.thumbUrl(row)).width(40).height(40)
++              }
++              Column({ space: 2 }) {
++                Text(row.page.title).fontSize(15)
++                Text(row.statusLabel).fontSize(11)
++              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
++              Button('More')
++                .height(28)
++                .fontSize(11)
++                .onClick(() => {
++                  this.onRowClicked(row);
++                })
++              Button('Trash')
++                .height(28)
++                .fontSize(11)
++                .onClick(() => {
++                  this.onTrash(row);
++                })
++            }
++            .width('100%')
++            .padding({ left: this.rowPadding(row) })
++          }
++        }, (row: PageRow) => row.page.id.toString())
++      }.layoutWeight(1).width('100%')
++    }.width('100%').layoutWeight(1)
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/PagesPageOwner.ets b/entry/src/main/ets/pages/PagesPageOwner.ets
+index 8926c75..f46c6e0 100644
+--- a/entry/src/main/ets/pages/PagesPageOwner.ets
++++ b/entry/src/main/ets/pages/PagesPageOwner.ets
+@@ -2,6 +2,7 @@ import {
+   LegacyPagesController,
+   LegacyPagesStore,
+   PageRecord,
++  PagesController,
+   PagesPersistentInputLeaf,
+   PagesServiceLeaf,
+   PagesStore
+@@ -57,44 +58,157 @@ export class LegacyPagesPageRuntime {
+   static ownerGeneration(): number { return LegacyPagesPageRuntime.generation; }
+ }
+ 
++/**
++ * The mounted pages screen. It hosts the modern pages controller when the application shell wires
++ * the pages service and the persisted site capabilities; otherwise it keeps the legacy entry point.
++ */
+ export class PagesPageOwner {
+   readonly ownerId: string;
+   readonly controllerId: string;
+   private legacy: LegacyPagesPageOwner;
++  private controller?: PagesController;
+ 
+-  constructor(legacy: LegacyPagesPageOwner) {
++  constructor(legacy: LegacyPagesPageOwner, controller?: PagesController) {
+     this.legacy = legacy;
++    this.controller = controller;
+     this.ownerId = legacy.ownerId;
+     this.controllerId = legacy.controllerId;
+   }
+ 
+-  waitUntilReady(): Promise<void> { return Promise.resolve(); }
+-  store(): PagesStore { return this.legacy.store(); }
+-  refresh(): Promise<boolean> { return Promise.resolve(false); }
+-  retryRefresh(): Promise<boolean> { return Promise.resolve(false); }
+-  openSearch(): void {}
+-  updateSearch(_query: string, _settledForMs: number): Promise<boolean> { return Promise.resolve(false); }
+-  closeSearch(): Promise<void> { return Promise.resolve(); }
+-  selectAuthor(_selection: string): Promise<void> { return Promise.resolve(); }
+-  openMenu(_pageId: number): void {}
+-  chooseTrash(_pageId: number): void {}
+-  confirmTrash(): Promise<boolean> { return Promise.resolve(false); }
+-  retryTrash(): Promise<boolean> { return Promise.resolve(false); }
+-  page(_pageId: number): PageRecord | undefined { return undefined; }
++  hasModernController(): boolean { return this.controller !== undefined; }
++  authorFilterAvailable(): boolean {
++    const controller = this.controller;
++    if (controller === undefined) return false;
++    return controller.authorFilterAvailable();
++  }
++  waitUntilReady(): Promise<void> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve();
++    return Promise.resolve();
++  }
++  store(): PagesStore {
++    const controller = this.controller;
++    if (controller !== undefined) return controller.store;
++    return this.legacy.store();
++  }
++  open(): Promise<void> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve();
++    return controller.open();
++  }
++  openPages(): Promise<void> { return this.open(); }
++  loadTab(tab: string): Promise<boolean> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve(false);
++    return controller.loadTab(tab);
++  }
++  refresh(): Promise<boolean> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve(false);
++    return controller.refresh();
++  }
++  retryRefresh(): Promise<boolean> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve(false);
++    return controller.retryRefresh();
++  }
++  openSearch(): void {
++    const controller = this.controller;
++    if (controller === undefined) return;
++    controller.openSearch();
++  }
++  updateSearch(_query: string, settledForMs?: number): Promise<boolean> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve(false);
++    if (settledForMs === undefined) return controller.updateSearch(_query);
++    return controller.updateSearch(_query, settledForMs);
++  }
++  closeSearch(): Promise<void> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve();
++    return controller.closeSearch();
++  }
++  selectAuthor(selection: string): Promise<void> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve();
++    return controller.selectAuthor(selection);
++  }
++  setSignedInAuthorId(id: number): void {
++    const controller = this.controller;
++    if (controller === undefined) return;
++    controller.setSignedInAuthorId(id);
++  }
++  openPage(pageId: number): void {
++    const controller = this.controller;
++    if (controller === undefined) return;
++    controller.openPage(pageId);
++  }
++  openMenu(_pageId: number): string[] {
++    const controller = this.controller;
++    if (controller === undefined) return [];
++    return controller.openMenu(_pageId);
++  }
++  menuActions(page: PageRecord, canManageHomepage: boolean, blazeEligible: boolean): string[] {
++    const controller = this.controller;
++    if (controller === undefined) return [];
++    return controller.menuActions(page, canManageHomepage, blazeEligible);
++  }
++  chooseTrash(pageId: number): void {
++    const controller = this.controller;
++    if (controller === undefined) return;
++    controller.chooseTrash(pageId);
++  }
++  confirmTrash(): Promise<boolean> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve(false);
++    return controller.confirmTrash();
++  }
++  retryTrash(): Promise<boolean> {
++    const controller = this.controller;
++    if (controller === undefined) return Promise.resolve(false);
++    return controller.retryTrash();
++  }
++  page(_pageId: number): PageRecord | undefined {
++    const controller = this.controller;
++    if (controller === undefined) return undefined;
++    return controller.page(_pageId);
++  }
+ }
+ 
+ export class PagesPageRuntime {
++  private static modern?: PagesPageOwner;
+   private static current?: PagesPageOwner;
+   private static generation: number = 0;
+-
+-  static configure(_service: PagesServiceLeaf, _persistentInput: PagesPersistentInputLeaf): void {
++  private static service?: PagesServiceLeaf;
++  private static persistentInput?: PagesPersistentInputLeaf;
++
++  /** Wires the application-owned pages controller against the external service and preference leaves. */
++  static configure(service: PagesServiceLeaf, persistentInput: PagesPersistentInputLeaf): void {
++    PagesPageRuntime.service = service;
++    PagesPageRuntime.persistentInput = persistentInput;
++    PagesPageRuntime.modern = undefined;
+     PagesPageRuntime.current = undefined;
+     PagesPageRuntime.generation = 0;
++    const legacy = new LegacyPagesPageOwner('modern-pages-owner-0', 'modern-pages-controller-0');
++    const controller = new PagesController(service);
++    controller.attachPersistentInput(persistentInput);
++    const owner = new PagesPageOwner(legacy, controller);
++    PagesPageRuntime.modern = owner;
++    PagesPageRuntime.current = owner;
++    PagesPageRuntime.generation = 1;
+   }
+ 
++  static serviceLeaf(): PagesServiceLeaf | undefined { return PagesPageRuntime.service; }
++
++  static persistentInputLeaf(): PagesPersistentInputLeaf | undefined { return PagesPageRuntime.persistentInput; }
++
+   static attachLegacy(owner: LegacyPagesPageOwner): void {
+-    PagesPageRuntime.current = new PagesPageOwner(owner);
+-    PagesPageRuntime.generation = LegacyPagesPageRuntime.ownerGeneration();
++    const wrapped = new PagesPageOwner(owner);
++    if (PagesPageRuntime.modern === undefined) {
++      // The modern screen, when configured, keeps ownership of the mounted surface.
++      PagesPageRuntime.current = wrapped;
++      PagesPageRuntime.generation = LegacyPagesPageRuntime.ownerGeneration();
++    }
+   }
+ 
+   static currentOwner(): PagesPageOwner {
+@@ -112,4 +226,4 @@ export class PagesPageRuntime {
+   }
+ 
+   static ownerGeneration(): number { return PagesPageRuntime.generation; }
+-}
++}
+\ No newline at end of file

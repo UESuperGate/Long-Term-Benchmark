@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "taskId": "01_pages_list",
+  "boundaryAudit": {
+    "baseTree": "20d41cdcd693e381a8c823ec2c93fc39efc9cf0c",
+    "finalTree": "510f1cddc186a486ffa9559018578a644d303d96",
+    "localRepository": "_sources/wordpress-android",
+    "ancestorCheck": "failed because both official tag commits are grafted shallow roots",
+    "mergeBase": null,
+    "exception": "official release-branch snapshots",
+    "directBaseChecks": [
+      "git ls-tree -r --name-only 20d41cdcd693e381a8c823ec2c93fc39efc9cf0c -- WordPress/src/main/java/org/wordpress/android/ui/pagesrs returned no paths",
+      "git grep RS_PAGES_LIST/PagesRsListActivity at 20d41cdcd693e381a8c823ec2c93fc39efc9cf0c returned no matches"
+    ],
+    "directFinalChecks": [
+      "26.9 contains 14 production files under ui/pagesrs and five focused unit-test files",
+      "version.properties at 26.9 declares versionName=26.9 and versionCode=1498"
+    ]
+  },
+  "resolvedConstants": {
+    "pageSize": {"value": 20, "source": "PagesRsListViewModel.PAGE_SIZE"},
+    "searchDebounceMs": {"value": 250, "source": "PagesRsListViewModel.SEARCH_DEBOUNCE_MS"},
+    "minimumSearchLength": {"value": 3, "source": "PagesRsListViewModel.MIN_SEARCH_QUERY_LENGTH"},
+    "maximumIndent": {"value": 3, "source": "PageRsTreeBuilder.MAX_INDENT_LEVEL"},
+    "thumbnailSizeDp": {"value": 64, "source": "PagesRsListViewModel.THUMBNAIL_SIZE_DP"}
+  },
+  "productionTrace": [
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PagesRsListViewModel.kt",
+      "blob": "c4f765cb2cd03502dba57007926a6fc21f879304",
+      "symbols": ["initTab", "createCollection", "refreshTab", "onSearchQueryChanged", "onSearchClose", "onAuthorFilterChanged", "executePageMutation", "resolveFeaturedImages"]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsTreeBuilder.kt",
+      "blob": "038b5d08f78d69ce1bb781eb2cd4ed8746100591",
+      "symbols": ["buildRows", "flattenToTree"]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/PageRsMenuActions.kt",
+      "blob": "f63c2c64a80ca88fdc9ea69db070384349137e40",
+      "symbols": ["computePageMenuActions"]
+    },
+    {
+      "path": "WordPress/src/main/java/org/wordpress/android/ui/pagesrs/screens/PagesRsListScreen.kt",
+      "blob": "03e0dc158bd9524b9fcfdc658a6943fe53303c67",
+      "symbols": ["PagesRsListScreen"]
+    }
+  ],
+  "upstreamTests": [
+    "PagesRsListViewModelTest: search open/close, author preference, no-site failure, action confirmations, offline action failure, retry initialization",
+    "PageRsTreeBuilderTest: depth-first order, missing parent promotion, depth cap, flat non-published/search modes, virtual homepage rows, cycle safety",
+    "PageRsMenuActionsTest: status-specific actions and homepage/password/site eligibility exclusions",
+    "PageRsHomepageSettingsTest: mutual exclusion of homepage and posts-page identities",
+    "PageRsFluxCBridgeTest: application-owned fetch/insert/re-read bridge and error branch"
+  ],
+  "changedBodyCoverage": [
+    {
+      "body": "PagesRsListViewModel.createCollection/refreshTab",
+      "cases": ["pl_state_001_open_published", "pl_state_002_refresh_retry", "pl_state_004_debounced_search", "pl_state_005_close_search", "pl_state_006_author_filter"],
+      "externalLeaf": "PagesServiceLeaf",
+      "requiredRuntimeEvidence": "page-owned controller invocation, request arguments, held completion, before/after page state"
+    },
+    {
+      "body": "PagesRsListViewModel.executePageMutation",
+      "cases": ["pl_state_009_trash_success", "pl_state_010_trash_failure_retry"],
+      "externalLeaf": "PagesServiceLeaf.trashPage",
+      "requiredRuntimeEvidence": "confirmation eligibility, original mutation body invocation, service arguments, list and feedback state"
+    }
+  ],
+  "inputDomainAudit": {
+    "search": "query text is supplied through the public page event; debounce is controlled by a clock leaf, not by injecting derived search state",
+    "hierarchy": "parent IDs are service response fields accepted by the production store",
+    "author": "the Me filter derives its author ID from signed-in account input and persisted selection",
+    "thumbnail": "featured media ID is part of the page response and the URL comes only from the media leaf"
+  }
+}

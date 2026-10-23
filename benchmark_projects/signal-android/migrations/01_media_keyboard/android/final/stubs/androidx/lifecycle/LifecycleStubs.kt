@@ -1,0 +1,18 @@
+package androidx.lifecycle
+
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+
+open class ViewModel {
+  internal val benchmarkScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+}
+
+val ViewModel.viewModelScope: CoroutineScope
+  get() = benchmarkScope
+
+class ViewModelProvider {
+  interface Factory {
+    fun <T : ViewModel> create(modelClass: Class<T>): T
+  }
+}

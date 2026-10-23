@@ -1,0 +1,672 @@
+diff --git a/entry/src/main/ets/feature/MediaKeyboardStore.ts b/entry/src/main/ets/feature/MediaKeyboardStore.ts
+index 9a994f8..f87a82b 100644
+--- a/entry/src/main/ets/feature/MediaKeyboardStore.ts
++++ b/entry/src/main/ets/feature/MediaKeyboardStore.ts
+@@ -1,15 +1,36 @@
++/**
++ * Unified media keyboard.
++ *
++ * The media keyboard is the single surface conversation participants use for
++ * emoji, stickers, and GIFs. Three collaborators own that surface:
++ *
++ *  - `MediaKeyboardStore` keeps which tabs the media repository offers, which
++ *    of them the host currently allows, which one is actually displayed, and
++ *    which one the user prefers. Restricting the tabs is a host decision that
++ *    must not erase the user's preference while it lasts.
++ *  - `GifStore` keeps the paged GIF result together with its loading and
++ *    failure state. A failed first page is a recoverable state, not a terminal
++ *    one.
++ *  - `ConversationMediaStore` holds the sticker that is waiting for the user's
++ *    send confirmation. Nothing is sent, and no usage is recorded, until the
++ *    user confirms.
++ */
++
++/** A single page returned by the GIF repository. */
+ export interface GifPageResult {
+   failed: boolean;
+   ids: string[];
+   hasMore: boolean;
+ }
+ 
++/** The sticker identity the conversation host needs in order to send. */
+ export interface KeyboardSticker {
+   packId: string;
+   packKey: string;
+   stickerId: number;
+ }
+ 
++/** Host side reactions to the sticker confirmation overlay. */
+ export interface ConversationEffects {
+   visibility(value: boolean): void;
+   onSend(sticker: KeyboardSticker): void;
+@@ -45,16 +66,45 @@ export interface MediaRuntimeEffect {
+   confirmationAtCallback?: KeyboardSticker | null;
+ }
+ 
+-function cloneSticker(sticker: KeyboardSticker | null): KeyboardSticker | null {
+-  return sticker === null ? null : {
++/** Tabs in the order the product presents them, independent of repository order. */
++const MEDIA_KEYBOARD_TABS: string[] = ['EMOJI', 'STICKER', 'GIF'];
++const DEFAULT_MEDIA_KEYBOARD_TAB: string = 'EMOJI';
++const GIF_PAGE_SIZE: number = 20;
++
++function orderTabs(tabs: string[]): string[] {
++  const ordered: string[] = [];
++  for (const tab of MEDIA_KEYBOARD_TABS) {
++    if (tabs.indexOf(tab) !== -1) {
++      ordered.push(tab);
++    }
++  }
++  return ordered;
++}
++
++function copyTabs(tabs: string[] | null): string[] | null {
++  return tabs === null ? null : [...tabs];
++}
++
++function snapshotSticker(sticker: KeyboardSticker | null): KeyboardSticker | null {
++  if (sticker === null) {
++    return null;
++  }
++  const snapshot: KeyboardSticker = {
+     packId: sticker.packId,
+     packKey: sticker.packKey,
+     stickerId: sticker.stickerId
+   };
++  return snapshot;
+ }
+ 
++/**
++ * In-memory media data for the host that hosts the media keyboard page.
++ *
++ * The host owns the repository: it decides which tabs are offered and answers
++ * GIF page requests. Pages configured by the host win over the defaults.
++ */
+ export class MediaKeyboardEnvironment implements ConversationEffects {
+-  private tabs: string[] = ['EMOJI', 'STICKER', 'GIF'];
++  private tabs: string[] = [...MEDIA_KEYBOARD_TABS];
+   private gifPages: Map<number, GifPageResult> = new Map();
+   private effects: MediaRuntimeEffect[] = [];
+   private confirmationReader: (() => KeyboardSticker | null) | null = null;
+@@ -72,6 +122,7 @@ export class MediaKeyboardEnvironment implements ConversationEffects {
+       hasMore: page.hasMore
+     };
+   }
++  hasConfiguredGifPage(offset: number): boolean { return this.gifPages.has(offset); }
+   bindConfirmationReader(reader: () => KeyboardSticker | null): void { this.confirmationReader = reader; }
+   resetEffects(): void { this.effects = []; }
+   effectCursor(): number { return this.effects.length; }
+@@ -87,62 +138,191 @@ export class MediaKeyboardEnvironment implements ConversationEffects {
+   visibility(value: boolean): void { this.effects.push({ name: 'confirmationVisibility', value }); }
+   onSend(sticker: KeyboardSticker): void {
+     const pending: KeyboardSticker | null = this.confirmationReader === null ? null : this.confirmationReader();
+-    this.effects.push({ name: 'onSend', stickerId: sticker.stickerId, count: 1, confirmationAtCallback: cloneSticker(pending) });
++    this.effects.push({ name: 'onSend', stickerId: sticker.stickerId, count: 1, confirmationAtCallback: snapshotSticker(pending) });
+   }
+ }
+ 
++/**
++ * Which media tabs exist, which ones the host currently allows, and which one
++ * the user prefers.
++ */
+ export class MediaKeyboardStore {
+   offeredTabs: string[] = [];
+-  preferredTab: string = 'EMOJI';
++  preferredTab: string = DEFAULT_MEDIA_KEYBOARD_TAB;
+   restrictedTo: string[] | null = null;
+   initialized: boolean = false;
+   searchActive: boolean = false;
+   searchQuery: string = '';
++
+   private readonly getAvailableTabs: () => string[];
+ 
+-  constructor(getAvailableTabs: () => string[]) { this.getAvailableTabs = getAvailableTabs; }
+-  initialize(): void { this.offeredTabs = [...this.getAvailableTabs()]; }
+-  restrictTabs(_tabs: string[] | null): void {}
+-  setSearch(active: boolean, query: string): void { this.searchActive = active; this.searchQuery = query; }
+-  selectTab(tab: string): void { this.preferredTab = tab; }
++  constructor(getAvailableTabs: () => string[]) {
++    this.getAvailableTabs = getAvailableTabs;
++  }
++
++  /** Reads the offered tabs from the repository and orders them for the product. */
++  initialize(): void {
++    this.offeredTabs = orderTabs(this.getAvailableTabs());
++    this.initialized = true;
++  }
++
++  seed(tabs: string[], preferred: string, restricted: string[] | null, active: boolean, query: string): void {
++    this.offeredTabs = orderTabs(tabs);
++    this.preferredTab = preferred;
++    this.restrictedTo = copyTabs(restricted);
++    this.searchActive = active;
++    this.searchQuery = query;
++    this.initialized = true;
++  }
++
++  /**
++   * Applies a host restriction. `null` lifts the restriction. The preferred tab
++   * is deliberately untouched: it is restored when the restriction is lifted
++   * and the tab is offered again.
++   */
++  restrictTabs(tabs: string[] | null): void {
++    this.restrictedTo = copyTabs(tabs);
++  }
++
++  /** Tabs the user can reach right now, in product order. */
++  availableTabs(): string[] {
++    const ordered: string[] = orderTabs(this.offeredTabs);
++    const restriction: string[] | null = this.restrictedTo;
++    if (restriction === null) {
++      return ordered;
++    }
++    const reachable: string[] = [];
++    for (const tab of ordered) {
++      if (restriction.indexOf(tab) !== -1) {
++        reachable.push(tab);
++      }
++    }
++    return reachable;
++  }
++
++  /** The tab the keyboard displays: the preference when reachable, else the first reachable one. */
++  selectedTab(): string {
++    const reachable: string[] = this.availableTabs();
++    if (reachable.indexOf(this.preferredTab) !== -1) {
++      return this.preferredTab;
++    }
++    if (reachable.length > 0) {
++      return reachable[0];
++    }
++    return DEFAULT_MEDIA_KEYBOARD_TAB;
++  }
++
++  /**
++   * Switches tab. The search query belongs to the previous tab, so it is
++   * dropped; whether search is visible stays owned by the host.
++   */
++  selectTab(tab: string): void {
++    this.preferredTab = tab;
++    this.searchQuery = '';
++  }
++
++  /** Host owned search visibility plus the user's query. */
++  setSearch(active: boolean, query: string): void {
++    this.searchActive = active;
++    this.searchQuery = query;
++  }
++
++  setSearchQuery(query: string): void {
++    this.searchQuery = query;
++  }
++
+   keyboardState(): MediaKeyboardState {
+     return {
+       initialized: this.initialized,
+       offeredTabs: [...this.offeredTabs],
+-      availableTabs: [...this.offeredTabs],
+-      selectedTab: this.preferredTab,
++      availableTabs: this.availableTabs(),
++      selectedTab: this.selectedTab(),
+       preferredTab: this.preferredTab,
+-      restrictedTo: this.restrictedTo === null ? null : [...this.restrictedTo],
++      restrictedTo: copyTabs(this.restrictedTo),
+       searchActive: this.searchActive,
+       searchQuery: this.searchQuery
+     };
+   }
+ }
+ 
++/** Paged GIF results for the GIF tab, including failure and retry. */
+ export class GifStore {
+   gifs: string[] = [];
+   isLoading: boolean = false;
+   isLoadingMore: boolean = false;
+   hasMore: boolean = true;
+   loadFailed: boolean = false;
++  query: string = '';
++
+   private readonly getGifs: (query: string, offset: number, limit: number) => GifPageResult;
+ 
+-  constructor(getGifs: (query: string, offset: number, limit: number) => GifPageResult) { this.getGifs = getGifs; }
++  constructor(getGifs: (query: string, offset: number, limit: number) => GifPageResult) {
++    this.getGifs = getGifs;
++  }
++
++  seed(ids: string[], more: boolean, failed: boolean): void {
++    this.gifs = [...ids];
++    this.hasMore = more;
++    this.loadFailed = failed;
++    this.isLoading = false;
++    this.isLoadingMore = false;
++  }
++
++  /** Restricts the GIF grid to a query, for example a quick search suggestion. */
++  setQuery(query: string): void {
++    this.query = query;
++  }
++
++  /**
++   * Loads a fresh first page. A failure keeps the grid empty and retryable, and
++   * never leaves a loading flag behind or advertises pages it did not get.
++   */
+   loadFirstPage(): void {
+     this.isLoading = true;
+-    const page: GifPageResult = this.getGifs('', 0, 20);
+-    if (!page.failed) {
+-      this.gifs = [...page.ids];
+-      this.hasMore = page.hasMore;
+-      this.isLoading = false;
++    this.loadFailed = false;
++    const page: GifPageResult = this.getGifs(this.query, 0, GIF_PAGE_SIZE);
++    if (page.failed) {
++      this.onRequestFailed();
++      return;
+     }
++    this.gifs = [...page.ids];
++    this.hasMore = page.hasMore;
++    this.isLoading = false;
++  }
++
++  /** Retries the first page: a fresh request that replaces whatever is shown. */
++  retry(): void {
++    this.loadFirstPage();
+   }
+-  retry(): void {}
++
++  /** Appends the page that follows the results already loaded. */
+   loadMore(): void {
+-    const page: GifPageResult = this.getGifs('', 0, 20);
+-    this.gifs = [...page.ids];
++    if (this.isLoadingMore || this.isLoading || !this.hasMore) {
++      return;
++    }
++    const offset: number = this.gifs.length;
++    this.isLoadingMore = true;
++    const page: GifPageResult = this.getGifs(this.query, offset, GIF_PAGE_SIZE);
++    if (page.failed) {
++      this.onRequestFailed();
++      return;
++    }
++    const appended: string[] = [...this.gifs];
++    for (const id of page.ids) {
++      appended.push(id);
++    }
++    this.gifs = appended;
+     this.hasMore = page.hasMore;
++    this.isLoadingMore = false;
++  }
++
++  private onRequestFailed(): void {
++    this.isLoading = false;
++    this.isLoadingMore = false;
++    this.loadFailed = true;
++    this.hasMore = false;
+   }
++
+   state(): GifState {
+     return {
+       gifs: [...this.gifs],
+@@ -154,17 +334,71 @@ export class GifStore {
+   }
+ }
+ 
++/**
++ * Holds the sticker awaiting the user's send confirmation for the conversation.
++ */
+ export class ConversationMediaStore {
+-  private pending: KeyboardSticker | null = null;
++  pending: KeyboardSticker | null = null;
++  replyTo: string | null = null;
++
+   private readonly effects: ConversationEffects;
+ 
+-  constructor(effects: ConversationEffects) { this.effects = effects; }
+-  tapSticker(sticker: KeyboardSticker): void { this.effects.onSend(sticker); }
+-  cancelConfirmation(): void {}
+-  confirmSend(): void {}
+-  confirmation(): KeyboardSticker | null { return cloneSticker(this.pending); }
++  constructor(effects: ConversationEffects) {
++    this.effects = effects;
++  }
++
++  seed(sticker: KeyboardSticker): void {
++    this.pending = sticker;
++    this.replyTo = null;
++  }
++
++  /** Tapping a sticker asks for confirmation; it does not send or record a use. */
++  tapSticker(sticker: KeyboardSticker): void {
++    this.show(sticker, null);
++  }
++
++  show(sticker: KeyboardSticker, replyTo: string | null): void {
++    this.pending = sticker;
++    this.replyTo = replyTo;
++    this.effects.visibility(true);
++  }
++
++  /** Cancelling returns to the conversation without sending. */
++  cancelConfirmation(): void {
++    this.dismiss();
++  }
++
++  dismiss(): void {
++    if (this.pending === null) {
++      return;
++    }
++    this.pending = null;
++    this.replyTo = null;
++    this.effects.visibility(false);
++  }
++
++  /** Hides the overlay and hands the sticker to the host exactly once. */
++  confirmSend(): void {
++    const confirmed: KeyboardSticker | null = this.pending;
++    if (confirmed === null) {
++      return;
++    }
++    this.pending = null;
++    this.replyTo = null;
++    this.effects.visibility(false);
++    this.effects.onSend(confirmed);
++  }
++
++  confirmation(): KeyboardSticker | null {
++    return this.pending;
++  }
++
++  isShowing(): boolean {
++    return this.pending !== null;
++  }
+ }
+ 
++/** Owns the media keyboard feature for the page and keeps the stores wired. */
+ export class MediaKeyboardPageOwner {
+   readonly ownerId: string = `media-page-owner-${Date.now()}`;
+   private readonly environment: MediaKeyboardEnvironment = new MediaKeyboardEnvironment();
+@@ -181,6 +415,7 @@ export class MediaKeyboardPageOwner {
+   externalLeaf(): MediaKeyboardEnvironment { return this.environment; }
+   appear(): void { this.initializeKeyboard(); }
+   reopen(): void {
++    this.releaseConversation();
+     this.keyboard = new MediaKeyboardStore((): string[] => this.environment.getAvailableTabs());
+     this.gifs = new GifStore((query: string, offset: number, limit: number): GifPageResult => this.environment.getGifs(query, offset, limit));
+     this.conversation = new ConversationMediaStore(this.environment);
+@@ -189,14 +424,22 @@ export class MediaKeyboardPageOwner {
+   initializeKeyboard(): void { this.keyboard.initialize(); }
+   restrictTabs(tabs: string[] | null): void { this.keyboard.restrictTabs(tabs); }
+   setSearch(active: boolean, query: string): void { this.keyboard.setSearch(active, query); }
++  setSearchQuery(query: string): void { this.keyboard.setSearchQuery(query); }
+   selectTab(tab: string): void { this.keyboard.selectTab(tab); }
+   loadFirstGifPage(): void { this.gifs.loadFirstPage(); }
+   retryGifLoad(): void { this.gifs.retry(); }
+   loadMoreGifs(): void { this.gifs.loadMore(); }
++  /** A quick search replaces the grid with a fresh first page for that query. */
++  selectGifQuickSearch(query: string): void { this.gifs.setQuery(query); this.gifs.loadFirstPage(); }
+   tapSticker(sticker: KeyboardSticker): void { this.conversation.tapSticker(sticker); }
+   cancelStickerConfirmation(): void { this.conversation.cancelConfirmation(); }
+   confirmStickerSend(): void { this.conversation.confirmSend(); }
+   keyboardState(): MediaKeyboardState { return this.keyboard.keyboardState(); }
+   gifState(): GifState { return this.gifs.state(); }
+   confirmation(): KeyboardSticker | null { return this.conversation.confirmation(); }
+-}
++
++  /** Leaving the keyboard must not strand a confirmation overlay over the conversation. */
++  private releaseConversation(): void {
++    this.conversation.cancelConfirmation();
++  }
++}
+\ No newline at end of file
+diff --git a/entry/src/main/ets/pages/Index.ets b/entry/src/main/ets/pages/Index.ets
+index 4c6ef1e..f223920 100644
+--- a/entry/src/main/ets/pages/Index.ets
++++ b/entry/src/main/ets/pages/Index.ets
+@@ -1,73 +1,205 @@
+-import { KeyboardSticker, MediaKeyboardPageOwner } from '../feature/MediaKeyboardStore';
++import {
++  GifPageResult,
++  GifState,
++  KeyboardSticker,
++  MediaKeyboardEnvironment,
++  MediaKeyboardPageOwner,
++  MediaKeyboardState
++} from '../feature/MediaKeyboardStore';
+ 
+ @Entry
+ @Component
+ struct Index {
+   private readonly owner: MediaKeyboardPageOwner = new MediaKeyboardPageOwner();
+-  @State private revision: number = 0;
++  @State private keyboard: MediaKeyboardState = {
++    initialized: false,
++    offeredTabs: [],
++    availableTabs: [],
++    selectedTab: 'EMOJI',
++    preferredTab: 'EMOJI',
++    restrictedTo: null,
++    searchActive: false,
++    searchQuery: ''
++  };
++  @State private gif: GifState = {
++    gifs: [],
++    isLoading: false,
++    isLoadingMore: false,
++    hasMore: true,
++    loadFailed: false
++  };
++  @State private pending: KeyboardSticker | null = null;
+ 
+   aboutToAppear(): void {
++    this.provideHostContent();
+     this.owner.appear();
+-    this.refresh();
++    this.sync();
+   }
+ 
+-  private refresh(): void { this.revision += 1; }
++  aboutToDisappear(): void {
++    this.owner.cancelStickerConfirmation();
++    this.sync();
++  }
++
++  /** The host owns the media content; only fill in what it has not supplied. */
++  private provideHostContent(): void {
++    const host: MediaKeyboardEnvironment = this.owner.externalLeaf();
++    if (!host.hasConfiguredGifPage(0)) {
++      const firstPage: GifPageResult = { failed: false, ids: ['sunset', 'keyboard-cat'], hasMore: true };
++      host.configureGifPage(0, firstPage);
++    }
++    if (!host.hasConfiguredGifPage(2)) {
++      const secondPage: GifPageResult = { failed: false, ids: ['shipping-it', 'confetti'], hasMore: false };
++      host.configureGifPage(2, secondPage);
++    }
++  }
++
++  private sync(): void {
++    this.keyboard = this.owner.keyboardState();
++    this.gif = this.owner.gifState();
++    this.pending = this.owner.confirmation();
++  }
++
++  private toggleSearch(): void {
++    this.owner.setSearch(!this.keyboard.searchActive, this.keyboard.searchActive ? '' : this.keyboard.searchQuery);
++    this.sync();
++  }
++
++  private toggleHostRestriction(): void {
++    if (this.keyboard.restrictedTo === null) {
++      this.owner.restrictTabs(['EMOJI']);
++    } else {
++      this.owner.restrictTabs(null);
++    }
++    this.sync();
++  }
++
++  private insertEmoji(emoji: string): void {
++    this.owner.setSearchQuery(this.keyboard.searchQuery + emoji);
++    this.sync();
++  }
+ 
+   build() {
+     Column({ space: 16 }) {
+       Text('Signal Media Keyboard').fontSize(24).fontWeight(FontWeight.Bold)
+       Text('Emoji, stickers, and GIFs').fontSize(14).fontColor('#5F6368')
++
+       Row({ space: 8 }) {
+-        ForEach(this.owner.keyboardState().availableTabs, (tab: string) => {
++        ForEach(this.keyboard.availableTabs, (tab: string) => {
+           Button(tab)
+             .id(`media-tab-${tab}`)
+             .onClick(() => {
+               this.owner.selectTab(tab);
+-              this.refresh();
++              this.sync();
+             })
+-        })
++        }, (tab: string) => tab)
+       }
+-      Text(`Selected: ${this.owner.keyboardState().selectedTab}`).fontSize(18)
+-      TextInput({ placeholder: 'Message', text: this.owner.keyboardState().searchQuery })
+-        .onChange((value: string) => {
+-          this.owner.setSearch(true, value);
+-          this.refresh();
+-        })
+-      if (this.owner.keyboardState().selectedTab === 'GIF') {
++      Text(`Selected: ${this.keyboard.selectedTab}`).fontSize(18).fontColor('#202124')
++      Text(`Preferred: ${this.keyboard.preferredTab}`).fontSize(14).fontColor('#5F6368')
++
++      Row({ space: 8 }) {
++        Button(this.keyboard.searchActive ? 'Hide search' : 'Search')
++          .id('search-toggle')
++          .onClick(() => {
++            this.toggleSearch();
++          })
++        Button(this.keyboard.restrictedTo === null ? 'Host: allow GIF' : 'Host: emoji only')
++          .id('host-tab-restriction')
++          .onClick(() => {
++            this.toggleHostRestriction();
++          })
++      }
++
++      if (this.keyboard.searchActive) {
++        TextInput({ placeholder: 'Search media', text: this.keyboard.searchQuery })
++          .id('media-search')
++          .onChange((value: string) => {
++            this.owner.setSearch(true, value);
++            this.sync();
++          })
++      }
++
++      if (this.keyboard.selectedTab === 'EMOJI') {
++        Row({ space: 8 }) {
++          ForEach(['😀', '😂', '😍', '👍', '🙏', '🎉'], (emoji: string, index: number) => {
++            Button(emoji)
++              .id(`emoji-${index}`)
++              .onClick(() => {
++                this.insertEmoji(emoji);
++              })
++          }, (emoji: string, index: number) => `${index}-${emoji}`)
++        }
++      }
++
++      if (this.keyboard.selectedTab === 'GIF') {
++        Row({ space: 8 }) {
++          ForEach(['Trending', 'Funny', 'Animals'], (option: string) => {
++            Button(option)
++              .id(`gif-quick-${option}`)
++              .onClick(() => {
++                this.owner.selectGifQuickSearch(option.toLowerCase());
++                this.sync();
++              })
++          }, (option: string) => option)
++        }
+         Row({ space: 8 }) {
+           Button('Load').id('gif-load').onClick(() => {
+             this.owner.loadFirstGifPage();
+-            this.refresh();
++            this.sync();
+           })
+-          Button('Retry').id('gif-retry').onClick(() => {
++          Button('Retry').id('gif-retry').enabled(this.gif.loadFailed).onClick(() => {
+             this.owner.retryGifLoad();
+-            this.refresh();
+-          })
+-          Button('More').id('gif-more').onClick(() => {
+-            this.owner.loadMoreGifs();
+-            this.refresh();
++            this.sync();
+           })
++          Button('More')
++            .id('gif-more')
++            .enabled(this.gif.hasMore && !this.gif.isLoadingMore)
++            .onClick(() => {
++              this.owner.loadMoreGifs();
++              this.sync();
++            })
++        }
++        if (this.gif.isLoading || this.gif.isLoadingMore) {
++          LoadingProgress().id('gif-loading').width(24).height(24)
+         }
+-        Text(`${this.owner.gifState().gifs.length} GIFs`)
++        if (this.gif.loadFailed) {
++          Text('GIFs could not be loaded. Tap retry.').id('gif-load-failed').fontSize(14).fontColor('#B3261E')
++        }
++        Text(`${this.gif.gifs.length} GIFs`).id('gif-count')
++        ForEach(this.gif.gifs, (gifId: string) => {
++          Text(gifId).id(`gif-${gifId}`).fontSize(14).fontColor('#202124')
++        }, (gifId: string) => gifId)
+       }
+-      if (this.owner.keyboardState().selectedTab === 'STICKER') {
++
++      if (this.keyboard.selectedTab === 'STICKER') {
+         Button('Sticker 7').id('sticker-7').onClick(() => {
+           const sticker: KeyboardSticker = { packId: 'pack-1', packKey: 'key-1', stickerId: 7 };
+           this.owner.tapSticker(sticker);
+-          this.refresh();
++          this.sync();
+         })
+       }
+-      if (this.owner.confirmation() !== null) {
+-        Row({ space: 12 }) {
+-          Button('Cancel').id('sticker-cancel').onClick(() => {
+-            this.owner.cancelStickerConfirmation();
+-            this.refresh();
+-          })
+-          Button('Send').id('sticker-send').onClick(() => {
+-            this.owner.confirmStickerSend();
+-            this.refresh();
+-          })
++
++      if (this.pending !== null) {
++        Column({ space: 12 }) {
++          Text(`Send sticker ${this.pending.stickerId}?`)
++            .id('sticker-confirmation-text')
++            .fontSize(16)
++            .fontColor('#202124')
++          Row({ space: 12 }) {
++            Button('Cancel').id('sticker-cancel').onClick(() => {
++              this.owner.cancelStickerConfirmation();
++              this.sync();
++            })
++            Button('Send').id('sticker-send').onClick(() => {
++              this.owner.confirmStickerSend();
++              this.sync();
++            })
++          }
+         }
++        .id('sticker-confirmation')
++        .padding(16)
++        .backgroundColor('#F1F3F4')
++        .borderRadius(12)
+       }
+     }
+     .width('100%')
+@@ -75,5 +207,4 @@ struct Index {
+     .padding(24)
+     .justifyContent(FlexAlign.Center)
+   }
+-}
+-
++}
+\ No newline at end of file

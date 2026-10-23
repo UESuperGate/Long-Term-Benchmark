@@ -1,0 +1,604 @@
+{
+  "schemaVersion": 1,
+  "taskId": "02_hybrid_search",
+  "description": "Platform-neutral hybrid-search transitions with HTTP limited to controlled external leaves",
+  "cases": [
+    {
+      "caseId": "hs_enable_supported",
+      "key": "enable_supported",
+      "traceSchemaVersion": 2,
+      "functionalArea": "experiment_gating",
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "remoteEnabled": true,
+        "preferenceEnabled": true,
+        "query": "Paris"
+      },
+      "event": {
+        "name": "openHybridSearch"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "idle",
+          "query": "Paris"
+        },
+        "persistence": {
+          "hybridEnabled": true
+        },
+        "effects": []
+      },
+      "invariants": [
+        "the current query is preserved",
+        "no HTTP request is started until search submission"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "HybridSearchAbCTest.isHybridSearchEnabled",
+          "Prefs.isHybridSearchEnabled",
+          "SearchResultsFragment"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "4a40e97dae8265ae8671fc7311814d4eb0d944d0d388ee4cbb9397329f84b1ad"
+    },
+    {
+      "caseId": "hs_concurrent_dispatch",
+      "key": "concurrent_dispatch",
+      "traceSchemaVersion": 2,
+      "functionalArea": "concurrent_search",
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "http": {
+          "lexical": "held",
+          "semantic": "held"
+        }
+      },
+      "event": {
+        "name": "submitSearch"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "loading"
+        },
+        "effects": [
+          {
+            "leaf": "lexical_http",
+            "status": "started"
+          },
+          {
+            "leaf": "semantic_http",
+            "status": "started"
+          }
+        ]
+      },
+      "invariants": [
+        "both requests start before either held completion is released",
+        "the production view model owns both dispatches"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsViewModel.loadHybridSearchResults async branches"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "4185cf4fa61d08b1c6bf3aa1739f1f0adc61e1f0b77b2ccab3e8707e718df24b"
+    },
+    {
+      "caseId": "hs_both_sources_lexical_first",
+      "key": "both_sources_lexical_first",
+      "traceSchemaVersion": 2,
+      "functionalArea": "result_merge",
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "http": {
+          "prefix": [
+            "Paris",
+            "Paris"
+          ],
+          "fullText": [
+            "Paris",
+            "Paris,_Texas"
+          ],
+          "semantic": [
+            "History_of_Paris#Origins",
+            "Paris_agreement#Background"
+          ]
+        }
+      },
+      "event": {
+        "name": "submitSearchAndComplete"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "success",
+          "sections": [
+            "lexical",
+            "semantic"
+          ],
+          "lexicalTitles": [
+            "Paris",
+            "Paris,_Texas"
+          ],
+          "semanticTitles": [
+            "History_of_Paris#Origins",
+            "Paris_agreement#Background"
+          ]
+        },
+        "effects": [
+          {
+            "leaf": "prefix_http"
+          },
+          {
+            "leaf": "fulltext_http"
+          },
+          {
+            "leaf": "semantic_http"
+          }
+        ]
+      },
+      "invariants": [
+        "lexical duplicates are removed",
+        "semantic results remain semantic cards",
+        "lexical appears before semantic for this group"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsViewModel.loadHybridSearchResults",
+          "HybridSearchResultsList"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "fa678df6d6a8f13c20be57fac2acc0002328ca32b71a423e876511369433e2e6"
+    },
+    {
+      "caseId": "hs_both_sources_semantic_first",
+      "key": "both_sources_semantic_first",
+      "traceSchemaVersion": 2,
+      "functionalArea": "result_merge",
+      "given": {
+        "language": "fr",
+        "experimentGroup": "semanticlexical",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "http": {
+          "prefix": [
+            "Paris"
+          ],
+          "fullText": [],
+          "semantic": [
+            "History_of_Paris#Origins"
+          ]
+        }
+      },
+      "event": {
+        "name": "submitSearchAndComplete"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "success",
+          "sections": [
+            "semantic",
+            "lexical"
+          ],
+          "lexicalTitles": [
+            "Paris"
+          ],
+          "semanticTitles": [
+            "History_of_Paris#Origins"
+          ]
+        },
+        "effects": [
+          {
+            "leaf": "prefix_http"
+          },
+          {
+            "leaf": "fulltext_http"
+          },
+          {
+            "leaf": "semantic_http"
+          }
+        ]
+      },
+      "invariants": [
+        "both source groups remain present",
+        "semantic appears before lexical for this group"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "HybridSearchResultsList GROUP_SEMANTIC_LEXICAL"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "b1d81aecbe17b2a5febfc45310b1d709f2354c51045c0fcb85adcf58359fdd96"
+    },
+    {
+      "caseId": "hs_lexical_failure_fallback",
+      "key": "lexical_failure_fallback",
+      "traceSchemaVersion": 2,
+      "functionalArea": "fallback",
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "http": {
+          "lexical": "error",
+          "semantic": [
+            "History_of_Paris#Origins"
+          ]
+        }
+      },
+      "event": {
+        "name": "submitSearchAndComplete"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "success",
+          "sections": [
+            "semantic"
+          ],
+          "lexicalTitles": [],
+          "semanticTitles": [
+            "History_of_Paris#Origins"
+          ],
+          "notice": "lexical_empty"
+        },
+        "effects": [
+          {
+            "leaf": "lexical_http",
+            "status": "failed"
+          },
+          {
+            "leaf": "semantic_http",
+            "status": "completed"
+          }
+        ]
+      },
+      "invariants": [
+        "a lexical failure does not discard semantic results",
+        "the page stays retry-capable"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsViewModel lexicalResult.getOrElse",
+          "HybridSearchResultsScreen.onLexicalResultsEmpty"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "788cf2f1283ad1fbac6f6d57867f3fc1596c3295004e518e6a37bb8485092d8b"
+    },
+    {
+      "caseId": "hs_semantic_failure_fallback",
+      "key": "semantic_failure_fallback",
+      "traceSchemaVersion": 2,
+      "functionalArea": "fallback",
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "http": {
+          "prefix": [
+            "Paris"
+          ],
+          "fullText": [],
+          "semantic": "error"
+        }
+      },
+      "event": {
+        "name": "submitSearchAndComplete"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "success",
+          "sections": [
+            "lexical"
+          ],
+          "lexicalTitles": [
+            "Paris"
+          ],
+          "semanticTitles": [],
+          "notice": "semantic_empty"
+        },
+        "effects": [
+          {
+            "leaf": "lexical_http",
+            "status": "completed"
+          },
+          {
+            "leaf": "semantic_http",
+            "status": "failed"
+          }
+        ]
+      },
+      "invariants": [
+        "a semantic failure does not discard lexical results",
+        "semantic cards are absent"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsViewModel semanticResult.getOrElse",
+          "HybridSearchResultsScreen.onSemanticResultsEmpty"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "6ea21993f25e97064eb3c5997d4543ece57d5568ce6e333570bda43d70c5d36b"
+    },
+    {
+      "caseId": "hs_both_fail",
+      "key": "both_fail",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "http": {
+          "lexical": "error",
+          "semantic": "error"
+        }
+      },
+      "event": {
+        "name": "submitSearchAndComplete"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "error",
+          "retryAvailable": true,
+          "lexicalTitles": [],
+          "semanticTitles": []
+        },
+        "effects": [
+          {
+            "leaf": "lexical_http",
+            "status": "failed"
+          },
+          {
+            "leaf": "semantic_http",
+            "status": "failed"
+          }
+        ]
+      },
+      "invariants": [
+        "partial success is not fabricated",
+        "the current query remains available for retry"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsViewModel both-isFailure branch",
+          "WikiErrorView retryClickListener"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "ba92aebfc368cf977348f9dc67ddc07bf38c0a080792fb6db5d19478418e5d4e"
+    },
+    {
+      "caseId": "hs_retry_recovers",
+      "key": "retry_recovers",
+      "traceSchemaVersion": 2,
+      "functionalArea": "failure_recovery",
+      "setup": [
+        {
+          "name": "submitSearchAndComplete",
+          "http": {
+            "lexical": "error",
+            "semantic": "error"
+          }
+        }
+      ],
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "state": "error",
+        "nextHttp": {
+          "prefix": [
+            "Paris"
+          ],
+          "fullText": [],
+          "semantic": [
+            "History_of_Paris#Origins"
+          ]
+        }
+      },
+      "event": {
+        "name": "retryAndComplete"
+      },
+      "expected": {
+        "state": {
+          "mode": "hybrid",
+          "phase": "success",
+          "sections": [
+            "lexical",
+            "semantic"
+          ],
+          "lexicalTitles": [
+            "Paris"
+          ],
+          "semanticTitles": [
+            "History_of_Paris#Origins"
+          ]
+        },
+        "effects": [
+          {
+            "leaf": "lexical_http",
+            "attempt": 2
+          },
+          {
+            "leaf": "semantic_http",
+            "attempt": 2
+          }
+        ]
+      },
+      "invariants": [
+        "retry uses the surviving production page and view model",
+        "both leaves are invoked again"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsFragment.onRetrySearch",
+          "SearchResultsViewModel.loadHybridSearchResults"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "cdd6c19368e6d40f22c9ced6a961c3fbf72bb853f993ee9e35abab511dd67bcb"
+    },
+    {
+      "caseId": "hs_feedback_mapping",
+      "key": "feedback_mapping",
+      "traceSchemaVersion": 2,
+      "functionalArea": "feedback",
+      "setup": [
+        {
+          "name": "submitSearchAndComplete",
+          "http": {
+            "prefix": [],
+            "fullText": [],
+            "semantic": [
+              "History_of_Paris#Origins"
+            ]
+          }
+        }
+      ],
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "state": {
+          "phase": "success",
+          "semanticTitles": [
+            "History_of_Paris#Origins"
+          ]
+        }
+      },
+      "event": {
+        "name": "rateSemanticResult",
+        "title": "History_of_Paris#Origins",
+        "position": 0,
+        "positive": false
+      },
+      "expected": {
+        "state": {
+          "phase": "success",
+          "semanticTitles": [
+            "History_of_Paris#Origins"
+          ]
+        },
+        "effects": [
+          {
+            "leaf": "feedback_transport",
+            "payload": {
+              "elementId": "thumb_down",
+              "query": "Paris",
+              "position": 1,
+              "title": "History_of_Paris#Origins"
+            }
+          }
+        ]
+      },
+      "invariants": [
+        "rating does not reorder or remove results",
+        "the production page converts zero-based UI position to one-based telemetry position"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsFragment.onRatingClick",
+          "SemanticSearchResultPageItem"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "5fd63d15f2a19b90de926d12143f94f208b6bdc62f46c6b834c43e9facc253ef"
+    },
+    {
+      "caseId": "hs_opt_out",
+      "key": "opt_out",
+      "traceSchemaVersion": 2,
+      "functionalArea": "experiment_gating",
+      "setup": [
+        {
+          "name": "openHybridSearch"
+        },
+        {
+          "name": "submitSearchAndComplete",
+          "http": {
+            "prefix": [
+              "Paris"
+            ],
+            "fullText": [],
+            "semantic": [
+              "History_of_Paris#Origins"
+            ]
+          }
+        }
+      ],
+      "given": {
+        "language": "fr",
+        "experimentGroup": "lexicalsemantic",
+        "hybridEnabled": true,
+        "query": "Paris",
+        "state": {
+          "mode": "hybrid",
+          "phase": "success"
+        }
+      },
+      "event": {
+        "name": "turnOffHybridSearch"
+      },
+      "expected": {
+        "state": {
+          "mode": "standard",
+          "query": "Paris"
+        },
+        "persistence": {
+          "hybridEnabled": false
+        },
+        "effects": [
+          {
+            "name": "standard_search_requested",
+            "query": "Paris"
+          }
+        ]
+      },
+      "invariants": [
+        "the current query is preserved",
+        "future hybrid eligibility is disabled by the persisted preference"
+      ],
+      "evidence": {
+        "androidProduction": [
+          "SearchResultsFragment.onTurnOffExperimentClick",
+          "Prefs.isHybridSearchEnabled"
+        ],
+        "androidTests": []
+      },
+      "taskId": "02_hybrid_search",
+      "traceDigest": "b7ef6993b052c1dfe4a7c24da42b39073bf7718a62ae53ff6b0dda3a0f162af6"
+    }
+  ],
+  "owner": "evaluator"
+}
